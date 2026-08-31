@@ -39,7 +39,7 @@ export function UnifiedAgentGovernance(): React.JSX.Element {
 
   if (data === null) return <section className="platform-remote-state"><span className="asset-spinner"/><strong>正在读取V7创作团队</strong><p>{error ?? '正在核对岗位、成员和模型。'}</p>{error && <button type="button" onClick={() => void load()}><ArrowClockwise/>重试</button>}</section>;
   return <div className="agent-team-page">
-    <header className="agent-team-heading"><div><span>V7 UNIFIED EDITORIAL OFFICE</span><h1>V7创作团队</h1><p>成员只绑定固定身份、模型与可用性；岗位、工位、题材身份和执行流程统一在“提示词与上下文”中管理。</p></div><button type="button" onClick={() => void load()}><ArrowClockwise/>刷新</button></header>
+    <header className="agent-team-heading"><div><span>V7 UNIFIED EDITORIAL OFFICE</span><h1>V7创作团队</h1><p>成员只长期绑定模型与可用性；执行任务时，再由资料策划 Agent 签发本轮题材身份、工作责任和创意空间。后台只展示状态与审计，不暴露密钥。</p></div><button type="button" onClick={() => void load()}><ArrowClockwise/>刷新</button></header>
     <div className="agent-team-metrics"><Metric label="岗位" value={`${data.summary.roleCount}`} detail="职责互不混用"/><Metric label="成员" value={`${data.summary.memberCount}`} detail="全局唯一身份"/><Metric label="在岗" value={`${data.summary.onDutyCount}`} detail="可以接新任务"/><Metric label="请假" value={`${data.summary.leaveCount}`} detail="自动交接" warning={data.summary.leaveCount > 0}/></div>
     {(notice || error) && <div className={`agent-team-notice ${error ? 'error' : 'success'}`}>{error ? <WarningCircle/> : <CheckCircle/>}<span>{error ?? notice}</span></div>}
     <section className="agent-credential-strip"><Credential label="Coding Plan" ready={data.credentials.codingPlan}/><Credential label="Agent Plan" ready={data.credentials.agentPlan}/><Credential label="图片能力" ready={data.credentials.image}/><p>配置版本 {data.revision}。执行中的任务保留创建时的成员与参数快照。</p></section>

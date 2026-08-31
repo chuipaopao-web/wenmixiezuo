@@ -54,8 +54,8 @@ describe('首位管理员接管账号体系启用前的本机数据', () => {
 
       const bookBefore = database.prepare('SELECT * FROM books WHERE book_id = ?').get('legacy-book');
       const upgraded = runMigrations(database, migrations);
-      expect(upgraded.applied.at(-1)).toBe('0102_v7_clean_cutover_guard.sql');
-      expect(upgraded.applied.slice(-21)).toEqual([
+      expect(upgraded.applied.at(-1)).toBe('0103_membership_action_idempotency.sql');
+      expect(upgraded.applied.slice(-22)).toEqual([
         '0082_v7_character_memory.sql', '0083_v7_character_task_retries.sql',
         '0084_v7_creation_pipeline.sql', '0085_v7_planning_task_retries.sql',
         '0086_v7_creation_commercial_closure.sql', '0087_v7_creation_stage_jobs.sql',
@@ -67,10 +67,11 @@ describe('首位管理员接管账号体系启用前的本机数据', () => {
         '0096_v7_outline_review.sql', '0097_v7_setting_author_revision_capacity.sql',
         '0098_v7_outline_draft_candidates.sql', '0099_v7_fast_default_manuscript_writer.sql',
         '0100_v7_fast_default_manuscript_reviewer.sql',
-        '0101_unified_account_usage_projection.sql', '0102_v7_clean_cutover_guard.sql'
+        '0101_unified_account_usage_projection.sql', '0102_v7_clean_cutover_guard.sql',
+        '0103_membership_action_idempotency.sql'
       ]);
 
-      expect(upgraded.applied.slice(0, -21)).toEqual(['0044_first_admin_legacy_owner.sql', '0045_user_memberships.sql', '0046_model_call_error_detail.sql', '0047_opening_drafts.sql', '0048_book_branding_designs.sql', '0049_review_challenger_seat.sql', '0050_settlement_follow_ups.sql', '0051_setting_item_versions.sql', '0052_setting_discussion_fragments.sql', '0053_setting_pending_candidate.sql', '0054_setting_quality_reports.sql', '0055_chapter_challenger_reviews.sql', '0056_platform_model_scheme.sql', '0057_membership_tiers.sql', '0058_layered_volume_and_event_chain.sql', '0059_layered_constraints_and_context.sql', '0060_first_volume_launch_progress.sql', '0061_story_thread_keys.sql', '0062_setting_gap_status.sql', '0063_independent_admin_console.sql', '0064_setting_member_resilience.sql', '0065_v6_core_workflow.sql', '0066_ai_editorial_node_batches.sql', '0067_chapter_editor_synthesis_requests.sql', '0068_rolling_storyline_growth.sql', '0069_prebook_opening_design_calls.sql', '0070_v7_opening_agent.sql', '0071_v7_opening_agent_governance.sql', '0072_v7_setting_editorial_department.sql', '0073_v7_book_title_design.sql', '0074_v7_book_cover_design.sql', '0075_v7_opening_prompt_and_platform.sql', '0076_v7_planning_trees.sql', '0077_v7_planning_editorial_runtime.sql', '0078_v7_planning_generation_request_hash.sql', '0079_v7_planning_maintenance_runs.sql', '0080_v7_planning_adjustment_decisions.sql', '0081_v7_planning_route_selection.sql']);
+      expect(upgraded.applied.slice(0, -22)).toEqual(['0044_first_admin_legacy_owner.sql', '0045_user_memberships.sql', '0046_model_call_error_detail.sql', '0047_opening_drafts.sql', '0048_book_branding_designs.sql', '0049_review_challenger_seat.sql', '0050_settlement_follow_ups.sql', '0051_setting_item_versions.sql', '0052_setting_discussion_fragments.sql', '0053_setting_pending_candidate.sql', '0054_setting_quality_reports.sql', '0055_chapter_challenger_reviews.sql', '0056_platform_model_scheme.sql', '0057_membership_tiers.sql', '0058_layered_volume_and_event_chain.sql', '0059_layered_constraints_and_context.sql', '0060_first_volume_launch_progress.sql', '0061_story_thread_keys.sql', '0062_setting_gap_status.sql', '0063_independent_admin_console.sql', '0064_setting_member_resilience.sql', '0065_v6_core_workflow.sql', '0066_ai_editorial_node_batches.sql', '0067_chapter_editor_synthesis_requests.sql', '0068_rolling_storyline_growth.sql', '0069_prebook_opening_design_calls.sql', '0070_v7_opening_agent.sql', '0071_v7_opening_agent_governance.sql', '0072_v7_setting_editorial_department.sql', '0073_v7_book_title_design.sql', '0074_v7_book_cover_design.sql', '0075_v7_opening_prompt_and_platform.sql', '0076_v7_planning_trees.sql', '0077_v7_planning_editorial_runtime.sql', '0078_v7_planning_generation_request_hash.sql', '0079_v7_planning_maintenance_runs.sql', '0080_v7_planning_adjustment_decisions.sql', '0081_v7_planning_route_selection.sql']);
       expect(database.prepare('SELECT owner_id FROM user_accounts WHERE user_id = ?').get('admin-user'))
         .toEqual({ owner_id: 'owner-local-boss' });
       expect(database.prepare('SELECT * FROM books WHERE book_id = ?').get('legacy-book')).toEqual(bookBefore);

@@ -9,6 +9,7 @@ import {
   fetchPlatformUsage,
   fetchUserOperations,
   grantMembership,
+  newPlatformActionKey,
   revokeMembership,
   setPlatformUserStatus,
   updatePlatformIssue,
@@ -264,10 +265,16 @@ function MembershipsPage(): React.JSX.Element {
   const [confirmingRevoke, setConfirmingRevoke] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [actionKey, setActionKey] = useState(() => newPlatformActionKey('membership'));
+  const [revokeKey, setRevokeKey] = useState(() => newPlatformActionKey('membership-revoke'));
   const items = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('zh-CN');
     return (state.data?.users ?? []).filter((item) => normalized.length === 0 || `${item.displayName} ${item.email}`.toLocaleLowerCase('zh-CN').includes(normalized));
   }, [query, state.data]);
+  useEffect(() => {
+    if (selected === null || state.data === null) return;
+    setSelected(state.data.users.find((item) => item.userId === selected.userId) ?? null);
+  }, [selected?.userId, state.data]);
 
   const openMembership = (user: MembershipUser): void => {
     if (selected?.userId === user.userId) {
@@ -279,6 +286,8 @@ function MembershipsPage(): React.JSX.Element {
     setPlan(nextPlan);
     setAmountCny(defaultPlanAmount(nextPlan));
     setNote('');
+    setActionKey(newPlatformActionKey('membership'));
+    setRevokeKey(newPlatformActionKey('membership-revoke'));
     setConfirmingRevoke(false);
     setActionError(null);
   };
@@ -286,6 +295,7 @@ function MembershipsPage(): React.JSX.Element {
   const choosePlan = (value: MembershipPlan): void => {
     setPlan(value);
     setAmountCny(defaultPlanAmount(value));
+    setActionKey(newPlatformActionKey('membership'));
   };
 
   const saveMembership = async (): Promise<void> => {
@@ -296,7 +306,7 @@ function MembershipsPage(): React.JSX.Element {
     setBusy(true);
     setActionError(null);
     try {
-      await grantMembership(selected.userId, { plan, amountCny, note });
+      await grantMembership(selected.userId, { plan, amountCny, note, idempotencyKey: actionKey });
       setMessage(`已为 ${selected.displayName} 办理会员并记录流水。`);
       setSelected(null);
       state.reload();
@@ -312,7 +322,7 @@ function MembershipsPage(): React.JSX.Element {
     setBusy(true);
     setActionError(null);
     try {
-      await revokeMembership(selected.userId);
+      await revokeMembership(selected.userId, revokeKey);
       setMessage(`已撤销 ${selected.displayName} 的会员，历史流水仍保留。`);
       setSelected(null);
       setConfirmingRevoke(false);
@@ -357,13 +367,13 @@ function MembershipsPage(): React.JSX.Element {
         <dl className="platform-detail-list"><Fact label="当前会员" value={selected.membership?.planLabel ?? '未开通'} /><Fact label="当前到期" value={selected.membership === null ? '—' : formatDateTime(selected.membership.periodEnd)} /><Fact label="累计算力" value={formatCompute(selected.totalTokens * 2)} /></dl>
         <div className="platform-edit-fields">
           <label>会员套餐<select value={plan} onChange={(event) => choosePlan(event.target.value as MembershipPlan)}><option value="bronze">青铜 · 20万算力</option><option value="silver">白银 · 2000万算力</option><option value="gold">黄金 · 5000万算力</option><option value="diamond">钻石 · 2亿算力</option></select></label>
-          <label>本次实收金额（元）<input type="number" min="0" max="100000" step="0.01" value={amountCny} onChange={(event) => setAmountCny(Number(event.target.value))} /></label>
-          <label className="wide">备注<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="优惠、渠道或补发说明（可空）" /></label>
+          <label>本次实收金额（元）<input type="number" min="0" max="100000" step="0.01" value={amountCny} onChange={(event) => { setAmountCny(Number(event.target.value)); setActionKey(newPlatformActionKey('membership')); }} /></label>
+          <label className="wide">备注<input value={note} onChange={(event) => { setNote(event.target.value); setActionKey(newPlatformActionKey('membership')); }} placeholder="优惠、渠道或补发说明（可空）" /></label>
         </div>
         <p className="platform-action-note">续费会保留剩余有效期，并从当前到期日继续顺延；本次办理会新增一条不可变流水。</p>
         {actionError !== null && <p className="platform-action-error" role="alert">{actionError}</p>}
         <div className="platform-inline-actions"><button className="primary" type="button" disabled={busy} onClick={() => void saveMembership()}>{busy ? '正在办理…' : selected.membership?.status === 'active' && !selected.membership.expired ? '续费并记录收入' : '开通并记录收入'}</button></div>
-        {selected.membership?.status === 'active' && !selected.membership.expired && (confirmingRevoke ? <div className="platform-inline-confirm" role="group" aria-label="确认撤销会员"><p>撤销会立即结束当前会员权益，但不会删除历史办理流水。</p><div><button type="button" disabled={busy} onClick={() => setConfirmingRevoke(false)}>取消</button><button className="danger" type="button" disabled={busy} onClick={() => void removeMembership()}>{busy ? '正在撤销…' : '确认撤销会员'}</button></div></div> : <button className="platform-secondary-danger" type="button" disabled={busy} onClick={() => setConfirmingRevoke(true)}>撤销会员</button>)}
+        {selected.membership?.status === 'active' && !selected.membership.expired && (confirmingRevoke ? <div className="platform-inline-confirm" role="group" aria-label="确认撤销会员"><p>撤销会立即结束当前会员权益，但不会删除历史办理流水。</p><div><button type="button" disabled={busy} onClick={() => setConfirmingRevoke(false)}>取消</button><button className="danger" type="button" disabled={busy} onClick={() => void removeMembership()}>{busy ? '正在撤销…' : '确认撤销会员'}</button></div></div> : <button className="platform-secondary-danger" type="button" disabled={busy} onClick={() => { setRevokeKey(newPlatformActionKey('membership-revoke')); setConfirmingRevoke(true); }}>撤销会员</button>)}
       </div>
     </section>}
     <div className="platform-two-column membership-layout">

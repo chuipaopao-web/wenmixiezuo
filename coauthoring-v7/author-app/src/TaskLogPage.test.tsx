@@ -53,7 +53,7 @@ describe('V7统一任务中心', () => {
     mockedOpening.fetchPlanningTasks.mockResolvedValue([]);
     mockedCreation.fetchCreationTasks.mockResolvedValue([completedCreationTask()]);
     render(<TaskLogPage onOpenTask={vi.fn()} onOpenBook={vi.fn()} />);
-    expect(await screen.findByText('本轮工作已经完成。')).toBeVisible();
+    expect((await screen.findAllByText('本轮工作已经完成。'))[0]).toBeVisible();
     expect(screen.queryByText('旧快照仍说正在写作')).not.toBeInTheDocument();
     expect(document.querySelectorAll('.task-member-stack i')).toHaveLength(1);
     expect(screen.getByTitle('清照')).toBeVisible();
@@ -69,7 +69,51 @@ describe('V7统一任务中心', () => {
     fireEvent.click(await screen.findByRole('button', { name: /继续处理/u }));
     expect(onOpenCreation).toHaveBeenCalledWith('book-1', 'chain');
   });
+
+  it('部分失败仍留在待处理区，并显示耗时、成员详情和恢复入口', async () => {
+    mockedOpening.fetchPlanningTasks.mockResolvedValue([]);
+    mockedCreation.fetchCreationTasks.mockResolvedValue([completedCreationTask({
+      stage: 'volume_options', status: 'partially_failed', message: '已有两套方案，第三套没有完成。',
+      completedOptions: 2, expectedOptions: 3,
+      timing: { createdAt: '2026-08-31T00:00:00.000Z', lastActivityAt: '2026-08-31T00:02:00.000Z', elapsedSeconds: 120, idleSeconds: 20, state: 'normal' },
+      actors: [{ memberKey: 'writer-kimi-k3', memberName: '清照', role: 'planning_writer', status: 'failed', message: '第三套没有完成。', emoji: '🙇' }]
+    })]);
+    render(<TaskLogPage onOpenTask={vi.fn()} onOpenBook={vi.fn()} />);
+    expect(await screen.findByText('卷、链与正文')).toBeVisible();
+    expect(screen.queryByText('卷与正文历史')).not.toBeInTheDocument();
+    expect(screen.getAllByText(/对不起/u)[0]).toBeVisible();
+    fireEvent.click(screen.getByText('查看任务详情'));
+    expect(screen.getByText(/清照 · 策划编剧/u)).toBeVisible();
+    expect(screen.getByRole('button', { name: /继续处理/u })).toBeEnabled();
+  });
+
+  it('失败的开书任务留在待处理区并先道歉', async () => {
+    mockedOpening.fetchPlanningTasks.mockResolvedValue([]);
+    mockedOpening.fetchOpeningTasks.mockResolvedValue([failedOpeningTask()]);
+    render(<TaskLogPage onOpenTask={vi.fn()} onOpenBook={vi.fn()} />);
+
+    expect(await screen.findByText('进行中与待确认')).toBeVisible();
+    expect(screen.queryByText('最近记录')).not.toBeInTheDocument();
+    expect(screen.getByText('项工作正在进行或等您确认')).toBeVisible();
+    expect(screen.getByText(/对不起/u)).toBeVisible();
+    expect(screen.getByRole('button', { name: '查看详情' })).toBeEnabled();
+  });
 });
+
+function failedOpeningTask(): opening.OpeningTaskView {
+  return {
+    taskId: 'opening-failed-1', idea: '北宋小卒求生', publishingPlatform: 'qidian',
+    status: 'failed', phase: 'package_design', statusText: '本轮没有完成，已有结果已经保留',
+    phaseText: '编剧正在设计开书资料包', isRunning: false, needsAuthorDecision: false,
+    selectedMembers: {
+      chiefEditor: { memberKey: 'chief-deepseek-v4-pro', displayName: '貂蝉' },
+      screenwriter: { memberKey: 'writer-glm-5-3', displayName: '幼薇' }
+    },
+    candidates: [], errorMessage: '资料包结构未通过校验。', resultBookId: null,
+    progress: { currentStep: 1, totalSteps: 2, percent: 35 },
+    createdAt: '2026-08-31T00:00:00.000Z', updatedAt: '2026-08-31T00:01:00.000Z'
+  };
+}
 
 function planningTask(): opening.PlanningTaskView {
   return {

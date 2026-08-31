@@ -699,7 +699,7 @@ export function fetchMembershipUsers(query = '', signal?: AbortSignal): Promise<
 
 export function grantMembership(
   userId: string,
-  input: { plan: MembershipPlan; amountCny: number; note: string }
+  input: { plan: MembershipPlan; amountCny: number; note: string; idempotencyKey: string }
 ): Promise<unknown> {
   return platformRequest(`/api/v1/admin/memberships/${encodeURIComponent(userId)}`, {
     method: 'POST',
@@ -707,11 +707,16 @@ export function grantMembership(
   });
 }
 
-export function revokeMembership(userId: string): Promise<{ revoked: boolean }> {
+export function revokeMembership(userId: string, idempotencyKey: string): Promise<{ revoked: boolean }> {
   return platformRequest(`/api/v1/admin/memberships/${encodeURIComponent(userId)}/revoke`, {
     method: 'POST',
-    body: '{}'
+    body: JSON.stringify({ idempotencyKey })
   });
+}
+
+export function newPlatformActionKey(prefix: string): string {
+  const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${random}`;
 }
 
 export const fetchV7OpeningAgentGovernance = (signal?: AbortSignal): Promise<V7OpeningAgentGovernance> =>

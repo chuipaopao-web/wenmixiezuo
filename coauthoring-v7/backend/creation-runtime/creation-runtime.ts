@@ -126,7 +126,6 @@ export function contextSelectionPrompt(input: {
     'taskResponsibilities为2—6条本环节大白话责任；creativeSpace为1—5条可以自由发挥、组合或自行创新的空间。',
     'methodStrategy字段：mode,publicSummary,searchRequest。mode只能是asset、combined、original、none：asset表示优先从资产中选，combined表示组合改写，original表示当前任务更适合自主设计，none只用于不需要叙事方法的纯核对或结算。',
     settlementMethodRule,
-    settlementMethodRule,
     `当前任务允许检索的层级只有：${JSON.stringify(allowedLayers)}。asset或combined必须给出searchRequest；original可以给出用于比较的searchRequest或null；none必须为null。`,
     'searchRequest字段沿用方法检索合同：schema="v7-planning-method-search-v1",publicGoal,searchQueries,planningLayers,dimensions,desiredCount,scaleHint,avoidNotes,relevantSettingSourceIds,missingCriticalInputs。只表达检索需求，不能猜测具体资产；desiredCount为8—12。relevantSettingSourceIds填写本轮确实相关的逐项设定sourceId，没有时允许空数组。',
     `当前任务：${input.taskBrief}`,
@@ -169,7 +168,6 @@ export function parseContextSelection(
     : parsePlanningMethodSearchRequest(JSON.stringify(methodStrategy.searchRequest), { minimumSettingSources: 0 });
   if ((methodMode === 'asset' || methodMode === 'combined') && searchRequest === null) throw new Error('方法策略缺少检索请求');
   if (methodMode === 'none' && searchRequest !== null) throw new Error('无需方法时不能附带检索请求');
-  if (taskKind === 'settlement' && methodMode !== 'none') throw new Error('定稿事实结算不能注入叙事方法');
   if (taskKind === 'settlement' && methodMode !== 'none') throw new Error('定稿事实结算不能注入叙事方法');
   if (searchRequest !== null && taskKind !== undefined) {
     const allowedLayers = new Set(contextPlanningLayers(taskKind));
@@ -223,6 +221,7 @@ export function planningOptionPrompt(input: {
     variation, first,
     '每套方案都必须兼顾因果与容量、商业追读、人物主动选择、创意辨识度和上下层接口。不能把不同方案理解成只分别负责结构、商业或人物。',
     '资料包里的方法候选由资料策划按当前任务召回，只是共享工具箱。你可以采用、组合改写、全部忽略或自主设计；必须保留只属于本书人物与局势的创意，不要背诵专业方法名。designRationale用大白话说明这套方案为什么这样安排以及保留了什么创意空间。',
+    '已确认上层规划中的designStrategy、伏笔和开放问题是交接责任，不是要求照抄上层结构。同一种方法可以再次采用，但必须按当前层的时间跨度、人物选择、冲突形态和回报位置重新落地，并说明这一层如何承接或兑现上层留下的钩子。',
     input.kind === 'volume'
       ? '卷方案只负责把已确认全书方向展开成若干短单元链：交代本卷目标、起点到卷末的可见变化、核心矛盾、每条链的推进与回报、人物变化、卷末接口和容量。详细情绪曲线、伏笔、事件因果和逐章安排留到链层，不在卷层重复设计。每链连续4—8章、通常约1万—2.8万字；整卷链数由实际字数反推并覆盖完整字数责任。'
       : '链方案负责具体设计：触发、目标、阻力、升级、关键选择、代价、兑现、结果、情绪变化、信息揭示、人物与关系变化、伏笔埋设或回收、合理章节容量和下一链接口；只到章纲责任，不写正文。',

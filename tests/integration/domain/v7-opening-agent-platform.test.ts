@@ -491,6 +491,20 @@ describe('V7开书Agent平台接入', () => {
                member_roster_json, publishing_platform
         FROM v7_opening_agent_tasks WHERE task_id = ?
       `).run(taskId);
+      context.database.prepare(`
+        INSERT INTO v7_opening_agent_tasks (
+          task_id, owner_id, idempotency_key, request_hash, idea_text, idea_version, idea_hash,
+          selected_chief_member_key, selected_screenwriter_member_key, status, phase, state_json,
+          lease_token, lease_expires_at, error_code, error_message, created_at, updated_at,
+          member_roster_json, publishing_platform
+        )
+        SELECT 'bulk-awaiting-task', owner_id, 'bulk-awaiting-task-0001', request_hash,
+               '一条正在等作者确认的开书任务。', idea_version, idea_hash,
+               selected_chief_member_key, selected_screenwriter_member_key, 'awaiting_author_confirmation', phase, state_json,
+               NULL, NULL, NULL, NULL, created_at, updated_at,
+               member_roster_json, publishing_platform
+        FROM v7_opening_agent_tasks WHERE task_id = ?
+      `).run(taskId);
       const bulkAbandon = await app.inject({
         method: 'POST', url: '/api/v1/v7/opening-agent/tasks/abandon-all',
         headers: { ...BROWSER_HEADERS, cookie: first }, payload: {}
@@ -500,6 +514,9 @@ describe('V7开书Agent平台接入', () => {
       expect(context.database.prepare(`
         SELECT error_code FROM v7_opening_agent_tasks WHERE task_id = 'bulk-old-task'
       `).get()).toEqual({ error_code: 'archived_by_author' });
+      expect(context.database.prepare(`
+        SELECT status,error_code FROM v7_opening_agent_tasks WHERE task_id = 'bulk-awaiting-task'
+      `).get()).toEqual({ status: 'awaiting_author_confirmation', error_code: null });
 
       context.database.prepare(`UPDATE v7_opening_agent_model_calls SET state='unknown'
         WHERE request_id=(SELECT request_id FROM v7_opening_agent_model_calls

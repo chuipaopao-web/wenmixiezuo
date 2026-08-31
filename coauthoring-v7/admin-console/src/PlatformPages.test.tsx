@@ -210,7 +210,7 @@ describe('V7 独立后台平台页面', () => {
     fireEvent.click(screen.getByRole('button', { name: '开通并记录收入' }));
 
     await waitFor(() => expect(mockedApi.grantMembership).toHaveBeenCalledWith('user-1', {
-      plan: 'gold', amountCny: 198, note: '线下转账'
+      plan: 'gold', amountCny: 198, note: '线下转账', idempotencyKey: expect.stringMatching(/^membership-/u)
     }));
     await waitFor(() => expect(mockedApi.fetchMembershipUsers).toHaveBeenCalledTimes(2));
     expect(mockedApi.fetchMembershipStats).toHaveBeenCalledTimes(2);
@@ -230,6 +230,26 @@ describe('V7 独立后台平台页面', () => {
     expect(mockedApi.fetchMembershipUsers).toHaveBeenCalledTimes(1);
   });
 
+  it('刷新后已展开的办理区同步最新会员状态', async () => {
+    mockedApi.fetchMembershipUsers
+      .mockResolvedValueOnce({ items: [membershipUser], total: 1 })
+      .mockResolvedValueOnce({ items: [activeMembershipUser], total: 1 });
+    render(<PlatformPage section="memberships" />);
+    expect(await screen.findByText('会员与收入')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: '办理' }));
+    const editor = screen.getByRole('region', { name: '为 作者甲 办理会员' });
+    expect(within(editor).getByText('未开通')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+
+    await waitFor(() => expect(mockedApi.fetchMembershipUsers).toHaveBeenCalledTimes(2));
+    await waitFor(() => {
+      const refreshedEditor = screen.getByRole('region', { name: '为 作者甲 办理会员' });
+      expect(within(refreshedEditor).getByText('白银会员')).toBeVisible();
+      expect(within(refreshedEditor).getByRole('button', { name: '续费并记录收入' })).toBeVisible();
+    });
+  });
+
   it('有效会员采用原位二次确认撤销并写后刷新', async () => {
     mockedApi.fetchMembershipUsers.mockResolvedValue({ items: [activeMembershipUser], total: 1 });
     render(<PlatformPage section="memberships" />);
@@ -240,7 +260,7 @@ describe('V7 独立后台平台页面', () => {
     expect(screen.getByRole('button', { name: '确认撤销会员' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '确认撤销会员' }));
 
-    await waitFor(() => expect(mockedApi.revokeMembership).toHaveBeenCalledWith('user-1'));
+    await waitFor(() => expect(mockedApi.revokeMembership).toHaveBeenCalledWith('user-1', expect.stringMatching(/^membership-revoke-/u)));
     await waitFor(() => expect(mockedApi.fetchMembershipUsers).toHaveBeenCalledTimes(2));
     expect(mockedApi.fetchMembershipStats).toHaveBeenCalledTimes(2);
   });

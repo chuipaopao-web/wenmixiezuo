@@ -712,6 +712,12 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .task-card-progress span { height: 100%; display: block; background: linear-gradient(90deg, #8bad9e, var(--accent)); }
 .task-card-members { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; color: var(--ink-faint); font-size: 11px; }
 .task-card-members svg { width: 14px; height: 14px; }
+.task-card-details { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 9px; color: var(--ink-muted); font-size: 12px; }
+.task-card-details summary { width: fit-content; cursor: pointer; color: var(--accent); font-weight: 700; }
+.task-card-details > div { display: grid; gap: 7px; margin-top: 9px; }
+.task-card-details p { display: grid; grid-template-columns: minmax(120px, auto) minmax(0, 1fr); gap: 12px; margin: 0; }
+.task-card-details b { color: var(--ink); font-weight: 700; }
+.task-card-details span { overflow-wrap: anywhere; }
 .task-log-empty { min-height: 360px; display: grid; place-content: center; justify-items: center; gap: 8px; color: var(--ink-soft); text-align: center; }
 .task-log-empty svg { width: 38px; height: 38px; color: var(--accent); }
 .task-log-empty span { color: var(--ink-faint); font-size: 12px; }
@@ -1442,6 +1448,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
   .task-inline-confirm button { flex: 1 1 128px; }
   .task-member-stack { margin-right: auto; }
   .task-log-card-main strong { white-space: normal; }
+  .task-card-details p { grid-template-columns: 1fr; gap: 2px; }
   .team-overview-strip { grid-template-columns: 38px repeat(4, minmax(0, 1fr)); gap: 6px; padding: 11px 8px; }
   .team-overview-strip > div { min-width: 0; }
   .team-overview-strip p { grid-column: 1 / -1; text-align: left; }

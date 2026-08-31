@@ -80,7 +80,7 @@ export async function registerAccountRoutes(app: FastifyInstance, accounts: Acco
 
   app.post<{
     Params: { userId: string };
-    Body: { plan?: string; amountCny?: number; note?: string };
+    Body: { plan?: string; amountCny?: number; note?: string; idempotencyKey?: string };
   }>('/api/v1/admin/memberships/:userId', async (request) => {
     const administrator = requireAdministrator(request);
     const plan = request.body?.plan;
@@ -93,17 +93,26 @@ export async function registerAccountRoutes(app: FastifyInstance, accounts: Acco
     }
     return success(memberships.grant(administrator.userId, request.params.userId, plan, {
       ...(amountCny === undefined ? {} : { amountCashMicros: Math.round(amountCny * 1_000_000) }),
-      ...(typeof request.body?.note === 'string' ? { note: request.body.note } : {})
+      ...(typeof request.body?.note === 'string' ? { note: request.body.note } : {}),
+      idempotencyKey: readMembershipActionKey(request.body?.idempotencyKey)
     }), request.id);
   });
 
   app.post<{
     Params: { userId: string };
+    Body: { idempotencyKey?: string };
   }>('/api/v1/admin/memberships/:userId/revoke', async (request) => {
     const administrator = requireAdministrator(request);
-    memberships.revoke(administrator.userId, request.params.userId);
+    memberships.revoke(administrator.userId, request.params.userId, readMembershipActionKey(request.body?.idempotencyKey));
     return success({ revoked: true }, request.id);
   });
+}
+
+function readMembershipActionKey(value: unknown): string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9:_-]{7,127}$/u.test(value.trim())) {
+    throw new DomainError('INVALID_MEMBERSHIP_ACTION_KEY', '会员办理页面已经过期，请刷新后重试', {}, false, 400);
+  }
+  return value.trim();
 }
 
 function parseAdminListQuery(input: { query?: string; status?: string; offset?: string; limit?: string }): {

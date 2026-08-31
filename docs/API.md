@@ -26,8 +26,10 @@
 - `GET /api/v1/admin/users`
 - `PATCH /api/v1/admin/users/:userId/status`
 - `GET /api/v1/admin/memberships`
-- `POST /api/v1/admin/memberships/:userId`
-- `POST /api/v1/admin/memberships/:userId/revoke`
+- `POST /api/v1/admin/memberships/:userId`：请求体携带 `plan` 、`amountCny` 、可选 `note` 和必填 `idempotencyKey`。
+- `POST /api/v1/admin/memberships/:userId/revoke`：请求体携带必填 `idempotencyKey`。
+
+会员开通、续费和撤销在同一数据库事务中更新当前状态并追加不可变流水。同一管理员重试同一 `idempotencyKey` 只返回首次结果，不会重复延长会员期或重复记收入；复用该编号发送不同内容时返回冲突。
 
 ## V7 开书与书架
 

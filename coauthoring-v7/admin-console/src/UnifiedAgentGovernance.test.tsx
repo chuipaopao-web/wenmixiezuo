@@ -54,7 +54,8 @@ describe('V7统一成员治理后台', () => {
     const card = (await screen.findByText('曹雪芹')).closest('article');
     expect(card).not.toBeNull();
     expect(screen.queryByText('成员补充提示')).not.toBeInTheDocument();
-    expect(screen.getByText(/成员只绑定固定身份、模型与可用性/)).toBeVisible();
+    expect(screen.getByText(/成员只长期绑定模型与可用性/)).toBeVisible();
+    expect(screen.getByText(/资料策划 Agent 签发本轮题材身份/)).toBeVisible();
     fireEvent.change(within(card!).getByLabelText('绑定模型'), { target: { value: 'deepseek-v4-pro' } });
     await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => String(url).includes('/members/writer-glm-5-3') && init?.method === 'PATCH')).toBe(true));
     const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/members/writer-glm-5-3'));

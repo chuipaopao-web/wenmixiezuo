@@ -2,7 +2,7 @@ import { ArrowRightIcon, BookOpenTextIcon, ClockCounterClockwiseIcon, UsersThree
 import { useEffect, useMemo, useState } from 'react';
 import { cancelCreationWorkflow, fetchCreationTasks, type CreationWorkflowView } from './creation-api';
 import { memberAvatarPosition, memberDisplayName } from './member-avatars';
-import { publicStatusCopy, uniqueByMemberKey } from './author-projection';
+import { publicFailureCopy, publicRoleLabel, publicStatusCopy, uniqueByMemberKey } from './author-projection';
 import {
   abandonAllOpeningTasks,
   abandonOpeningTask,
@@ -39,7 +39,7 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
     [creationTasks, designTasks, planningTasks, tasks]
   );
   const hasArchivable = useMemo(
-    () => tasks.some((task) => task.resultBookId === null && !task.isRunning),
+    () => tasks.some(openingTaskCanArchive),
     [tasks]
   );
 
@@ -83,13 +83,11 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
     return () => { stopped = true; window.clearTimeout(timer); };
   }, []);
 
-  const active = tasks.filter((task) => task.resultBookId === null && (
-    task.isRunning || task.status === 'awaiting_author_confirmation' || task.status === 'awaiting_author_decision'
-  ));
+  const active = tasks.filter(openingTaskNeedsAttention);
   const history = tasks.filter((task) => !active.includes(task));
   const activeDesignTasks = designTasks.filter((task) => task.status === 'working');
   const designHistory = designTasks.filter((task) => task.status !== 'working');
-  const activeCreationTasks = creationTasks.filter((task) => ['waiting', 'working', 'waiting_for_you', 'failed'].includes(task.status));
+  const activeCreationTasks = creationTasks.filter((task) => ['waiting', 'working', 'waiting_for_you', 'failed', 'partially_failed'].includes(task.status));
   const creationHistory = creationTasks.filter((task) => !activeCreationTasks.includes(task));
   const activePlanningTasks = planningTasks.filter((task) => ['waiting', 'working', 'waiting_for_you', 'failed'].includes(task.status));
   const planningHistory = planningTasks.filter((task) => !activePlanningTasks.includes(task));
@@ -111,7 +109,7 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
     setError(null);
     try {
       await abandonAllOpeningTasks();
-      setTasks((current) => current.filter((task) => task.resultBookId !== null || task.isRunning));
+      setTasks((current) => current.filter((task) => !openingTaskCanArchive(task)));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '旧任务暂时没有清理成功，请刷新后重试。');
     } finally {
@@ -216,14 +214,42 @@ function CreationTaskCard({ task, onOpen, onCancel }: {
   const [confirmingStop, setConfirmingStop] = useState(false);
   const actors = uniqueByMemberKey(task.actors);
   const taskActive = ['waiting', 'working'].includes(task.status);
+  const taskFailed = task.status === 'failed' || task.status === 'partially_failed';
   const active = taskActive ? actors.find((actor) => actor.status === 'working') ?? actors.find((actor) => actor.status === 'waiting') : undefined;
   const canStop = onCancel !== undefined && ['waiting', 'working', 'failed'].includes(task.status);
+  const progress = task.progress.totalChapters > 0
+    ? task.progress.percent
+    : task.expectedOptions > 0 ? Math.round((task.completedOptions / task.expectedOptions) * 100) : 0;
+  const timing = creationTimingCopy(task);
+  const effectiveActorStatus = (actor: CreationWorkflowView['actors'][number]): CreationWorkflowView['actors'][number]['status'] =>
+    !taskActive && ['working', 'waiting'].includes(actor.status) ? 'completed' : actor.status;
+  const actorCopy = (actor: CreationWorkflowView['actors'][number]): string => effectiveActorStatus(actor) === 'failed'
+    ? publicFailureCopy(actor.message)
+    : publicStatusCopy(taskActive ? actor.message : null, effectiveActorStatus(actor) === 'working' ? '正在处理本轮工作。'
+      : effectiveActorStatus(actor) === 'waiting' ? '已经接单，正在排队。'
+        : effectiveActorStatus(actor) === 'handed_over' ? '当前工作已交给下一位成员。' : '本轮工作已经完成。');
   return <article className={`task-log-card state-${task.status}`}>
-    <div className="task-log-card-main"><span className={`task-state-dot ${taskActive ? 'working' : ''}`} /><div><small>{creationStageName(task.stage)}</small><strong>{publicStatusCopy(task.message, '编辑部已经保存了当前进度。')}</strong><p>{active === undefined ? task.status === 'failed' ? '对不起，这次没有完成；已经完成的内容会保留。' : task.status === 'completed' ? '本轮工作已经完成。' : '编辑部已经保存了当前进度。' : `${active.emoji} ${memberDisplayName(active.memberKey, active.memberName)}：${publicStatusCopy(active.message, active.status === 'working' ? '正在处理本轮工作。' : '已经接单，正在排队。')}`}</p></div></div>
+    <div className="task-log-card-main"><span className={`task-state-dot ${taskActive ? 'working' : ''}`} /><div><small>{creationStageName(task.stage)}{timing === null ? '' : ` · ${timing}`}</small><strong>{taskFailed ? publicFailureCopy(task.message) : publicStatusCopy(task.message, '编辑部已经保存了当前进度。')}</strong><p>{active === undefined ? taskFailed ? '已经完成的方案、正文和结算都会保留，打开任务可继续处理。' : task.status === 'completed' ? '本轮工作已经完成。' : '编辑部已经保存了当前进度。' : `${active.emoji} ${memberDisplayName(active.memberKey, active.memberName)}：${actorCopy(active)}`}</p></div></div>
     <div className="task-log-card-side"><div className="task-member-stack">{actors.slice(0, 4).map((actor) => <i key={actor.memberKey} title={memberDisplayName(actor.memberKey, actor.memberName)} style={{ backgroundPosition: memberAvatarPosition(actor.memberKey) }} />)}</div><span className="task-state-label">{creationStateName(task.status)}</span><button type="button" onClick={onOpen}>继续处理<ArrowRightIcon /></button>{canStop && !confirmingStop && <button className="task-abandon-button" type="button" onClick={() => setConfirmingStop(true)}>停止任务</button>}</div>
     {canStop && confirmingStop && <div className="task-inline-confirm"><span>已经完成的方案、正文和结算都会保留。</span><button type="button" onClick={() => void onCancel().finally(() => setConfirmingStop(false))}>保留成果并停止</button><button type="button" onClick={() => setConfirmingStop(false)}>继续工作</button></div>}
-    {task.progress.totalChapters > 0 && <div className="task-card-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress.percent}><span style={{ width: `${task.progress.percent}%` }} /></div>}
+    {actors.length > 0 && <details className="task-card-details"><summary>查看任务详情</summary><div>{actors.map((actor) => <p key={actor.memberKey}><b>{memberDisplayName(actor.memberKey, actor.memberName)} · {publicRoleLabel(actor.role)}</b><span>{actorCopy(actor)}</span></p>)}</div></details>}
+    {taskActive && (task.progress.totalChapters > 0 || task.expectedOptions > 0) && <div className="task-card-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div>}
   </article>;
+}
+
+function creationTimingCopy(task: CreationWorkflowView): string | null {
+  if (task.timing === undefined) return null;
+  if (!['waiting', 'working'].includes(task.status)) return `更新于${taskDuration(task.timing.idleSeconds)}前`;
+  if (task.timing.state === 'overdue') return `已等待${taskDuration(task.timing.elapsedSeconds)}，可能超时`;
+  if (task.timing.state === 'slow') return `已用时${taskDuration(task.timing.elapsedSeconds)}，仍在处理`;
+  return `已用时${taskDuration(task.timing.elapsedSeconds)}`;
+}
+
+function taskDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.max(0, seconds)}秒`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}分钟`;
+  return `${Math.floor(minutes / 60)}小时${minutes % 60}分钟`;
 }
 
 function DesignTaskSection({ title, tasks, onOpenBook }: {
@@ -279,12 +305,12 @@ function TaskCard({ task, onOpen, onAbandon, abandoning }: { task: OpeningTaskVi
     : task.status === 'awaiting_author_confirmation' ? '等您确认'
       : task.status === 'awaiting_author_decision' ? '等您决定'
         : task.status === 'failed' ? '本轮未完成'
-          : task.status === 'interrupted' ? '正在核对'
+          : task.status === 'interrupted' ? '结果待核对'
             : '工作中';
   const detail = task.resultBookId !== null
     ? '这项工作已经正式建书。'
     : task.status === 'failed' || task.status === 'interrupted'
-      ? task.statusText
+      ? publicFailureCopy(task.errorMessage ?? task.statusText)
       : task.phaseText;
   return <article className={`task-log-card state-${task.status}`}>
     <div className="task-log-card-main">
@@ -294,13 +320,27 @@ function TaskCard({ task, onOpen, onAbandon, abandoning }: { task: OpeningTaskVi
     <div className="task-log-card-side">
       <div className="task-member-stack" aria-label="参与成员">{visibleMembers.map((member) => <i key={member.memberKey} title={memberDisplayName(member.memberKey, member.displayName)} style={{ backgroundPosition: memberAvatarPosition(member.memberKey) }} />)}</div>
       <span className="task-state-label">{state}</span>
-      <button type="button" onClick={onOpen}>{task.resultBookId !== null ? '打开书籍' : task.status === 'failed' ? '查看详情' : '查看进度'}<ArrowRightIcon /></button>
+      <button type="button" onClick={onOpen}>{task.resultBookId !== null ? '打开书籍' : ['failed', 'interrupted'].includes(task.status) ? '查看详情' : '查看进度'}<ArrowRightIcon /></button>
       {task.resultBookId === null && !task.isRunning && !confirmingAbandon && <button className="task-abandon-button" type="button" disabled={abandoning} onClick={() => setConfirmingAbandon(true)}>{abandoning ? '正在放弃…' : '放弃任务'}</button>}
     </div>
     {task.resultBookId === null && !task.isRunning && confirmingAbandon && <div className="task-inline-confirm"><span>任务会移出列表，历史资料不会永久删除。</span><button type="button" disabled={abandoning} onClick={() => void onAbandon().finally(() => setConfirmingAbandon(false))}>{abandoning ? '正在放弃…' : '确认放弃'}</button><button type="button" disabled={abandoning} onClick={() => setConfirmingAbandon(false)}>继续保留</button></div>}
     {task.isRunning && <div className="task-card-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress.percent}><span style={{ width: `${task.progress.percent}%` }} /></div>}
     {!task.isRunning && task.resultBookId === null && <div className="task-card-members"><UsersThreeIcon />{visibleMembers.map((member) => memberDisplayName(member.memberKey, member.displayName)).join(' · ')}</div>}
   </article>;
+}
+
+function openingTaskNeedsAttention(task: OpeningTaskView): boolean {
+  return task.resultBookId === null && (
+    task.isRunning
+    || task.status === 'awaiting_author_confirmation'
+    || task.status === 'awaiting_author_decision'
+    || task.status === 'failed'
+    || task.status === 'interrupted'
+  );
+}
+
+function openingTaskCanArchive(task: OpeningTaskView): boolean {
+  return task.resultBookId === null && !task.isRunning && ['failed', 'interrupted'].includes(task.status);
 }
 
 function openCreationTask(

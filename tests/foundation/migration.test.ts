@@ -107,7 +107,8 @@ describe('向前迁移器', () => {
         '0099_v7_fast_default_manuscript_writer.sql',
         '0100_v7_fast_default_manuscript_reviewer.sql',
         '0101_unified_account_usage_projection.sql',
-        '0102_v7_clean_cutover_guard.sql'
+        '0102_v7_clean_cutover_guard.sql',
+        '0103_membership_action_idempotency.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([

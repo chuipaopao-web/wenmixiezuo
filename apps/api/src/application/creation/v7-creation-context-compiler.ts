@@ -6,6 +6,7 @@ import {
   contextSelectionPrompt,
   creationFallbackChain,
   parseContextSelection,
+  projectPlanningTreeForChild,
   retrievePlanningMethodCandidates,
   V7_CREATION_CONTEXT_SCHEMA,
   type V7ContextSourceTrace,
@@ -13,7 +14,8 @@ import {
   type V7CreationMethodPlan,
   type V7CreationContextSelection,
   type V7CreationMemberDefinition,
-  type V7CreationSourceCandidate
+  type V7CreationSourceCandidate,
+  type PlanningTreeDocument
 } from '@wenmi/v7-backend';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
@@ -34,7 +36,7 @@ import {
 import { V7SettingLedgerReader } from '../books/v7-setting-ledger-reader.js';
 
 const MAXIMUM_SELECTED_SOURCES = 12;
-const CONTEXT_PROJECTION_VERSION = 'layered-context-projection-v7';
+const CONTEXT_PROJECTION_VERSION = 'layered-context-projection-v8';
 
 interface FormalOpeningRow {
   opening_blueprint_id: string;
@@ -362,7 +364,13 @@ export class V7CreationContextCompiler {
     // task receives its Agent-authored responsibility projection, while the
     // current parent tree below remains exact.  This is structural projection,
     // not a programmatic story summary.
-    candidates.push(treeCandidate(bookTree, '已确认全书方向', input.taskKind === 'volume', true));
+    candidates.push(treeCandidate(
+      bookTree,
+      '已确认全书方向',
+      input.taskKind === 'volume',
+      true,
+      input.taskKind === 'volume' ? input.taskId : undefined
+    ));
 
     if (input.requiredTree !== undefined && !(input.requiredTree.treeKind === 'book' && input.requiredTree.scopeId === input.bookId)) {
       const required = this.planning.confirmedTree(
@@ -842,56 +850,11 @@ function treeCandidate(
     content: chapterProjection
       ? chapterTreeProjection(document)
       : compact
-        ? planningTreeProjection(document, focusChildScopeId)
+        ? projectPlanningTreeForChild(document as unknown as PlanningTreeDocument, focusChildScopeId)
         : document,
     contentHash: row.content_hash, required,
     includedReason: '当前任务必须承接这份作者确认的规划。'
   });
-}
-
-function planningTreeProjection(document: Record<string, unknown>, focusChildScopeId?: string): Record<string, unknown> {
-  const projectNode = (value: unknown): unknown => {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;
-    const node = value as Record<string, unknown>;
-    const story = typeof node.story === 'object' && node.story !== null && !Array.isArray(node.story)
-      ? node.story as Record<string, unknown>
-      : {};
-    const experience = typeof node.experience === 'object' && node.experience !== null && !Array.isArray(node.experience)
-      ? node.experience as Record<string, unknown>
-      : {};
-    const causality = typeof node.causality === 'object' && node.causality !== null && !Array.isArray(node.causality)
-      ? node.causality as Record<string, unknown>
-      : {};
-    return {
-      key: node.key,
-      kind: node.kind,
-      sequence: node.sequence,
-      title: node.title,
-      story: {
-        summary: story.summary,
-        majorEvents: story.majorEvents,
-        protagonistChange: story.protagonistChange,
-        outcome: story.outcome,
-        nextStep: story.nextStep
-      },
-      experience: { publicSummary: experience.publicSummary },
-      causality: { coreConflict: causality.coreConflict },
-      budget: node.budget,
-      linkedTree: node.linkedTree,
-      children: Array.isArray(node.children)
-        ? node.children
-          .filter((child) => focusChildScopeId === undefined || linkedScopeId(child) === focusChildScopeId)
-          .map(projectNode)
-        : []
-    };
-  };
-  return {
-    schema: 'v7-planning-tree-context-projection-v1',
-    treeKind: document.treeKind,
-    scopeId: document.scopeId,
-    title: document.title,
-    root: projectNode(document.root)
-  };
 }
 
 function openingContextProjection(content: Record<string, unknown>): Record<string, unknown> {
@@ -1085,14 +1048,6 @@ function chapterTreeProjection(document: Record<string, unknown>): Record<string
     title: document.title,
     root: projectNode(document.root)
   };
-}
-
-function linkedScopeId(value: unknown): string | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  const linkedTree = (value as Record<string, unknown>).linkedTree;
-  if (typeof linkedTree !== 'object' || linkedTree === null || Array.isArray(linkedTree)) return null;
-  const scopeId = (linkedTree as Record<string, unknown>).scopeId;
-  return typeof scopeId === 'string' ? scopeId : null;
 }
 
 function candidate(value: V7CreationSourceCandidate): V7CreationSourceCandidate {

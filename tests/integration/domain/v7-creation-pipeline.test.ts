@@ -81,6 +81,15 @@ describe('V7全链路创作总线', () => {
         'formal:opening', 'formal:setting-ledger', `formal:tree:book:${bookId}`
       ]));
       expect(firstVolumePack.selectedSources.some((source) => source.sourceKey.startsWith('goal:author-input'))).toBe(true);
+      const bookDirection = firstVolumePack.selectedSources.find((source) => source.sourceKey === `formal:tree:book:${bookId}`);
+      expect(bookDirection?.content).toMatchObject({
+        schema: 'v7-planning-tree-context-projection-v2',
+        designStrategy: {
+          originalStrategies: [expect.objectContaining({ applicationNote: expect.any(String) })]
+        }
+      });
+      expect(JSON.stringify(bookDirection?.content)).toContain('上层伏笔责任');
+      expect(JSON.stringify(bookDirection?.content)).toContain('阶段内明确兑现');
       const settingLedger = firstVolumePack.selectedSources.find((source) => source.sourceKey === 'formal:setting-ledger');
       expect(['v7-compact-setting-ledger-v1', 'v7-setting-ledger-context-projection-v1'])
         .toContain((settingLedger?.content as { schema?: string } | undefined)?.schema);
@@ -257,6 +266,16 @@ describe('V7全链路创作总线', () => {
         WHERE owner_id=? AND book_id=? AND run_kind='maintenance'`).get(ownerId, bookId) as { count: number }).count).toBe(0);
       expect((context.database.prepare(`SELECT count(*) AS count FROM v7_creation_model_calls
         WHERE owner_id=? AND book_id=? AND run_kind='context' AND node_key LIKE 'settlement:%'`).get(ownerId, bookId) as { count: number }).count).toBe(3);
+      const contextTaskKinds = context.database.prepare(`SELECT DISTINCT task_kind FROM v7_creation_context_packs
+        WHERE owner_id=? AND book_id=? AND status='active' ORDER BY task_kind`).all(ownerId, bookId) as Array<{ task_kind: string }>;
+      expect(contextTaskKinds.map((item) => item.task_kind)).toEqual([
+        'chain', 'manuscript', 'outline', 'review', 'settlement', 'volume'
+      ]);
+      const activeContextPacks = Number((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_creation_context_packs
+        WHERE owner_id=? AND book_id=? AND status='active'`).get(ownerId, bookId) as { count: number }).count);
+      const successfulContextCalls = Number((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_creation_model_calls
+        WHERE owner_id=? AND book_id=? AND run_kind='context' AND state='succeeded'`).get(ownerId, bookId) as { count: number }).count);
+      expect(successfulContextCalls).toBe(activeContextPacks);
       expect(context.database.prepare(`SELECT DISTINCT purpose FROM v7_creation_model_calls
         WHERE owner_id=? AND book_id=? AND run_kind='settlement'`).all(ownerId, bookId))
         .toEqual([{ purpose: 'novel_reviewer' }]);
@@ -1462,7 +1481,15 @@ function planningTree(treeKind: 'book' | 'volume' | 'chain', scopeId: string, ch
     });
     root.budget = { wordTarget: children.length * 20_000, chapterRange: [1, children.length * 6] };
   }
-  return { schema: 'v7-planning-tree-v1', treeKind, scopeId, title: root.title, root };
+  return {
+    schema: 'v7-planning-tree-v1', treeKind, scopeId, title: root.title,
+    designStrategy: {
+      libraryRefs: [],
+      originalStrategies: [{ title: '上层阶段推进', applicationNote: '用人物选择产生的后果连接相邻阶段。' }],
+      decisionNote: '上层只冻结责任与接口，下层按自己的尺度重新设计。'
+    },
+    root
+  };
 }
 
 function planningNode(
@@ -1475,7 +1502,7 @@ function planningNode(
     emotion: { publicSummary: '先承压再释放。', openingEmotion: '紧张', pressureMovement: '阻力逐步增强。', releaseEmotion: '目标达成后的释放。', intensity: 'strong' },
     experience: { publicSummary: '主角主动改变命运。', pressureRhythm: '逐步加压。', payoffCadence: '阶段内明确兑现。', informationRhythm: '按行动需要揭示。', contrastWithPrevious: '冲突形态发生变化。', designReason: '避免长篇重复。' },
     causality: { trigger: '处境逼迫主角行动。', causes: ['旧秩序形成阻力。'], coreConflict: '主角选择与旧规则冲突。', turningPoint: '主角承担风险。', consequences: ['获得位置，也面对更大责任。'] },
-    threads: { foreshadowing: [], openQuestions: ['下一步如何承担责任？'] },
+    threads: { foreshadowing: ['上层伏笔责任'], openQuestions: ['下一步如何承担责任？'] },
     budget: { wordTarget: kind === 'book' ? 3_000_000 : kind === 'volume' ? 360_000 : 20_000, chapterRange: null },
     linkedTree, children
   };

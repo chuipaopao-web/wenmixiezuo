@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import type { PlanningTreeDocument, PlanningTreeKind, V7ContextSourceTrace } from '@wenmi/v7-backend';
+import {
+  projectPlanningTreeForChild,
+  type PlanningTreeDocument,
+  type PlanningTreeKind,
+  type V7ContextSourceTrace
+} from '@wenmi/v7-backend';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { V7SettingLedgerReader, type V7CompactSettingLedger } from '../books/v7-setting-ledger-reader.js';
@@ -203,13 +208,14 @@ export class V7PlanningSourceCompiler {
       throw new DomainError(errorCodes.validation, '请先确认上一级规划，再设计这一层。', {}, false, 409);
     }
     if (parent !== undefined) {
+      const parentDocument = jsonObject(parent.content_json, '确认规划') as unknown as PlanningTreeDocument;
       sources.push({
         sourceKind: 'confirmed_tree',
         sourceId: parent.tree_version_id,
         sourceVersion: String(parent.revision),
         authority: 'formal',
         label: parent.tree_kind === 'book' ? '已确认全书方向' : '已确认本卷方向',
-        content: jsonObject(parent.content_json, '确认规划'),
+        content: projectPlanningTreeForChild(parentDocument, input.scopeId),
         contentHash: parent.content_hash,
         includedReason: '当前层必须承接这份已确认的上级方向。'
       });

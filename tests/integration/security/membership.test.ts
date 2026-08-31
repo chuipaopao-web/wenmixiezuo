@@ -77,7 +77,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       expect(denied.statusCode).toBe(403);
       const badPlan = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'lifetime' } });
       expect(badPlan.statusCode).toBe(400);
-      const missingUser = await app.inject({ method: 'POST', url: '/api/v1/admin/memberships/no-such-user', headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'silver' } });
+      const missingUser = await app.inject({ method: 'POST', url: '/api/v1/admin/memberships/no-such-user', headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'silver', idempotencyKey: 'membership-missing-0001' } });
       expect(missingUser.statusCode).toBe(404);
 
       // 注册即自动发放青铜体验（2026-08-20 起），无需管理员操作。
@@ -88,7 +88,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
         computeQuota: MEMBERSHIP_PLANS.bronze.tokenQuota, computeConsumed: 0, expired: false
       });
 
-      const grant = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'silver' } });
+      const grant = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'silver', idempotencyKey: 'membership-grant-0001' } });
       expect(grant.statusCode).toBe(200);
       expect(grant.json().data.membership).toMatchObject({
         plan: 'silver', planLabel: '白银会员', status: 'active',
@@ -96,7 +96,15 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
         computeRemaining: MEMBERSHIP_PLANS.silver.tokenQuota, expired: false
       });
 
-      const renew = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'diamond' } });
+      const grantReplay = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'silver', idempotencyKey: 'membership-grant-0001' } });
+      expect(grantReplay.statusCode).toBe(200);
+      expect(grantReplay.json().data.membership.periodEnd).toBe(grant.json().data.membership.periodEnd);
+      expect(context.database.prepare('SELECT COUNT(*) AS count FROM membership_transactions WHERE idempotency_key=?')
+        .get('membership-grant-0001')).toEqual({ count: 1 });
+      const grantKeyConflict = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'gold', idempotencyKey: 'membership-grant-0001' } });
+      expect(grantKeyConflict.statusCode).toBe(409);
+
+      const renew = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'diamond', idempotencyKey: 'membership-renew-0001' } });
       expect(renew.statusCode).toBe(200);
       expect(renew.json().data.membership).toMatchObject({ plan: 'diamond', planLabel: '钻石会员', computeQuota: MEMBERSHIP_PLANS.diamond.tokenQuota });
 
@@ -106,11 +114,13 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       expect(entries).toHaveLength(2);
       expect(entries.find((entry) => entry.userId === user.user_id)?.membership).toMatchObject({ plan: 'diamond' });
 
-      const revoke = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}/revoke`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: {} });
+      const revoke = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}/revoke`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { idempotencyKey: 'membership-revoke-0001' } });
       expect(revoke.statusCode).toBe(200);
       const revokedStatus = await app.inject({ method: 'GET', url: '/api/v1/membership/me', headers: { host: BROWSER_HEADERS.host, cookie: userCookie } });
       expect(revokedStatus.json().data).toEqual({ isAdmin: false, membership: null });
-      const revokeAgain = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}/revoke`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: {} });
+      const revokeReplay = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}/revoke`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { idempotencyKey: 'membership-revoke-0001' } });
+      expect(revokeReplay.statusCode).toBe(200);
+      const revokeAgain = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}/revoke`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { idempotencyKey: 'membership-revoke-0002' } });
       expect(revokeAgain.statusCode).toBe(409);
 
       const adminStatus = await app.inject({ method: 'GET', url: '/api/v1/membership/me', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
@@ -199,7 +209,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       const userCookie = cookieFrom(userRegister);
       const rows = accountRows(context.database);
       const user = rows.find((row) => row.email_normalized === 'writer@example.com')!;
-      const revokeBronze = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}/revoke`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: {} });
+      const revokeBronze = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}/revoke`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { idempotencyKey: 'membership-onboarding-revoke' } });
       expect(revokeBronze.statusCode).toBe(200);
       const manualBook = await app.inject({
         method: 'POST', url: '/api/v1/v7/opening-books', headers: { ...BROWSER_HEADERS, cookie: userCookie },
@@ -227,7 +237,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       expect(blocked.json().error.code).toBe('MEMBERSHIP_REQUIRED');
       expect(generate).not.toHaveBeenCalled();
 
-      const grant = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'silver' } });
+      const grant = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'silver', idempotencyKey: 'membership-onboarding-grant' } });
       expect(grant.statusCode).toBe(200);
       const allowed = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/title-designs`,

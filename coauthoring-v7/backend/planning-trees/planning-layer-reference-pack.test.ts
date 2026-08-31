@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildPlanningLayerReferencePack } from './planning-layer-reference-pack.js';
 import { parsePlanningTreeOutput } from './planning-tree-agent-runtime.js';
+import { projectPlanningTreeForChild } from './planning-tree-context-projection.js';
 
 describe('V7分层候选工具包', () => {
   it('全书不重复灌入剧情资产，卷和链只收到少量候选', () => {
@@ -87,6 +88,33 @@ describe('V7分层候选工具包', () => {
     expect(parsePlanningTreeOutput(
       JSON.stringify(document), 'chain', 'chain-1', buildPlanningLayerReferencePack('chain')
     ).root.emotion.intensity).toBe('从压抑逐步增强，到阶段回报时短暂释放');
+  });
+
+  it('下层只接收当前责任、相邻位置和上层方法/伏笔交接', () => {
+    const source = treeDocument();
+    const current = node('chain-1-node', 'chain', 1, null, []);
+    current.linkedTree = { treeKind: 'chain', scopeId: 'chain-1' } as any;
+    current.threads.foreshadowing = ['军粮旧账要在本链加深'];
+    const adjacent = node('chain-2-node', 'chain', 2, null, []);
+    adjacent.linkedTree = { treeKind: 'chain', scopeId: 'chain-2' } as any;
+    const parent = {
+      ...source,
+      treeKind: 'volume' as const,
+      scopeId: 'volume-1',
+      root: { ...source.root, kind: 'volume' as const, children: [current, adjacent] }
+    };
+    const projection = projectPlanningTreeForChild(parent as any, 'chain-1') as any;
+    expect(projection.designStrategy.originalStrategies[0].applicationNote).toContain('军营处境');
+    expect(projection.root.children[0]).toMatchObject({
+      title: 'chain-1-node',
+      experience: { payoffCadence: '链内兑现' },
+      threads: { foreshadowing: ['军粮旧账要在本链加深'] }
+    });
+    expect(projection.root.children[1]).toMatchObject({
+      title: 'chain-2-node',
+      story: { outcome: '局面改变。' }
+    });
+    expect(projection.root.children[1].threads).toBeUndefined();
   });
 });
 

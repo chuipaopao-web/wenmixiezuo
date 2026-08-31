@@ -167,6 +167,7 @@ export function CreationWorkspacePage({ bookId, focus, onNavigate }: {
     if (!['waiting', 'working'].includes(workflow.status) && workflow.execution.status !== 'active' && !pendingWriteBack) return;
     const timer = window.setInterval(() => {
       void fetchCreationWorkflow(bookId, workflow.workflowId).then((next) => {
+        setError(null);
         setWorkflow(next);
         if (next.stage === 'settlement') void fetchCreationWriteBack(bookId, next.workflowId).then(setWriteBack).catch(() => undefined);
       }).catch((reason: unknown) => setError(publicError(reason)));

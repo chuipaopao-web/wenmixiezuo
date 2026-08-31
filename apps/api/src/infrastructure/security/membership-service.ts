@@ -238,7 +238,7 @@ export class MembershipService {
     actorUserId: string,
     targetUserId: string,
     plan: MembershipPlan,
-    payment: { amountCashMicros?: number; note?: string } = {}
+    payment: { amountCashMicros?: number; note?: string; idempotencyKey?: string } = {}
   ): MembershipStatus {
     if (!isMembershipPlan(plan)) {
       throw new DomainError(errorCodes.validation, '请选择青铜、白银、黄金或钻石会员', {}, false, 400);
@@ -249,8 +249,30 @@ export class MembershipService {
     }
     const definition = MEMBERSHIP_PLANS[plan];
     const nowIso = this.clock.now().toISOString();
+    const amountCashMicros = payment.amountCashMicros ?? MEMBERSHIP_PLAN_PRICE_CASH_MICROS[plan];
+    if (!Number.isInteger(amountCashMicros) || amountCashMicros < 0 || amountCashMicros > 100_000_000_000) {
+      throw new DomainError(errorCodes.validation, '实收金额不正确', {}, false, 400);
+    }
+    const note = payment.note?.trim().slice(0, 500) ?? '';
+    const idempotencyKey = membershipActionKey(payment.idempotencyKey);
     this.database.exec('BEGIN IMMEDIATE');
     try {
+      if (idempotencyKey !== null) {
+        const replay = this.database.prepare(`
+          SELECT user_id,event_type,plan,amount_cash_micros,note FROM membership_transactions
+          WHERE actor_user_id=? AND idempotency_key=?
+        `).get(actorUserId, idempotencyKey) as {
+          user_id: string; event_type: string; plan: MembershipPlan; amount_cash_micros: number; note: string;
+        } | undefined;
+        if (replay !== undefined) {
+          if (replay.user_id !== target.user_id || replay.event_type === 'revoke' || replay.plan !== plan
+            || Number(replay.amount_cash_micros) !== amountCashMicros || replay.note !== note) {
+            throw new DomainError(errorCodes.validation, '本次会员办理编号已经用于另一项操作', {}, false, 409);
+          }
+          this.database.exec('COMMIT');
+          return this.statusForOwner(target.owner_id);
+        }
+      }
       // 续费顺延：已有生效会员的剩余天数保留，新周期从今天开始重新计量算力（配额按新套餐刷新），
       // 到期日从"剩余到期日或今天"往后加套餐月数，避免提前续费白白丢掉剩余时间。
       // 在事务内读取 existingActive，避免并发连续 grant 都基于旧 period_end 计算、丢失后一次顺延。
@@ -274,20 +296,16 @@ export class MembershipService {
           granted_by_user_id = excluded.granted_by_user_id,
           updated_at = excluded.updated_at
       `).run(target.user_id, target.owner_id, plan, definition.tokenQuota, nowIso, periodEnd, actorUserId, nowIso, nowIso);
-      const amountCashMicros = payment.amountCashMicros ?? MEMBERSHIP_PLAN_PRICE_CASH_MICROS[plan];
-      if (!Number.isInteger(amountCashMicros) || amountCashMicros < 0 || amountCashMicros > 100_000_000_000) {
-        throw new DomainError(errorCodes.validation, '实收金额不正确', {}, false, 400);
-      }
       const eventType = existingActive === undefined
         || (existingActive.plan === 'bronze' && plan !== 'bronze') ? 'grant' : 'renew';
       this.database.prepare(`
         INSERT INTO membership_transactions (
           transaction_id, user_id, owner_id, event_type, plan, amount_cash_micros,
-          period_start, period_end, actor_user_id, note, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          period_start, period_end, actor_user_id, note, created_at, idempotency_key
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         randomUUID(), target.user_id, target.owner_id, eventType, plan,
-        amountCashMicros, nowIso, periodEnd, actorUserId, payment.note?.trim().slice(0, 500) ?? '', nowIso
+        amountCashMicros, nowIso, periodEnd, actorUserId, note, nowIso, idempotencyKey
       );
       // 书籍预算上限跟随会员等级（算力值配额换算真实 token）：升级后立即解封，
       // 避免"会员还有额度、书籍预算却提前卡死"的双重限制（2026-08-20 老板指令：不要乱限制用户）。
@@ -306,30 +324,49 @@ export class MembershipService {
     return this.statusForOwner(target.owner_id);
   }
 
-  public revoke(actorUserId: string, targetUserId: string): void {
+  public revoke(actorUserId: string, targetUserId: string, idempotencyKeyValue?: string): void {
     const target = findAccountById(this.database, targetUserId);
     if (target === undefined) {
       throw new DomainError(errorCodes.validation, '目标账号不存在', {}, false, 404);
     }
     const nowIso = this.clock.now().toISOString();
-    const existing = this.database.prepare(`
-      SELECT plan, period_start, period_end FROM user_memberships WHERE user_id = ? AND status = 'active'
-    `).get(target.user_id) as { plan: MembershipPlan; period_start: string; period_end: string } | undefined;
-    const result = this.database.prepare(`
-      UPDATE user_memberships SET status = 'revoked', updated_at = ?
-      WHERE user_id = ? AND status = 'active'
-    `).run(nowIso, target.user_id);
-    if (result.changes !== 1) {
-      throw new DomainError(errorCodes.validation, '该账号当前没有生效的会员', {}, false, 409);
-    }
-    if (existing !== undefined) {
+    const idempotencyKey = membershipActionKey(idempotencyKeyValue);
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      if (idempotencyKey !== null) {
+        const replay = this.database.prepare(`
+          SELECT user_id,event_type FROM membership_transactions
+          WHERE actor_user_id=? AND idempotency_key=?
+        `).get(actorUserId, idempotencyKey) as { user_id: string; event_type: string } | undefined;
+        if (replay !== undefined) {
+          if (replay.user_id !== target.user_id || replay.event_type !== 'revoke') {
+            throw new DomainError(errorCodes.validation, '本次会员办理编号已经用于另一项操作', {}, false, 409);
+          }
+          this.database.exec('COMMIT');
+          return;
+        }
+      }
+      const existing = this.database.prepare(`
+        SELECT plan, period_start, period_end FROM user_memberships WHERE user_id = ? AND status = 'active'
+      `).get(target.user_id) as { plan: MembershipPlan; period_start: string; period_end: string } | undefined;
+      const result = this.database.prepare(`
+        UPDATE user_memberships SET status = 'revoked', updated_at = ?
+        WHERE user_id = ? AND status = 'active'
+      `).run(nowIso, target.user_id);
+      if (result.changes !== 1 || existing === undefined) {
+        throw new DomainError(errorCodes.validation, '该账号当前没有生效的会员', {}, false, 409);
+      }
       this.database.prepare(`
         INSERT INTO membership_transactions (
           transaction_id, user_id, owner_id, event_type, plan, amount_cash_micros,
-          period_start, period_end, actor_user_id, note, created_at
-        ) VALUES (?, ?, ?, 'revoke', ?, 0, ?, ?, ?, '', ?)
+          period_start, period_end, actor_user_id, note, created_at, idempotency_key
+        ) VALUES (?, ?, ?, 'revoke', ?, 0, ?, ?, ?, '', ?, ?)
       `).run(randomUUID(), target.user_id, target.owner_id, existing.plan, existing.period_start, existing.period_end,
-        actorUserId, nowIso);
+        actorUserId, nowIso, idempotencyKey);
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
     }
   }
 
@@ -393,4 +430,13 @@ export class MembershipService {
       total
     };
   }
+}
+
+function membershipActionKey(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  const normalized = value.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9:_-]{7,127}$/u.test(normalized)) {
+    throw new DomainError(errorCodes.validation, '会员办理编号无效，请刷新页面后重试', {}, false, 400);
+  }
+  return normalized;
 }

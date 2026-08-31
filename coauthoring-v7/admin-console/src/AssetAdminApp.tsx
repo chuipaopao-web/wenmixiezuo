@@ -72,9 +72,10 @@ const STRONG_PLANNING_SEATS = [
 ] as const;
 
 const CURRENT_PLANNING_FLOW = [
-  '系统先冻结作者确认资料和本节点目标，只编译当前层需要的最小资料，不把整本资料一次塞给成员。',
+  '每个新任务先由资料策划 Agent 理解本层目标，从作者确认资料中挑选最小必要范围，并签发本任务临时题材身份和候选方法。',
   '时光机由三名强模型主编读取同一资料范围，各自完成一套全案路线、设计理由、受众定位和卷数安排。',
-  '卷和链由三名强模型策划成员各自给出完整方案与理由，再由异模型主编比较差异、风险和推荐方向。',
+  '卷和链默认只请一名强模型成员设计；作者需要比较时才扩展到两套或三套，多方案时再由异模型主编独立点评。',
+  '同一方法可以跨全书、卷和链重复使用，但成员必须按当前层责任重新解释，并把钩子、伏笔和回收责任交给下层。',
   '作者只需要选择或提出调整；选中方案形成正式版本，未选方案保留审计但不污染正史。'
 ] as const;
 
@@ -334,18 +335,18 @@ function PlanningPage(): React.JSX.Element {
         <div><article><strong>系统负责</strong><ul><li>身份、权限和书籍隔离</li><li>版本、来源、幂等和格式校验</li><li>树结构、篇幅加总和审计记录</li></ul></article><article><strong>成员负责</strong><ul><li>理解作者意图和作品语义</li><li>判断方法相关性并提出创意</li><li>发现文学冲突、漂移和兑现风险</li></ul></article></div>
       </section>
       <section className="asset-panel planning-seat-panel">
-        <header><div><h2>三名强模型全案主编</h2><p>每人都要同时兼顾结构、商业、创意、人物和因果，不再拆成偏科临时席位。</p></div></header>
+        <header><div><h2>全书路线三席</h2><p>三席只用于全书路线独立比较；卷和链按作者需要生成一至三套，不强制每轮都跑三次。</p></div></header>
         <div>{STRONG_PLANNING_SEATS.map((seat) => <details key={seat.member}><summary><strong>{seat.member}</strong><span>{seat.model}</span></summary><h3>独立交付</h3><BulletList values={['完整全书粗路线与卷数安排', '商业受众、追读承诺与阶段回报', '人物选择、因果推进和作品辨识度', '本方案采用的方法及本书具体用法']} /><h3>共同边界</h3><BulletList values={['读取相同的冻结资料范围', '不查看另外两人的答案', '方法卡只是少量参考，允许提出本书临时方法', '未来细节保持粗粒度，不冒充已经发生']} /></details>)}</div>
       </section>
     </div>
 
     <section className="asset-panel planning-flow-panel">
-      <header><div><h2>协作与确认流程</h2><p>后台完整保留三套原始方案、比较理由和作者选择。</p></div></header>
+      <header><div><h2>协作与确认流程</h2><p>后台完整保留资料策划、实际方案数、比较理由和作者选择。</p></div></header>
       <ol>{CURRENT_PLANNING_FLOW.map((step, index) => <li key={step}><span>{index + 1}</span><p>{step}</p></li>)}</ol>
     </section>
 
     <section className="asset-panel planning-runtime-audit">
-      <header><div><h2>真实任务审计</h2><p>输入一次规划任务的范围，查看检索、三套组合、三条路线、主编点评、作者确认与模型交接。</p></div><span>只读</span></header>
+      <header><div><h2>全书路线审计</h2><p>输入一次全书路线任务的范围，查看候选方法、三席独立路线、主编点评、作者确认与失败交接。其他层级的资料包和临时身份在“创作运行”查看。</p></div><span>只读</span></header>
       <div className="planning-audit-form">
         <label><span>作者编号</span><input value={auditOwnerId} onChange={(event) => setAuditOwnerId(event.target.value)} /></label>
         <label><span>书籍编号</span><input value={auditBookId} onChange={(event) => setAuditBookId(event.target.value)} /></label>
@@ -356,7 +357,7 @@ function PlanningPage(): React.JSX.Element {
       {audit !== null && <div className="planning-runtime-result">
         <article><span>任务状态</span><strong>{audit.run.status}</strong><small>{audit.run.current_phase}</small></article>
         <article><span>检索席位</span><strong>{audit.methodSearches.length}</strong><small>{audit.methodSearches.map((item) => `${item.seat_key} ${item.candidates.length}项`).join(' · ')}</small></article>
-        <article><span>方法组合</span><strong>{audit.methodProposals.length}</strong><small>三套独立保存</small></article>
+        <article><span>方法组合</span><strong>{audit.methodProposals.length}</strong><small>{audit.methodProposals.length} 套独立保存</small></article>
         <article><span>故事路线</span><strong>{audit.storyRoutes.length}</strong><small>三名编剧独立保存</small></article>
         <article><span>主编点评</span><strong>{audit.routeReview === null ? '未完成' : '已完成'}</strong><small>不代替作者选择</small></article>
         <article><span>正式路线版本</span><strong>{audit.confirmedRoutes.filter((item) => item.lifecycle === 'confirmed').length}</strong><small>{audit.routeDecisions.at(-1)?.decision_kind ?? '尚未确认'}</small></article>

@@ -125,8 +125,8 @@ describe('V7 管理后台平台 API 适配', () => {
     await fetchPlatformUsers();
     await setPlatformUserStatus('user/1', 'suspended');
     await fetchMembershipUsers();
-    await grantMembership('user/1', { plan: 'gold', amountCny: 198, note: '线下转账' });
-    await revokeMembership('user/1');
+    await grantMembership('user/1', { plan: 'gold', amountCny: 198, note: '线下转账', idempotencyKey: 'membership-grant-0001' });
+    await revokeMembership('user/1', 'membership-revoke-0001');
     await updatePlatformIssue({ sourceType: 'feedback', sourceId: 'feedback/1' }, { status: 'resolved', severity: 'high', note: '已修复' });
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
@@ -141,10 +141,10 @@ describe('V7 管理后台平台 API 适配', () => {
       method: 'PATCH', credentials: 'include', body: JSON.stringify({ status: 'suspended' })
     }));
     expect(fetchMock.mock.calls[3]?.[1]).toEqual(expect.objectContaining({
-      method: 'POST', credentials: 'include', body: JSON.stringify({ plan: 'gold', amountCny: 198, note: '线下转账' })
+      method: 'POST', credentials: 'include', body: JSON.stringify({ plan: 'gold', amountCny: 198, note: '线下转账', idempotencyKey: 'membership-grant-0001' })
     }));
     expect(fetchMock.mock.calls[4]?.[1]).toEqual(expect.objectContaining({
-      method: 'POST', credentials: 'include', body: '{}'
+      method: 'POST', credentials: 'include', body: JSON.stringify({ idempotencyKey: 'membership-revoke-0001' })
     }));
     expect(fetchMock.mock.calls[5]?.[1]).toEqual(expect.objectContaining({
       method: 'PATCH', credentials: 'include', body: JSON.stringify({ status: 'resolved', severity: 'high', note: '已修复' })

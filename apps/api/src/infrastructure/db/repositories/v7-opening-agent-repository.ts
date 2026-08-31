@@ -118,7 +118,7 @@ export class V7OpeningAgentRepository implements OpeningAgentToolGateway {
     return this.database.prepare(`
       SELECT * FROM v7_opening_agent_tasks
       WHERE owner_id = ?
-        AND status NOT IN ('queued', 'working')
+        AND status IN ('failed', 'interrupted')
         AND COALESCE(error_code, '') <> 'archived_by_author'
       ORDER BY updated_at DESC, created_at DESC, task_id DESC
     `).all(ownerId) as unknown as V7OpeningTaskRow[];
