@@ -85,6 +85,7 @@
 - `POST /api/v1/v7/books/:bookId/planning-trees/:treeKind/:scopeId/confirm`
 - `POST /api/v1/v7/books/:bookId/planning-trees/:treeKind/:scopeId/generation-runs`
 - `GET /api/v1/v7/books/:bookId/planning-tree-generation-runs/:runId`
+- `POST /api/v1/v7/books/:bookId/planning-tree-generation-runs/:runId/retry`
 - `POST /api/v1/v7/books/:bookId/planning-tree-generation-runs/:runId/cancel`
 - `POST /api/v1/v7/books/:bookId/planning-routes/runs`
 - `GET /api/v1/v7/books/:bookId/planning-routes/runs/:runId`
@@ -93,6 +94,8 @@
 - `GET /api/v1/v7/books/:bookId/planning-adjustment-suggestions`
 - `POST /api/v1/v7/books/:bookId/planning-adjustment-suggestions/:suggestionId/decision`
 - `GET /api/v1/v7/planning-tasks`
+
+设定清单、全书路线和规划树的恢复统一区分“明确失败”与“结果未知”。明确失败只在原任务上续跑未完成步骤，复用冻结资料与已保存成果，并为模型调用建立新的技术尝试编号；结果未知只允许刷新核对，不得新建或重发任务。所有恢复端点继续校验会话中的 `owner_id + book_id`，不能跨书接管运行。
 
 ## 人物记忆
 

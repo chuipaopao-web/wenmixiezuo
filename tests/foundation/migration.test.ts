@@ -109,9 +109,18 @@ describe('向前迁移器', () => {
         '0101_unified_account_usage_projection.sql',
         '0102_v7_clean_cutover_guard.sql',
         '0103_membership_action_idempotency.sql',
-        '0104_v7_opening_idea_capacity.sql'
+        '0104_v7_opening_idea_capacity.sql',
+        '0105_v7_planning_generation_retries.sql'
       ]);
       expect(second.applied).toEqual([]);
+      expect(database.prepare(`SELECT name,"notnull" AS required,dflt_value AS defaultValue
+        FROM pragma_table_info('v7_planning_recipe_runs') WHERE name='retry_count'`).get()).toEqual({
+        name: 'retry_count', required: 1, defaultValue: '0'
+      });
+      expect(database.prepare(`SELECT name,"notnull" AS required,dflt_value AS defaultValue
+        FROM pragma_table_info('v7_planning_generation_runs') WHERE name='retry_count'`).get()).toEqual({
+        name: 'retry_count', required: 1, defaultValue: '0'
+      });
       expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
         'storyline_frontier_versions', 'storyline_open_questions_v6', 'storyline_growth_rounds_v6',
         'storyline_growth_candidates_v6', 'storyline_growth_decisions_v6', 'creative_template_versions_v6',

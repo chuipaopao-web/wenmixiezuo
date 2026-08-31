@@ -202,6 +202,19 @@ export class V7PlanningTreeGenerationService {
     return this.view(this.runtime.cancelGeneration(ownerId, bookId, run.generation_run_id, this.clock.now().toISOString()));
   }
 
+  public retry(ownerId: string, bookId: string, runId: string): V7PlanningTreeGenerationView {
+    const run = this.requireRun(ownerId, bookId, runId);
+    if (run.status === 'unknown' || this.runtime.modelCallsForRun(ownerId, bookId, runId)
+      .some((call) => call.state === 'unknown' || call.state === 'working')) {
+      throw conflict('这次结果还没有确认，为避免重复扣量不能重新发送。请先刷新查看结果。');
+    }
+    if (run.status !== 'failed') throw conflict('只有明确失败的规划树任务可以续跑。');
+    const retried = this.runtime.retryGeneration(ownerId, bookId, runId, this.clock.now().toISOString());
+    if (retried === undefined) throw conflict('任务状态已经变化，请刷新后重试。');
+    this.start(retried);
+    return this.view(retried);
+  }
+
   public adminRun(ownerId: string, bookId: string, runId: string): unknown {
     const run = this.requireRun(ownerId, bookId, runId);
     return {
@@ -279,10 +292,11 @@ export class V7PlanningTreeGenerationService {
         memberSnapshot: { ...roster, fallback: roster.fallback.map(memberSnapshot), stage: 'tree_design' },
         errorMessage: null, now: this.clock.now().toISOString()
       });
-      const requestId = `${run.generation_run_id}:tree:${index + 1}`;
+      const logicalTaskId = `${run.generation_run_id}:tree:${index + 1}`;
+      const attempt = this.modelAttempt(run, logicalTaskId);
       try {
         const result = await this.models.generate({
-          requestId, ownerId: run.owner_id, bookId: run.book_id, runId: run.generation_run_id,
+          ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.generation_run_id,
           runKind: 'tree', nodeKey: `${run.tree_kind}:${run.scope_id}`, member,
           taskKind: 'planning_tree',
           workstationKey: run.tree_kind === 'volume' ? 'volume' : run.tree_kind === 'chain' ? 'chain' : 'full_book_route',
@@ -291,18 +305,19 @@ export class V7PlanningTreeGenerationService {
           prompt, maxOutputTokens: treeOutputLimit(run.tree_kind), temperature: 0.66
         });
         this.ensureActive(run);
-        let acceptedRequestId = requestId;
+        let acceptedRequestId = result.requestId;
         let document: ReturnType<typeof parsePlanningTreeOutput>;
         try {
           document = parsePlanningTreeOutput(result.output, run.tree_kind, run.scope_id, referencePack);
         } catch (contractError) {
-          const repairRequestId = `${requestId}:repair`;
+          const repairLogicalTaskId = `${logicalTaskId}:repair`;
+          const repairAttempt = this.modelAttempt(run, repairLogicalTaskId);
           const repaired = await this.models.generate({
-            requestId: repairRequestId, ownerId: run.owner_id, bookId: run.book_id, runId: run.generation_run_id,
+            ...repairAttempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.generation_run_id,
             runKind: 'tree', nodeKey: `${run.tree_kind}:${run.scope_id}:repair`, member,
             taskKind: 'planning_tree',
             workstationKey: run.tree_kind === 'volume' ? 'volume' : run.tree_kind === 'chain' ? 'chain' : 'full_book_route',
-            operationMode: 'repair', basedOnTaskId: requestId, authorInstructionVersion: null,
+            operationMode: 'repair', basedOnTaskId: result.requestId, authorInstructionVersion: null,
             sourceTraces: planningSnapshotSourceTraces(focusedSnapshot),
             prompt: planningTreeRepairPrompt({
               treeKind: run.tree_kind,
@@ -314,7 +329,7 @@ export class V7PlanningTreeGenerationService {
           });
           this.ensureActive(run);
           document = parsePlanningTreeOutput(repaired.output, run.tree_kind, run.scope_id, referencePack);
-          acceptedRequestId = repairRequestId;
+          acceptedRequestId = repaired.requestId;
         }
         const stillActive = this.runtime.activeRecipe(run.owner_id, run.book_id, 'confirmed');
         const stillActiveRoute = this.runtime.activeRoute(run.owner_id, run.book_id, 'confirmed');
@@ -357,7 +372,8 @@ export class V7PlanningTreeGenerationService {
     if (roster.contextPlan !== undefined) return roster.contextPlan;
     const failures: string[] = [];
     for (const member of creationFallbackChain('context_editor', undefined, this.contextMembers())) {
-      const requestId = `${run.generation_run_id}:context:${member.memberKey}`;
+      const logicalTaskId = `${run.generation_run_id}:context:${member.memberKey}`;
+      const attempt = this.modelAttempt(run, logicalTaskId);
       roster = { ...roster, contextMember: member, stage: 'context_planning' };
       this.runtime.markGeneration({
         ownerId: run.owner_id, bookId: run.book_id, generationRunId: run.generation_run_id,
@@ -367,7 +383,7 @@ export class V7PlanningTreeGenerationService {
       try {
         this.ensureActive(run);
         const result = await this.models.generate({
-          requestId, ownerId: run.owner_id, bookId: run.book_id, runId: run.generation_run_id,
+          ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.generation_run_id,
           runKind: 'tree', nodeKey: 'context_plan', member,
           taskKind: 'planning_context', workstationKey: planningWorkstation(run.tree_kind),
           operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
@@ -409,6 +425,35 @@ export class V7PlanningTreeGenerationService {
       }
     }
     throw new Error(`资料策划没有完成。${failures.join('；')}`);
+  }
+
+  private modelAttempt(
+    run: V7PlanningGenerationRunRow,
+    logicalTaskId: string
+  ): { requestId: string; logicalTaskId?: string; technicalRetry?: true } {
+    let latest: ReturnType<V7PlanningRuntimeRepository['modelCall']> = undefined;
+    let latestAttempt = -1;
+    for (let attempt = 0; attempt <= run.retry_count; attempt += 1) {
+      const requestId = attempt === 0 ? logicalTaskId : `${logicalTaskId}:retry:${attempt}`;
+      const call = this.runtime.modelCall(requestId);
+      if (call !== undefined) {
+        latest = call;
+        latestAttempt = attempt;
+      }
+    }
+    if (latest?.state === 'succeeded') return { requestId: latest.request_id };
+    if (latest?.state === 'unknown' || latest?.state === 'working') {
+      throw new V7PlanningModelError('上一次调用结果尚未确认，已停止重复扣量。', true);
+    }
+    if (latest?.state === 'failed' && latestAttempt < run.retry_count) {
+      return {
+        requestId: `${logicalTaskId}:retry:${run.retry_count}`,
+        logicalTaskId,
+        technicalRetry: true
+      };
+    }
+    if (latest?.state === 'failed') return { requestId: latest.request_id };
+    return { requestId: logicalTaskId };
   }
 
   private requireRun(ownerId: string, bookId: string, runId: string): V7PlanningGenerationRunRow {

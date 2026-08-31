@@ -155,6 +155,13 @@ export async function registerV7PlanningTreeRoutes(
       return success(generation.cancel(ownerId, request.params.bookId, request.params.runId), request.id);
     }
   );
+  app.post<{ Params: { bookId: string; runId: string } }>(
+    '/api/v1/v7/books/:bookId/planning-tree-generation-runs/:runId/retry',
+    async (request) => {
+      const ownerId = scope(request, request.params.bookId);
+      return success(generation.retry(ownerId, request.params.bookId, request.params.runId), request.id);
+    }
+  );
   app.get<{ Params: TreeParams }>(
     '/api/v1/v7/books/:bookId/planning-trees/:treeKind/:scopeId/generation-runs/latest',
     async (request) => {

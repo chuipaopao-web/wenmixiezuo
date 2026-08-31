@@ -24,6 +24,7 @@ import {
   fetchPlanningTree,
   fetchPlanningTreeGeneration,
   retryMissingPlanningRoutes,
+  retryPlanningTreeGeneration,
   type PlanningRouteRunView,
   type PlanningMemberView,
   type PlanningAdjustmentSuggestionView,
@@ -57,21 +58,53 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setError(null);
-    const treeResult = await fetchPlanningTree(bookId, 'book', bookId, signal).catch((reason: unknown) => {
-      if (reason instanceof AuthorApiError && reason.status === 404) return null;
-      throw reason;
-    });
-    setTree(treeResult);
-    const [latestRoute, latestGeneration, roster, pendingSuggestions] = await Promise.all([
+    const [treeResult, routeResult, generationResult, rosterResult, suggestionsResult] = await Promise.allSettled([
+      fetchPlanningTree(bookId, 'book', bookId, signal),
       fetchLatestPlanningRouteRun(bookId, signal),
       fetchLatestPlanningTreeGeneration(bookId, 'book', bookId, signal),
       fetchPlanningMembers(signal),
       fetchPlanningAdjustmentSuggestions(bookId, signal)
     ]);
-    setRouteRun(latestRoute);
-    setGeneration(latestGeneration);
-    setMembers(uniqueByMemberKey(roster));
-    setSuggestions(pendingSuggestions);
+    if (Boolean(signal?.aborted)) return;
+
+    let coreError: string | null = null;
+    let loadedTree: PlanningTreeView | null = null;
+    if (treeResult.status === 'fulfilled') {
+      loadedTree = treeResult.value;
+      setTree(treeResult.value);
+    }
+    else if (treeResult.reason instanceof AuthorApiError && treeResult.reason.status === 404) setTree(null);
+    else {
+      setTree(null);
+      coreError = publicError(treeResult.reason);
+    }
+
+    if (routeResult.status === 'fulfilled') setRouteRun(routeResult.value);
+    else {
+      setRouteRun(null);
+      coreError ??= publicError(routeResult.reason);
+    }
+    if (generationResult.status === 'fulfilled') {
+      setGeneration(generationResult.value);
+      if (generationResult.value?.status === 'ready' && loadedTree === null) {
+        try {
+          loadedTree = await fetchPlanningTree(bookId, 'book', bookId, signal);
+          if (Boolean(signal?.aborted)) return;
+          setTree(loadedTree);
+        } catch (reason) {
+          if (!(reason instanceof AuthorApiError && reason.status === 404)) coreError ??= publicError(reason);
+        }
+      }
+    }
+    else {
+      setGeneration(null);
+      coreError ??= publicError(generationResult.reason);
+    }
+
+    // 成员名单和未来调整建议都是辅助信息；它们临时失败时，核心规划仍可自动安排并继续。
+    setMembers(rosterResult.status === 'fulfilled' ? uniqueByMemberKey(rosterResult.value) : []);
+    setSuggestions(suggestionsResult.status === 'fulfilled' ? suggestionsResult.value : []);
+    setError(coreError);
   }, [bookId]);
 
   useEffect(() => {
@@ -96,19 +129,22 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
     return () => window.clearInterval(timer);
   }, [bookId, routeRun]);
 
+  const applyGeneration = useCallback(async (next: PlanningTreeGenerationView): Promise<void> => {
+    setGeneration(next);
+    if (next.status !== 'ready') return;
+    setTree(await fetchPlanningTree(bookId, 'book', bookId));
+    setEditingDirection(false);
+  }, [bookId]);
+
   useEffect(() => {
     if (generation === null || !['waiting', 'working'].includes(generation.status)) return;
     const timer = window.setInterval(() => {
       void fetchPlanningTreeGeneration(bookId, generation.runId).then(async (next) => {
-        setGeneration(next);
-        if (next.status === 'ready') {
-          setTree(await fetchPlanningTree(bookId, 'book', bookId));
-          setEditingDirection(false);
-        }
+        await applyGeneration(next);
       }).catch((reason: unknown) => setError(publicError(reason)));
     }, 1_800);
     return () => window.clearInterval(timer);
-  }, [bookId, generation]);
+  }, [applyGeneration, bookId, generation]);
 
   const recommendedId = routeRun?.chiefReview?.recommendedRouteId ?? null;
   useEffect(() => {
@@ -135,9 +171,35 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
 
   const continueTree = async (): Promise<void> => {
     setBusy(true); setError(null);
-    try { setGeneration(await createPlanningTreeGeneration(bookId, 'book', bookId, treeMemberKey || undefined)); }
+    try { await applyGeneration(await createPlanningTreeGeneration(bookId, 'book', bookId, treeMemberKey || undefined)); }
     catch (reason) { setError(publicError(reason)); }
     finally { setBusy(false); }
+  };
+
+  const retryGeneration = async (): Promise<void> => {
+    if (generation?.status !== 'failed') return;
+    setBusy(true); setError(null);
+    try { await applyGeneration(await retryPlanningTreeGeneration(bookId, generation.runId)); }
+    catch (reason) { setError(publicError(reason)); }
+    finally { setBusy(false); }
+  };
+
+  const reconcileGeneration = async (): Promise<void> => {
+    if (generation?.status !== 'result_unknown') return;
+    setBusy(true); setError(null);
+    try { await applyGeneration(await fetchPlanningTreeGeneration(bookId, generation.runId)); }
+    catch (reason) { setError(publicError(reason)); }
+    finally { setBusy(false); }
+  };
+
+  const returnToBookDirection = (): void => {
+    setError(null);
+    setRouteRun(null);
+    setGeneration(null);
+    setSelectedRouteIds([]);
+    setMode('select');
+    setAuthorNote('');
+    setEditingDirection(true);
   };
 
   const submitDecision = async (): Promise<void> => {
@@ -198,8 +260,25 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
     if (!freshStart && generation !== null && ['waiting', 'working'].includes(generation.status)) {
       return <PlanningWaiting message={generation.message} state={generation.status === 'working' ? 'working' : 'waiting'} memberName={generation.member.name} memberKey={generation.member.memberKey} timing={generation.timing} busy={busy} onStop={stopGeneration} />;
     }
-    if (!freshStart && (generation?.status === 'failed' || generation?.status === 'result_unknown')) {
-      return <PlanningRecovery message={generation.message} busy={busy} onRetry={continueTree} />;
+    if (!freshStart && generation?.status === 'failed') {
+      return <PlanningRecovery
+        message={generation.errorMessage ?? generation.message}
+        busy={busy}
+        onRetry={retryGeneration}
+        action="继续未完成步骤"
+        onReturnDirection={returnToBookDirection}
+        {...(onOpenSettings === undefined ? {} : { onOpenSettings })}
+      />;
+    }
+    if (!freshStart && generation?.status === 'result_unknown') {
+      return <PlanningRecovery
+        message={generation.errorMessage ?? generation.message}
+        busy={busy}
+        onRetry={reconcileGeneration}
+        action="核对这次结果"
+        onReturnDirection={returnToBookDirection}
+        {...(onOpenSettings === undefined ? {} : { onOpenSettings })}
+      />;
     }
     if (!freshStart && routeRun !== null && routeRun.sourceIssues.length > 0) {
       return <PlanningSourceIssues run={routeRun} {...(onOpenSettings === undefined ? {} : { onOpenSettings })} />;
@@ -217,7 +296,14 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
       return <PlanningWaiting message={routeRun.message} state={routeRun.status === 'working' ? 'working' : 'waiting'} percent={routeRun.progress.percent} actors={routeRun.actors} timing={routeRun.timing} busy={busy} onStop={stopRoute} />;
     }
     if (!freshStart && routeRun?.status === 'failed') {
-      return <PlanningRecovery message={routeRun.errorMessage ?? routeRun.message} busy={busy} onRetry={startRoutes} action="重新规划全书" />;
+      return <PlanningRecovery
+        message={routeRun.errorMessage ?? routeRun.message}
+        busy={busy}
+        onRetry={retryMissingRoutes}
+        action="继续未完成步骤"
+        onReturnDirection={returnToBookDirection}
+        {...(onOpenSettings === undefined ? {} : { onOpenSettings })}
+      />;
     }
     if (!freshStart && routeRun?.status === 'completed') {
       return <TreeGenerationStart members={members} selectedMemberKey={treeMemberKey} busy={busy} onMember={setTreeMemberKey} onStart={continueTree} />;
@@ -237,7 +323,9 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
     || (routeRun !== null && ['waiting', 'working'].includes(routeRun.status))
     || (generation !== null && ['waiting', 'working'].includes(generation.status))
     || (editingDirection && routeRun !== null && routeRun.sourceIssues.length > 0)
-    || (editingDirection && (generation?.status === 'failed' || generation?.status === 'result_unknown'));
+    || routeRun?.status === 'failed'
+    || generation?.status === 'failed'
+    || generation?.status === 'result_unknown';
 
   return <section className="time-machine-surface" aria-label="时光机">
     <header className="time-machine-heading">
@@ -379,8 +467,20 @@ function TreeGenerationStart({ members, selectedMemberKey, busy, onMember, onSta
   </section>;
 }
 
-function PlanningRecovery({ message, busy, onRetry, action = '重新开始' }: { message: string; busy: boolean; onRetry: () => void; action?: string }): React.JSX.Element {
-  return <section className="planning-recovery-card"><p>{publicFailureCopy(message)}</p><button type="button" className="planning-primary" disabled={busy} onClick={onRetry}>{busy ? '正在处理…' : action}</button></section>;
+function PlanningRecovery({ message, busy, onRetry, onReturnDirection, onOpenSettings, action = '重新开始' }: {
+  message: string;
+  busy: boolean;
+  onRetry: () => void;
+  onReturnDirection: () => void;
+  onOpenSettings?: () => void;
+  action?: string;
+}): React.JSX.Element {
+  return <section className="planning-recovery-card">
+    <p>{publicFailureCopy(message)}</p>
+    <button type="button" className="planning-primary" disabled={busy} onClick={onRetry}>{busy ? '正在处理…' : action}</button>
+    <button type="button" className="planning-secondary" disabled={busy} onClick={onReturnDirection}>返回全书方向</button>
+    {onOpenSettings !== undefined && <button type="button" className="planning-secondary" disabled={busy} onClick={onOpenSettings}>返回设定修改</button>}
+  </section>;
 }
 
 function RouteChoicePanel({ run, mode, selectedRouteIds, authorNote, members, treeMemberKey, busy, onMode, onSelect, onNote, onTreeMember, onSubmit, onRetryMissing }: {

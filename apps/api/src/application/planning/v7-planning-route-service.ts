@@ -268,16 +268,21 @@ export class V7PlanningRouteService {
 
   public retryMissing(ownerId: string, bookId: string, runId: string): V7PlanningRouteRunView {
     const run = this.requireRun(ownerId, bookId, runId);
-    const expected = Math.max(1, storedRouteRoster(run).directChiefs.length);
+    if (checkpointSourceIssues(run.checkpoint_json).length > 0) {
+      throw conflict('请先统一主编指出的正式资料，再重新设计全书路线。');
+    }
+    const frozenRoster = storedRouteRoster(run);
+    const expected = Math.max(1, frozenRoster.directChiefs.length || frozenRoster.routeWriters.length || 3);
     const completed = this.repository.routeCandidates(ownerId, bookId, runId).length;
     const comparisonReady = expected === 1 || this.repository.routeReview(ownerId, bookId, runId) !== undefined;
     if (completed >= expected && comparisonReady) throw conflict('本轮路线已经可以选择，不需要补做。');
     if (run.status === 'cancelled' || run.status === 'completed') throw conflict('这项任务已经结束。');
-    this.repository.markRecipeRun({
-      ownerId, bookId, runId, status: 'queued', phase: 'route_design',
-      checkpoint: this.checkpoint(run), errorMessage: null, now: this.clock.now().toISOString()
-    });
-    const updated = this.requireRun(ownerId, bookId, runId);
+    if (this.repository.modelCallsForRun(ownerId, bookId, runId)
+      .some((call) => call.state === 'unknown' || call.state === 'working')) {
+      throw conflict('这次结果还没有确认，为避免重复扣量不能补做。请先刷新查看结果。');
+    }
+    const updated = this.repository.retryRecipeRun(ownerId, bookId, runId, this.clock.now().toISOString());
+    if (updated === undefined) throw conflict('任务状态已经变化，请刷新后重试。');
     this.start(updated);
     return this.view(updated);
   }
@@ -482,9 +487,10 @@ export class V7PlanningRouteService {
         const request = storedMethodSearchRequest(search);
         const focusedSnapshot = focusedPlanningSnapshot(snapshot, request);
         const candidates = JSON.parse(search.candidate_methods_json) as V7PlanningMethodCandidate[];
-        const requestId = `planning-route:${run.run_id}:direct:${seatKey}:${member.memberKey}`;
+        const logicalTaskId = `planning-route:${run.run_id}:direct:${seatKey}:${member.memberKey}`;
+        const attempt = this.modelAttempt(run, logicalTaskId);
         const result = await this.models.generate({
-          requestId, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
+          ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
           runKind: 'recipe', nodeKey: `direct_story_route:${seatKey}`, member,
           taskKind: 'planning_recipe', workstationKey: 'full_book_route',
           operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
@@ -503,6 +509,7 @@ export class V7PlanningRouteService {
         this.ensureActive(run);
         const sourceIssues = extractPlanningCriticalInputs(result.output);
         if (sourceIssues.length > 0) throw new PlanningSourceIssuesError(sourceIssues);
+        let acceptedRequestId = result.requestId;
         let direct: ReturnType<typeof parsePlanningRouteFusion>;
         try {
           direct = parsePlanningRouteFusion(
@@ -514,12 +521,13 @@ export class V7PlanningRouteService {
           validateProgressivePlanningBriefCandidates(direct.brief, candidates);
           validatePlanningRouteScale(direct.route, requirePlanningScaleProfile(snapshot));
         } catch (contractError) {
-          const repairRequestId = `${requestId}:repair`;
+          const repairLogicalTaskId = `${logicalTaskId}:repair`;
+          const repairAttempt = this.modelAttempt(run, repairLogicalTaskId);
           const repaired = await this.models.generate({
-            requestId: repairRequestId, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
+            ...repairAttempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
             runKind: 'recipe', nodeKey: `direct_story_route_repair:${seatKey}`, member,
             taskKind: 'planning_recipe', workstationKey: 'full_book_route',
-            operationMode: 'repair', basedOnTaskId: requestId, authorInstructionVersion: null,
+            operationMode: 'repair', basedOnTaskId: result.requestId, authorInstructionVersion: null,
             sourceTraces: planningSnapshotSourceTraces(focusedSnapshot),
             prompt: planningDirectStoryRouteRepairPrompt({
               sourceSnapshot: focusedSnapshot,
@@ -541,19 +549,20 @@ export class V7PlanningRouteService {
           );
           validateProgressivePlanningBriefCandidates(direct.brief, candidates);
           validatePlanningRouteScale(direct.route, requirePlanningScaleProfile(snapshot));
+          acceptedRequestId = repaired.requestId;
         }
         const proposalId = this.ids.next();
         this.repository.saveRecipeProposal({
           proposalId, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
           seatKey, memberKey: member.memberKey, memberSnapshot: memberSnapshot(member), sourceSnapshotId: run.snapshot_id,
           proposal: direct.brief, proposalHash: sha256(stableJson(direct.brief)), sourceProposalIds: [],
-          requestId, now: this.clock.now().toISOString()
+          requestId: acceptedRequestId, now: this.clock.now().toISOString()
         });
         this.repository.saveRouteCandidate({
           routeId: this.ids.next(), ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
           recipeProposalId: proposalId, methodSearchId: search.search_id,
           memberKey: member.memberKey, memberSnapshot: memberSnapshot(member), route: direct.route,
-          routeHash: sha256(stableJson(direct.route)), requestId, now: this.clock.now().toISOString()
+          routeHash: sha256(stableJson(direct.route)), requestId: acceptedRequestId, now: this.clock.now().toISOString()
         });
         return;
       } catch (error) {
@@ -573,11 +582,12 @@ export class V7PlanningRouteService {
     if (existing !== undefined) return existing;
     const failures: string[] = [];
     for (const member of creationFallbackChain('context_editor', undefined, this.contextMembers())) {
-      const requestId = `planning-route:${run.run_id}:context:${member.memberKey}`;
+      const logicalTaskId = `planning-route:${run.run_id}:context:${member.memberKey}`;
+      const attempt = this.modelAttempt(run, logicalTaskId);
       try {
         this.ensureActive(run);
         const result = await this.models.generate({
-          requestId, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
+          ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
           runKind: 'recipe', nodeKey: 'shared_context_plan', member,
           taskKind: 'planning_context', workstationKey: 'full_book_route',
           operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
@@ -607,7 +617,7 @@ export class V7PlanningRouteService {
           seatKey: 'chief_editor', memberKey: member.memberKey, memberSnapshot: memberSnapshot(member),
           sourceSnapshotId: run.snapshot_id, searchRequest: request, candidateMethods: retrieval.candidates,
           searchHash: sha256(stableJson(retrieval)), retrievalVersion: retrieval.retrievalVersion,
-          requestId, now: this.clock.now().toISOString()
+          requestId: result.requestId, now: this.clock.now().toISOString()
         });
       } catch (error) {
         if (error instanceof PlanningSourceIssuesError) throw error;
@@ -660,9 +670,10 @@ export class V7PlanningRouteService {
         let search = this.repository.methodSearchBySeat(run.owner_id, run.book_id, run.run_id, seatKey);
         let focusedSnapshot: V7PlanningCompiledSnapshot;
         if (search === undefined) {
-          const searchRequestId = `planning-route:${run.run_id}:search:${seatKey}:${member.memberKey}`;
+          const searchLogicalTaskId = `planning-route:${run.run_id}:search:${seatKey}:${member.memberKey}`;
+          const searchAttempt = this.modelAttempt(run, searchLogicalTaskId);
           const result = await this.models.generate({
-            requestId: searchRequestId, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
+            ...searchAttempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
             runKind: 'recipe', nodeKey: `method_search:${seatKey}`, member,
             taskKind: 'planning_recipe', workstationKey: 'full_book_route',
             operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
@@ -688,15 +699,16 @@ export class V7PlanningRouteService {
             searchId: this.ids.next(), ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
             seatKey, memberKey: member.memberKey, memberSnapshot: memberSnapshot(member), sourceSnapshotId: run.snapshot_id,
             searchRequest: request, candidateMethods: retrieval.candidates, searchHash: sha256(stableJson(retrieval)),
-            retrievalVersion: retrieval.retrievalVersion, requestId: searchRequestId, now: this.clock.now().toISOString()
+            retrievalVersion: retrieval.retrievalVersion, requestId: result.requestId, now: this.clock.now().toISOString()
           });
         } else {
           focusedSnapshot = focusedPlanningSnapshot(snapshot, storedMethodSearchRequest(search));
         }
         const candidates = JSON.parse(search.candidate_methods_json) as V7PlanningMethodCandidate[];
-        const requestId = `planning-route:${run.run_id}:method:${seatKey}:${member.memberKey}`;
+        const logicalTaskId = `planning-route:${run.run_id}:method:${seatKey}:${member.memberKey}`;
+        const attempt = this.modelAttempt(run, logicalTaskId);
         const result = await this.models.generate({
-          requestId, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
+          ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
           runKind: 'recipe', nodeKey: `method_proposal:${seatKey}`, member,
           taskKind: 'planning_recipe', workstationKey: 'full_book_route',
           operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
@@ -710,7 +722,7 @@ export class V7PlanningRouteService {
         this.repository.saveRecipeProposal({
           proposalId: this.ids.next(), ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
           seatKey, memberKey: member.memberKey, memberSnapshot: memberSnapshot(member), sourceSnapshotId: run.snapshot_id,
-          proposal, proposalHash: sha256(stableJson(proposal)), sourceProposalIds: [], requestId, now: this.clock.now().toISOString()
+          proposal, proposalHash: sha256(stableJson(proposal)), sourceProposalIds: [], requestId: result.requestId, now: this.clock.now().toISOString()
         });
         return;
       } catch (error) {
@@ -737,11 +749,12 @@ export class V7PlanningRouteService {
     const failures: string[] = [];
     for (const member of buildPlanningFallbackChain('planning_writer', { selectedMemberKey: preferred.memberKey, members: this.members() })) {
       if (methodMemberNames.has(member.displayName) || !this.reserveRouteMember(run, member.displayName)) continue;
-      const requestId = `planning-route:${run.run_id}:story:${proposalRow.proposal_id}:${member.memberKey}`;
+      const logicalTaskId = `planning-route:${run.run_id}:story:${proposalRow.proposal_id}:${member.memberKey}`;
+      const attempt = this.modelAttempt(run, logicalTaskId);
       try {
         this.ensureActive(run);
         const result = await this.models.generate({
-          requestId, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
+          ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
           runKind: 'recipe', nodeKey: `story_route:${seat}`, member,
           taskKind: 'planning_recipe', workstationKey: 'full_book_route',
           operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
@@ -756,7 +769,7 @@ export class V7PlanningRouteService {
           routeId: this.ids.next(), ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
           recipeProposalId: proposalRow.proposal_id, methodSearchId: search.search_id,
           memberKey: member.memberKey, memberSnapshot: memberSnapshot(member), route,
-          routeHash: sha256(stableJson(route)), requestId, now: this.clock.now().toISOString()
+          routeHash: sha256(stableJson(route)), requestId: result.requestId, now: this.clock.now().toISOString()
         });
         return;
       } catch (error) {
@@ -792,11 +805,12 @@ export class V7PlanningRouteService {
     }));
     const failures: string[] = [];
     for (const member of buildPlanningFallbackChain('chief_editor', { members: this.members() })) {
-      const requestId = `planning-route:${run.run_id}:review:${member.memberKey}`;
+      const logicalTaskId = `planning-route:${run.run_id}:review:${member.memberKey}`;
+      const attempt = this.modelAttempt(run, logicalTaskId);
       try {
         this.ensureActive(run);
         const result = await this.models.generate({
-          requestId, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
+          ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
           runKind: 'recipe', nodeKey: 'route_review', member,
           taskKind: 'planning_review', workstationKey: 'full_book_route',
           operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
@@ -809,7 +823,7 @@ export class V7PlanningRouteService {
         this.repository.saveRouteReview({
           reviewId: this.ids.next(), ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
           memberKey: member.memberKey, memberSnapshot: memberSnapshot(member), routeIds: routes.map((route) => route.route_id),
-          review, reviewHash: sha256(stableJson(review)), requestId, now: this.clock.now().toISOString()
+          review, reviewHash: sha256(stableJson(review)), requestId: result.requestId, now: this.clock.now().toISOString()
         });
         return;
       } catch (error) {
@@ -919,6 +933,35 @@ export class V7PlanningRouteService {
     };
   }
 
+  private modelAttempt(
+    run: V7PlanningRecipeRunRow,
+    logicalTaskId: string
+  ): { requestId: string; logicalTaskId?: string; technicalRetry?: true } {
+    let latest: ReturnType<V7PlanningRuntimeRepository['modelCall']> = undefined;
+    let latestAttempt = -1;
+    for (let attempt = 0; attempt <= run.retry_count; attempt += 1) {
+      const requestId = attempt === 0 ? logicalTaskId : `${logicalTaskId}:retry:${attempt}`;
+      const call = this.repository.modelCall(requestId);
+      if (call !== undefined) {
+        latest = call;
+        latestAttempt = attempt;
+      }
+    }
+    if (latest?.state === 'succeeded') return { requestId: latest.request_id };
+    if (latest?.state === 'unknown' || latest?.state === 'working') {
+      throw new V7PlanningModelError('上一次调用结果尚未确认，已停止重复扣量。', true);
+    }
+    if (latest?.state === 'failed' && latestAttempt < run.retry_count) {
+      return {
+        requestId: `${logicalTaskId}:retry:${run.retry_count}`,
+        logicalTaskId,
+        technicalRetry: true
+      };
+    }
+    if (latest?.state === 'failed') return { requestId: latest.request_id };
+    return { requestId: logicalTaskId };
+  }
+
   private ensureActive(run: V7PlanningRecipeRunRow): void {
     if (this.requireRun(run.owner_id, run.book_id, run.run_id).status === 'cancelled') {
       throw conflict('任务已停止，已经完成的内容仍然保留。');
@@ -935,7 +978,8 @@ export class V7PlanningRouteService {
     const reviewRow = this.repository.routeReview(run.owner_id, run.book_id, run.run_id);
     const review = reviewRow === undefined ? null : JSON.parse(reviewRow.review_json) as V7PlanningRouteReview;
     const sourceIssues = checkpointSourceIssues(run.checkpoint_json);
-    const expectedRoutes = Math.max(1, storedRouteRoster(run).directChiefs.length || 3);
+    const frozenRoster = storedRouteRoster(run);
+    const expectedRoutes = Math.max(1, frozenRoster.directChiefs.length || frozenRoster.routeWriters.length || 3);
     const total = expectedRoutes * 2 + (expectedRoutes >= 2 ? 1 : 0);
     const completed = Math.min(total, proposals.length + routes.length + (review === null ? 0 : 1));
     return {

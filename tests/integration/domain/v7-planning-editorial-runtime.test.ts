@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { ModelAdapter, ModelRequest, ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
+import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
@@ -123,6 +123,165 @@ describe('V7规划编辑部三席协作', () => {
     }
   });
 
+  it('规划树明确失败后在同一任务续跑，复用资料策划并拒绝重发未知结果', async () => {
+    context = createTestContext('wenmi-v7-planning-tree-retry-');
+    const resolver = new PlanningTreeRetryResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'planning-tree-retry@example.com', '规划树恢复作者');
+      const bookId = await createBook(app, cookie, '规划树恢复测试书');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      confirmSetting(ownerId, bookId);
+      const routeStarted = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs`, {
+        authorGoal: '设计一条可持续三百万字的历史成长路线。', candidateCount: 1,
+        idempotencyKey: 'planning-tree-retry-route-0001'
+      });
+      const routeRunId = routeStarted.json().data.runId as string;
+      const routeReady = await pollRouteRun(app, cookie, bookId, routeRunId);
+      expect(routeReady).toMatchObject({ status: 'waiting_for_you', canDecide: true });
+      const routeDecision = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-routes/runs/${routeRunId}/decision`, {
+          mode: 'select', routeIds: [routeReady.routes[0].routeId], authorNote: '',
+          idempotencyKey: 'planning-tree-retry-route-decision-0001'
+        });
+      expect(routeDecision.statusCode).toBe(200);
+
+      resolver.treeMode = 'known_failure';
+      const started = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-trees/book/${bookId}/generation-runs`, {
+          idempotencyKey: 'planning-tree-retry-generation-0001'
+        });
+      expect(started.statusCode).toBe(200);
+      const runId = started.json().data.runId as string;
+      const failed = await pollTreeRun(app, cookie, bookId, runId);
+      expect(failed).toMatchObject({ runId, status: 'failed' });
+      const before = context.database.prepare(`SELECT retry_count,member_snapshot_json FROM v7_planning_generation_runs
+        WHERE owner_id=? AND book_id=? AND generation_run_id=?`).get(ownerId, bookId, runId) as {
+          retry_count: number; member_snapshot_json: string;
+        };
+      expect(before.retry_count).toBe(0);
+      const contextPlanBefore = (JSON.parse(before.member_snapshot_json) as { contextPlan?: unknown }).contextPlan;
+      expect(contextPlanBefore).toBeDefined();
+      const contextCallsBefore = Number((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_model_calls
+        WHERE owner_id=? AND book_id=? AND run_id=? AND node_key='context_plan'`).get(ownerId, bookId, runId) as { count: number }).count);
+      const baseRequestId = `${runId}:tree:1`;
+      const baseCall = context.database.prepare(`SELECT prompt_hash,state FROM v7_planning_model_calls
+        WHERE request_id=?`).get(baseRequestId) as { prompt_hash: string; state: string };
+      expect(baseCall.state).toBe('failed');
+
+      const outsiderCookie = await register(app, 'planning-tree-retry-outsider@example.com', '其他作者');
+      const ownerBlocked = await request(app, outsiderCookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-tree-generation-runs/${runId}/retry`, {});
+      expect(ownerBlocked.statusCode).toBe(404);
+      const bookBlocked = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/not-this-book/planning-tree-generation-runs/${runId}/retry`, {});
+      expect(bookBlocked.statusCode).toBe(404);
+
+      resolver.treeMode = 'success';
+      const retried = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-tree-generation-runs/${runId}/retry`, {});
+      expect(retried.statusCode).toBe(200);
+      expect(retried.json().data).toMatchObject({ runId });
+      const ready = await pollTreeRun(app, cookie, bookId, runId);
+      expect(ready).toMatchObject({ runId, status: 'ready', canOpenCandidate: true });
+      const after = context.database.prepare(`SELECT retry_count,member_snapshot_json FROM v7_planning_generation_runs
+        WHERE owner_id=? AND book_id=? AND generation_run_id=?`).get(ownerId, bookId, runId) as {
+          retry_count: number; member_snapshot_json: string;
+        };
+      expect(after.retry_count).toBe(1);
+      expect((JSON.parse(after.member_snapshot_json) as { contextPlan?: unknown }).contextPlan).toEqual(contextPlanBefore);
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_model_calls
+        WHERE owner_id=? AND book_id=? AND run_id=? AND node_key='context_plan'`).get(ownerId, bookId, runId) as { count: number }).count)
+        .toBe(contextCallsBefore);
+      const retryCall = context.database.prepare(`SELECT prompt_hash,state FROM v7_planning_model_calls
+        WHERE request_id=?`).get(`${baseRequestId}:retry:1`) as { prompt_hash: string; state: string };
+      expect(retryCall).toEqual({ prompt_hash: baseCall.prompt_hash, state: 'succeeded' });
+
+      resolver.treeMode = 'unknown';
+      const unknownStarted = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-trees/book/${bookId}/generation-runs`, {
+          idempotencyKey: 'planning-tree-unknown-generation-0001'
+        });
+      const unknownRunId = unknownStarted.json().data.runId as string;
+      const unknown = await pollTreeRun(app, cookie, bookId, unknownRunId);
+      expect(unknown).toMatchObject({ runId: unknownRunId, status: 'result_unknown' });
+      const callsBeforeUnknownRetry = resolver.requestIds.length;
+      const rejectedRetry = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-tree-generation-runs/${unknownRunId}/retry`, {});
+      expect(rejectedRetry.statusCode).toBe(409);
+      expect(JSON.stringify(rejectedRetry.json())).toContain('避免重复扣量');
+      expect(resolver.requestIds).toHaveLength(callsBeforeUnknownRetry);
+      const repeatedUnknown = await request(app, cookie, 'GET',
+        `/api/v1/v7/books/${bookId}/planning-tree-generation-runs/${unknownRunId}`);
+      expect(repeatedUnknown.json().data.status).toBe('result_unknown');
+      expect(resolver.requestIds).toHaveLength(callsBeforeUnknownRetry);
+      context.database.prepare(`UPDATE v7_planning_generation_runs SET status='failed'
+        WHERE owner_id=? AND book_id=? AND generation_run_id=?`).run(ownerId, bookId, unknownRunId);
+      context.database.prepare(`UPDATE v7_planning_model_calls SET state='working'
+        WHERE owner_id=? AND book_id=? AND run_id=? AND state='unknown'`).run(ownerId, bookId, unknownRunId);
+      const workingRejected = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-tree-generation-runs/${unknownRunId}/retry`, {});
+      expect(workingRejected.statusCode).toBe(409);
+      expect(resolver.requestIds).toHaveLength(callsBeforeUnknownRetry);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('全书路线只补明确失败的席位，不重做已保存路线且使用新尝试编号', async () => {
+    context = createTestContext('wenmi-v7-planning-route-retry-');
+    const resolver = new PlanningRouteRetryResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'planning-route-retry@example.com', '路线恢复作者');
+      const bookId = await createBook(app, cookie, '路线恢复测试书');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      confirmSetting(ownerId, bookId);
+      const started = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs`, {
+        authorGoal: '请两位主编独立设计长期路线。', candidateCount: 2,
+        idempotencyKey: 'planning-route-retry-run-0001'
+      });
+      const runId = started.json().data.runId as string;
+      const partial = await pollRouteRun(app, cookie, bookId, runId);
+      expect(partial.routes).toHaveLength(1);
+      expect(partial.message).toContain('只补失败路线');
+      const preservedRouteId = partial.routes[0].routeId as string;
+      expect((context.database.prepare(`SELECT retry_count FROM v7_planning_recipe_runs
+        WHERE owner_id=? AND book_id=? AND run_id=?`).get(ownerId, bookId, runId) as { retry_count: number }).retry_count).toBe(0);
+      const firstSeatCalls = Number((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_model_calls
+        WHERE owner_id=? AND book_id=? AND run_id=? AND node_key='direct_story_route:chief_editor'`)
+        .get(ownerId, bookId, runId) as { count: number }).count);
+      const failedCall = context.database.prepare(`SELECT request_id,prompt_hash FROM v7_planning_model_calls
+        WHERE owner_id=? AND book_id=? AND run_id=? AND node_key='direct_story_route:structure_deputy' AND state='failed'
+        ORDER BY started_at,request_id LIMIT 1`).get(ownerId, bookId, runId) as { request_id: string; prompt_hash: string };
+      expect(failedCall.request_id).not.toContain(':retry:');
+
+      resolver.allowMissingRoute = true;
+      const retried = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}/retry-missing`, {});
+      expect(retried.statusCode).toBe(200);
+      expect(retried.json().data.runId).toBe(runId);
+      const ready = await pollRouteRun(app, cookie, bookId, runId);
+      expect(ready).toMatchObject({ status: 'waiting_for_you', canDecide: true });
+      expect(ready.routes).toHaveLength(2);
+      expect(ready.routes.some((route: { routeId: string }) => route.routeId === preservedRouteId)).toBe(true);
+      expect((context.database.prepare(`SELECT retry_count FROM v7_planning_recipe_runs
+        WHERE owner_id=? AND book_id=? AND run_id=?`).get(ownerId, bookId, runId) as { retry_count: number }).retry_count).toBe(1);
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_model_calls
+        WHERE owner_id=? AND book_id=? AND run_id=? AND node_key='direct_story_route:chief_editor'`)
+        .get(ownerId, bookId, runId) as { count: number }).count).toBe(firstSeatCalls);
+      const retryCall = context.database.prepare(`SELECT prompt_hash,state FROM v7_planning_model_calls
+        WHERE request_id=?`).get(`${failedCall.request_id}:retry:1`) as { prompt_hash: string; state: string };
+      expect(retryCall).toEqual({ prompt_hash: failedCall.prompt_hash, state: 'succeeded' });
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_route_candidates
+        WHERE owner_id=? AND book_id=? AND run_id=?`).get(ownerId, bookId, runId) as { count: number }).count).toBe(2);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('主编发现正式资料冲突后等待作者处理，不把语义决定误当成员失败反复交接', async () => {
     context = createTestContext('wenmi-v7-planning-source-issues-');
     const resolver = new SourceIssuePlanningResolver();
@@ -151,6 +310,10 @@ describe('V7规划编辑部三席协作', () => {
         WHERE owner_id=? AND book_id=? AND run_id=?`).get(ownerId, bookId, runId)).toEqual({ count: 0 });
       const refreshed = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}`);
       expect(refreshed.json().data.sourceIssues).toEqual(waiting.sourceIssues);
+      expect(resolver.calls).toBe(1);
+      const blindRetry = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}/retry-missing`, {});
+      expect(blindRetry.statusCode).toBe(409);
       expect(resolver.calls).toBe(1);
       const tasks = await request(app, cookie, 'GET', '/api/v1/v7/planning-tasks?limit=10');
       expect(tasks.json().data).toEqual(expect.arrayContaining([
@@ -811,6 +974,63 @@ class RetryPlanningMaintenanceResolver implements V7OpeningModelAdapterResolver 
   }
 }
 
+class PlanningTreeRetryResolver implements V7OpeningModelAdapterResolver {
+  public treeMode: 'success' | 'known_failure' | 'unknown' = 'success';
+  public readonly requestIds: string[] = [];
+  public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
+    return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      this.requestIds.push(request.requestId);
+      const prompt = stageTaskPrompt(request.prompt);
+      if (prompt.includes('PlanningTreeDocument')) {
+        if (this.treeMode === 'known_failure') throw new Error('模拟规划树成员明确失败');
+        if (this.treeMode === 'unknown') {
+          throw new ModelAdapterError('模拟网络中断且结果未知', 'technical_failure', true, undefined, true);
+        }
+      }
+      return {
+        provider, modelId, output: successfulPlanningOutput(prompt), inputTokens: 120, outputTokens: 600,
+        cashCostCny: 0, state: 'succeeded'
+      };
+    } };
+  }
+}
+
+class PlanningRouteRetryResolver implements V7OpeningModelAdapterResolver {
+  public allowMissingRoute = false;
+  public readonly requestIds: string[] = [];
+  public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
+    return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      this.requestIds.push(request.requestId);
+      const prompt = stageTaskPrompt(request.prompt);
+      const secondRoute = prompt.includes('"seatKey":"structure_deputy"')
+        || prompt.includes('第二套') || prompt.includes('路线二');
+      if (prompt.includes('v7-planning-route-fusion-v2') && secondRoute && !this.allowMissingRoute) {
+        throw new Error('模拟第二席路线明确失败');
+      }
+      return {
+        provider, modelId, output: successfulPlanningOutput(prompt), inputTokens: 120, outputTokens: 600,
+        cashCostCny: 0, state: 'succeeded'
+      };
+    } };
+  }
+}
+
+function successfulPlanningOutput(prompt: string): string {
+  return prompt.includes('v7-planning-method-search-v1')
+    ? methodSearchOutput(prompt)
+    : prompt.includes('v7-planning-route-fusion-v2')
+      ? routeFusionOutput(prompt)
+      : prompt.includes('v7-planning-route-review-v1')
+        ? routeReviewOutput(prompt)
+        : prompt.includes('PlanningTreeDocument')
+          ? planningTreeOutput(prompt)
+          : prompt.includes('v7-planning-story-route-v1')
+            ? storyRouteOutput(prompt)
+            : prompt.includes('v7-progressive-planning-brief-v2')
+              ? progressiveBriefOutput(prompt)
+              : proposalOutput(prompt);
+}
+
 function stageTaskPrompt(compiledPrompt: string): string {
   try {
     const manifest = JSON.parse(compiledPrompt) as {
@@ -1244,6 +1464,23 @@ async function generateTree(
   const runId = started.json().data.runId as string;
   for (let index = 0; index < 160; index += 1) {
     const response = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/planning-tree-generation-runs/${runId}`);
+    expect(response.statusCode).toBe(200);
+    const view = response.json().data;
+    if (!['waiting', 'working'].includes(view.status)) return view;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error('规划树任务未按时完成');
+}
+
+async function pollTreeRun(
+  app: Awaited<ReturnType<typeof createServer>>,
+  cookie: string,
+  bookId: string,
+  runId: string
+): Promise<any> {
+  for (let index = 0; index < 160; index += 1) {
+    const response = await request(app, cookie, 'GET',
+      `/api/v1/v7/books/${bookId}/planning-tree-generation-runs/${runId}`);
     expect(response.statusCode).toBe(200);
     const view = response.json().data;
     if (!['waiting', 'working'].includes(view.status)) return view;

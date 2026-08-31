@@ -240,6 +240,20 @@ export class V7SettingEditorialService {
     if (row.status !== 'partially_failed') {
       throw new DomainError(errorCodes.validation, '当前设定清单不需要继续整理。', {}, false, 409);
     }
+    const unknown = this.repository.latestModelOutcomeForBatch(ownerId, bookId, taskId, ['unknown']);
+    if (unknown !== undefined) {
+      throw new DomainError(
+        errorCodes.validation,
+        '上次整理结果还不能确认，不能盲目重试。请先刷新页面核对结果。',
+        {},
+        false,
+        409
+      );
+    }
+    const failed = this.repository.latestModelOutcomeForBatch(ownerId, bookId, taskId, ['failed']);
+    if (failed === undefined) {
+      throw new DomainError(errorCodes.validation, '没有找到可以继续的已知失败调用。', {}, false, 409);
+    }
     const chief = openingChiefTaskSnapshot(row.roster_json)[0];
     if (chief === undefined) throw new DomainError(errorCodes.validation, '本轮主编资料不完整，无法继续整理。', {}, false, 409);
     const state: RecommendationState = {
@@ -782,12 +796,24 @@ export class V7SettingEditorialService {
         catalog,
         memberInstruction: ''
       });
+      const failedAttempt = this.repository.latestModelOutcomeForJob(
+        task.owner_id,
+        task.book_id,
+        task.batch_id,
+        '__setting_catalog__',
+        ['failed']
+      );
+      const technicalRetryTaskId = failedAttempt?.node_key === 'catalog_recommendation'
+        && failedAttempt.member_key === chief.memberKey
+        ? failedAttempt.logical_task_id
+        : null;
       const output = await this.model(
         task.owner_id, task.book_id, task.batch_id, '__setting_catalog__', 'catalog_recommendation',
         chief, prompt, 4_000, 0.25, `${task.batch_id}-catalog-chief-${chief.memberKey}`,
         settingModelInvocation({
-          taskKind: 'setting_recommendation', operationMode: 'fresh',
-          sourceTraces: [openingProfileSourceTrace(task.owner_id, task.book_id, profile)]
+          taskKind: 'setting_recommendation', operationMode: technicalRetryTaskId === null ? 'fresh' : 'retry',
+          sourceTraces: [openingProfileSourceTrace(task.owner_id, task.book_id, profile)],
+          technicalRetryTaskId
         })
       );
       state = {
@@ -829,7 +855,13 @@ export class V7SettingEditorialService {
       this.recommendationEvent(task, chief, 'complete', `${chief.displayName}已经完成设定清单`);
     } catch (error) {
       this.recommendationEvent(task, chief, 'leave', `${chief.displayName}这次没有完成设定清单`, undefined, error);
-      const failed = failedRecommendationState(state, `对不起，${chief.displayName}这次没有完成设定清单。资料没有丢失，您可以重新整理。`);
+      const unknown = settingOutcomeUnknown(error);
+      const failed = failedRecommendationState(
+        state,
+        unknown
+          ? `对不起，${chief.displayName}上次整理的结果还不能确认。资料没有丢失，请先刷新页面核对结果。`
+          : `对不起，${chief.displayName}这次没有完成设定清单。资料没有丢失，您可以重新整理。`
+      );
       this.repository.failRecommendation({
         ownerId: task.owner_id,
         bookId: task.book_id,
@@ -857,6 +889,9 @@ export class V7SettingEditorialService {
         : row.status === 'queued'
           ? 'queued'
           : 'working';
+    const latestFailure = status === 'failed' && !stale
+      ? this.repository.latestModelOutcomeForBatch(row.owner_id, row.book_id, row.batch_id, ['failed', 'unknown'])
+      : undefined;
     return {
       taskId: row.batch_id,
       status,
@@ -867,7 +902,7 @@ export class V7SettingEditorialService {
       member: member === null ? null : { memberKey: member.memberKey, displayName: member.displayName },
       attemptedMembers: state.attemptedMemberKeys.map((key) => lookup.get(key)).filter((item): item is V7OpeningMemberDefinition => item !== undefined).map((item) => ({ memberKey: item.memberKey, displayName: item.displayName })),
       result: stale ? null : result,
-      retryable: !stale && status === 'failed',
+      retryable: !stale && status === 'failed' && latestFailure?.state === 'failed',
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };
@@ -1623,16 +1658,28 @@ export class V7SettingEditorialService {
       suggestedPrimaryKey,
       suggestedSupportingKeys: suggestedSupporting.map((asset) => String((asset.content as V7GenrePersonaContent).genreKey))
     });
+    const failedAttempt = this.repository.latestModelOutcomeForJob(
+      ownerId,
+      bookId,
+      parentTaskId,
+      '__genre_profile__',
+      ['failed']
+    );
+    const technicalRetryTaskId = failedAttempt?.node_key === 'genre_profile'
+      && failedAttempt.member_key === deputy.memberKey
+      ? failedAttempt.logical_task_id
+      : null;
     const raw = await this.model(
       ownerId, bookId, parentTaskId, '__genre_profile__', 'genre_profile', deputy, prompt, 2_200, 0.25, requestId,
       settingModelInvocation({
-        taskKind: 'planning_context', operationMode: contract.operationMode,
+        taskKind: 'planning_context', operationMode: technicalRetryTaskId === null ? contract.operationMode : 'retry',
         lineage: {
           operationMode: contract.operationMode,
           basedOnTaskId: contract.basedOnTaskId,
           authorInstructionVersion: contract.authorInstructionVersion
         },
-        sourceTraces: [openingProfileSourceTrace(ownerId, bookId, profile), ...genreAssetSourceTraces(ownerId, bookId, genreAssets)]
+        sourceTraces: [openingProfileSourceTrace(ownerId, bookId, profile), ...genreAssetSourceTraces(ownerId, bookId, genreAssets)],
+        technicalRetryTaskId
       })
     );
     const parsed = parseStructuredObject(raw, '题材工作档案');

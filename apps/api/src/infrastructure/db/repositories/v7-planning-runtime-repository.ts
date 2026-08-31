@@ -73,6 +73,7 @@ export interface V7PlanningRecipeRunRow {
   lease_expires_at: string | null;
   error_message: string | null;
   checkpoint_json: string;
+  retry_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -188,6 +189,7 @@ export interface V7PlanningGenerationRunRow {
   request_id: string | null;
   candidate_tree_version_id: string | null;
   error_message: string | null;
+  retry_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -470,6 +472,22 @@ export class V7PlanningRuntimeRepository {
       .run(input.status, input.phase, JSON.stringify(input.checkpoint ?? {}), input.errorMessage ?? null,
         input.now, input.ownerId, input.bookId, input.runId);
     if (result.changes !== 1) throw new Error('规划配方任务状态更新失败');
+  }
+
+  public retryRecipeRun(
+    ownerId: string,
+    bookId: string,
+    runId: string,
+    now: string
+  ): V7PlanningRecipeRunRow | undefined {
+    const result = this.database.prepare(`UPDATE v7_planning_recipe_runs
+      SET status='queued',current_phase='route_design',retry_count=retry_count+1,
+        error_message=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=?
+      WHERE owner_id=? AND book_id=? AND run_id=?
+        AND status IN ('failed','partially_failed','awaiting_author')`)
+      .run(now, ownerId, bookId, runId);
+    if (result.changes !== 1) return undefined;
+    return this.recipeRun(ownerId, bookId, runId);
   }
 
   public recipeProposals(ownerId: string, bookId: string, runId: string): V7PlanningRecipeProposalRow[] {
@@ -859,6 +877,20 @@ export class V7PlanningRuntimeRepository {
       input.memberSnapshot === undefined ? current.member_snapshot_json : JSON.stringify(input.memberSnapshot),
       input.errorMessage ?? null, input.now, input.ownerId, input.bookId, input.generationRunId
     );
+  }
+
+  public retryGeneration(
+    ownerId: string,
+    bookId: string,
+    generationRunId: string,
+    now: string
+  ): V7PlanningGenerationRunRow | undefined {
+    const result = this.database.prepare(`UPDATE v7_planning_generation_runs
+      SET status='queued',retry_count=retry_count+1,request_id=NULL,error_message=NULL,updated_at=?
+      WHERE owner_id=? AND book_id=? AND generation_run_id=? AND status='failed'`)
+      .run(now, ownerId, bookId, generationRunId);
+    if (result.changes !== 1) return undefined;
+    return this.generation(ownerId, bookId, generationRunId);
   }
 
   public maintenanceBySource(

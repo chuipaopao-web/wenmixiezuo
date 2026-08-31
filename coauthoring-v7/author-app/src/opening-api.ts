@@ -1007,6 +1007,12 @@ export function fetchPlanningTreeGeneration(bookId: string, runId: string, signa
   return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/planning-tree-generation-runs/${encodeURIComponent(runId)}`, signal === undefined ? undefined : { signal });
 }
 
+export function retryPlanningTreeGeneration(bookId: string, runId: string): Promise<PlanningTreeGenerationView> {
+  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/planning-tree-generation-runs/${encodeURIComponent(runId)}/retry`, {
+    method: 'POST', body: JSON.stringify({})
+  });
+}
+
 export function cancelPlanningTreeGeneration(bookId: string, runId: string): Promise<PlanningTreeGenerationView> {
   return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/planning-tree-generation-runs/${encodeURIComponent(runId)}/cancel`, {
     method: 'POST', body: JSON.stringify({})

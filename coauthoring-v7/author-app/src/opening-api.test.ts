@@ -5,7 +5,8 @@ import {
   createSettingFinalReview,
   createSettingRecommendation,
   fetchPlanningTasks,
-  fetchSettingDepartment
+  fetchSettingDepartment,
+  retryPlanningTreeGeneration
 } from './opening-api';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -75,4 +76,23 @@ it('所有作者接口遇到 401 都通知 V7 账号门禁接管', async () => {
   } finally {
     window.removeEventListener(AUTHOR_AUTHENTICATION_REQUIRED_EVENT, listener);
   }
+});
+
+it('框架失败恢复调用原运行的续跑接口，不创建新的生成任务', async () => {
+  const view = {
+    runId: 'generation-1', treeKind: 'book', scopeId: 'book-1', status: 'working',
+    message: '正在继续未完成步骤。', member: { memberKey: 'planner-1', name: '幼薇' },
+    candidateTreeVersionId: null, canOpenCandidate: false, errorMessage: null
+  };
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: view }), {
+    status: 200, headers: { 'content-type': 'application/json' }
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await expect(retryPlanningTreeGeneration('book-1', 'generation-1')).resolves.toEqual(view);
+
+  expect(fetchMock).toHaveBeenCalledWith(
+    '/api/v1/v7/books/book-1/planning-tree-generation-runs/generation-1/retry',
+    expect.objectContaining({ method: 'POST', body: '{}', credentials: 'include' })
+  );
 });

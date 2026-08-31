@@ -9,9 +9,9 @@ vi.mock('./opening-api', async (importOriginal) => {
   return {
     ...actual,
     fetchPlanningTree: vi.fn(), fetchLatestPlanningRouteRun: vi.fn(), fetchLatestPlanningTreeGeneration: vi.fn(), fetchPlanningMembers: vi.fn(), fetchPlanningAdjustmentSuggestions: vi.fn(),
-    createPlanningRouteRun: vi.fn(), fetchPlanningRouteRun: vi.fn(), decidePlanningRoute: vi.fn(),
+    createPlanningRouteRun: vi.fn(), retryMissingPlanningRoutes: vi.fn(), fetchPlanningRouteRun: vi.fn(), decidePlanningRoute: vi.fn(),
     createPlanningTreeGeneration: vi.fn(), fetchPlanningTreeGeneration: vi.fn(), confirmPlanningTree: vi.fn(),
-    cancelPlanningRouteRun: vi.fn(), cancelPlanningTreeGeneration: vi.fn()
+    retryPlanningTreeGeneration: vi.fn(), cancelPlanningRouteRun: vi.fn(), cancelPlanningTreeGeneration: vi.fn()
   };
 });
 
@@ -73,6 +73,32 @@ describe('V7时光机真实规划闭环', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('暂时连接不上文秘写作服务');
   });
 
+  it('成员名单或未来建议暂时失败时，仍能进入全书方向主流程', async () => {
+    mocked.fetchPlanningMembers.mockRejectedValue(new api.AuthorApiError('成员名单暂时不可用', true, 503));
+    mocked.fetchPlanningAdjustmentSuggestions.mockRejectedValue(new api.AuthorApiError('建议暂时不可用', true, 503));
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByRole('heading', { name: '先准备全书方向' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '开始规划全书' })).toBeEnabled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('刷新时任务已经完成但框架稍后入库，会再次取回真实框架', async () => {
+    mocked.fetchPlanningTree
+      .mockRejectedValueOnce(new api.AuthorApiError('还没有正式框架', false, 404))
+      .mockResolvedValueOnce(treeView());
+    mocked.fetchLatestPlanningTreeGeneration.mockResolvedValue({
+      ...generation(), status: 'ready', message: '正式框架已经完成。',
+      candidateTreeVersionId: 'tree-version-1', canOpenCandidate: true
+    });
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByText('张三从小卒到改变时代')).toBeVisible();
+    expect(mocked.fetchPlanningTree).toHaveBeenCalledTimes(2);
+  });
+
   it('把安全的前置条件原话告诉作者，不用笼统失败掩盖处理办法', async () => {
     mocked.fetchPlanningTree.mockRejectedValue(new api.AuthorApiError('请先确认至少一项设定，再开始规划全书。', false, 409));
 
@@ -81,22 +107,24 @@ describe('V7时光机真实规划闭环', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('请先确认至少一项设定，再开始规划全书。');
   });
 
-  it('恢复失败的全书任务时明确道歉并提供页内重新规划', async () => {
-    mocked.fetchLatestPlanningRouteRun.mockResolvedValue({
+  it('恢复失败的全书任务时明确道歉并续跑原任务', async () => {
+    const failedRun: api.PlanningRouteRunView = {
       ...routeRun(), status: 'failed', phase: 'failed', routes: [], chiefReview: null, canDecide: false,
       message: '对不起，这次没有完成。已经完成的内容会保留，您可以重新开始。',
       errorMessage: '对不起，这次没有完成。已经完成的内容会保留，您可以重新开始。'
-    });
-    mocked.createPlanningRouteRun.mockResolvedValue({
-      ...routeRun(), status: 'working', phase: 'choosing_methods', routes: [], chiefReview: null, canDecide: false,
-      message: '资料策划正在筛选本次真正需要的资料。', errorMessage: null
+    };
+    mocked.fetchLatestPlanningRouteRun.mockResolvedValue(failedRun);
+    mocked.retryMissingPlanningRoutes.mockResolvedValue({
+      ...failedRun, status: 'working', phase: 'designing_routes',
+      message: '正在继续未完成的路线。', errorMessage: null
     });
 
     render(<TimeMachinePage bookId="book-1" />);
 
     expect(await screen.findByText('对不起，这次没有完成。已经完成的内容会保留，您可以重新开始。')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: '重新规划全书' }));
-    await waitFor(() => expect(mocked.createPlanningRouteRun).toHaveBeenCalledWith('book-1', '', 1, []));
+    fireEvent.click(screen.getByRole('button', { name: '继续未完成步骤' }));
+    await waitFor(() => expect(mocked.retryMissingPlanningRoutes).toHaveBeenCalledWith('book-1', 'route-run-1'));
+    expect(mocked.createPlanningRouteRun).not.toHaveBeenCalled();
   });
 
   it('恢复三条真实路线，作者选择后才生成正式框架', async () => {
@@ -119,6 +147,59 @@ describe('V7时光机真实规划闭环', () => {
       mode: 'select', routeIds: ['route-2']
     })));
     expect(mocked.createPlanningTreeGeneration).toHaveBeenCalledWith('book-1', 'book', 'book-1', undefined);
+  });
+
+  it('框架已知失败时续跑原任务，不会另建一条重复任务', async () => {
+    const onOpenSettings = vi.fn();
+    const failedGeneration: api.PlanningTreeGenerationView = {
+      ...generation(), status: 'failed', message: '已经完成的资料整理会保留，您可以继续未完成步骤。',
+      errorMessage: '已经完成的资料整理会保留，您可以继续未完成步骤。'
+    };
+    mocked.fetchLatestPlanningTreeGeneration.mockResolvedValue(failedGeneration);
+    mocked.retryPlanningTreeGeneration.mockResolvedValue({ ...failedGeneration, status: 'working', message: '正在继续未完成步骤。', errorMessage: null });
+
+    render(<TimeMachinePage bookId="book-1" onOpenSettings={onOpenSettings} />);
+
+    expect(await screen.findByText('对不起，这次没有完成。已经完成的资料整理会保留，您可以继续未完成步骤。')).toBeVisible();
+    expect(screen.getByRole('button', { name: '返回全书方向' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '返回设定修改' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '继续未完成步骤' }));
+
+    await waitFor(() => expect(mocked.retryPlanningTreeGeneration).toHaveBeenCalledWith('book-1', 'generation-1'));
+    expect(mocked.createPlanningTreeGeneration).not.toHaveBeenCalled();
+  });
+
+  it('框架结果未知时只核对原任务，不盲目重发模型调用', async () => {
+    const unknownGeneration: api.PlanningTreeGenerationView = {
+      ...generation(), status: 'result_unknown', message: '抱歉，这次结果还没有确认，为避免重复消耗已经暂停。',
+      errorMessage: '抱歉，这次结果还没有确认，为避免重复消耗已经暂停。'
+    };
+    mocked.fetchLatestPlanningTreeGeneration.mockResolvedValue(unknownGeneration);
+    mocked.fetchPlanningTreeGeneration.mockResolvedValue(unknownGeneration);
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByText('抱歉，这次结果还没有确认，为避免重复消耗已经暂停。')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '核对这次结果' }));
+
+    await waitFor(() => expect(mocked.fetchPlanningTreeGeneration).toHaveBeenCalledWith('book-1', 'generation-1'));
+    expect(mocked.retryPlanningTreeGeneration).not.toHaveBeenCalled();
+    expect(mocked.createPlanningTreeGeneration).not.toHaveBeenCalled();
+  });
+
+  it('失败时可以页内返回全书方向，也能直接返回设定修改', async () => {
+    const onOpenSettings = vi.fn();
+    mocked.fetchLatestPlanningTreeGeneration.mockResolvedValue({
+      ...generation(), status: 'failed', message: '本次框架没有生成完成。', errorMessage: '本次框架没有生成完成。'
+    });
+
+    render(<TimeMachinePage bookId="book-1" onOpenSettings={onOpenSettings} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '返回设定修改' }));
+    expect(onOpenSettings).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: '返回全书方向' }));
+    expect(await screen.findByRole('heading', { name: '先准备全书方向' })).toBeVisible();
+    expect(mocked.createPlanningTreeGeneration).not.toHaveBeenCalled();
   });
 
   it('主编发现正式资料冲突时停止后续设计，并让作者直接返回设定处理', async () => {

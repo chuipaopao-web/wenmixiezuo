@@ -110,7 +110,7 @@ describe('V7设定编辑部', () => {
     } finally { await app.close(); }
   });
 
-  it('主编整理失败会如实保存，同一本书重复点击不会换人或再次调用', async () => {
+  it('主编整理失败会如实保存，作者明确重试时沿用冻结任务并发起新的执行请求', async () => {
     context = createTestContext('wenmi-v7-setting-recommendation-failed-');
     context.config.modelRuntime.endpoints.coding.apiKey = 'test-coding-plan-key';
     const resolver = new SettingResolver(false, true);
@@ -135,12 +135,48 @@ describe('V7设定编辑部', () => {
       expect(repeated.json().data.taskId).toBe(failed.taskId);
       expect(resolver.recommendationAttempts).toBe(1);
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=? AND node_key='catalog_recommendation'`).get(bookId)).toEqual({ count: 1 });
+      resolver.failRecommendation = false;
       const resumed = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-recommendations/retry`,
         headers: { ...HEADERS, cookie }, payload: {}
       });
       expect(resumed.statusCode, resumed.body).toBe(200);
       expect(['queued', 'working']).toContain(resumed.json().data.status);
+      const completed = await pollRecommendation(app, cookie, bookId, failed.taskId);
+      expect(completed.status).toBe('ready');
+      expect(resolver.recommendationAttempts).toBe(2);
+      const calls = context.database.prepare(`SELECT request_id,prompt_hash,state FROM v7_setting_model_calls
+        WHERE book_id=? AND node_key='catalog_recommendation' ORDER BY started_at,request_id`).all(bookId) as Array<{
+          request_id: string; prompt_hash: string; state: string;
+        }>;
+      expect(calls.map((call) => call.state)).toEqual(['failed', 'succeeded']);
+      expect(new Set(calls.map((call) => call.request_id)).size).toBe(2);
+      expect(new Set(calls.map((call) => call.prompt_hash)).size).toBe(1);
+    } finally { await app.close(); }
+  });
+
+  it('设定清单结果未知时只允许刷新核对，不把未知调用盲目重发', async () => {
+    context = createTestContext('wenmi-v7-setting-recommendation-unknown-');
+    context.config.modelRuntime.endpoints.coding.apiKey = 'test-coding-plan-key';
+    const resolver = new SettingResolver(false, true, true);
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'setting-recommendation-unknown@example.com', '未知清单作者', 'strong-pass-123');
+      const bookId = await createBook(app, cookie, '未知清单测试', 'recommendation-unknown-book-0001', '历史脑洞');
+      const created = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-recommendations`, headers: { ...HEADERS, cookie }, payload: {}
+      });
+      const failed = await pollRecommendation(app, cookie, bookId, created.json().data.taskId as string);
+      expect(failed).toMatchObject({ status: 'failed', retryable: false });
+      expect(failed.statusText).toMatch(/结果还不能确认/u);
+      const callsBefore = resolver.recommendationAttempts;
+      const retried = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-recommendations/retry`,
+        headers: { ...HEADERS, cookie }, payload: {}
+      });
+      expect(retried.statusCode).toBe(409);
+      expect(JSON.stringify(retried.json())).toMatch(/不能盲目重试/u);
+      expect(resolver.recommendationAttempts).toBe(callsBefore);
     } finally { await app.close(); }
   });
 
@@ -705,7 +741,11 @@ class SettingResolver implements V7OpeningModelAdapterResolver {
   public readonly prompts: string[] = [];
   public recommendationAttempts = 0;
   private failedWriterOne = false;
-  public constructor(private readonly failFirstWriter: boolean, private readonly failRecommendation = false) {}
+  public constructor(
+    private readonly failFirstWriter: boolean,
+    public failRecommendation = false,
+    private readonly recommendationOutcomeUnknown = false
+  ) {}
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
       this.temperatures.push(request.temperature);
@@ -713,7 +753,12 @@ class SettingResolver implements V7OpeningModelAdapterResolver {
       if (this.failFirstWriter && request.agentId === 'planner-deepseek-v4-pro' && !this.failedWriterOne) { this.failedWriterOne = true; throw new Error('模拟成员临时请假'); }
       if (request.prompt.includes('只判断后续设定阶段应该准备哪些条目')) {
         this.recommendationAttempts += 1;
-        if (this.failRecommendation) throw new Error('模拟主编本轮请假');
+        if (this.failRecommendation) {
+          if (this.recommendationOutcomeUnknown) {
+            throw new ModelAdapterError('模拟设定清单结果未知', 'technical_failure', true, 504, true);
+          }
+          throw new Error('模拟主编本轮请假');
+        }
       }
       const stagePrompt = settingStagePrompt(request.prompt);
       const output = stagePrompt.includes('v7_setting_group_design_v1')
