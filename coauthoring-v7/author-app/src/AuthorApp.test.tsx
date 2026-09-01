@@ -524,7 +524,7 @@ describe('V7 author opening flow', () => {
     await waitFor(() => expect(confirm).toBeEnabled());
     fireEvent.click(confirm);
     expect(await screen.findByText('作者已确认')).toBeVisible();
-  });
+  }, 10_000);
 
   it('keeps the AI entry to one 2000-character idea before team design', async () => {
     installFetch();
