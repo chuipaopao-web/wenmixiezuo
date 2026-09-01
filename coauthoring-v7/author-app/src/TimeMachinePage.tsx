@@ -490,7 +490,7 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
       {tree?.status === 'confirmed' && <span className="planning-confirmed-mark"><CheckCircleIcon /> 已确认</span>}
     </header>
 
-    {error !== null && !corePlanningFailed && <div className="planning-error" role="alert">{error}</div>}
+    {error !== null && !corePlanningFailed && <div className="planning-error" role="alert">{publicFailureCopy(error)}</div>}
     {corePlanningFailed && <div className="planning-error" role="alert">
       <span>{error ?? '对不起，核心规划暂时没有读取成功。'}{tree === null ? ' 正文和故事实际仍会单独显示。' : ' 已保留上次成功读取的规划，本页内容可能不是最新状态。'}</span>
       <button type="button" className="planning-secondary" disabled={coreRetryBusy} onClick={() => void retryCorePlanning()}>{coreRetryBusy ? '正在重新读取…' : '重新读取核心规划'}</button>
@@ -521,14 +521,19 @@ function PlanningSourceIssues({ run, onOpenSettings }: { run: PlanningRouteRunVi
   const chief = run.actors.find((actor) => actor.role.includes('主编')) ?? run.actors[0];
   const memberKey = chief?.memberKey ?? 'planning-chief-deepseek-v4-pro';
   const memberName = memberDisplayName(memberKey, chief?.memberName ?? '主编');
+  const issues = run.sourceIssues.map((issue) => publicStatusCopy(issue, '该项待确认，先返回设定处理。'));
   return <section className="planning-source-issues">
     <header>
       <span className="planning-waiting-avatar" style={{ backgroundPosition: memberAvatarPosition(memberKey) }} aria-hidden="true" />
       <div><strong>{memberName}请您先定几件事</strong><p>这些口径会直接影响全书的时间、资源和卷数，我没有替您擅自决定。</p></div>
     </header>
-    <ul>{run.sourceIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+    <ul>{issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
     <div><small>修改并保存设定后，回到时光机重新开始规划即可；本次记录会保留，不会继续消耗额度。</small>
-      {onOpenSettings !== undefined && <button type="button" className="planning-primary" onClick={onOpenSettings}>返回设定处理</button>}
+      {onOpenSettings !== undefined && <WorkflowActionDock
+        title="设定项已返回，请先处理"
+        detail="先保存调整后返回时光机，已完成内容会保留，可继续恢复。"
+        primary={<button type="button" className="planning-primary" onClick={onOpenSettings}>返回设定处理</button>}
+      />}
     </div>
   </section>;
 }

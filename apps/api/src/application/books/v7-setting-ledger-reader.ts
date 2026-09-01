@@ -214,15 +214,30 @@ function finalReviewResultHash(row: V7SettingBatchRow): string | null {
   }
 }
 
+/**
+ * 门禁只校验真正会整体进入规划提示的导航投影字段：
+ * schema、summary、groups、unifiedDecisions、unresolvedConflicts。
+ * 逐项事实账 factLedger 与条目索引 itemIndex 只作为审计与精确取用来源，
+ * 不会作为一个整体注入规划提示，因此不计入门禁，也绝不能被截断、删除或改写。
+ */
 function requireCompactLedger(content: V7CompactSettingLedger['content']): void {
-  const characters = Array.from(stableJson(content)).length;
+  const navigationProjection = {
+    schema: content.schema,
+    summary: content.summary,
+    groups: content.groups,
+    unifiedDecisions: content.unifiedDecisions,
+    unresolvedConflicts: content.unresolvedConflicts
+  };
+  const characters = Array.from(stableJson(navigationProjection)).length;
   if (characters > MAXIMUM_COMPACT_LEDGER_CHARACTERS) {
-    throw gate(`主编整理后的设定总账仍有${characters}字，请重新生成更精简的分组摘要`);
+    // 导航投影本身确实超限时才安全失败。文案不泄漏内部字符预算，也不要求
+    // 作者手工压缩资料；只指向既有恢复动作（在设定编辑部重新发起统一整理）。
+    throw gate('设定总账的导航摘要还没有达到规划安全要求，请回到设定编辑部重新发起一次统一整理后再继续');
   }
 }
 
-function gate(message: string): DomainError {
-  return new DomainError(errorCodes.validation, `对不起，${message}。原设定不会丢失。`, {}, true, 409);
+function gate(message: string, details: Record<string, unknown> = {}): DomainError {
+  return new DomainError(errorCodes.validation, `对不起，${message}。原设定不会丢失。`, details, true, 409);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

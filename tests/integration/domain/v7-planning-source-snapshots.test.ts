@@ -5,6 +5,7 @@ import {
   V7PlanningSourceCompiler,
   planningSnapshotSourceTraces
 } from '../../../apps/api/src/application/planning/v7-planning-source-compiler.js';
+import { V7SettingLedgerReader } from '../../../apps/api/src/application/books/v7-setting-ledger-reader.js';
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import type { ModelAdapter, ModelRequest, ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
@@ -439,6 +440,180 @@ describe('V7规划正式资料快照', () => {
         .toThrow('重新统一整理当前版本');
     } finally {
       await app.close();
+    }
+  });
+});
+
+describe('V7设定总账门禁只校验导航投影', () => {
+  const OWNER_ID = 'owner-ledger-gate-test';
+  const OPENING_VERSION = 1;
+  const ITEM_TIME = '2026-07-16T00:00:00.000Z';
+  const BATCH_TIME = '2026-07-16T00:01:00.000Z';
+
+  function insertBook(bookId: string): void {
+    const db = context!.database;
+    db.prepare(`INSERT OR IGNORE INTO owners
+      (owner_id,display_name,version,created_at,updated_at)
+      VALUES (?,?,1,?,?)`).run(OWNER_ID, '总账门禁测试作者', ITEM_TIME, ITEM_TIME);
+    db.prepare(`INSERT OR IGNORE INTO user_accounts
+      (user_id,owner_id,email_normalized,display_name,password_salt,password_hash,role,status,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
+      `user-${OWNER_ID}`, OWNER_ID, `${OWNER_ID}@example.com`, '总账门禁测试作者', 'salt', 'hash', 'user', 'active', ITEM_TIME, ITEM_TIME
+    );
+    db.prepare(`INSERT INTO books
+      (book_id,owner_id,title,status,version,positioning_version,canon_revision,active_editor_agent_id,editor_epoch,created_at,updated_at,archived_at)
+      VALUES (?,?,?,'draft',1,0,0,NULL,0,?,?,NULL)`).run(bookId, OWNER_ID, `门禁测试书-${bookId}`, ITEM_TIME, ITEM_TIME);
+  }
+
+  function insertItemRows(bookId: string, itemKeys: string[]): void {
+    const db = context!.database;
+    itemKeys.forEach((key, index) => {
+      db.prepare(`INSERT INTO v7_setting_items
+        (owner_id,book_id,item_key,item_label,group_title,item_prompt,state,active_version_id,revision,updated_at)
+        VALUES (?,?,?,?,?,?, 'confirmed',?,1,?)`)
+        .run(OWNER_ID, bookId, key, `设定${index + 1}`, '核心设定', '说明规则', `ledger-version-${index + 1}`, ITEM_TIME);
+    });
+  }
+
+  function insertFinalReview(bookId: string, batchId: string, status: string, selected: unknown): void {
+    context!.database.prepare(`INSERT INTO v7_setting_batches
+      (batch_id,owner_id,book_id,idempotency_key,request_hash,status,selected_items_json,custom_items_json,
+        opening_version,opening_hash,roster_json,error_message,created_at,updated_at)
+      VALUES (?,?,?, ?,?,? ,?,?, ?,'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','[]',NULL,?,?)`)
+      .run(
+        batchId, OWNER_ID, bookId, `${batchId}-key`, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', status,
+        JSON.stringify(selected),
+        JSON.stringify({ taskKind: 'batch_final_review', phase: 'ready', progress: 100 }),
+        OPENING_VERSION, ITEM_TIME, BATCH_TIME
+      );
+  }
+
+  function settingsFor(itemKeys: string[], fact: string): Array<{
+    item_key: string;
+    item_label: string;
+    version_id: string;
+    revision: number;
+    content_json: string;
+  }> {
+    return itemKeys.map((key, index) => ({
+      item_key: key,
+      item_label: `设定${index + 1}`,
+      version_id: `ledger-version-${index + 1}`,
+      revision: 1,
+      content_json: JSON.stringify({ contextSummary: `第${index + 1}项的关键边界。`, factEntries: [fact] })
+    }));
+  }
+
+  it('完整事实账超过8000字但导航投影未超限时规划可以继续，事实账与正式设定保持不变', () => {
+    context = createTestContext('wenmi-v7-ledger-gate-nav-');
+    try {
+      const bookId = 'book-ledger-gate-nav';
+      const itemKeys = Array.from({ length: 25 }, (_, index) => `setting-${index + 1}`);
+      const longFact = '这是一条很长的设定硬事实，用于验证完整事实账超过门禁也不会被截断或重写。'.repeat(20);
+      insertBook(bookId);
+      insertItemRows(bookId, itemKeys);
+      const factLedger = itemKeys.map((key, index) => ({ itemKey: key, label: `设定${index + 1}`, facts: [longFact] }));
+      insertFinalReview(bookId, 'nav-gate-review', 'awaiting_author', {
+        taskKind: 'batch_final_review', resultHash: 'nav-gate-hash', result: {
+          verdict: 'pass', summary: '全部设定已经统一。', contextSummary: '主角、时代、规则和禁项已经统一。',
+          factLedger,
+          groupSummaries: [{ groupTitle: '全部设定', summary: '全部条目已统一。', itemKeys }],
+          unifiedDecisions: [], conflicts: [], patchedItemKeys: []
+        }
+      });
+
+      const reader = new V7SettingLedgerReader(context!.database);
+      const ledger = reader.readCurrent({
+        ownerId: OWNER_ID, bookId, openingVersion: OPENING_VERSION, settings: settingsFor(itemKeys, longFact)
+      });
+      expect(ledger.sourceId).toBe('nav-gate-review');
+      expect(ledger.content.factLedger).toHaveLength(25);
+      expect(Array.from(JSON.stringify(ledger.content.factLedger)).length).toBeGreaterThan(8_000);
+      expect(ledger.content.factLedger[0]).toEqual({
+        itemKey: 'setting-1', label: '设定1', versionId: 'ledger-version-1', revision: 1, facts: [longFact]
+      });
+      expect(ledger.content.groups[0]?.itemKeys).toEqual(itemKeys);
+      expect(ledger.content.itemIndex).toEqual([]);
+      expect(ledger.projections).toHaveLength(25);
+      expect(ledger.projections[0]).toMatchObject({ itemKey: 'setting-1', versionId: 'ledger-version-1', revision: 1 });
+    } finally {
+      // afterEach closes the test context once, including when setup fails.
+    }
+  });
+
+  it('导航投影本身超过门禁时安全拒绝，且不泄漏内部字符计数', () => {
+    context = createTestContext('wenmi-v7-ledger-gate-nav-over-');
+    try {
+      const bookId = 'book-ledger-gate-nav-over';
+      const itemKeys = Array.from({ length: 25 }, (_, index) => `setting-${index + 1}`);
+      const fact = '短硬事实。';
+      insertBook(bookId);
+      insertItemRows(bookId, itemKeys);
+      const factLedger = itemKeys.map((key, index) => ({ itemKey: key, label: `设定${index + 1}`, facts: [fact] }));
+      const hugeSummary = '这是一段过于冗长、应该由主编重新统一整理的高层导航摘要，用来让导航投影本身超过安全上限。'.repeat(220);
+      insertFinalReview(bookId, 'nav-over-review', 'awaiting_author', {
+        taskKind: 'batch_final_review', resultHash: 'nav-over-hash', result: {
+          verdict: 'pass', summary: '全部设定已经统一。', contextSummary: hugeSummary,
+          factLedger,
+          groupSummaries: [{ groupTitle: '全部设定', summary: '全部条目已统一。', itemKeys }],
+          unifiedDecisions: [], conflicts: [], patchedItemKeys: []
+        }
+      });
+
+      const reader = new V7SettingLedgerReader(context!.database);
+      const read = (): void => {
+        reader.readCurrent({
+          ownerId: OWNER_ID, bookId, openingVersion: OPENING_VERSION, settings: settingsFor(itemKeys, fact)
+        });
+      };
+      expect(() => read()).toThrow(/重新发起一次统一整理/);
+      try {
+        read();
+        throw new Error('应当拒绝导航投影超限');
+      } catch (error) {
+        expect(error).toMatchObject({ details: {} });
+        expect(JSON.stringify(error)).not.toMatch(/navigationProjectionCharacters|\d{3,}字/);
+      }
+    } finally {
+      // afterEach closes the test context once, including when setup fails.
+    }
+  });
+
+  it('无设定、少量设定与失败总审保持原有兼容总账行为', () => {
+    context = createTestContext('wenmi-v7-ledger-gate-compat-');
+    try {
+      const reader = new V7SettingLedgerReader(context!.database);
+
+      // 无设定：没有可用总审 → 兼容总账，空事实账
+      const emptyBook = 'book-ledger-gate-empty';
+      const emptyLedger = reader.readCurrent({
+        ownerId: OWNER_ID, bookId: emptyBook, openingVersion: OPENING_VERSION, settings: []
+      });
+      expect(emptyLedger.sourceId).toBe(`setting-ledger:${emptyBook}`);
+      expect(emptyLedger.content.factLedger).toEqual([]);
+
+      // 少量设定（≤8）＋ 失败总审 → 兼容总账，逐项事实账保留
+      const smallBook = 'book-ledger-gate-small';
+      const fewKeys = Array.from({ length: 3 }, (_, index) => `small-${index + 1}`);
+      insertBook(smallBook);
+      insertFinalReview(smallBook, 'failed-review-small', 'partially_failed', { taskKind: 'batch_final_review', result: null });
+      const compatLedger = reader.readCurrent({
+        ownerId: OWNER_ID, bookId: smallBook, openingVersion: OPENING_VERSION, settings: settingsFor(fewKeys, '少量事实。')
+      });
+      expect(compatLedger.sourceId).toBe(`setting-ledger:${smallBook}`);
+      expect(compatLedger.content.factLedger).toHaveLength(3);
+      expect(compatLedger.content.factLedger[0]).toMatchObject({ itemKey: 'small-1', facts: ['少量事实。'] });
+
+      // 大量设定（>8）＋ 失败总审 → 仍按原行为要求先完成全书统一整理
+      const largeBook = 'book-ledger-gate-large';
+      const manyKeys = Array.from({ length: 12 }, (_, index) => `large-${index + 1}`);
+      insertBook(largeBook);
+      insertFinalReview(largeBook, 'failed-review-many', 'partially_failed', { taskKind: 'batch_final_review', result: null });
+      expect(() => reader.readCurrent({
+        ownerId: OWNER_ID, bookId: largeBook, openingVersion: OPENING_VERSION, settings: settingsFor(manyKeys, '大量事实。')
+      })).toThrow(/设定条目较多/);
+    } finally {
+      // afterEach closes the test context once, including when setup fails.
     }
   });
 });
