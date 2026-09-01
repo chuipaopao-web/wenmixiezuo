@@ -11,6 +11,10 @@ export interface V7SettingBatchRow {
   retry_safety: 'safe_after_precondition' | 'technical_retry' | 'manual_redesign' | 'result_unknown' | null;
 }
 
+export interface V7SettingAuthorTaskRow extends V7SettingBatchRow {
+  book_title: string;
+}
+
 export interface V7SettingRecommendationStateRow {
   taskKind: 'catalog_recommendation';
   phase: 'preparing' | 'understanding' | 'organizing' | 'validating' | 'handoff' | 'ready' | 'failed';
@@ -95,6 +99,45 @@ export class V7SettingEditorialRepository {
   public findBatchByIdempotency(ownerId: string, bookId: string, key: string): V7SettingBatchRow | undefined {
     return this.database.prepare('SELECT * FROM v7_setting_batches WHERE owner_id=? AND book_id=? AND idempotency_key=?')
       .get(ownerId, bookId, key) as V7SettingBatchRow | undefined;
+  }
+
+  /**
+   * 作者任务中心每本活动 V7 书只读取最新一项可见设定工作。
+   * 题材档案等内部维护批次没有作者操作入口，不能混入待处理数量。
+   */
+  public latestAuthorTasksForOwner(ownerId: string, limit: number): V7SettingAuthorTaskRow[] {
+    return this.database.prepare(`WITH author_setting_tasks AS (
+      SELECT batch.*,book.title AS book_title,
+        ROW_NUMBER() OVER (
+          PARTITION BY batch.owner_id,batch.book_id
+          ORDER BY batch.updated_at DESC,batch.created_at DESC,batch.batch_id DESC
+        ) AS task_rank
+      FROM v7_setting_batches batch
+      JOIN books book ON book.owner_id=batch.owner_id AND book.book_id=batch.book_id
+      WHERE batch.owner_id=? AND book.status='active'
+        AND EXISTS (
+          SELECT 1 FROM positioning_drafts draft
+          WHERE draft.owner_id=book.owner_id AND draft.confirmed_book_id=book.book_id
+            AND draft.status='confirmed' AND draft.draft_id LIKE 'v7-opening-draft-%'
+        )
+        AND (
+          EXISTS (
+            SELECT 1 FROM v7_setting_item_jobs job
+            WHERE job.owner_id=batch.owner_id AND job.book_id=batch.book_id AND job.batch_id=batch.batch_id
+          )
+          OR (
+            json_valid(batch.custom_items_json)=1
+            AND json_extract(batch.custom_items_json,'$.taskKind') IN (
+              'catalog_recommendation','batch_final_review','item_redesign'
+            )
+          )
+        )
+    )
+    SELECT * FROM author_setting_tasks WHERE task_rank=1
+    ORDER BY updated_at DESC,batch_id DESC LIMIT ?`).all(
+      ownerId,
+      Math.max(1, Math.min(100, limit))
+    ) as unknown as V7SettingAuthorTaskRow[];
   }
 
   /**

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { memberAvatarPosition, memberDisplayName } from './member-avatars';
 import { canonicalMemberIdentityKey, publicFailureCopy, publicRoleLabel, publicStatusCopy, uniqueByMemberKey } from './author-projection';
 import { WorkflowActionDock } from './WorkflowActionDock';
+import type { SettingRecoveryFocus } from './navigation';
 import {
   AuthorApiError,
   confirmSettingItem, createSettingBatch, createSettingFinalReview, createSettingItemReviewTask, createSettingRecommendation, fetchSettingBatch,
@@ -10,7 +11,11 @@ import {
   type SettingBatchView, type SettingCatalogRecommendationView, type SettingDepartmentView, type SettingFinalReviewView, type SettingItemView, type SettingRedesignCandidate, type SettingRedesignTaskView
 } from './opening-api';
 
-export function SettingPage({ bookId, onOpenTimeMachine }: { bookId: string; onOpenTimeMachine?: () => void }): React.JSX.Element {
+export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }: {
+  bookId: string;
+  onOpenTimeMachine?: () => void;
+  recoveryFocus?: SettingRecoveryFocus | null;
+}): React.JSX.Element {
   const [department, setDepartment] = useState<SettingDepartmentView | null>(null);
   const [batch, setBatch] = useState<SettingBatchView | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -37,11 +42,20 @@ export function SettingPage({ bookId, onOpenTimeMachine }: { bookId: string; onO
     const recommended = recommendation?.status === 'ready' ? recommendation.result?.requiredKeys ?? [] : [];
     setDepartment({ ...value, recommendation }); setBatch(value.activeBatch); setFinalReview(value.finalReview); setSelected(new Set(recommended.filter((key) => !existingKeys.has(key))));
     setShowCatalog(recommendation?.status === 'ready' && value.confirmedItems.length === 0 && value.activeBatch === null);
+    setFinalReviewOpen(value.finalReview !== null && (value.finalReview.status === 'failed' || recoveryFocus === 'final-review'));
+    if (recoveryFocus === 'final-review') setShowResults(false);
     setFinalSaved(false);
     setError(null);
-  }, [bookId]);
+  }, [bookId, recoveryFocus]);
 
   useEffect(() => { const controller = new AbortController(); void load(controller.signal).catch((reason: unknown) => { if (!controller.signal.aborted) setError(message(reason)); }); return () => controller.abort(); }, [load]);
+  useEffect(() => {
+    if (recoveryFocus !== 'final-review' || !finalReviewOpen || finalReview === null) return;
+    const timer = window.setTimeout(() => {
+      document.querySelector('.setting-final-review')?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [finalReview?.taskId, finalReviewOpen, recoveryFocus]);
   useEffect(() => {
     if (batch === null || !['queued', 'working'].includes(batch.status)) return;
     let stopped = false;

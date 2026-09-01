@@ -44,6 +44,7 @@ import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import {
   V7SettingEditorialRepository,
+  type V7SettingAuthorTaskRow,
   type V7SettingBatchRow,
   type V7SettingCurrentItemRow,
   type V7SettingJobRow,
@@ -140,6 +141,21 @@ export interface V7SettingRedesignTaskView {
   updatedAt: string;
 }
 
+export interface V7SettingTaskView {
+  taskId: string;
+  bookId: string;
+  bookTitle: string;
+  taskKind: 'catalog_recommendation' | 'setting_batch' | 'item_review' | 'item_fusion' | 'batch_final_review' | 'item_redesign';
+  status: 'waiting' | 'working' | 'waiting_for_you' | 'completed' | 'failed';
+  statusText: string;
+  progress: number;
+  member: { memberKey: string; displayName: string } | null;
+  retryable: boolean;
+  restartable: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 type SettingRedesignTaskState = Readonly<{
   taskKind: 'item_redesign';
   itemKey: string;
@@ -188,6 +204,25 @@ export class V7SettingEditorialService {
   ) {
     this.repository = new V7SettingEditorialRepository(database);
     this.genreProfiles = new V7BookGenreProfileEnsureService(database, adapters, ids, clock);
+  }
+
+  public listTasks(ownerId: string, limit = 50): V7SettingTaskView[] {
+    return this.repository.latestAuthorTasksForOwner(ownerId, limit)
+      .flatMap((row) => {
+        try {
+          const task = this.authorTaskView(row);
+          return task === null ? [] : [task];
+        } catch {
+          // 单条状态损坏不能拖垮整个任务中心，也不能把当前失败任务藏成 0 项。
+          return [{
+            taskId: row.batch_id, bookId: row.book_id, bookTitle: row.book_title,
+            taskKind: 'setting_batch' as const, status: 'failed' as const,
+            statusText: '对不起，这项设定记录需要重新核对；已有内容不会丢失，打开设定页查看。',
+            progress: 100, member: null, retryable: false, restartable: false,
+            createdAt: row.created_at, updatedAt: row.updated_at
+          }];
+        }
+      });
   }
 
   public department(ownerId: string, bookId: string): {
@@ -3029,6 +3064,101 @@ export class V7SettingEditorialService {
     return this.repository.itemKeys(ownerId, bookId).map((itemKey) => this.currentItemView(ownerId, bookId, itemKey));
   }
 
+  private authorTaskView(row: V7SettingAuthorTaskRow): V7SettingTaskView | null {
+    const storedKind = settingAuthorTaskKind(row.custom_items_json);
+    if (storedKind === 'catalog_recommendation') {
+      const profile = this.profile(row.owner_id, row.book_id);
+      const current = this.currentRecommendation(row.owner_id, row.book_id, profile, V7_SETTING_CATALOG);
+      const view = this.recommendationView(row);
+      if (current?.batch_id !== row.batch_id) {
+        return {
+          taskId: view.taskId, bookId: row.book_id, bookTitle: row.book_title,
+          taskKind: storedKind, status: 'completed', statusText: '开书资料后来已更新，这轮设定清单记录已经归档。',
+          progress: 100, member: view.member, retryable: false, restartable: false,
+          createdAt: view.createdAt, updatedAt: view.updatedAt
+        };
+      }
+      return {
+        taskId: view.taskId, bookId: row.book_id, bookTitle: row.book_title,
+        taskKind: storedKind, status: authorSettingStatus(view.status), statusText: view.statusText,
+        progress: view.progress, member: view.member, retryable: view.retryable,
+        restartable: view.restartable, createdAt: view.createdAt, updatedAt: view.updatedAt
+      };
+    }
+    if (storedKind === 'batch_final_review') {
+      const profile = this.profile(row.owner_id, row.book_id);
+      const currentItems = this.currentItems(row.owner_id, row.book_id);
+      const current = this.currentFinalReview(
+        row.owner_id,
+        row.book_id,
+        profile,
+        currentItems,
+        finalReviewRequestHash(profile, currentItems)
+      );
+      const view = this.finalReviewView(row);
+      if (current?.batch_id !== row.batch_id) {
+        return {
+          taskId: view.taskId, bookId: row.book_id, bookTitle: row.book_title,
+          taskKind: storedKind, status: 'completed', statusText: '当前设定后来已更新，这轮统一整理记录已经归档。',
+          progress: 100, member: view.member, retryable: false, restartable: false,
+          createdAt: view.createdAt, updatedAt: view.updatedAt
+        };
+      }
+      const safelySaved = view.status === 'ready' && currentItems.length > 0
+        && currentItems.every((item) => item.state === 'confirmed');
+      const status = safelySaved
+        ? 'completed'
+        : authorSettingStatus(view.status);
+      return {
+        taskId: view.taskId, bookId: row.book_id, bookTitle: row.book_title,
+        taskKind: storedKind, status,
+        statusText: safelySaved ? '统一整理已经完成，当前设定已经安全保存。' : view.statusText,
+        progress: view.progress, member: view.member, retryable: view.retryable,
+        restartable: view.restartable, createdAt: view.createdAt, updatedAt: view.updatedAt
+      };
+    }
+    if (storedKind === 'item_redesign') {
+      const state = settingRedesignTaskState(row);
+      const currentItem = this.repository.currentItem(row.owner_id, row.book_id, state.itemKey);
+      const view = this.redesignTaskView(row);
+      if (currentItem === undefined || currentItem.revision !== state.sourceRevision) {
+        return {
+          taskId: view.taskId, bookId: row.book_id, bookTitle: row.book_title,
+          taskKind: storedKind, status: 'completed', statusText: '这项设定后来已更新，本轮重新设计记录已经归档。',
+          progress: 100, member: null, retryable: false, restartable: false,
+          createdAt: view.createdAt, updatedAt: view.updatedAt
+        };
+      }
+      return {
+        taskId: view.taskId, bookId: row.book_id, bookTitle: row.book_title,
+        taskKind: storedKind, status: authorSettingStatus(view.status), statusText: view.statusText,
+        progress: view.progress.percent, member: null, retryable: view.retryable,
+        restartable: false, createdAt: view.createdAt, updatedAt: view.updatedAt
+      };
+    }
+    const jobs = this.jobs(row.owner_id, row.book_id, row.batch_id);
+    if (jobs.length === 0) return null;
+    const view = this.toView(row);
+    const activeMember = view.members.find((member) => member.presence === 'working') ?? null;
+    const taskKind = storedKind === 'item_review' || storedKind === 'item_fusion'
+      ? storedKind
+      : 'setting_batch';
+    const safelySaved = view.status === 'awaiting_author' && view.items.length > 0
+      && view.items.every((item) => item.state === 'confirmed');
+    const status = safelySaved
+      ? 'completed'
+      : authorSettingStatus(view.status);
+    return {
+      taskId: view.batchId, bookId: row.book_id, bookTitle: row.book_title,
+      taskKind, status,
+      statusText: safelySaved ? '当前设定已经确认并安全保存。' : view.statusText,
+      progress: view.progress.percent,
+      member: activeMember === null ? null : { memberKey: activeMember.memberKey, displayName: activeMember.displayName },
+      retryable: view.retryable, restartable: view.restartable,
+      createdAt: view.createdAt, updatedAt: view.updatedAt
+    };
+  }
+
   private currentSettingProjections(
     ownerId: string,
     bookId: string,
@@ -3902,6 +4032,35 @@ function settingContextProfileText(profile: BookProfileView): string {
     ...(blueprint.mustFollow ?? profile.mustFollow ?? [])
   ].map((item) => item.trim()).filter(Boolean).join(' · ');
 }
+
+type StoredAuthorSettingTaskKind = V7SettingTaskView['taskKind'] | null;
+
+function settingAuthorTaskKind(value: string): StoredAuthorSettingTaskKind {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+    const kind = (parsed as { taskKind?: unknown }).taskKind;
+    return kind === 'catalog_recommendation'
+      || kind === 'batch_final_review'
+      || kind === 'item_redesign'
+      || kind === 'item_review'
+      || kind === 'item_fusion'
+      ? kind
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function authorSettingStatus(
+  status: 'queued' | 'working' | 'ready' | 'failed' | 'awaiting_author' | 'completed' | 'partially_failed'
+): V7SettingTaskView['status'] {
+  if (status === 'queued') return 'waiting';
+  if (status === 'ready' || status === 'awaiting_author') return 'waiting_for_you';
+  if (status === 'partially_failed') return 'failed';
+  return status;
+}
+
 function normalizeSelection(profile: BookProfileView, selectedValue: unknown, customValue: unknown): { selectedItems: V7SettingCatalogItem[]; customItems: V7SettingCatalogItem[] } {
   void profile;
   const active = V7_SETTING_CATALOG;

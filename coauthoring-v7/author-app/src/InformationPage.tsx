@@ -6,11 +6,13 @@ import { NamingWorkspace } from './NamingWorkspace';
 import { fetchBookProfile, updateBookProfile, type BookProfile } from './opening-api';
 import { SettingPage } from './SettingPage';
 import { WorkflowActionDock } from './WorkflowActionDock';
+import type { InformationSection, SettingRecoveryFocus } from './navigation';
 
-export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'profile' }: {
+export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'profile', settingRecoveryFocus = null }: {
   bookId: string;
   onOpenTimeMachine?: () => void;
-  initialSection?: 'profile' | 'setting' | 'naming';
+  initialSection?: InformationSection;
+  settingRecoveryFocus?: SettingRecoveryFocus | null;
 }): React.JSX.Element {
   const [profile, setProfile] = useState<BookProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
       </nav>
 
       {section === 'setting' ? (
-        <SettingPage bookId={bookId} {...(onOpenTimeMachine === undefined ? {} : { onOpenTimeMachine })} />
+        <SettingPage bookId={bookId} recoveryFocus={settingRecoveryFocus} {...(onOpenTimeMachine === undefined ? {} : { onOpenTimeMachine })} />
       ) : section === 'naming' ? (
         <NamingWorkspace profile={profile} profileUnavailable={error !== null} />
       ) : error !== null ? (

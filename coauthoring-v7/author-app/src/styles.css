@@ -1452,6 +1452,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
   .task-clear-button { grid-column: 1 / -1; width: 100%; margin: 0; }
   .task-log-card { grid-template-columns: 1fr; padding: 14px 12px 16px; }
   .task-log-card-side { flex-wrap: wrap; justify-content: flex-start; }
+  .task-log-card-side > button { width: 100%; min-height: 44px; justify-content: center; }
   .task-inline-confirm { flex-wrap: wrap; justify-content: stretch; }
   .task-inline-confirm span { flex-basis: 100%; }
   .task-inline-confirm button { flex: 1 1 128px; }

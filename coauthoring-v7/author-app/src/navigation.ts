@@ -17,6 +17,9 @@ export interface CreationScopeOverride {
   chapter?: number | null;
 }
 
+export type InformationSection = 'profile' | 'setting' | 'naming';
+export type SettingRecoveryFocus = 'final-review';
+
 export function authorViewFromSearch(search: string): AuthorView {
   const view = new URLSearchParams(search).get('view');
   if (view === 'new-novel') return 'new-novel';
@@ -40,6 +43,28 @@ export function openingTaskIdFromSearch(search: string): string | null {
 export function bookIdFromSearch(search: string): string | null {
   const bookId = new URLSearchParams(search).get('bookId');
   return bookId?.trim() || null;
+}
+
+export function informationSectionFromSearch(search: string): InformationSection {
+  const section = new URLSearchParams(search).get('section');
+  if (section === 'setting') return 'setting';
+  if (section === 'naming') return 'naming';
+  return 'profile';
+}
+
+export function settingRecoveryFocusFromSearch(search: string): SettingRecoveryFocus | null {
+  return new URLSearchParams(search).get('focus') === 'final-review' ? 'final-review' : null;
+}
+
+export function searchForInformationSection(
+  bookId: string,
+  section: InformationSection,
+  focus: SettingRecoveryFocus | null = null
+): string {
+  const params = new URLSearchParams({ view: 'information', bookId });
+  if (section !== 'profile') params.set('section', section);
+  if (section === 'setting' && focus !== null) params.set('focus', focus);
+  return `?${params.toString()}`;
 }
 
 export function searchForAuthorView(view: AuthorView, bookId?: string | null, taskId?: string | null): string {

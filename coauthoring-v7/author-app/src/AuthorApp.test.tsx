@@ -3,7 +3,11 @@ import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthorApp } from './AuthorApp';
 import { AuthorAccountSessionProvider, type AuthorAccountSession } from './AuthorAccountBoundary';
-import { AUTHOR_NAV_ITEMS, authorViewFromSearch, bookIdFromSearch, preserveCreationScopeInSearch, searchForAuthorView } from './navigation';
+import {
+  AUTHOR_NAV_ITEMS, authorViewFromSearch, bookIdFromSearch, informationSectionFromSearch,
+  preserveCreationScopeInSearch, searchForAuthorView, searchForInformationSection,
+  settingRecoveryFocusFromSearch
+} from './navigation';
 import { authorFacingReviewText, reviewFieldLabel } from './NewNovelPage';
 import type { OpeningPackage, OpeningTaskView, OpeningTaxonomy } from './opening-api';
 
@@ -146,6 +150,7 @@ function installFetch(overrides?: (url: string, init?: RequestInit) => Response 
     if (url.endsWith('/api/v1/v7/design-tasks?limit=50')) return response([]);
     if (url.endsWith('/api/v1/v7/creation-tasks?limit=50')) return response([]);
     if (url.endsWith('/api/v1/v7/planning-tasks?limit=80')) return response([]);
+    if (url.endsWith('/api/v1/v7/setting-tasks?limit=50')) return response([]);
     if (url.endsWith('/api/v1/v7/editorial/planning-members')) return response([]);
     if (url.includes('/planning-adjustment-suggestions')) return response([]);
     if (url.endsWith('/planning-routes/latest')) return response(null);
@@ -1090,6 +1095,9 @@ describe('V7 author opening flow', () => {
     expect(authorViewFromSearch('?view=team')).toBe('team');
     expect(authorViewFromSearch('?view=account')).toBe('account');
     expect(bookIdFromSearch('?view=information&bookId=book-1')).toBe('book-1');
+    expect(informationSectionFromSearch('?view=information&bookId=book-1&section=setting&focus=final-review')).toBe('setting');
+    expect(settingRecoveryFocusFromSearch('?view=information&bookId=book-1&section=setting&focus=final-review')).toBe('final-review');
+    expect(searchForInformationSection('book-1', 'setting', 'final-review')).toBe('?view=information&bookId=book-1&section=setting&focus=final-review');
     expect(searchForAuthorView('new-novel')).toBe('?view=new-novel');
     expect(searchForAuthorView('information', 'book-1')).toBe('?view=information&bookId=book-1');
     expect(searchForAuthorView('account', 'book-1')).toBe('?view=account&bookId=book-1');

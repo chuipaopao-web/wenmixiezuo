@@ -1,4 +1,4 @@
-import { ArrowRightIcon, BookOpenTextIcon, ClockCounterClockwiseIcon, UsersThreeIcon } from '@phosphor-icons/react';
+import { ArrowRightIcon, BookOpenTextIcon, ClockCounterClockwiseIcon, SlidersHorizontalIcon, UsersThreeIcon } from '@phosphor-icons/react';
 import { useEffect, useMemo, useState } from 'react';
 import { cancelCreationWorkflow, fetchCreationTasks, type CreationWorkflowView } from './creation-api';
 import { memberAvatarPosition, memberDisplayName } from './member-avatars';
@@ -11,35 +11,40 @@ import {
   fetchDesignTasks,
   fetchOpeningTasks,
   fetchPlanningTasks,
+  fetchSettingTasks,
   type DesignTaskView,
   type OpeningTaskView,
-  type PlanningTaskView
+  type PlanningTaskView,
+  type SettingTaskView
 } from './opening-api';
 import { useAuthorAccount } from './AuthorAccountBoundary';
 import { clearOpeningDraftForTask } from './opening-draft-storage';
 
-export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlanning }: {
+export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlanning, onOpenSetting }: {
   onOpenTask: (taskId: string) => void;
   onOpenBook: (bookId: string) => void;
   onOpenCreation?: (bookId: string, focus: 'volume' | 'chain' | 'chapter') => void;
   onOpenPlanning?: (bookId: string) => void;
+  onOpenSetting?: (bookId: string, focus: 'final-review' | null) => void;
 }): React.JSX.Element {
   const { account } = useAuthorAccount();
   const [tasks, setTasks] = useState<OpeningTaskView[]>([]);
   const [designTasks, setDesignTasks] = useState<DesignTaskView[]>([]);
   const [creationTasks, setCreationTasks] = useState<CreationWorkflowView[]>([]);
   const [planningTasks, setPlanningTasks] = useState<PlanningTaskView[]>([]);
+  const [settingTasks, setSettingTasks] = useState<SettingTaskView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [abandoningTaskId, setAbandoningTaskId] = useState<string | null>(null);
   const [clearingIncompleteTasks, setClearingIncompleteTasks] = useState(false);
   const [confirmingClear, setConfirmingClear] = useState(false);
-  const hasAnyRecord = tasks.length > 0 || designTasks.length > 0 || creationTasks.length > 0 || planningTasks.length > 0;
+  const hasAnyRecord = tasks.length > 0 || designTasks.length > 0 || creationTasks.length > 0 || planningTasks.length > 0 || settingTasks.length > 0;
   const hasRunning = useMemo(
     () => tasks.some((task) => task.isRunning) || designTasks.some((task) => task.status === 'working')
       || creationTasks.some((task) => ['waiting', 'working'].includes(task.status))
-      || planningTasks.some((task) => ['waiting', 'working'].includes(task.status)),
-    [creationTasks, designTasks, planningTasks, tasks]
+      || planningTasks.some((task) => ['waiting', 'working'].includes(task.status))
+      || settingTasks.some((task) => ['waiting', 'working'].includes(task.status)),
+    [creationTasks, designTasks, planningTasks, settingTasks, tasks]
   );
   const hasArchivable = useMemo(
     () => tasks.some(openingTaskCanArchive),
@@ -52,10 +57,10 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
     const load = async () => {
       try {
         const results = await Promise.allSettled([
-          fetchOpeningTasks(), fetchDesignTasks(), fetchCreationTasks(), fetchPlanningTasks()
+          fetchOpeningTasks(), fetchDesignTasks(), fetchCreationTasks(), fetchPlanningTasks(), fetchSettingTasks()
         ]);
         if (stopped) return;
-        const [openingResult, designResult, creationResult, planningResult] = results;
+        const [openingResult, designResult, creationResult, planningResult, settingResult] = results;
         const visible = openingResult.status === 'fulfilled'
           ? openingResult.value.filter((task) => !(
             task.resultBookId === null && task.status === 'failed' && task.errorMessage === null
@@ -65,6 +70,7 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
         if (designResult.status === 'fulfilled') setDesignTasks(designResult.value);
         if (creationResult.status === 'fulfilled') setCreationTasks(creationResult.value);
         if (planningResult.status === 'fulfilled') setPlanningTasks(planningResult.value);
+        if (settingResult.status === 'fulfilled') setSettingTasks(settingResult.value);
         const failed = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
         setError(failed.length === 0 ? null : '部分工作记录暂时没有加载出来，编辑部会自动重试。');
         setLoading(false);
@@ -72,7 +78,8 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
         const hasDesignRunning = designResult.status === 'fulfilled' && designResult.value.some((task) => task.status === 'working');
         const hasCreationRunning = creationResult.status === 'fulfilled' && creationResult.value.some((task) => ['waiting', 'working'].includes(task.status));
         const hasPlanningRunning = planningResult.status === 'fulfilled' && planningResult.value.some((task) => ['waiting', 'working'].includes(task.status));
-        if (failed.length > 0 || hasVisibleRunning || hasDesignRunning || hasCreationRunning || hasPlanningRunning) {
+        const hasSettingRunning = settingResult.status === 'fulfilled' && settingResult.value.some((task) => ['waiting', 'working'].includes(task.status));
+        if (failed.length > 0 || hasVisibleRunning || hasDesignRunning || hasCreationRunning || hasPlanningRunning || hasSettingRunning) {
           timer = window.setTimeout(load, failed.length > 0 ? 4_000 : 2_000);
         }
       } catch (reason) {
@@ -94,7 +101,9 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
   const creationHistory = creationTasks.filter((task) => !activeCreationTasks.includes(task));
   const activePlanningTasks = planningTasks.filter((task) => ['waiting', 'working', 'waiting_for_you', 'failed'].includes(task.status));
   const planningHistory = planningTasks.filter((task) => !activePlanningTasks.includes(task));
-  const activeCount = active.length + activeDesignTasks.length + activeCreationTasks.length + activePlanningTasks.length;
+  const activeSettingTasks = settingTasks.filter((task) => task.status !== 'completed');
+  const settingHistory = settingTasks.filter((task) => task.status === 'completed');
+  const activeCount = active.length + activeDesignTasks.length + activeCreationTasks.length + activePlanningTasks.length + activeSettingTasks.length;
   const abandon = async (task: OpeningTaskView) => {
     setAbandoningTaskId(task.taskId);
     setError(null);
@@ -139,6 +148,10 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
         <div className="task-log-empty"><BookOpenTextIcon /><strong>还没有工作记录</strong><span>提交开书想法后，任务会一直保存在这里。</span></div>
       ) : hasAnyRecord ? <div className="task-log-sections">
         {active.length > 0 && <TaskSection title="进行中与待确认" tasks={active} onOpenTask={onOpenTask} onOpenBook={onOpenBook} abandoningTaskId={abandoningTaskId} onAbandon={abandon} />}
+        {activeSettingTasks.length > 0 && <SettingTaskSection title="设定工作" tasks={activeSettingTasks} onOpen={(task) => {
+          if (onOpenSetting !== undefined) onOpenSetting(task.bookId, task.taskKind === 'batch_final_review' ? 'final-review' : null);
+          else onOpenBook(task.bookId);
+        }} />}
         {activePlanningTasks.length > 0 && <PlanningTaskSection title="全书路线与框架" tasks={activePlanningTasks} onOpen={(task) => {
           if (onOpenPlanning !== undefined) onOpenPlanning(task.bookId);
           else onOpenBook(task.bookId);
@@ -160,6 +173,10 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
         {activeDesignTasks.length > 0 && <DesignTaskSection title="书名与封面制作中" tasks={activeDesignTasks} onOpenBook={onOpenBook} />}
         {history.length > 0 && <TaskSection title="最近记录" tasks={history} onOpenTask={onOpenTask} onOpenBook={onOpenBook} abandoningTaskId={abandoningTaskId} onAbandon={abandon} />}
         {designHistory.length > 0 && <DesignTaskSection title="书名与封面历史" tasks={designHistory} onOpenBook={onOpenBook} />}
+        {settingHistory.length > 0 && <SettingTaskSection title="设定历史" tasks={settingHistory} onOpen={(task) => {
+          if (onOpenSetting !== undefined) onOpenSetting(task.bookId, task.taskKind === 'batch_final_review' ? 'final-review' : null);
+          else onOpenBook(task.bookId);
+        }} />}
         {creationHistory.length > 0 && <CreationTaskSection title="卷与正文历史" tasks={creationHistory} onOpen={(task) => openCreationTask(task, onOpenBook, onOpenCreation)} />}
         {planningHistory.length > 0 && <PlanningTaskSection title="全书规划历史" tasks={planningHistory} onOpen={(task) => {
           if (onOpenPlanning !== undefined) onOpenPlanning(task.bookId);
@@ -168,6 +185,47 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
       </div> : null}
     </section>
   );
+}
+
+function SettingTaskSection({ title, tasks, onOpen }: {
+  title: string;
+  tasks: SettingTaskView[];
+  onOpen: (task: SettingTaskView) => void;
+}): React.JSX.Element {
+  return <section className="task-log-section" aria-label={title}>
+    <div className="task-log-section-heading"><strong>{title}</strong><span>{tasks.length}</span></div>
+    <div className="task-log-list">{tasks.map((task) => <SettingTaskCard key={task.taskId} task={task} onOpen={() => onOpen(task)} />)}</div>
+  </section>;
+}
+
+function SettingTaskCard({ task, onOpen }: { task: SettingTaskView; onOpen: () => void }): React.JSX.Element {
+  const active = task.status === 'waiting' || task.status === 'working';
+  const failed = task.status === 'failed';
+  const state = task.status === 'waiting_for_you' ? '等您决定'
+    : task.status === 'completed' ? '已完成'
+      : failed ? '本轮未完成'
+        : task.status === 'working' ? '工作中' : '马上开始';
+  const memberName = task.member === null ? null : memberDisplayName(task.member.memberKey, task.member.displayName);
+  const copy = failed
+    ? publicFailureCopy(task.statusText)
+    : publicStatusCopy(task.statusText, task.status === 'completed' ? '本轮设定工作已经完成。' : '当前设定进度已经保存。');
+  return <article className={`task-log-card state-${task.status}`}>
+    <div className="task-log-card-main"><span className={`task-state-dot ${active ? 'working' : ''}`} /><div><small>{settingTaskName(task.taskKind)} · {formatTime(task.updatedAt)}</small><strong>{task.bookTitle}</strong><p>{memberName === null ? copy : `${failed ? '🙇' : active ? '✍️' : '🌿'} ${memberName}：${copy}`}</p></div></div>
+    <div className="task-log-card-side">{task.member !== null && <div className="task-member-stack"><i title={memberName ?? '编辑部成员'} style={{ backgroundPosition: memberAvatarPosition(task.member.memberKey) }} /></div>}<span className="task-state-label">{state}</span><button type="button" onClick={onOpen}>{task.status === 'completed' ? '查看设定' : '继续处理'}<ArrowRightIcon /></button></div>
+    {failed && <div className="task-card-members"><SlidersHorizontalIcon />已经完成的设定都已保留，打开后可按当前状态继续。</div>}
+    {active && <div className="task-card-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress}><span style={{ width: `${task.progress}%` }} /></div>}
+  </article>;
+}
+
+function settingTaskName(kind: SettingTaskView['taskKind']): string {
+  return ({
+    catalog_recommendation: '设定清单',
+    setting_batch: '设定设计',
+    item_review: '设定修改复审',
+    item_fusion: '设定方案融合',
+    batch_final_review: '设定统一整理',
+    item_redesign: '设定重新设计'
+  } as const)[kind];
 }
 
 function PlanningTaskSection({ title, tasks, onOpen, onCancel }: {

@@ -12,7 +12,7 @@ vi.mock('./opening-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./opening-api')>();
   return {
     ...actual,
-    fetchOpeningTasks: vi.fn(), fetchDesignTasks: vi.fn(), fetchPlanningTasks: vi.fn(),
+    fetchOpeningTasks: vi.fn(), fetchDesignTasks: vi.fn(), fetchPlanningTasks: vi.fn(), fetchSettingTasks: vi.fn(),
     abandonOpeningTask: vi.fn(), abandonAllOpeningTasks: vi.fn(),
     cancelPlanningRouteRun: vi.fn(), cancelPlanningTreeGeneration: vi.fn()
   };
@@ -30,6 +30,7 @@ describe('V7统一任务中心', () => {
     vi.clearAllMocks();
     mockedOpening.fetchOpeningTasks.mockResolvedValue([]);
     mockedOpening.fetchDesignTasks.mockResolvedValue([]);
+    mockedOpening.fetchSettingTasks.mockResolvedValue([]);
     mockedCreation.fetchCreationTasks.mockResolvedValue([]);
     mockedOpening.fetchPlanningTasks.mockResolvedValue([planningTask()]);
     mockedOpening.cancelPlanningRouteRun.mockResolvedValue({} as opening.PlanningRouteRunView);
@@ -117,6 +118,20 @@ describe('V7统一任务中心', () => {
     expect(screen.getByRole('button', { name: '查看详情' })).toBeEnabled();
   });
 
+  it('设定统一整理失败计入待处理，并一步返回对应书籍的恢复位置', async () => {
+    const onOpenSetting = vi.fn();
+    mockedOpening.fetchPlanningTasks.mockResolvedValue([]);
+    mockedOpening.fetchSettingTasks.mockResolvedValue([failedSettingTask()]);
+    render(<TaskLogPage onOpenTask={vi.fn()} onOpenBook={vi.fn()} onOpenSetting={onOpenSetting} />);
+
+    expect(await screen.findByText('设定工作')).toBeVisible();
+    expect(document.querySelector('.task-log-summary > strong')).toHaveTextContent('1');
+    expect(screen.getByText('本轮未完成')).toBeVisible();
+    expect(screen.getByText(/对不起/u)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: /继续处理/u }));
+    expect(onOpenSetting).toHaveBeenCalledWith('book-1', 'final-review');
+  });
+
   it('长开书想法在任务列表只显示短摘要，不淹没状态和操作', async () => {
     mockedOpening.fetchPlanningTasks.mockResolvedValue([]);
     const longIdea = '长'.repeat(160);
@@ -151,6 +166,17 @@ function planningTask(): opening.PlanningTaskView {
     status: 'working', message: '主编正在比较三套全书路线。', progress: 86,
     memberKey: 'planning-chief-deepseek-v4-pro', memberName: '貂蝉', treeKind: null, scopeId: null,
     canStop: true, updatedAt: '2026-08-27T01:00:00.000Z'
+  };
+}
+
+function failedSettingTask(): opening.SettingTaskView {
+  return {
+    taskId: 'setting-final-1', bookId: 'book-1', bookTitle: '北宋小卒',
+    taskKind: 'batch_final_review', status: 'failed',
+    statusText: '本周期创作算力已用完，升级会员或等待额度恢复后再继续。', progress: 100,
+    member: { memberKey: 'planning-chief-deepseek-v4-pro', displayName: '貂蝉' },
+    retryable: true, restartable: false,
+    createdAt: '2026-08-31T00:00:00.000Z', updatedAt: '2026-08-31T00:02:00.000Z'
   };
 }
 

@@ -694,6 +694,20 @@ export interface SettingDepartmentView {
   recommendation: SettingCatalogRecommendationView | null;
   finalReview: SettingFinalReviewView | null;
 }
+export interface SettingTaskView {
+  taskId: string;
+  bookId: string;
+  bookTitle: string;
+  taskKind: 'catalog_recommendation' | 'setting_batch' | 'item_review' | 'item_fusion' | 'batch_final_review' | 'item_redesign';
+  status: 'waiting' | 'working' | 'waiting_for_you' | 'completed' | 'failed';
+  statusText: string;
+  progress: number;
+  member: { memberKey: string; displayName: string } | null;
+  retryable: boolean;
+  restartable: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 interface SettingDepartmentWireView extends Omit<SettingDepartmentView, 'recommendation' | 'finalReview'> {
   recommendation?: SettingCatalogRecommendationWireView | null;
   finalReview?: SettingFinalReviewWireView | null;
@@ -744,6 +758,9 @@ function normalizeSettingDepartmentView(value: SettingDepartmentWireView): Setti
 export function fetchSettingDepartment(bookId: string, signal?: AbortSignal): Promise<SettingDepartmentView> {
   return request<SettingDepartmentWireView>(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-department`, signal === undefined ? undefined : { signal })
     .then(normalizeSettingDepartmentView);
+}
+export function fetchSettingTasks(signal?: AbortSignal): Promise<SettingTaskView[]> {
+  return request('/api/v1/v7/setting-tasks?limit=50', signal === undefined ? undefined : { signal });
 }
 export function createSettingRecommendation(bookId: string): Promise<SettingCatalogRecommendationView> {
   return request<SettingCatalogRecommendationWireView>(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-recommendations`, {

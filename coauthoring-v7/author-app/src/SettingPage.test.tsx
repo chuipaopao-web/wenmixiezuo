@@ -200,9 +200,8 @@ describe('V7设定页面', () => {
     });
     render(<SettingPage bookId="book-1" />);
 
-    const showFailure = await screen.findByRole('button', { name: '查看统一整理状态' });
-    fireEvent.click(showFailure);
     expect(await screen.findAllByText('对不起，这次统一整理结果暂时无法确认。')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: '查看统一整理状态' })).not.toBeInTheDocument();
     const refresh = screen.getByRole('button', { name: '刷新核对结果' });
     expect(screen.queryByRole('button', { name: '重新发起统一整理' })).not.toBeInTheDocument();
     fireEvent.click(refresh);

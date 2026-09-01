@@ -49,6 +49,13 @@ export async function registerV7SettingEditorialRoutes(
     return success(member, request.id);
   });
 
+  app.get<{ Querystring: { limit?: string } }>('/api/v1/v7/setting-tasks', async (request) => {
+    const ownerId = requireAuthenticatedOwner(request).ownerId;
+    const parsed = Number(request.query.limit ?? 50);
+    const limit = Number.isInteger(parsed) ? Math.max(1, Math.min(100, parsed)) : 50;
+    return success(service.listTasks(ownerId, limit), request.id);
+  });
+
   app.get<{ Params: { bookId: string } }>('/api/v1/v7/books/:bookId/setting-department', async (request) => {
     const resolved = scope(request, request.params.bookId);
     return success(service.department(resolved.ownerId, resolved.bookId), request.id);

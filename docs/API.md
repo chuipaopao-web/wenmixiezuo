@@ -61,6 +61,7 @@
 
 ## 设定编辑部
 
+- `GET /api/v1/v7/setting-tasks?limit=50`
 - `GET /api/v1/v7/books/:bookId/setting-department`
 - `POST /api/v1/v7/books/:bookId/setting-recommendations`
 - `GET /api/v1/v7/books/:bookId/setting-recommendations/current`
@@ -78,6 +79,8 @@
 - `GET /api/v1/v7/books/:bookId/setting-items/:itemKey/redesigns/current`
 - `GET /api/v1/v7/books/:bookId/setting-items/:itemKey/redesigns/:taskId`
 - `POST /api/v1/v7/books/:bookId/setting-items/:itemKey/redesigns/:taskId/retry`
+
+`GET /api/v1/v7/setting-tasks` 是统一任务中心的作者只读投影：按已验证会话的 `owner_id` 隔离，每本活动 V7 书只返回当前最新的作者可见设定工作；题材档案等内部维护批次不进入待处理数量。投影只包含书名、业务状态、进度、公开成员和恢复能力，不返回内部错误、模型协议或提示词。
 
 `fusions`、`revisions` 和 `review-tasks` 均返回持久化的设定批次，不在一次 HTTP 请求内等待模型完成；作者端通过 `GET setting-batches/:batchId` 恢复进度和结果。采用重新设计候选时，`review-tasks` 同时提交 `sourceRedesignTaskId + sourceOutputId`，服务端核对来源版本后才允许进入复审。
 

@@ -894,7 +894,7 @@ describe('V7设定编辑部', () => {
     const resolver = new SettingResolver(false);
     const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
-      await register(app, 'setting-final-review-quota-admin@example.com', '总审额度管理员', 'strong-pass-927');
+      const administratorCookie = await register(app, 'setting-final-review-quota-admin@example.com', '总审额度管理员', 'strong-pass-927');
       const cookie = await register(app, 'setting-final-review-quota@example.com', '总审额度作者', 'strong-pass-928');
       const bookId = await createBook(app, cookie, '统一整理额度恢复', 'final-review-quota-book', '历史脑洞');
       const owner = context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string };
@@ -920,6 +920,21 @@ describe('V7设定编辑部', () => {
         WHERE owner_id=? AND book_id=? AND batch_id=? AND event_type IN ('leave','handoff')`).get(
         owner.owner_id, bookId, taskId
       )).toEqual({ count: 0 });
+      const failedTasks = await app.inject({
+        method: 'GET', url: '/api/v1/v7/setting-tasks?limit=50', headers: { host: HEADERS.host, cookie }
+      });
+      expect(failedTasks.statusCode, failedTasks.body).toBe(200);
+      expect(failedTasks.json().data).toEqual([expect.objectContaining({
+        taskId, bookId, bookTitle: '统一整理额度恢复', taskKind: 'batch_final_review',
+        status: 'failed', retryable: true, restartable: false, progress: 100
+      })]);
+      expect(failedTasks.json().data[0]).not.toHaveProperty('errorCode');
+      expect(failedTasks.json().data[0]).not.toHaveProperty('failureStage');
+      const otherOwnerTasks = await app.inject({
+        method: 'GET', url: '/api/v1/v7/setting-tasks?limit=50', headers: { host: HEADERS.host, cookie: administratorCookie }
+      });
+      expect(otherOwnerTasks.statusCode).toBe(200);
+      expect(otherOwnerTasks.json().data).toEqual([]);
 
       context.database.prepare('UPDATE user_memberships SET token_quota=500000 WHERE owner_id=?').run(owner.owner_id);
       const retried = await app.inject({
@@ -929,6 +944,26 @@ describe('V7设定编辑部', () => {
       expect(retried.statusCode, retried.body).toBe(200);
       expect(retried.json().data.taskId).toBe(taskId);
       expect((await pollFinalReview(app, cookie, bookId)).status).toBe('ready');
+      const waitingTasks = await app.inject({
+        method: 'GET', url: '/api/v1/v7/setting-tasks?limit=50', headers: { host: HEADERS.host, cookie }
+      });
+      expect(waitingTasks.json().data).toEqual([expect.objectContaining({ taskId, status: 'waiting_for_you' })]);
+      const department = await app.inject({
+        method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-department`, headers: { host: HEADERS.host, cookie }
+      });
+      for (const item of department.json().data.confirmedItems as Array<{ itemKey: string; revision: number }>) {
+        const confirmed = await app.inject({
+          method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-items/${item.itemKey}/confirm`,
+          headers: { ...HEADERS, cookie }, payload: { expectedRevision: item.revision }
+        });
+        expect(confirmed.statusCode, confirmed.body).toBe(200);
+      }
+      const completedTasks = await app.inject({
+        method: 'GET', url: '/api/v1/v7/setting-tasks?limit=50', headers: { host: HEADERS.host, cookie }
+      });
+      expect(completedTasks.json().data).toEqual([expect.objectContaining({
+        taskId, status: 'completed', statusText: '统一整理已经完成，当前设定已经安全保存。'
+      })]);
       expect(context.database.prepare(`SELECT error_code,failure_stage,retry_safety FROM v7_setting_batches
         WHERE owner_id=? AND book_id=? AND batch_id=?`).get(owner.owner_id, bookId, taskId)).toEqual({
         error_code: null, failure_stage: null, retry_safety: null

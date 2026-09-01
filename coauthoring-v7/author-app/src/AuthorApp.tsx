@@ -24,11 +24,16 @@ import {
   AUTHOR_NAV_ITEMS,
   authorViewFromSearch,
   bookIdFromSearch,
+  informationSectionFromSearch,
   openingTaskIdFromSearch,
   preserveCreationScopeInSearch,
   searchForAuthorView,
+  searchForInformationSection,
+  settingRecoveryFocusFromSearch,
   type AuthorView,
-  type CreationScopeOverride
+  type CreationScopeOverride,
+  type InformationSection,
+  type SettingRecoveryFocus
 } from './navigation';
 import { archiveBook, fetchBooks, restoreBook, type BookRecord } from './opening-api';
 import { bookCoverTitle, bookCoverTone, bookStatusLabel } from './book-shelf-presentation';
@@ -98,7 +103,8 @@ export function AuthorApp(): React.JSX.Element {
   const [bookId, setBookId] = useState<string | null>(() => bookIdFromSearch(window.location.search));
   const [openingEntry, setOpeningEntry] = useState<OpeningEntry>(() => openingEntryFromSearch(window.location.search));
   const [openingTaskId, setOpeningTaskId] = useState<string | null>(() => openingTaskIdFromSearch(window.location.search));
-  const [informationSection, setInformationSection] = useState<'profile' | 'setting'>('profile');
+  const [informationSection, setInformationSection] = useState<InformationSection>(() => informationSectionFromSearch(window.location.search));
+  const [settingRecoveryFocus, setSettingRecoveryFocus] = useState<SettingRecoveryFocus | null>(() => settingRecoveryFocusFromSearch(window.location.search));
   const [books, setBooks] = useState<BookRecord[]>([]);
   const [bookShelfStatus, setBookShelfStatus] = useState<BookShelfStatus>('loading');
   const [bookShelfRequest, setBookShelfRequest] = useState(0);
@@ -113,6 +119,8 @@ export function AuthorApp(): React.JSX.Element {
       setBookId(bookIdFromSearch(window.location.search));
       setOpeningEntry(openingEntryFromSearch(window.location.search));
       setOpeningTaskId(openingTaskIdFromSearch(window.location.search));
+      setInformationSection(informationSectionFromSearch(window.location.search));
+      setSettingRecoveryFocus(settingRecoveryFocusFromSearch(window.location.search));
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -132,6 +140,7 @@ export function AuthorApp(): React.JSX.Element {
         setBookId(null);
         setOpeningTaskId(null);
         setInformationSection('profile');
+        setSettingRecoveryFocus(null);
         setLeftOpen(false);
       }
     }).catch(() => {
@@ -159,6 +168,17 @@ export function AuthorApp(): React.JSX.Element {
     setOpeningEntry(nextEntry);
     setOpeningTaskId(nextTaskId);
     if (nextView === 'information') setInformationSection('profile');
+    setSettingRecoveryFocus(null);
+    setLeftOpen(false);
+  };
+
+  const openSettings = (nextBookId: string, focus: SettingRecoveryFocus | null = null): void => {
+    window.history.pushState({}, '', searchForInformationSection(nextBookId, 'setting', focus));
+    setView('information');
+    setBookId(nextBookId);
+    setOpeningTaskId(null);
+    setInformationSection('setting');
+    setSettingRecoveryFocus(focus);
     setLeftOpen(false);
   };
 
@@ -265,11 +285,10 @@ export function AuthorApp(): React.JSX.Element {
       <main className="workspace-main">
         {view === 'home' && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'new-novel' && <NewNovelPage key={`${accountSession.account.userId}-${openingEntry}-${openingTaskId ?? 'new'}`} entryMode={openingEntry} onBack={() => navigate('home')} onCreated={(createdBookId) => navigate('information', createdBookId)} onAuthenticationRequired={accountSession.requireSignIn} />}
-        {view === 'information' && bookId !== null && <InformationPage key={`${bookId}-${informationSection}`} bookId={bookId} initialSection={informationSection} onOpenTimeMachine={() => navigate('time-machine', bookId)} />}
+        {view === 'information' && bookId !== null && <InformationPage key={`${bookId}-${informationSection}-${settingRecoveryFocus ?? 'default'}`} bookId={bookId} initialSection={informationSection} settingRecoveryFocus={settingRecoveryFocus} onOpenTimeMachine={() => navigate('time-machine', bookId)} />}
         {view === 'information' && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'time-machine' && bookId !== null && <TimeMachinePage bookId={bookId} onOpenSettings={() => {
-          navigate('information', bookId);
-          setInformationSection('setting');
+          openSettings(bookId);
         }} />}
         {view === 'time-machine' && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'volume' && bookId !== null && <CreationWorkspacePage bookId={bookId} focus="volume" onNavigate={(next, scope) => navigate(next, bookId, openingEntry, null, scope)} />}
@@ -277,7 +296,7 @@ export function AuthorApp(): React.JSX.Element {
         {view === 'chapter' && bookId !== null && <CreationWorkspacePage bookId={bookId} focus="chapter" onNavigate={(next, scope) => navigate(next, bookId, openingEntry, null, scope)} />}
         {['volume', 'chain', 'chapter'].includes(view) && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'library' && bookId !== null && <LibraryPage bookId={bookId} />}
-        {view === 'tasks' && <TaskLogPage onOpenTask={(taskId) => navigate('new-novel', null, 'ai', taskId)} onOpenBook={(nextBookId) => navigate('information', nextBookId)} onOpenPlanning={(nextBookId) => navigate('time-machine', nextBookId)} onOpenCreation={(nextBookId, focus) => navigate(focus, nextBookId)} />}
+        {view === 'tasks' && <TaskLogPage onOpenTask={(taskId) => navigate('new-novel', null, 'ai', taskId)} onOpenBook={(nextBookId) => navigate('information', nextBookId)} onOpenSetting={openSettings} onOpenPlanning={(nextBookId) => navigate('time-machine', nextBookId)} onOpenCreation={(nextBookId, focus) => navigate(focus, nextBookId)} />}
         {view === 'team' && <TeamPage />}
         {view === 'account' && <section className="v7-account-page"><AuthorAccountCenter /></section>}
       </main>
