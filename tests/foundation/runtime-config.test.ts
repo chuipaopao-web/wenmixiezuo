@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadRuntimeConfig } from '../../apps/api/src/infrastructure/runtime-config.js';
 
@@ -17,7 +18,7 @@ describe('本机监听门禁', () => {
     expect(config.webOrigin).toBe('http://127.0.0.1:43110');
     expect(config.adminOrigin).toBeNull();
     expect(config.promptViewPassword).toBeNull();
-    expect(config.dataDir.endsWith('wenmixiezuo\\data') || config.dataDir.endsWith('wenmixiezuo/data')).toBe(true);
+    expect(config.dataDir).toBe(resolve(process.cwd(), 'data'));
   });
 
   it('读取独立后台Origin并拒绝带路径的配置', () => {
