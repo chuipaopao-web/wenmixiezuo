@@ -495,7 +495,7 @@ export class V7PlanningTreeGenerationService {
               '保留成员组合、忽略候选方法和原创设计的空间'
             ],
             allowedPlanningLayers: allowedTreePlanningLayers(run.tree_kind),
-            sourceSnapshot: publicSnapshot(snapshot)
+            sourceSnapshot: planningMethodSearchSnapshot(snapshot)
           }),
           maxOutputTokens: 2_500,
           temperature: 0.28
@@ -503,7 +503,10 @@ export class V7PlanningTreeGenerationService {
         this.ensureActive(run);
         const missing = extractPlanningCriticalInputs(result.output);
         if (missing.length > 0) throw new Error(`资料仍有关键缺口：${missing.join('；')}`);
-        const request = parsePlanningMethodSearchRequest(result.output, { requireTaskProfile: true });
+        const request = normalizePlanningSettingSourceIds(
+          snapshot,
+          parsePlanningMethodSearchRequest(result.output, { requireTaskProfile: true })
+        );
         validateTreePlanningLayers(run.tree_kind, request);
         focusedPlanningTreeSnapshot(snapshot, request);
         const retrieval = retrievePlanningMethodCandidates(request);
@@ -723,6 +726,42 @@ function focusedPlanningTreeSnapshot(
   };
 }
 
+/**
+ * 早期树任务没有把逐项事实的 sourceId 交给资料策划，模型只能引用同一
+ * 正式事实源 content 中的 itemKey。只在当前冻结快照内存在唯一一对一
+ * 对应时做标识归一；未知、重复或跨书值继续交给严格校验拒绝。
+ */
+function normalizePlanningSettingSourceIds(
+  snapshot: V7PlanningCompiledSnapshot,
+  request: V7PlanningMethodSearchRequest
+): V7PlanningMethodSearchRequest {
+  const itemSources = snapshot.sources.filter((source) => source.sourceKind === 'setting' && !isSettingLedgerSource(source));
+  const sourceIds = new Set(itemSources.map((source) => source.sourceId));
+  const aliases = new Map<string, string | null>();
+  for (const source of itemSources) {
+    const itemKey = planningSettingItemKey(source);
+    if (itemKey === null) continue;
+    if (aliases.has(itemKey)) aliases.set(itemKey, null);
+    else aliases.set(itemKey, source.sourceId);
+  }
+  const normalized = request.relevantSettingSourceIds.map((reference) => {
+    if (sourceIds.has(reference)) return reference;
+    const sourceId = aliases.get(reference);
+    return sourceId === undefined || sourceId === null ? reference : sourceId;
+  });
+  return { ...request, relevantSettingSourceIds: [...new Set(normalized)] };
+}
+
+function planningSettingItemKey(source: V7PlanningCompiledSnapshot['sources'][number]): string | null {
+  if (source.sourceKind !== 'setting' || source.content === null
+    || typeof source.content !== 'object' || Array.isArray(source.content)) return null;
+  const content = source.content as { schema?: unknown; itemKey?: unknown };
+  return content.schema === 'v7-setting-fact-source-v1'
+    && typeof content.itemKey === 'string' && content.itemKey.length > 0
+    ? content.itemKey
+    : null;
+}
+
 function isSettingLedgerSource(source: V7PlanningCompiledSnapshot['sources'][number]): boolean {
   if (source.sourceKind !== 'setting' || source.content === null
     || typeof source.content !== 'object' || Array.isArray(source.content)) return false;
@@ -789,6 +828,23 @@ function publicSnapshot(snapshot: V7PlanningCompiledSnapshot): Record<string, un
     treeKind: snapshot.treeKind, scopeId: snapshot.scopeId,
     sources: snapshot.sources.map((source) => ({
       authority: source.authority, label: source.label, content: source.content, includedReason: source.includedReason
+    })),
+    excludedSources: snapshot.excludedSources
+  };
+}
+
+function planningMethodSearchSnapshot(snapshot: V7PlanningCompiledSnapshot): Record<string, unknown> {
+  return {
+    treeKind: snapshot.treeKind,
+    scopeId: snapshot.scopeId,
+    sources: snapshot.sources.map((source) => ({
+      sourceKind: source.sourceKind,
+      sourceId: source.sourceId,
+      sourceVersion: source.sourceVersion,
+      authority: source.authority,
+      label: source.label,
+      content: source.content,
+      includedReason: source.includedReason
     })),
     excludedSources: snapshot.excludedSources
   };

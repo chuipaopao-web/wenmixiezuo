@@ -191,8 +191,16 @@ describe('V7规划编辑部三席协作', () => {
       expect(before.retry_count).toBe(0);
       const contextPlanBefore = (JSON.parse(before.member_snapshot_json) as { contextPlan?: unknown }).contextPlan;
       expect(contextPlanBefore).toBeDefined();
+      const legacyRoster = JSON.parse(before.member_snapshot_json) as Record<string, unknown>;
+      delete legacyRoster.contextPlan;
+      legacyRoster.stage = 'context_planning';
+      context.database.prepare(`UPDATE v7_planning_generation_runs SET member_snapshot_json=?
+        WHERE owner_id=? AND book_id=? AND generation_run_id=?`).run(
+        JSON.stringify(legacyRoster), ownerId, bookId, runId
+      );
       const contextCallsBefore = Number((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_model_calls
         WHERE owner_id=? AND book_id=? AND run_id=? AND node_key='context_plan'`).get(ownerId, bookId, runId) as { count: number }).count);
+      const contextAdapterCallsBefore = resolver.requestIds.filter((requestId) => requestId.includes(':context:')).length;
       const baseRequestId = `${runId}:tree:1`;
       const baseCall = context.database.prepare(`SELECT prompt_hash,state FROM v7_planning_model_calls
         WHERE request_id=?`).get(baseRequestId) as { prompt_hash: string; state: string };
@@ -222,6 +230,7 @@ describe('V7规划编辑部三席协作', () => {
       expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_model_calls
         WHERE owner_id=? AND book_id=? AND run_id=? AND node_key='context_plan'`).get(ownerId, bookId, runId) as { count: number }).count)
         .toBe(contextCallsBefore);
+      expect(resolver.requestIds.filter((requestId) => requestId.includes(':context:'))).toHaveLength(contextAdapterCallsBefore);
       const retryCall = context.database.prepare(`SELECT prompt_hash,state FROM v7_planning_model_calls
         WHERE request_id=?`).get(`${baseRequestId}:retry:1`) as { prompt_hash: string; state: string };
       expect(retryCall).toEqual({ prompt_hash: baseCall.prompt_hash, state: 'succeeded' });
@@ -772,6 +781,27 @@ describe('V7规划编辑部三席协作', () => {
       const treeCalls = context.database.prepare(`SELECT node_key,member_key,state FROM v7_planning_model_calls
         WHERE owner_id=? AND book_id=? AND run_kind='tree' ORDER BY started_at,request_id`)
         .all(ownerId, bookId) as Array<{ node_key: string; member_key: string; state: string }>;
+      const treeContextPrompts = resolver.prompts.map(stageTaskPrompt).filter((prompt) =>
+        /(?:全书方向树|单卷树|单元链树)资料策划/u.test(prompt));
+      expect(treeContextPrompts).toHaveLength(3);
+      expect(treeContextPrompts.every((prompt) =>
+        /"sourceId"\s*:\s*"planning-setting-version"/u.test(prompt))).toBe(true);
+      expect(treeContextPrompts.every((prompt) =>
+        /"sourceKind"\s*:\s*"setting"/u.test(prompt))).toBe(true);
+      expect(treeContextPrompts.every((prompt) =>
+        /"sourceVersion"\s*:\s*"1"/u.test(prompt))).toBe(true);
+      expect(treeContextPrompts.every((prompt) =>
+        !prompt.includes('sourceFingerprint') && !prompt.includes('contentHash'))).toBe(true);
+      const treeRosters = context.database.prepare(`SELECT member_snapshot_json FROM v7_planning_generation_runs
+        WHERE owner_id=? AND book_id=? AND tree_kind IN ('book','volume','chain') ORDER BY created_at,generation_run_id`)
+        .all(ownerId, bookId) as Array<{ member_snapshot_json: string }>;
+      expect(treeRosters).toHaveLength(3);
+      expect(treeRosters.every((row) => {
+        const roster = JSON.parse(row.member_snapshot_json) as {
+          contextPlan?: { request?: { relevantSettingSourceIds?: unknown } };
+        };
+        return JSON.stringify(roster.contextPlan?.request?.relevantSettingSourceIds) === '["planning-setting-version"]';
+      })).toBe(true);
       expect(treeCalls.filter((call) => call.node_key === 'context_plan')).toHaveLength(3);
       expect(treeCalls.filter((call) => call.node_key === 'context_plan')
         .every((call) => call.state === 'succeeded' && call.member_key.startsWith('deputy-'))).toBe(true);
@@ -1728,6 +1758,9 @@ function methodSearchOutput(prompt = ''): string {
   const planningLayers = prompt.includes('单卷树资料策划') ? ['volume']
     : prompt.includes('单元链树资料策划') ? ['chain']
       : ['book_backbone', 'volume_distribution'];
+  const relevantSettingSourceIds = /(?:全书方向树|单卷树|单元链树)资料策划/u.test(prompt)
+    ? ['world-stage']
+    : ['planning-setting-version'];
   return JSON.stringify({
     schema: 'v7-planning-method-search-v1',
     publicGoal: '为三百万字历史长篇寻找全书递进、因果和追读方法。',
@@ -1746,7 +1779,7 @@ function methodSearchOutput(prompt = ''): string {
     desiredCount: 8,
     scaleHint: '三百万字、约八卷的历史长篇。',
     avoidNotes: ['不引入系统或超凡能力', '不能让岳飞替代张三成为行动中心'],
-    relevantSettingSourceIds: ['planning-setting-version'],
+    relevantSettingSourceIds,
     missingCriticalInputs: []
   });
 }
