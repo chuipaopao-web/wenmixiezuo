@@ -61,6 +61,12 @@ export class V7BookGenreProfileEnsureError extends Error {
   }
 }
 
+export class V7BookGenreProfileEnsureInProgressError extends V7BookGenreProfileEnsureError {
+  public constructor() {
+    super('本书题材档案已经由另一服务实例接手。');
+  }
+}
+
 /**
  * Ensures one immutable, book-scoped genre profile before downstream creative work.
  * The service calls the configured deputy model directly, so invoking it from a
@@ -80,7 +86,11 @@ export class V7BookGenreProfileEnsureService {
     this.promptGovernance = new V7PromptGovernanceRepository(database);
   }
 
-  public async ensure(ownerId: string, bookId: string): Promise<V7BookGenreProfile> {
+  public async ensure(
+    ownerId: string,
+    bookId: string,
+    options: { failFastOnActiveLease?: boolean } = {}
+  ): Promise<V7BookGenreProfile> {
     try {
       const initial = this.sources(ownerId, bookId);
       if (genreProfileIsCurrent(initial.active, initial.profile, initial.genreAssets)) return initial.active!;
@@ -92,7 +102,7 @@ export class V7BookGenreProfileEnsureService {
       const key = `${ownerId}\u0000${bookId}`;
       const existing = pending.get(key);
       if (existing !== undefined) return await existing;
-      const created = this.ensureInternal(ownerId, bookId).finally(() => {
+      const created = this.ensureInternal(ownerId, bookId, options.failFastOnActiveLease === true).finally(() => {
         if (pending?.get(key) === created) pending.delete(key);
       });
       pending.set(key, created);
@@ -102,7 +112,11 @@ export class V7BookGenreProfileEnsureService {
     }
   }
 
-  private async ensureInternal(ownerId: string, bookId: string): Promise<V7BookGenreProfile> {
+  private async ensureInternal(
+    ownerId: string,
+    bookId: string,
+    failFastOnActiveLease: boolean
+  ): Promise<V7BookGenreProfile> {
     const waitDeadline = Date.now() + GENRE_PROFILE_WAIT_MS;
     for (;;) {
       const sources = this.sources(ownerId, bookId);
@@ -163,6 +177,26 @@ export class V7BookGenreProfileEnsureService {
         stateJson: JSON.stringify(working)
       });
       if (!claimed) {
+        const current = this.repository.genreProfileBatch(ownerId, bookId, idempotencyKey);
+        const currentAttempt = current === undefined
+          ? undefined
+          : this.repository.genreProfileModelAttempt(ownerId, bookId, current.batch_id, logicalTaskId);
+        if (currentAttempt?.state === 'unknown') {
+          throw new V7BookGenreProfileEnsureError(
+            currentAttempt.failure_message ?? '上次题材档案结果还不能确认，已停止自动重试。',
+            true
+          );
+        }
+        const leaseExpiresAt = current?.lease_expires_at === null || current?.lease_expires_at === undefined
+          ? Number.NaN
+          : Date.parse(current.lease_expires_at);
+        if (failFastOnActiveLease
+          && current?.status === 'working'
+          && current.lease_token !== null
+          && Number.isFinite(leaseExpiresAt)
+          && leaseExpiresAt > this.clock.now().getTime()) {
+          throw new V7BookGenreProfileEnsureInProgressError();
+        }
         if (Date.now() >= waitDeadline) {
           throw new V7BookGenreProfileEnsureError('题材档案仍在生成，请稍后重新进入当前任务。', true);
         }

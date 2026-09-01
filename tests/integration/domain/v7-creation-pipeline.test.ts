@@ -399,19 +399,21 @@ describe('V7全链路创作总线', () => {
       expect(count(context, 'v7_creation_stage_settlements', ownerId, bookId)).toBe(3);
       expect(count(context, 'v7_creation_stage_jobs', ownerId, bookId)).toBe(3);
 
-      const timeMachineProgress = await request(app, cookie, 'GET',
+      const timeMachineProgress = await authorRequest(app, cookie, 'GET',
         `/api/v1/v7/books/${bookId}/time-machine-progress`);
       expect(timeMachineProgress.statusCode).toBe(200);
       expect(timeMachineProgress.json().data).toMatchObject({
         finalizedChapterCount: 6,
-        latestFinalChapter: {
-          manuscriptVersionId: expect.any(String), chapterNumber: 6,
-          volumeScopeId: 'volume-1', chainScopeId: 'chain-2'
-        }
+        latestFinalChapter: { chapterNumber: 6 },
+        latestConfirmedChain: { treeKind: 'chain', scopeId: 'chain-2', status: 'confirmed' }
       });
-      expect(JSON.stringify(timeMachineProgress.json().data)).not.toContain(originalText);
-      const latestFinalVersionId = timeMachineProgress.json().data.latestFinalChapter.manuscriptVersionId as string;
-      const crossOwnerProgress = await request(app, otherCookie, 'GET',
+      const publicProgressJson = JSON.stringify(timeMachineProgress.json().data);
+      expect(publicProgressJson).not.toContain(originalText);
+      expect(publicProgressJson).not.toMatch(/manuscriptVersionId|volumeScopeId|chainScopeId/u);
+      const latestFinalVersionId = (context.database.prepare(`SELECT manuscript_version_id FROM v7_manuscript_versions
+        WHERE owner_id=? AND book_id=? AND lifecycle='final' ORDER BY chapter_number DESC,revision DESC LIMIT 1`)
+        .get(ownerId, bookId) as { manuscript_version_id: string }).manuscript_version_id;
+      const crossOwnerProgress = await authorRequest(app, otherCookie, 'GET',
         `/api/v1/v7/books/${bookId}/time-machine-progress`);
       expect(crossOwnerProgress.statusCode).toBe(404);
       expect(crossOwnerProgress.body).not.toContain(latestFinalVersionId);
@@ -1744,6 +1746,15 @@ async function request(
   app: Awaited<ReturnType<typeof createServer>>, cookie: string, method: 'GET' | 'POST', url: string, payload?: unknown
 ) {
   const headers = { ...HEADERS, cookie };
+  return payload === undefined
+    ? await app.inject({ method, url, headers })
+    : await app.inject({ method, url, headers, payload: payload as object });
+}
+
+async function authorRequest(
+  app: Awaited<ReturnType<typeof createServer>>, cookie: string, method: 'GET' | 'POST', url: string, payload?: unknown
+) {
+  const headers = { ...HEADERS, cookie, 'x-wenmi-author-projection': 'clean-v1' };
   return payload === undefined
     ? await app.inject({ method, url, headers })
     : await app.inject({ method, url, headers, payload: payload as object });

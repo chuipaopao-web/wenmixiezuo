@@ -16,6 +16,7 @@ import {
   planningOptionRepairPrompt,
   planningOptionPrompt,
   reviewPrompt,
+  type AuthorPlanningTreeView,
   type PlanningTreeDocument,
   type V7ChainOption,
   type V7ChapterOutline,
@@ -215,11 +216,9 @@ export interface V7CreationLibraryView {
 export interface V7TimeMachineProgressView {
   finalizedChapterCount: number;
   latestFinalChapter: null | {
-    manuscriptVersionId: string;
     chapterNumber: number;
-    volumeScopeId: string | null;
-    chainScopeId: string | null;
   };
+  latestConfirmedChain: AuthorPlanningTreeView | null;
 }
 
 export interface V7CreationManuscriptView {
@@ -385,21 +384,25 @@ export class V7CreationWorkflowService {
   }
 
   /**
-   * 时光机只需要不可变正文的聚合进度和最近定稿所属范围。
-   * 这一读取固定为一条按 owner_id + book_id 隔离的 SQL，不展开章纲、审校或正文内容。
+   * 时光机只公开不可变正文的聚合进度，以及服务端按最近定稿范围解析出的已确认链。
+   * 正文版本、卷和链的内部定位键不会进入作者响应。
    */
   public timeMachineProgress(ownerId: string, bookId: string): V7TimeMachineProgressView {
     const row = this.repository.timeMachineProgress(ownerId, bookId);
+    let latestConfirmedChain: AuthorPlanningTreeView | null = null;
+    if (row.chain_scope_id !== null) {
+      try {
+        latestConfirmedChain = this.trees.getConfirmed(ownerId, bookId, 'chain', row.chain_scope_id);
+      } catch (error) {
+        if (!(error instanceof DomainError && error.statusCode === 404)) throw error;
+      }
+    }
     return {
       finalizedChapterCount: row.finalized_chapter_count,
       latestFinalChapter: row.manuscript_version_id === null || row.chapter_number === null
         ? null
-        : {
-            manuscriptVersionId: row.manuscript_version_id,
-            chapterNumber: row.chapter_number,
-            volumeScopeId: row.volume_scope_id,
-            chainScopeId: row.chain_scope_id
-          }
+        : { chapterNumber: row.chapter_number },
+      latestConfirmedChain
     };
   }
 

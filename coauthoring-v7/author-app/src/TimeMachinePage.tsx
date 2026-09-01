@@ -48,11 +48,7 @@ type DecisionMode = 'select' | 'adjust' | 'merge';
 interface FinalizedWritingProgress {
   finalizedChapterCount: number;
   latestChapterNumber: number;
-  manuscriptVersionId: string;
-  volumeScopeId: string | null;
-  chainScopeId: string | null;
   chainTree: PlanningTreeView | null;
-  chainTreeState: 'loaded' | 'missing' | 'failed';
 }
 
 type PlanningTreeReadState = 'loading' | 'loaded' | 'missing' | 'failed';
@@ -108,32 +104,10 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
       } else if (latest === null) {
         actualsIssue ??= '正文进度暂时没有完整读取成功，请重新读取。';
       } else {
-        let chainTree: PlanningTreeView | null = null;
-        let chainTreeState: FinalizedWritingProgress['chainTreeState'] = 'missing';
-        if (latest.chainScopeId !== null) {
-          try {
-            chainTree = await fetchConfirmedPlanningTree(bookId, 'chain', latest.chainScopeId, signal);
-            chainTreeState = 'loaded';
-          } catch (reason) {
-            if (Boolean(signal?.aborted)) return;
-            if (!(reason instanceof AuthorApiError && reason.status === 404)) {
-              chainTreeState = 'failed';
-              if (writingProgressRef.current?.chainScopeId === latest.chainScopeId) {
-                chainTree = writingProgressRef.current.chainTree;
-              }
-              actualsIssue ??= actualsFailure(reason);
-            }
-          }
-        }
-        if (Boolean(signal?.aborted)) return;
         const nextProgress: FinalizedWritingProgress = {
           finalizedChapterCount: progressResult.value.finalizedChapterCount,
           latestChapterNumber: latest.chapterNumber,
-          manuscriptVersionId: latest.manuscriptVersionId,
-          volumeScopeId: latest.volumeScopeId,
-          chainScopeId: latest.chainScopeId,
-          chainTree,
-          chainTreeState
+          chainTree: progressResult.value.latestConfirmedChain
         };
         writingProgressRef.current = nextProgress;
         setWritingProgress(nextProgress);
@@ -149,7 +123,7 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
   const load = useCallback(async (signal?: AbortSignal) => {
     setError(null);
     const [treeResult, routeResult, generationResult, rosterResult, suggestionsResult] = await Promise.allSettled([
-      fetchPlanningTree(bookId, 'book', bookId, signal),
+      fetchConfirmedPlanningTree(bookId, 'book', bookId, signal),
       fetchLatestPlanningRouteRun(bookId, signal),
       fetchLatestPlanningTreeGeneration(bookId, 'book', bookId, signal),
       fetchPlanningMembers(signal),
@@ -180,20 +154,20 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
     }
     if (generationResult.status === 'fulfilled') {
       setGeneration(generationResult.value);
-      if (generationResult.value?.status === 'ready' && loadedTree === null) {
+      const confirmedTreeReadFailed = treeResult.status === 'rejected'
+        && !(treeResult.reason instanceof AuthorApiError && treeResult.reason.status === 404);
+      if (generationResult.value?.status === 'ready'
+        && generationResult.value.canOpenCandidate
+        && !confirmedTreeReadFailed) {
         try {
-          loadedTree = await fetchPlanningTree(bookId, 'book', bookId, signal);
+          const currentTree = await fetchPlanningTree(bookId, 'book', bookId, signal);
           if (Boolean(signal?.aborted)) return;
-          setTree(loadedTree);
+          loadedTree = currentTree;
+          setTree(currentTree);
           setTreeReadState('loaded');
         } catch (reason) {
-          if (reason instanceof AuthorApiError && reason.status === 404) {
-            setTree(null);
-            setTreeReadState('missing');
-          } else {
-            setTreeReadState('failed');
-            coreError ??= publicError(reason);
-          }
+          setTreeReadState('failed');
+          coreError ??= publicError(reason);
         }
       }
     }
@@ -274,13 +248,14 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
 
   const applyGeneration = useCallback(async (next: PlanningTreeGenerationView): Promise<void> => {
     setGeneration(next);
-    if (next.status !== 'ready') return;
+    if (next.status !== 'ready' || !next.canOpenCandidate) return;
     try {
-      setTree(await fetchPlanningTree(bookId, 'book', bookId));
+      const currentTree = await fetchPlanningTree(bookId, 'book', bookId);
+      setTree(currentTree);
       setTreeReadState('loaded');
       setEditingDirection(false);
     } catch (reason) {
-      setTreeReadState(reason instanceof AuthorApiError && reason.status === 404 ? 'missing' : 'failed');
+      setTreeReadState('failed');
       throw reason;
     }
   }, [bookId]);
@@ -876,11 +851,8 @@ function ActualWritingProgress({ progress }: { progress: FinalizedWritingProgres
     <div className="time-machine-story-dynamics">
       <details open>
         <summary><span><strong>{chainTitle === null ? '最近定稿链' : `最近定稿链：${chainTitle}`}</strong><small>第{progress.latestChapterNumber}章已成为正式正文</small></span><CaretDownIcon /></summary>
-        {progress.chainTreeState === 'failed' && <p>{progress.chainTree === null
-          ? '最近定稿链暂时没有读取成功；已定稿章数仍直接来自不可变正文版本，请使用页面上方的“重新读取正文进度”。'
-          : '最近定稿链本次刷新失败，下面保留的是上次成功读取的正文实际，可能不是最新状态。'}</p>}
         {actualNodes.length === 0
-          ? progress.chainTreeState === 'failed' ? null : <p>最近定稿链还没有可核对的已确认链级记录；已定稿章数直接来自不可变正文版本，这里不会用候选方案或章纲冒充已经发生的内容。</p>
+          ? <p>最近定稿链还没有可核对的已确认链级记录；已定稿章数直接来自不可变正文版本，这里不会用候选方案或章纲冒充已经发生的内容。</p>
           : <div className="time-machine-planned-threads">{actualNodes.map((node) => <span key={node.key}>
               <b>{node.title} · {actualStateCopy(node.actual!.state)}</b>
               {node.actual!.summary}

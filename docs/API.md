@@ -138,7 +138,7 @@
 - `GET /api/v1/v7/books/:bookId/time-machine-progress`
 - `GET /api/v1/v7/creation-tasks`
 
-`time-machine-progress` 只按当前会话的 `owner_id + book_id` 聚合不可变 `final` 正文版本，返回定稿章数和最近定稿章的版本、章号、卷、链定位；不返回正文内容，也不读取候选章纲冒充实际进度。
+`time-machine-progress` 只按当前会话的 `owner_id + book_id` 聚合不可变 `final` 正文版本，返回定稿章数、最近定稿章号，以及由服务端解析好的最近已确认链；不向作者端返回正文版本、卷或链的内部定位键，不返回正文内容，也不读取候选章纲冒充实际进度。
 
 正式化端点：
 

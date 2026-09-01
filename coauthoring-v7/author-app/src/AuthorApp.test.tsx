@@ -146,7 +146,7 @@ function installFetch(overrides?: (url: string, init?: RequestInit) => Response 
     if (override !== null && override !== undefined) return override;
     if (url.endsWith('/api/v1/v7/books')) return response([]);
     if (url.includes('/api/v1/v7/books/') && url.endsWith('/creation-library')) return response({ volumes: [] });
-    if (url.includes('/api/v1/v7/books/') && url.endsWith('/time-machine-progress')) return response({ finalizedChapterCount: 0, latestFinalChapter: null });
+    if (url.includes('/api/v1/v7/books/') && url.endsWith('/time-machine-progress')) return response({ finalizedChapterCount: 0, latestFinalChapter: null, latestConfirmedChain: null });
     if (url.includes('/api/v1/v7/books/') && url.endsWith('/story-state')) return response([]);
     if (url.endsWith('/api/v1/v7/opening-agent/tasks?limit=50')) return response([]);
     if (url.endsWith('/api/v1/v7/design-tasks?limit=50')) return response([]);
@@ -417,12 +417,12 @@ describe('V7 author opening flow', () => {
         { bookId: 'book-a', title: 'A书', status: 'active', updatedAt: '2026-08-26T00:00:00Z' },
         { bookId: 'book-b', title: 'B书', status: 'active', updatedAt: '2026-08-26T00:00:00Z' }
       ]);
-      if (url.endsWith('/api/v1/v7/books/book-a/planning-trees/book/book-a')) {
+      if (url.endsWith('/api/v1/v7/books/book-a/planning-trees/book/book-a?version=confirmed')) {
         bookATreeCalls += 1;
         if (bookATreeCalls === 1) return response({ message: 'temporarily unavailable' }, 503);
         return new Promise((resolve) => { resolveOldRetry = resolve; });
       }
-      if (url.endsWith('/api/v1/v7/books/book-b/planning-trees/book/book-b')) {
+      if (url.endsWith('/api/v1/v7/books/book-b/planning-trees/book/book-b?version=confirmed')) {
         return response({ message: 'not found' }, 404);
       }
       return null;

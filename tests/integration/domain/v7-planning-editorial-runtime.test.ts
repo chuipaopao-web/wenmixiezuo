@@ -4,11 +4,19 @@ import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/m
 import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { V7PlanningMaintenanceService } from '../../../apps/api/src/application/planning/v7-planning-maintenance-service.js';
+import {
+  V7BookGenreProfileEnsureInProgressError,
+  V7BookGenreProfileEnsureService
+} from '../../../apps/api/src/application/agents/v7-book-genre-profile-ensure-service.js';
+import { V7PlanningTreeGenerationService } from '../../../apps/api/src/application/planning/v7-planning-tree-generation-service.js';
 import { V7PlanningTreeService } from '../../../apps/api/src/application/planning/v7-planning-tree-service.js';
 import { SystemClock, UuidGenerator } from '../../../apps/api/src/domain/ids.js';
-import { createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { openDatabase } from '../../../apps/api/src/infrastructure/db/database.js';
+import { V7PlanningRuntimeRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-planning-runtime-repository.js';
+import { accountUsageTotals } from '../../../apps/api/src/infrastructure/security/account-usage-service.js';
+import { createTestContext, FixedClock, MutableClock, type TestContext } from '../../helpers/test-context.js';
 import { v7GenreProfileFixtureResult } from '../../helpers/v7-genre-profile-model-fixture.js';
-import { parseProgressivePlanningBrief } from '@wenmi/v7-backend';
+import { parseProgressivePlanningBrief, sha256, stableStringify } from '@wenmi/v7-backend';
 
 const HEADERS = {
   host: '127.0.0.1:43111', origin: 'http://127.0.0.1:43110',
@@ -1049,6 +1057,311 @@ describe('V7规划编辑部三席协作', () => {
       await app.close();
     }
   });
+
+  it('两个数据库连接都先读到请求不存在时仍只有一个原子claim赢家', async () => {
+    context = createTestContext('wenmi-v7-planning-model-call-claim-');
+    const resolver = new CrossInstancePlanningResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    let secondDatabase: ReturnType<typeof openDatabase> | undefined;
+    try {
+      const cookie = await register(app, 'planning-model-call-claim@example.com', '原子认领作者');
+      const bookId = await createBook(app, cookie, '原子认领测试书');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      secondDatabase = openDatabase(context.config.databasePath);
+      const firstRepository = new V7PlanningRuntimeRepository(context.database);
+      const secondRepository = new V7PlanningRuntimeRepository(secondDatabase);
+      const requestId = 'planning-two-connection-claim-request-0001';
+      expect(firstRepository.modelCall(requestId)).toBeUndefined();
+      expect(secondRepository.modelCall(requestId)).toBeUndefined();
+      const claim = {
+        requestId,
+        ownerId,
+        bookId,
+        runId: 'planning-two-connection-claim-run-0001',
+        runKind: 'tree' as const,
+        nodeKey: 'context_plan',
+        memberKey: 'context-doubao-seed-1-6-flash',
+        provider: 'ark',
+        modelId: 'doubao-seed-1-6-flash',
+        plan: 'coding' as const,
+        promptHash: 'a'.repeat(64),
+        reservedTokens: 8_000,
+        governanceRevision: 1,
+        temperature: 0.28,
+        now: new Date().toISOString()
+      };
+      expect(firstRepository.beginModelCall(claim)).toBe(true);
+      expect(secondRepository.beginModelCall(claim)).toBe(false);
+      expect(firstRepository.modelCall(requestId)).toMatchObject({ state: 'working' });
+      expect(secondRepository.modelCall(requestId)).toMatchObject({ state: 'working' });
+    } finally {
+      secondDatabase?.close();
+      await app.close();
+    }
+  });
+
+  it('两个独立规划树服务并发续接时只由一个实例执行模型调用', async () => {
+    context = createTestContext('wenmi-v7-planning-route-cross-instance-');
+    const resolver = new CrossInstancePlanningResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    let secondDatabase: ReturnType<typeof openDatabase> | undefined;
+    let quotaOwnerId: string | undefined;
+    let originalQuota: number | undefined;
+    try {
+      await register(app, 'planning-route-cross-instance-admin@example.com', '并发测试管理员');
+      const cookie = await register(app, 'planning-route-cross-instance@example.com', '并发续接作者');
+      const bookId = await createBook(app, cookie, '跨实例续接测试书');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      confirmSetting(ownerId, bookId);
+
+      const started = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs`, {
+        authorGoal: '用一条长期因果路线推进主角成长。', candidateCount: 1,
+        idempotencyKey: 'planning-route-cross-instance-run-0001'
+      });
+      const routeRunId = started.json().data.runId as string;
+      const ready = await pollRouteRun(app, cookie, bookId, routeRunId);
+      const decided = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-routes/runs/${routeRunId}/decision`, {
+          mode: 'select', routeIds: [ready.routes[0].routeId], authorNote: '',
+          idempotencyKey: 'planning-route-cross-instance-decision-0001'
+        });
+      expect(decided.statusCode).toBe(200);
+
+      quotaOwnerId = ownerId;
+      const membership = context.database.prepare(`SELECT token_quota,period_start FROM user_memberships
+        WHERE owner_id=? AND status='active'`).get(ownerId) as { token_quota: number; period_start: string };
+      originalQuota = membership.token_quota;
+      const usageBeforeClaim = accountUsageTotals(context.database, { ownerId, since: membership.period_start });
+
+      secondDatabase = openDatabase(context.config.databasePath);
+      const firstStartedAt = new Date();
+      const firstService = new V7PlanningTreeGenerationService(
+        context.database, resolver, new UuidGenerator(), new FixedClock(firstStartedAt)
+      );
+      const secondService = new V7PlanningTreeGenerationService(
+        secondDatabase, resolver, new UuidGenerator(), new FixedClock(new Date(firstStartedAt.getTime() + 1_000))
+      );
+      const callsBeforeTree = resolver.requestIds.length;
+      resolver.blockNextPlanningCall();
+      const first = firstService.continueRouteToTree(ownerId, bookId, routeRunId, {});
+      context.database.exec(`CREATE TRIGGER planning_cross_instance_tight_quota
+        AFTER INSERT ON v7_planning_model_calls
+        WHEN NEW.run_id='${first.runId}' AND NEW.node_key='context_plan'
+        BEGIN
+          UPDATE user_memberships
+          SET token_quota=(${usageBeforeClaim.consumedTokens + usageBeforeClaim.reservedTokens}+NEW.reserved_tokens)*2
+          WHERE owner_id=NEW.owner_id AND status='active';
+        END`);
+      const second = secondService.continueRouteToTree(ownerId, bookId, routeRunId, {});
+      expect(second.runId).toBe(first.runId);
+      const secondActiveRuns = (secondService as unknown as { activeRuns: Set<string> }).activeRuns;
+      expect(secondActiveRuns.has(first.runId)).toBe(true);
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_model_calls
+        WHERE owner_id=? AND book_id=? AND run_id=?`).get(ownerId, bookId, first.runId) as { count: number }).count).toBe(0);
+      await resolver.waitUntilBlocked();
+      for (let index = 0; index < 160 && secondActiveRuns.has(first.runId); index += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      expect(secondActiveRuns.has(first.runId)).toBe(false);
+      expect(context.database.prepare(`SELECT status FROM v7_planning_generation_runs
+        WHERE owner_id=? AND book_id=? AND generation_run_id=?`).get(ownerId, bookId, first.runId))
+        .toEqual({ status: 'working' });
+      expect(resolver.requestIds.slice(callsBeforeTree)).toEqual([resolver.blockedRequestId]);
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_model_calls
+        WHERE owner_id=? AND book_id=? AND run_id=? AND node_key='context_plan'`)
+        .get(ownerId, bookId, first.runId) as { count: number }).count).toBe(1);
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_prompt_manifests
+        WHERE owner_id=? AND book_id=? AND task_id=?`)
+        .get(ownerId, bookId, resolver.blockedRequestId) as { count: number }).count).toBe(1);
+
+      context.database.exec('DROP TRIGGER planning_cross_instance_tight_quota');
+      context.database.prepare(`UPDATE user_memberships SET token_quota=?
+        WHERE owner_id=? AND status='active'`).run(originalQuota, ownerId);
+      resolver.release();
+      let completed = firstService.get(ownerId, bookId, first.runId);
+      for (let index = 0; index < 160 && ['waiting', 'working'].includes(completed.status); index += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        completed = firstService.get(ownerId, bookId, first.runId);
+      }
+      expect(completed.status).toBe('ready');
+      expect(new Set(resolver.requestIds).size).toBe(resolver.requestIds.length);
+      expect((context.database.prepare(`SELECT status FROM v7_planning_generation_runs
+        WHERE owner_id=? AND book_id=? AND generation_run_id=?`).get(ownerId, bookId, first.runId) as { status: string }).status)
+        .toBe('succeeded');
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_model_calls
+        WHERE owner_id=? AND book_id=?`).get(ownerId, bookId) as { count: number }).count)
+        .toBe(resolver.requestIds.length);
+    } finally {
+      resolver.release();
+      context.database.exec('DROP TRIGGER IF EXISTS planning_cross_instance_tight_quota');
+      if (quotaOwnerId !== undefined && originalQuota !== undefined) {
+        context.database.prepare(`UPDATE user_memberships SET token_quota=?
+          WHERE owner_id=? AND status='active'`).run(originalQuota, quotaOwnerId);
+      }
+      secondDatabase?.close();
+      await app.close();
+    }
+  });
+
+  it('首次题材档案被另一连接持有有效租约时静默等待且不污染共享规划任务', async () => {
+    context = createTestContext('wenmi-v7-planning-genre-profile-cross-instance-');
+    const resolver = new CrossInstancePlanningResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    let secondDatabase: ReturnType<typeof openDatabase> | undefined;
+    try {
+      const cookie = await register(app, 'planning-genre-profile-cross-instance@example.com', '题材并发作者');
+      const bookId = await createBook(app, cookie, '首次题材档案并发测试书');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      confirmSetting(ownerId, bookId);
+      prepareConfirmedRecipeAndBookTree(ownerId, bookId);
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_book_genre_profiles
+        WHERE owner_id=? AND book_id=?`).get(ownerId, bookId) as { count: number }).count).toBe(0);
+
+      secondDatabase = openDatabase(context.config.databasePath);
+      const firstStartedAt = new Date();
+      const firstService = new V7PlanningTreeGenerationService(
+        context.database, resolver, new UuidGenerator(), new FixedClock(firstStartedAt)
+      );
+      const secondService = new V7PlanningTreeGenerationService(
+        secondDatabase, resolver, new UuidGenerator(), new FixedClock(new Date(firstStartedAt.getTime() + 1_000))
+      );
+      resolver.blockNextGenreProfileCall();
+      const first = firstService.create(ownerId, bookId, 'volume', 'volume-1', {
+        idempotencyKey: 'planning-genre-profile-cross-instance-run-0001'
+      });
+      await resolver.waitUntilGenreProfileBlocked();
+      const beforeSecond = context.database.prepare(`SELECT status,assigned_member_key,member_snapshot_json,
+        error_message,updated_at FROM v7_planning_generation_runs
+        WHERE owner_id=? AND book_id=? AND generation_run_id=?`).get(ownerId, bookId, first.runId);
+      expect(secondService.get(ownerId, bookId, first.runId).runId).toBe(first.runId);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const afterSecond = context.database.prepare(`SELECT status,assigned_member_key,member_snapshot_json,
+        error_message,updated_at FROM v7_planning_generation_runs
+        WHERE owner_id=? AND book_id=? AND generation_run_id=?`).get(ownerId, bookId, first.runId);
+      expect(afterSecond).toEqual(beforeSecond);
+      expect(afterSecond).toMatchObject({ status: 'working', error_message: null });
+      expect(resolver.genreRequestIds).toHaveLength(1);
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_model_calls
+        WHERE owner_id=? AND book_id=? AND run_id=?`).get(ownerId, bookId, first.runId) as { count: number }).count).toBe(0);
+      expect(context.database.prepare(`SELECT status,lease_token,lease_expires_at FROM v7_setting_batches
+        WHERE owner_id=? AND book_id=? AND json_extract(custom_items_json,'$.taskKind')='genre_profile'`)
+        .get(ownerId, bookId)).toMatchObject({
+          status: 'working',
+          lease_token: expect.any(String),
+          lease_expires_at: expect.any(String)
+        });
+
+      const genreCall = context.database.prepare(`SELECT request_id FROM v7_setting_model_calls
+        WHERE owner_id=? AND book_id=? AND item_key='__genre_profile__'`).get(ownerId, bookId) as { request_id: string };
+      context.database.prepare(`UPDATE v7_setting_model_calls SET state='unknown',failure_message=?
+        WHERE request_id=? AND state='working'`).run('模拟题材档案真实未知', genreCall.request_id);
+      let unknownError: unknown;
+      try {
+        await new V7BookGenreProfileEnsureService(
+          secondDatabase,
+          resolver,
+          new UuidGenerator(),
+          new FixedClock(new Date(firstStartedAt.getTime() + 2_000))
+        ).ensure(ownerId, bookId, { failFastOnActiveLease: true });
+      } catch (error) {
+        unknownError = error;
+      }
+      expect(unknownError).toMatchObject({ outcomeUnknown: true, message: '模拟题材档案真实未知' });
+      expect(unknownError).not.toBeInstanceOf(V7BookGenreProfileEnsureInProgressError);
+      context.database.prepare(`UPDATE v7_setting_model_calls SET state='working',failure_message=NULL
+        WHERE request_id=? AND state='unknown'`).run(genreCall.request_id);
+
+      resolver.releaseGenreProfile();
+      let completed = firstService.get(ownerId, bookId, first.runId);
+      for (let index = 0; index < 320 && completed.status !== 'ready'; index += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        completed = firstService.get(ownerId, bookId, first.runId);
+      }
+      expect(completed.status).toBe('ready');
+      expect(resolver.genreRequestIds).toHaveLength(1);
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_book_genre_profiles
+        WHERE owner_id=? AND book_id=? AND status='active'`).get(ownerId, bookId) as { count: number }).count).toBe(1);
+    } finally {
+      resolver.releaseGenreProfile();
+      resolver.release();
+      secondDatabase?.close();
+      await app.close();
+    }
+  });
+
+  it('过期观察者标记unknown后原唯一执行者迟到成功仍完成且不触发fallback', async () => {
+    context = createTestContext('wenmi-v7-planning-late-success-');
+    const resolver = new CrossInstancePlanningResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    let secondDatabase: ReturnType<typeof openDatabase> | undefined;
+    try {
+      const cookie = await register(app, 'planning-late-success@example.com', '迟到成功作者');
+      const bookId = await createBook(app, cookie, '迟到成功测试书');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      confirmSetting(ownerId, bookId);
+      prepareConfirmedRecipeAndBookTree(ownerId, bookId);
+      const firstStartedAt = new Date();
+      const sharedClock = new MutableClock(firstStartedAt);
+      await new V7BookGenreProfileEnsureService(
+        context.database,
+        resolver,
+        new UuidGenerator(),
+        sharedClock
+      ).ensure(ownerId, bookId);
+
+      secondDatabase = openDatabase(context.config.databasePath);
+      const firstService = new V7PlanningTreeGenerationService(
+        context.database, resolver, new UuidGenerator(), sharedClock
+      );
+      const staleObserver = new V7PlanningTreeGenerationService(
+        secondDatabase,
+        resolver,
+        new UuidGenerator(),
+        sharedClock
+      );
+      const callsBeforeTree = resolver.requestIds.length;
+      resolver.blockNextPlanningCall();
+      const first = firstService.create(ownerId, bookId, 'volume', 'volume-1', {
+        idempotencyKey: 'planning-late-success-run-0001'
+      });
+      await resolver.waitUntilBlocked();
+      sharedClock.advance(17 * 60_000);
+      expect(staleObserver.get(ownerId, bookId, first.runId).runId).toBe(first.runId);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(context.database.prepare(`SELECT state FROM v7_planning_model_calls WHERE request_id=?`)
+        .get(resolver.blockedRequestId)).toEqual({ state: 'unknown' });
+      expect(context.database.prepare(`SELECT status FROM v7_planning_generation_runs
+        WHERE owner_id=? AND book_id=? AND generation_run_id=?`).get(ownerId, bookId, first.runId))
+        .toEqual({ status: 'unknown' });
+      expect(resolver.requestIds.slice(callsBeforeTree)).toEqual([resolver.blockedRequestId]);
+
+      resolver.release();
+      let completed = firstService.get(ownerId, bookId, first.runId);
+      for (let index = 0; index < 320 && completed.status !== 'ready'; index += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        completed = firstService.get(ownerId, bookId, first.runId);
+      }
+      expect(completed.status).toBe('ready');
+      expect(context.database.prepare(`SELECT state,failure_message,output_text FROM v7_planning_model_calls
+        WHERE request_id=?`).get(resolver.blockedRequestId)).toMatchObject({
+          state: 'succeeded',
+          failure_message: null,
+          output_text: expect.any(String)
+        });
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_model_calls
+        WHERE owner_id=? AND book_id=? AND run_id=? AND node_key='context_plan'`)
+        .get(ownerId, bookId, first.runId) as { count: number }).count).toBe(1);
+    } finally {
+      resolver.release();
+      resolver.releaseGenreProfile();
+      secondDatabase?.close();
+      await app.close();
+    }
+  });
 });
 
 class BlockingPlanningResolver implements V7OpeningModelAdapterResolver {
@@ -1070,6 +1383,76 @@ class BlockingPlanningResolver implements V7OpeningModelAdapterResolver {
         provider, modelId, output: methodSearchOutput(), inputTokens: 20, outputTokens: 20,
         cashCostCny: 0, state: 'succeeded'
       };
+    } };
+  }
+}
+
+class CrossInstancePlanningResolver implements V7OpeningModelAdapterResolver {
+  public readonly requestIds: string[] = [];
+  public readonly genreRequestIds: string[] = [];
+  public blockedRequestId = '';
+  private releaseGate!: () => void;
+  private enteredGate!: () => void;
+  private gate: Promise<void> = Promise.resolve();
+  private entered: Promise<void> = Promise.resolve();
+  private shouldBlock = false;
+  private releaseGenreGate!: () => void;
+  private enteredGenreGate!: () => void;
+  private genreGate: Promise<void> = Promise.resolve();
+  private genreEntered: Promise<void> = Promise.resolve();
+  private shouldBlockGenre = false;
+
+  public blockNextPlanningCall(): void {
+    this.shouldBlock = true;
+    this.gate = new Promise<void>((resolve) => { this.releaseGate = resolve; });
+    this.entered = new Promise<void>((resolve) => { this.enteredGate = resolve; });
+  }
+
+  public waitUntilBlocked(): Promise<void> { return this.entered; }
+  public release(): void { this.releaseGate?.(); }
+  public blockNextGenreProfileCall(): void {
+    this.shouldBlockGenre = true;
+    this.genreGate = new Promise<void>((resolve) => { this.releaseGenreGate = resolve; });
+    this.genreEntered = new Promise<void>((resolve) => { this.enteredGenreGate = resolve; });
+  }
+  public waitUntilGenreProfileBlocked(): Promise<void> { return this.genreEntered; }
+  public releaseGenreProfile(): void { this.releaseGenreGate?.(); }
+  public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
+    return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) {
+        this.genreRequestIds.push(request.requestId);
+        if (this.shouldBlockGenre) {
+          this.shouldBlockGenre = false;
+          this.enteredGenreGate();
+          await this.genreGate;
+        }
+        return genreProfile;
+      }
+      this.requestIds.push(request.requestId);
+      if (this.shouldBlock) {
+        this.shouldBlock = false;
+        this.blockedRequestId = request.requestId;
+        this.enteredGate();
+        await this.gate;
+      }
+      const prompt = stageTaskPrompt(request.prompt);
+      const output = prompt.includes('v7-planning-method-search-v1')
+        ? methodSearchOutput(prompt)
+        : prompt.includes('v7-planning-route-fusion-v2')
+          ? routeFusionOutput(prompt)
+          : prompt.includes('v7-planning-route-review-v1')
+            ? routeReviewOutput(prompt)
+            : prompt.includes('PlanningTreeDocument')
+              ? planningTreeOutput(prompt)
+              : prompt.includes('v7-planning-story-route-v1')
+                ? storyRouteOutput(prompt)
+                : prompt.includes('v7-progressive-planning-brief-v2')
+                  ? progressiveBriefOutput(prompt)
+                  : prompt.includes('三份已经独立保存的方案比较')
+                    ? comparisonOutput(prompt)
+                    : proposalOutput(prompt);
+      return { provider, modelId, output, inputTokens: 200, outputTokens: 900, cashCostCny: 0, state: 'succeeded' };
     } };
   }
 }
@@ -1596,6 +1979,52 @@ function confirmSetting(ownerId: string, bookId: string): void {
     (owner_id,book_id,item_key,item_label,group_title,item_prompt,state,active_version_id,revision,updated_at)
     VALUES (?,?,'game-rules','游戏规则','可选设定','游戏数值体系','confirmed','planning-setting-game-noise',1,?)`)
     .run(ownerId, bookId, now);
+}
+
+function prepareConfirmedRecipeAndBookTree(ownerId: string, bookId: string): void {
+  const now = '2026-07-16T00:00:00.000Z';
+  const snapshotId = `planning-recipe-snapshot-${bookId}`;
+  const recipeVersionId = `planning-recipe-version-${bookId}`;
+  const document = recipe(`planning-recipe-${bookId}`, '并发测试配方');
+  context!.database.prepare(`INSERT INTO v7_planning_source_snapshots
+    (snapshot_id,owner_id,book_id,tree_kind,scope_id,purpose,source_fingerprint,
+     compiled_content_json,excluded_sources_json,created_at)
+    VALUES (?,?,?,'book',?,'recipe_design',?,?,?,?)`).run(
+    snapshotId,
+    ownerId,
+    bookId,
+    bookId,
+    sha256(`${ownerId}:${bookId}:recipe-source`),
+    JSON.stringify({ testFixture: 'confirmed recipe' }),
+    JSON.stringify([]),
+    now
+  );
+  context!.database.prepare(`INSERT INTO v7_planning_recipe_versions
+    (recipe_version_id,owner_id,book_id,revision,lifecycle,recipe_json,recipe_hash,source_snapshot_id,
+     source_proposal_ids_json,created_by,created_at,confirmed_at)
+    VALUES (?,?,?,1,'confirmed',?,?,?,?,?,?,?)`).run(
+    recipeVersionId,
+    ownerId,
+    bookId,
+    JSON.stringify(document),
+    sha256(stableStringify(document)),
+    snapshotId,
+    JSON.stringify([]),
+    'test-fixture',
+    now,
+    now
+  );
+  const trees = new V7PlanningTreeService(context!.database, new UuidGenerator(), new FixedClock(new Date(now)));
+  const candidate = trees.createCandidate(ownerId, bookId, 'book', bookId, {
+    expectedRevision: 0,
+    tree: JSON.parse(planningTreeOutput(`treeKind固定为book\nscopeId固定为${bookId}。`)),
+    sourceRefs: [{ sourceKind: 'opening', sourceId: bookId, version: '1' }],
+    idempotencyKey: `planning-book-tree-create-${sha256(bookId).slice(0, 32)}`
+  }) as unknown as { revision: number };
+  trees.confirmCandidate(ownerId, bookId, 'book', bookId, {
+    expectedRevision: candidate.revision,
+    idempotencyKey: `planning-book-tree-confirm-${sha256(bookId).slice(0, 32)}`
+  });
 }
 
 function prepareConfirmedChain(ownerId: string, bookId: string): void {

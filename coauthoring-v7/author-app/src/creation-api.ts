@@ -1,4 +1,4 @@
-import { newActionKey, request } from './opening-api';
+import { newActionKey, request, type PlanningTreeView } from './opening-api';
 
 export type CreationRoleKey =
   | 'chief_editor' | 'deputy_editor' | 'planning_writer'
@@ -154,11 +154,9 @@ export interface CreationLibraryView {
 export interface TimeMachineProgressView {
   finalizedChapterCount: number;
   latestFinalChapter: null | {
-    manuscriptVersionId: string;
     chapterNumber: number;
-    volumeScopeId: string | null;
-    chainScopeId: string | null;
   };
+  latestConfirmedChain: PlanningTreeView | null;
 }
 
 export interface StoryStateItemView {

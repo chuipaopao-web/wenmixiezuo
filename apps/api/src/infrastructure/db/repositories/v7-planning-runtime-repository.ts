@@ -231,6 +231,7 @@ export interface V7PlanningModelCallRow {
   failure_message: string | null;
   input_tokens: number | null;
   output_tokens: number | null;
+  started_at: string;
 }
 
 export interface V7PlanningMaintenanceRunRow {
@@ -932,6 +933,25 @@ export class V7PlanningRuntimeRepository {
     );
   }
 
+  public markGenerationWorking(input: {
+    ownerId: string; bookId: string; generationRunId: string;
+    assignedMemberKey: string; memberSnapshot: unknown; now: string;
+  }): boolean {
+    const memberSnapshotJson = JSON.stringify(input.memberSnapshot);
+    const result = this.database.prepare(`UPDATE v7_planning_generation_runs
+      SET status='working',assigned_member_key=?,member_snapshot_json=?,error_message=NULL,updated_at=?
+      WHERE owner_id=? AND book_id=? AND generation_run_id=? AND status='queued'`)
+      .run(
+        input.assignedMemberKey,
+        memberSnapshotJson,
+        input.now,
+        input.ownerId,
+        input.bookId,
+        input.generationRunId
+      );
+    return result.changes === 1;
+  }
+
   public retryGeneration(
     ownerId: string,
     bookId: string,
@@ -1079,7 +1099,7 @@ export class V7PlanningRuntimeRepository {
 
   public modelCall(requestId: string): V7PlanningModelCallRow | undefined {
     return this.database.prepare(`SELECT request_id,owner_id,book_id,run_id,run_kind,node_key,member_key,provider,
-      model_id,plan,state,output_text,failure_message,input_tokens,output_tokens
+      model_id,plan,state,output_text,failure_message,input_tokens,output_tokens,started_at
       FROM v7_planning_model_calls WHERE request_id=?`).get(requestId) as V7PlanningModelCallRow | undefined;
   }
 
@@ -1096,30 +1116,35 @@ export class V7PlanningRuntimeRepository {
     runKind: V7PlanningModelCallRow['run_kind']; nodeKey: string; memberKey: string;
     provider: string; modelId: string; plan: 'coding' | 'agent'; promptHash: string;
     reservedTokens: number; governanceRevision: number; temperature: number; now: string;
-  }): void {
-    this.database.prepare(`INSERT INTO v7_planning_model_calls
+  }): boolean {
+    const result = this.database.prepare(`INSERT INTO v7_planning_model_calls
       (request_id,owner_id,book_id,run_id,run_kind,node_key,member_key,provider,model_id,plan,state,
        prompt_hash,reserved_tokens,governance_revision,temperature,started_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,'working',?,?,?,?,?,?)`).run(
+      VALUES (?,?,?,?,?,?,?,?,?,?,'working',?,?,?,?,?,?)
+      ON CONFLICT(request_id) DO NOTHING`).run(
       input.requestId, input.ownerId, input.bookId, input.runId, input.runKind, input.nodeKey,
       input.memberKey, input.provider, input.modelId, input.plan, input.promptHash,
       input.reservedTokens, input.governanceRevision, input.temperature, input.now, input.now
     );
+    return result.changes === 1;
   }
 
   public completeModelCall(input: {
     requestId: string; inputTokens: number; outputTokens: number; cashMicros: number;
     outputText: string; now: string;
-  }): void {
+  }): boolean {
     const result = this.database.prepare(`UPDATE v7_planning_model_calls SET state='succeeded',input_tokens=?,
-      output_tokens=?,cash_micros=?,output_text=?,completed_at=?,updated_at=? WHERE request_id=? AND state='working'`)
+      output_tokens=?,cash_micros=?,output_text=?,failure_message=NULL,completed_at=?,updated_at=?
+      WHERE request_id=? AND state IN ('working','unknown')`)
       .run(input.inputTokens, input.outputTokens, input.cashMicros, input.outputText, input.now, input.now, input.requestId);
-    if (result.changes !== 1) throw new Error('规划模型调用状态已经变化');
+    return result.changes === 1;
   }
 
-  public failModelCall(requestId: string, state: 'failed' | 'unknown', message: string, now: string): void {
-    this.database.prepare(`UPDATE v7_planning_model_calls SET state=?,failure_message=?,completed_at=CASE WHEN ?='failed' THEN ? ELSE completed_at END,
-      updated_at=? WHERE request_id=? AND state='working'`).run(state, message.slice(0, 1000), state, now, now, requestId);
+  public failModelCall(requestId: string, state: 'failed' | 'unknown', message: string, now: string): boolean {
+    const result = this.database.prepare(`UPDATE v7_planning_model_calls SET state=?,failure_message=?,
+      completed_at=CASE WHEN ?='failed' THEN ? ELSE completed_at END,updated_at=?
+      WHERE request_id=? AND state='working'`).run(state, message.slice(0, 1000), state, now, now, requestId);
+    return result.changes === 1;
   }
 
   private requireRecipeVersion(ownerId: string, bookId: string, recipeVersionId: string): V7PlanningRecipeVersionRow {

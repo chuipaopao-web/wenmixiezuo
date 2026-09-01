@@ -18,8 +18,10 @@ import { thinkingTokenAllowance } from './model-runtime-config.js';
 import { resolveV7TaskPolicy } from '../../application/agents/v7-agent-runtime-policy.js';
 import { compileV7RuntimePrompt } from '../../application/agents/v7-runtime-prompt-compiler.js';
 import { V7PromptGovernanceRepository } from '../db/repositories/v7-prompt-governance-repository.js';
+import { UnitOfWork } from '../db/unit-of-work.js';
 import {
   V7BookGenreProfileEnsureError,
+  V7BookGenreProfileEnsureInProgressError,
   V7BookGenreProfileEnsureService
 } from '../../application/agents/v7-book-genre-profile-ensure-service.js';
 
@@ -57,6 +59,7 @@ export interface V7PlanningModelRequest {
   prompt: string;
   maxOutputTokens: number;
   temperature: number;
+  failFastOnGenreProfileLease?: boolean;
 }
 
 export interface V7PlanningModelResult {
@@ -74,6 +77,15 @@ export class V7PlanningModelError extends Error {
   }
 }
 
+export class V7PlanningModelCallInProgressError extends V7PlanningModelError {
+  public constructor(message = '同一项模型调用已经由另一服务实例接手。') {
+    super(message, true);
+  }
+}
+
+// Ark调用硬上限为15分钟；多留1分钟只用于跨实例交接，超过后按结果未知处理。
+const MODEL_CALL_ACTIVE_WINDOW_MILLISECONDS = 16 * 60_000;
+
 export class V7PlanningModelGateway {
   private readonly repository: V7PlanningRuntimeRepository;
   private readonly genreProfiles: V7BookGenreProfileEnsureService;
@@ -90,30 +102,7 @@ export class V7PlanningModelGateway {
   public async generate(request: V7PlanningModelRequest): Promise<V7PlanningModelResult> {
     this.assertLineage(request);
     const existing = this.repository.modelCall(request.requestId);
-    if (existing !== undefined) {
-      if (existing.owner_id !== request.ownerId || existing.book_id !== request.bookId) {
-        throw new V7PlanningModelError('模型调用不属于当前书籍');
-      }
-      if (existing.run_id !== request.runId
-        || existing.run_kind !== request.runKind
-        || existing.node_key !== request.nodeKey
-        || existing.member_key !== request.member.memberKey
-        || existing.provider !== request.member.model.provider
-        || existing.model_id !== request.member.model.modelId
-        || existing.plan !== request.member.model.plan) {
-        throw new V7PlanningModelError('历史模型调用的任务成员或模型绑定已经变化，不能恢复执行');
-      }
-      if (existing.state === 'succeeded' && existing.output_text !== null) {
-        return {
-          requestId: existing.request_id, provider: existing.provider, modelId: existing.model_id,
-          output: existing.output_text, inputTokens: existing.input_tokens ?? 0, outputTokens: existing.output_tokens ?? 0
-        };
-      }
-      if (existing.state === 'unknown' || existing.state === 'working') {
-        throw new V7PlanningModelError('上一次调用结果尚未确认，已停止重复扣量。', true);
-      }
-      throw new V7PlanningModelError(existing.failure_message ?? '上一次调用没有完成');
-    }
+    if (existing !== undefined) return this.reuseModelCall(request, existing);
     const taskKind = request.taskKind;
     const runtimePolicy = resolveV7TaskPolicy(this.database, request.member.memberKey, taskKind);
     const now = this.clock.now().toISOString();
@@ -133,8 +122,13 @@ export class V7PlanningModelGateway {
     let genreProfile = promptGovernance.activeBookGenreProfile(request.ownerId, request.bookId);
     if (request.technicalRetry !== true) {
       try {
-        genreProfile = await this.genreProfiles.ensure(request.ownerId, request.bookId);
+        genreProfile = await this.genreProfiles.ensure(request.ownerId, request.bookId, {
+          failFastOnActiveLease: request.failFastOnGenreProfileLease === true
+        });
       } catch (error) {
+        if (error instanceof V7BookGenreProfileEnsureInProgressError) {
+          throw new V7PlanningModelCallInProgressError(error.message);
+        }
         throw new V7PlanningModelError(
           error instanceof Error ? error.message : '题材工作档案没有准备完成',
           error instanceof V7BookGenreProfileEnsureError && error.outcomeUnknown
@@ -164,19 +158,31 @@ export class V7PlanningModelGateway {
       createdAt: now,
       retrySnapshot: retrySnapshot ?? undefined
     });
-    promptGovernance.saveRuntimeBundle(compiled);
     const reasoningTokens = thinkingTokenAllowance(request.member.model.modelId, 'structured_planning', request.maxOutputTokens);
     const reservedTokens = Math.max(8_000, compiled.manifest.compiledPrompt.length + request.maxOutputTokens + reasoningTokens);
-    assertMembershipAllowsGeneration(this.database, request.ownerId, now, reservedTokens);
-    this.repository.beginModelCall({
-      requestId: request.requestId, ownerId: request.ownerId, bookId: request.bookId,
-      runId: request.runId, runKind: request.runKind, nodeKey: request.nodeKey,
-      memberKey: request.member.memberKey, provider: request.member.model.provider,
-      modelId: request.member.model.modelId, plan: request.member.model.plan,
-      promptHash: compiled.manifest.compiledPromptHash, reservedTokens,
-      governanceRevision: runtimePolicy.governanceRevision, temperature: runtimePolicy.temperature, now
+    let claimed = false;
+    let winner: ReturnType<V7PlanningRuntimeRepository['modelCall']> = undefined;
+    new UnitOfWork(this.database).run(() => {
+      winner = this.repository.modelCall(request.requestId);
+      if (winner === undefined) {
+        assertMembershipAllowsGeneration(this.database, request.ownerId, now, reservedTokens);
+        claimed = this.repository.beginModelCall({
+          requestId: request.requestId, ownerId: request.ownerId, bookId: request.bookId,
+          runId: request.runId, runKind: request.runKind, nodeKey: request.nodeKey,
+          memberKey: request.member.memberKey, provider: request.member.model.provider,
+          modelId: request.member.model.modelId, plan: request.member.model.plan,
+          promptHash: compiled.manifest.compiledPromptHash, reservedTokens,
+          governanceRevision: runtimePolicy.governanceRevision, temperature: runtimePolicy.temperature, now
+        });
+      }
     });
+    if (!claimed) {
+      winner ??= this.repository.modelCall(request.requestId);
+      if (winner === undefined) throw new V7PlanningModelError('模型调用执行权刚刚变化，请刷新后重试');
+      return this.reuseModelCall(request, winner);
+    }
     try {
+      promptGovernance.saveRuntimeBundle(compiled);
       const adapter = this.adapters.resolve(request.member.model.provider, request.member.model.modelId, 'structured_planning');
       const result = await adapter.generate({
         requestId: request.requestId,
@@ -190,7 +196,7 @@ export class V7PlanningModelGateway {
       });
       if (result.output.trim().length === 0) throw new V7PlanningModelError('成员没有返回可见方案');
       const completedAt = this.clock.now().toISOString();
-      this.repository.completeModelCall({
+      const completed = this.repository.completeModelCall({
         requestId: request.requestId,
         inputTokens: Math.max(0, result.inputTokens),
         outputTokens: Math.max(0, result.outputTokens),
@@ -198,19 +204,88 @@ export class V7PlanningModelGateway {
         outputText: result.output,
         now: completedAt
       });
+      if (!completed) {
+        const current = this.repository.modelCall(request.requestId);
+        if (current?.state === 'succeeded' && current.output_text !== null) {
+          return this.reuseModelCall(request, current);
+        }
+        throw new V7PlanningModelError('模型已经返回结果，但本次落档状态刚刚变化，请刷新核对结果。', true);
+      }
       return {
         requestId: request.requestId, provider: result.provider, modelId: result.modelId,
         output: result.output, inputTokens: Math.max(0, result.inputTokens), outputTokens: Math.max(0, result.outputTokens)
       };
     } catch (error) {
-      if (error instanceof V7PlanningModelError) {
-        this.repository.failModelCall(request.requestId, error.outcomeUnknown ? 'unknown' : 'failed', error.message, this.clock.now().toISOString());
-        throw error;
+      const failure = error instanceof V7PlanningModelError
+        ? error
+        : (() => {
+            const normalized = normalizeFailure(error);
+            return new V7PlanningModelError(normalized.message, normalized.outcomeUnknown);
+          })();
+      const recorded = this.repository.failModelCall(
+        request.requestId,
+        failure.outcomeUnknown ? 'unknown' : 'failed',
+        failure.message,
+        this.clock.now().toISOString()
+      );
+      if (!recorded) {
+        const current = this.repository.modelCall(request.requestId);
+        if (current?.state === 'succeeded' && current.output_text !== null) {
+          return this.reuseModelCall(request, current);
+        }
+        throw new V7PlanningModelError('模型调用落档状态已经变化，已停止交给其他成员重复执行。', true);
       }
-      const normalized = normalizeFailure(error);
-      this.repository.failModelCall(request.requestId, normalized.outcomeUnknown ? 'unknown' : 'failed', normalized.message, this.clock.now().toISOString());
-      throw new V7PlanningModelError(normalized.message, normalized.outcomeUnknown);
+      throw failure;
     }
+  }
+
+  private reuseModelCall(
+    request: V7PlanningModelRequest,
+    existing: NonNullable<ReturnType<V7PlanningRuntimeRepository['modelCall']>>
+  ): V7PlanningModelResult {
+    if (existing.owner_id !== request.ownerId || existing.book_id !== request.bookId) {
+      throw new V7PlanningModelError('模型调用不属于当前书籍');
+    }
+    if (existing.run_id !== request.runId
+      || existing.run_kind !== request.runKind
+      || existing.node_key !== request.nodeKey
+      || existing.member_key !== request.member.memberKey
+      || existing.provider !== request.member.model.provider
+      || existing.model_id !== request.member.model.modelId
+      || existing.plan !== request.member.model.plan) {
+      throw new V7PlanningModelError('历史模型调用的任务成员或模型绑定已经变化，不能恢复执行');
+    }
+    if (existing.state === 'succeeded' && existing.output_text !== null) {
+      return {
+        requestId: existing.request_id, provider: existing.provider, modelId: existing.model_id,
+        output: existing.output_text, inputTokens: existing.input_tokens ?? 0, outputTokens: existing.output_tokens ?? 0
+      };
+    }
+    if (existing.state === 'working') {
+      const startedAt = Date.parse(existing.started_at);
+      const age = this.clock.now().getTime() - startedAt;
+      if (Number.isFinite(startedAt) && age <= MODEL_CALL_ACTIVE_WINDOW_MILLISECONDS) {
+        throw new V7PlanningModelCallInProgressError();
+      }
+      const now = this.clock.now().toISOString();
+      const markedUnknown = this.repository.failModelCall(
+        existing.request_id,
+        'unknown',
+        '模型调用执行实例中断，供应商结果尚未确认。',
+        now
+      );
+      if (!markedUnknown) {
+        const current = this.repository.modelCall(existing.request_id);
+        if (current?.state === 'succeeded' && current.output_text !== null) {
+          return this.reuseModelCall(request, current);
+        }
+      }
+      throw new V7PlanningModelError('上一次调用结果尚未确认，已停止重复扣量。', true);
+    }
+    if (existing.state === 'unknown') {
+      throw new V7PlanningModelError('上一次调用结果尚未确认，已停止重复扣量。', true);
+    }
+    throw new V7PlanningModelError(existing.failure_message ?? '上一次调用没有完成');
   }
 
   private assertLineage(request: V7PlanningModelRequest): void {

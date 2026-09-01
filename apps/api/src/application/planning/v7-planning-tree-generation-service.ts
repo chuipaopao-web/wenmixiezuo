@@ -35,6 +35,7 @@ import {
 } from '../../infrastructure/db/repositories/v7-planning-runtime-repository.js';
 import { V7PlanningTreeRepository } from '../../infrastructure/db/repositories/v7-planning-tree-repository.js';
 import {
+  V7PlanningModelCallInProgressError,
   V7PlanningModelError,
   V7PlanningModelGateway,
   type V7PlanningModelAdapterResolver
@@ -322,6 +323,7 @@ export class V7PlanningTreeGenerationService {
     }
     this.activeRuns.add(run.generation_run_id);
     void this.execute(run).catch((error) => {
+      if (error instanceof V7PlanningModelCallInProgressError) return;
       const current = this.runtime.generation(run.owner_id, run.book_id, run.generation_run_id);
       if (current === undefined || current.status === 'succeeded' || current.status === 'cancelled') return;
       this.runtime.markGeneration({
@@ -382,12 +384,11 @@ export class V7PlanningTreeGenerationService {
     let lastError: unknown;
     for (const [index, member] of roster.fallback.entries()) {
       this.ensureActive(run);
-      this.runtime.markGeneration({
-        ownerId: run.owner_id, bookId: run.book_id, generationRunId: run.generation_run_id,
-        status: 'working', assignedMemberKey: member.memberKey,
-        memberSnapshot: { ...roster, fallback: roster.fallback.map(memberSnapshot), stage: 'tree_design' },
-        errorMessage: null, now: this.clock.now().toISOString()
-      });
+      this.markWorking(
+        run,
+        member.memberKey,
+        { ...roster, fallback: roster.fallback.map(memberSnapshot), stage: 'tree_design' }
+      );
       const logicalTaskId = `${run.generation_run_id}:tree:${index + 1}`;
       const attempt = this.modelAttempt(run, logicalTaskId);
       try {
@@ -395,6 +396,7 @@ export class V7PlanningTreeGenerationService {
           ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.generation_run_id,
           runKind: 'tree', nodeKey: `${run.tree_kind}:${run.scope_id}`, member,
           taskKind: 'planning_tree',
+          failFastOnGenreProfileLease: true,
           workstationKey: run.tree_kind === 'volume' ? 'volume' : run.tree_kind === 'chain' ? 'chain' : 'full_book_route',
           operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
           sourceTraces: planningSnapshotSourceTraces(focusedSnapshot),
@@ -412,6 +414,7 @@ export class V7PlanningTreeGenerationService {
             ...repairAttempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.generation_run_id,
             runKind: 'tree', nodeKey: `${run.tree_kind}:${run.scope_id}:repair`, member,
             taskKind: 'planning_tree',
+            failFastOnGenreProfileLease: true,
             workstationKey: run.tree_kind === 'volume' ? 'volume' : run.tree_kind === 'chain' ? 'chain' : 'full_book_route',
             operationMode: 'repair', basedOnTaskId: result.requestId, authorInstructionVersion: null,
             sourceTraces: planningSnapshotSourceTraces(focusedSnapshot),
@@ -472,17 +475,14 @@ export class V7PlanningTreeGenerationService {
       const logicalTaskId = `${run.generation_run_id}:context:${member.memberKey}`;
       const attempt = this.modelAttempt(run, logicalTaskId);
       roster = { ...roster, contextMember: member, stage: 'context_planning' };
-      this.runtime.markGeneration({
-        ownerId: run.owner_id, bookId: run.book_id, generationRunId: run.generation_run_id,
-        status: 'working', assignedMemberKey: member.memberKey, memberSnapshot: roster,
-        errorMessage: null, now: this.clock.now().toISOString()
-      });
+      this.markWorking(run, member.memberKey, roster);
       try {
         this.ensureActive(run);
         const result = await this.models.generate({
           ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.generation_run_id,
           runKind: 'tree', nodeKey: 'context_plan', member,
           taskKind: 'planning_context', workstationKey: planningWorkstation(run.tree_kind),
+          failFastOnGenreProfileLease: true,
           operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
           sourceTraces: planningSnapshotSourceTraces(snapshot),
           prompt: planningMethodSearchPrompt({
@@ -538,8 +538,8 @@ export class V7PlanningTreeGenerationService {
         latestAttempt = attempt;
       }
     }
-    if (latest?.state === 'succeeded') return { requestId: latest.request_id };
-    if (latest?.state === 'unknown' || latest?.state === 'working') {
+    if (latest?.state === 'succeeded' || latest?.state === 'working') return { requestId: latest.request_id };
+    if (latest?.state === 'unknown') {
       throw new V7PlanningModelError('上一次调用结果尚未确认，已停止重复扣量。', true);
     }
     if (latest?.state === 'failed' && latestAttempt < run.retry_count) {
@@ -557,6 +557,28 @@ export class V7PlanningTreeGenerationService {
     const run = this.runtime.generation(ownerId, bookId, runId);
     if (run === undefined) throw new DomainError(errorCodes.validation, '规划树任务不存在或不属于本书。', {}, false, 404);
     return run;
+  }
+
+  private markWorking(run: V7PlanningGenerationRunRow, assignedMemberKey: string, memberSnapshotValue: unknown): void {
+    const current = this.requireRun(run.owner_id, run.book_id, run.generation_run_id);
+    if (current.status === 'working') return;
+    if (current.status === 'queued') {
+      const changed = this.runtime.markGenerationWorking({
+        ownerId: run.owner_id,
+        bookId: run.book_id,
+        generationRunId: run.generation_run_id,
+        assignedMemberKey,
+        memberSnapshot: memberSnapshotValue,
+        now: this.clock.now().toISOString()
+      });
+      if (changed) return;
+    }
+    const latest = this.requireRun(run.owner_id, run.book_id, run.generation_run_id);
+    if (latest.status === 'working') return;
+    if (latest.status === 'unknown') {
+      throw new V7PlanningModelError('上一次调用结果尚未确认，已停止重复扣量。', true);
+    }
+    throw new V7PlanningModelCallInProgressError('规划任务进度已经由另一服务实例接手。');
   }
 
   private ensureActive(run: V7PlanningGenerationRunRow): void {
@@ -583,6 +605,12 @@ export class V7PlanningTreeGenerationService {
       && run.status === 'succeeded'
       && run.candidate_tree_version_id !== null;
     const status = preservedReadOnlyResult ? 'ready' : readOnly ? 'failed' : publicStatus(run.status);
+    const head = run.candidate_tree_version_id === null
+      ? undefined
+      : this.trees.head(run.owner_id, run.book_id, run.tree_kind, run.scope_id);
+    const canOpenCandidate = run.status === 'succeeded'
+      && run.candidate_tree_version_id !== null
+      && head?.candidate_version_id === run.candidate_tree_version_id;
     return {
       runId: run.generation_run_id, treeKind: run.tree_kind, scopeId: run.scope_id, status,
       message: preservedReadOnlyResult ? '方案已经完成并安全保留，可以继续查看正式框架。'
@@ -596,7 +624,7 @@ export class V7PlanningTreeGenerationService {
               : '任务已经保存，马上开始设计。',
       member: { memberKey: member.memberKey, name: member.displayName },
       candidateTreeVersionId: run.candidate_tree_version_id,
-      canOpenCandidate: run.status === 'succeeded' && run.candidate_tree_version_id !== null,
+      canOpenCandidate,
       errorMessage: preservedReadOnlyResult ? null : readOnly ? READ_ONLY_TREE_MESSAGE : run.error_message,
       timing: planningGenerationTiming(run, this.clock.now())
     };
