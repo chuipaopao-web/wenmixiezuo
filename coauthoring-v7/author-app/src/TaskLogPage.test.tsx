@@ -68,6 +68,21 @@ describe('V7统一任务中心', () => {
     expect(openPlanning).toHaveBeenCalledWith('book-1');
   });
 
+  it('同一规划范围只有最新任务计入待处理，旧失败进入历史', async () => {
+    mockedOpening.fetchPlanningTasks.mockResolvedValue([
+      { ...planningTask(), taskId: 'route-new', status: 'working', actionable: true, updatedAt: '2026-08-27T02:00:00.000Z' },
+      { ...planningTask(), taskId: 'route-old', status: 'failed', actionable: false, canStop: false, updatedAt: '2026-08-27T01:00:00.000Z' }
+    ]);
+    render(<TaskLogPage onOpenTask={vi.fn()} onOpenBook={vi.fn()} onOpenPlanning={vi.fn()} />);
+
+    expect(await screen.findByText('全书路线与框架')).toBeVisible();
+    expect(screen.getByText('全书规划历史')).toBeVisible();
+    expect(document.querySelector('.task-log-summary > strong')).toHaveTextContent('1');
+    expect(screen.getAllByRole('button', { name: /继续处理/u })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /查看当前进度/u })).toBeEnabled();
+    expect(screen.getByText('历史记录')).toBeVisible();
+  });
+
   it('已完成任务不沿用成员的旧工作中快照，并按全局身份合并重复工位', async () => {
     mockedOpening.fetchPlanningTasks.mockResolvedValue([]);
     mockedCreation.fetchCreationTasks.mockResolvedValue([completedCreationTask()]);
@@ -165,7 +180,7 @@ function planningTask(): opening.PlanningTaskView {
     taskId: 'route-1', taskKind: 'planning_route', bookId: 'book-1', bookTitle: '北宋小卒',
     status: 'working', message: '主编正在比较三套全书路线。', progress: 86,
     memberKey: 'planning-chief-deepseek-v4-pro', memberName: '貂蝉', treeKind: null, scopeId: null,
-    canStop: true, updatedAt: '2026-08-27T01:00:00.000Z'
+    actionable: true, canStop: true, updatedAt: '2026-08-27T01:00:00.000Z'
   };
 }
 

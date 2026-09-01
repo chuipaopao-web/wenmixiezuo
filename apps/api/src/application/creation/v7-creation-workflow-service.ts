@@ -219,6 +219,7 @@ export interface V7TimeMachineProgressView {
     chapterNumber: number;
   };
   latestConfirmedChain: AuthorPlanningTreeView | null;
+  latestConfirmedChainState: 'loaded' | 'missing' | 'failed';
 }
 
 export interface V7CreationManuscriptView {
@@ -390,11 +391,18 @@ export class V7CreationWorkflowService {
   public timeMachineProgress(ownerId: string, bookId: string): V7TimeMachineProgressView {
     const row = this.repository.timeMachineProgress(ownerId, bookId);
     let latestConfirmedChain: AuthorPlanningTreeView | null = null;
+    let latestConfirmedChainState: V7TimeMachineProgressView['latestConfirmedChainState'] = 'missing';
     if (row.chain_scope_id !== null) {
       try {
         latestConfirmedChain = this.trees.getConfirmed(ownerId, bookId, 'chain', row.chain_scope_id);
+        latestConfirmedChainState = 'loaded';
       } catch (error) {
-        if (!(error instanceof DomainError && error.statusCode === 404)) throw error;
+        if (!(error instanceof DomainError && error.statusCode === 404)) {
+          // Immutable manuscript progress is authoritative on its own.  A
+          // malformed or temporarily unreadable historical chain must not
+          // erase an already-finalized chapter count from the time machine.
+          latestConfirmedChainState = 'failed';
+        }
       }
     }
     return {
@@ -402,7 +410,8 @@ export class V7CreationWorkflowService {
       latestFinalChapter: row.manuscript_version_id === null || row.chapter_number === null
         ? null
         : { chapterNumber: row.chapter_number },
-      latestConfirmedChain
+      latestConfirmedChain,
+      latestConfirmedChainState
     };
   }
 

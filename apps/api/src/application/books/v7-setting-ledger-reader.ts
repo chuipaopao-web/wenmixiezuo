@@ -70,7 +70,23 @@ export class V7SettingLedgerReader {
     }
     const latest = this.repository.latestFinalReview(input.ownerId, input.bookId);
     if (latest === undefined) return this.compatibilityLedger(input.bookId, projections);
-    const result = this.currentFinalReviewResult(input, latest, projections);
+    // A failed or still-unusable whole-book review must not permanently lock a
+    // small set of settings that the author has already confirmed.  In that
+    // case the confirmed versions remain the authority and the compact
+    // compatibility ledger is sufficient.  Large sets still keep the existing
+    // review gate so they cannot silently overflow downstream context.
+    if (latest.status !== 'awaiting_author' && latest.status !== 'completed') {
+      return this.compatibilityLedger(input.bookId, projections);
+    }
+    let result: V7SettingFinalReviewResult;
+    try {
+      result = this.currentFinalReviewResult(input, latest, projections);
+    } catch (error) {
+      if (projections.length <= MAXIMUM_COMPATIBILITY_ITEMS_WITHOUT_FINAL_REVIEW) {
+        return this.compatibilityLedger(input.bookId, projections);
+      }
+      throw error;
+    }
     const content: V7CompactSettingLedger['content'] = {
       schema: 'v7-compact-setting-ledger-v1',
       summary: result.contextSummary,

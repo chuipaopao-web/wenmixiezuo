@@ -987,13 +987,15 @@ export interface PlanningTaskView {
   memberName: string | null;
   treeKind: 'book' | 'volume' | 'chain' | null;
   scopeId: string | null;
+  actionable: boolean;
   canStop: boolean;
   updatedAt: string;
 }
 
-interface PlanningTaskWireView extends Omit<PlanningTaskView, 'taskId'> {
+interface PlanningTaskWireView extends Omit<PlanningTaskView, 'taskId' | 'actionable'> {
   taskId?: string;
   recoveryKey?: string;
+  actionable?: boolean;
 }
 
 export interface PlanningAdjustmentSuggestionView {
@@ -1042,6 +1044,7 @@ function normalizePlanningTaskView(value: PlanningTaskWireView): PlanningTaskVie
   return {
     ...task,
     taskId: recoveryKey,
+    actionable: value.actionable !== false,
     canStop: (_taskId !== undefined || _recoveryKey !== undefined) && task.canStop
   };
 }

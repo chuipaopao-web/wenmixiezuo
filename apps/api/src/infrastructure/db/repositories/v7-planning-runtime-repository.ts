@@ -849,14 +849,14 @@ export class V7PlanningRuntimeRepository {
       .get(ownerId, bookId, treeKind, scopeId) as V7PlanningGenerationRunRow | undefined;
   }
 
-  public firstBookTreeGenerationForRoute(
+  public latestBookTreeGenerationForRoute(
     ownerId: string,
     bookId: string,
     routeVersionId: string
   ): V7PlanningGenerationRunRow | undefined {
     return this.database.prepare(`SELECT * FROM v7_planning_generation_runs
       WHERE owner_id=? AND book_id=? AND tree_kind='book' AND scope_id=? AND route_version_id=?
-      ORDER BY created_at,generation_run_id LIMIT 1`)
+      ORDER BY created_at DESC,generation_run_id DESC LIMIT 1`)
       .get(ownerId, bookId, bookId, routeVersionId) as V7PlanningGenerationRunRow | undefined;
   }
 

@@ -275,6 +275,84 @@ describe('V7规划正式资料快照', () => {
     }
   });
 
+  it('小规模已确认设定不被失败或覆盖不完整的总审永久锁死', async () => {
+    context = createTestContext('wenmi-v7-planning-ledger-recovery-');
+    const app = await createServer(context.config, context.database);
+    try {
+      const cookie = await register(app, 'snapshot-ledger-recovery@example.com', '总审恢复作者');
+      const bookId = await createBook(app, cookie, '已确认设定恢复书');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      const opening = context.database.prepare(`SELECT version FROM book_opening_blueprints
+        WHERE owner_id=? AND book_id=? AND status='active'`).get(ownerId, bookId) as { version: number };
+      const now = '2026-07-16T00:00:00.000Z';
+      context.database.prepare(`INSERT INTO v7_setting_item_versions
+        (version_id,owner_id,book_id,item_key,revision,status,content_json,created_by,created_at)
+        VALUES ('recovery-setting-version',?,?,'world-stage',1,'confirmed',?,'author',?)`)
+        .run(ownerId, bookId, JSON.stringify({
+          finalContent: '故事发生在北宋边军。', contextSummary: '北宋边军且无超凡力量。',
+          factEntries: ['时代是北宋。', '没有超凡力量。']
+        }), now);
+      context.database.prepare(`INSERT INTO v7_setting_items
+        (owner_id,book_id,item_key,item_label,group_title,item_prompt,state,active_version_id,revision,updated_at)
+        VALUES (?,?,'world-stage','世界舞台','核心设定','确定时代边界','confirmed','recovery-setting-version',1,?)`)
+        .run(ownerId, bookId, now);
+      context.database.prepare(`INSERT INTO v7_setting_batches
+        (batch_id,owner_id,book_id,idempotency_key,request_hash,status,selected_items_json,custom_items_json,
+          opening_version,opening_hash,roster_json,error_message,created_at,updated_at)
+        VALUES ('failed-final-review',?,?,'failed-final-review-key','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          'partially_failed',?,?,?,'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','[]','模型额度不足',?,?)`).run(
+        ownerId,
+        bookId,
+        JSON.stringify({ taskKind: 'batch_final_review', result: null }),
+        JSON.stringify({ taskKind: 'batch_final_review', phase: 'failed', progress: 90 }),
+        opening.version,
+        '2026-07-16T00:01:00.000Z',
+        '2026-07-16T00:01:00.000Z'
+      );
+
+      const compiler = new V7PlanningSourceCompiler(context.database, new SequenceIds(), new FixedClock());
+      const afterFailure = compiler.compile({
+        ownerId, bookId, treeKind: 'book', scopeId: bookId, purpose: 'recipe_design'
+      });
+      const failureLedger = afterFailure.sources.find((source) => (
+        source.sourceKind === 'setting'
+        && (source.content as { schema?: string }).schema === 'v7-compact-setting-ledger-v1'
+      ));
+      expect(failureLedger).toMatchObject({ sourceId: `setting-ledger:${bookId}` });
+      expect(failureLedger?.content).toMatchObject({
+        schema: 'v7-compact-setting-ledger-v1'
+      });
+      expect(afterFailure.sources).toEqual(expect.arrayContaining([
+        expect.objectContaining({ sourceKind: 'setting', sourceId: 'recovery-setting-version' })
+      ]));
+
+      context.database.prepare(`UPDATE v7_setting_batches
+        SET status='awaiting_author',selected_items_json=?,custom_items_json=?,updated_at=?
+        WHERE owner_id=? AND book_id=? AND batch_id='failed-final-review'`).run(
+        JSON.stringify({
+          taskKind: 'batch_final_review', resultHash: 'stale-result', result: {
+            verdict: 'pass', summary: '历史总审结果', contextSummary: '历史总账只覆盖了旧条目。',
+            factLedger: [{ itemKey: 'retired-setting', label: '旧条目', facts: ['已不属于当前书籍。'] }],
+            groupSummaries: [{ groupTitle: '旧分组', summary: '旧总账', itemKeys: ['retired-setting'] }],
+            unifiedDecisions: [], conflicts: [], patchedItemKeys: []
+          }
+        }),
+        JSON.stringify({ taskKind: 'batch_final_review', phase: 'ready', progress: 100 }),
+        '2026-07-16T00:02:00.000Z', ownerId, bookId
+      );
+      const afterMismatch = compiler.compile({
+        ownerId, bookId, treeKind: 'book', scopeId: bookId, purpose: 'tree_generation'
+      });
+      expect(afterMismatch.sources).toEqual(expect.arrayContaining([
+        expect.objectContaining({ sourceKind: 'setting', sourceId: `setting-ledger:${bookId}` }),
+        expect.objectContaining({ sourceKind: 'setting', sourceId: 'recovery-setting-version' })
+      ]));
+    } finally {
+      await app.close();
+    }
+  });
+
   it('大量设定只向全书规划发送当前主编总账，设定变化后拒绝复用旧总账', async () => {
     context = createTestContext('wenmi-v7-planning-compact-ledger-');
     const app = await createServer(context.config, context.database);

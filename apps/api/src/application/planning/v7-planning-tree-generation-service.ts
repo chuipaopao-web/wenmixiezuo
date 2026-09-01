@@ -168,8 +168,12 @@ export class V7PlanningTreeGenerationService {
       if (routeRun.status !== 'completed') throw conflict('请先确认当前全书方向，再继续设计正式全书框架。');
       throw conflict('这轮全书方向已经不是当前正式方案，请从当前全书方向继续。');
     }
-    const existing = this.runtime.firstBookTreeGenerationForRoute(ownerId, bookId, decision.route_version_id);
+    const existing = this.runtime.latestBookTreeGenerationForRoute(ownerId, bookId, decision.route_version_id);
     if (existing !== undefined) {
+      if (existing.status === 'cancelled'
+        || (existing.status === 'failed' && this.executableRoster(existing) === null)) {
+        return this.createReplacement(existing);
+      }
       this.start(existing);
       return this.view(existing);
     }
@@ -215,6 +219,14 @@ export class V7PlanningTreeGenerationService {
   }
 
   private taskViews(runs: ReturnType<V7PlanningRuntimeRepository['planningGenerationTasks']>): V7PlanningTaskView[] {
+    const latestByScope = new Map<string, string | null>();
+    for (const run of runs) {
+      const scopeKey = `${run.owner_id}:${run.book_id}:${run.tree_kind}:${run.scope_id}`;
+      if (!latestByScope.has(scopeKey)) latestByScope.set(
+        scopeKey,
+        this.runtime.latestGeneration(run.owner_id, run.book_id, run.tree_kind, run.scope_id)?.generation_run_id ?? null
+      );
+    }
     return runs.map((run) => {
       const view = this.view(run);
       const resultLifecycle = run.result_lifecycle;
@@ -224,6 +236,7 @@ export class V7PlanningTreeGenerationService {
       const resolvedMessage = resultLifecycle === 'confirmed'
         ? '正式框架已经确认，任务已完成。'
         : '该轮方案已由新版方案接替，历史结果已经保留。';
+      const actionable = latestByScope.get(`${run.owner_id}:${run.book_id}:${run.tree_kind}:${run.scope_id}`) === run.generation_run_id;
       return {
         taskId: run.generation_run_id, taskKind: 'planning_tree', ownerId: run.owner_id, bookId: run.book_id, bookTitle: run.book_title,
         status: run.status === 'cancelled' ? 'cancelled'
@@ -234,7 +247,8 @@ export class V7PlanningTreeGenerationService {
         progress: view.status === 'ready' ? 100 : view.status === 'working' ? 70 : view.status === 'waiting' ? 10 : 0,
         memberKey: view.member.memberKey, memberName: view.member.name,
         treeKind: run.tree_kind, scopeId: run.scope_id, modelCalls: run.model_calls,
-        canStop: view.status === 'waiting' || view.status === 'working', updatedAt: run.updated_at
+        actionable,
+        canStop: actionable && (view.status === 'waiting' || view.status === 'working'), updatedAt: run.updated_at
       };
     });
   }
@@ -247,16 +261,70 @@ export class V7PlanningTreeGenerationService {
 
   public retry(ownerId: string, bookId: string, runId: string): V7PlanningTreeGenerationView {
     const run = this.requireRun(ownerId, bookId, runId);
-    this.requireExecutableRoster(run);
     if (run.status === 'unknown' || this.runtime.modelCallsForRun(ownerId, bookId, runId)
       .some((call) => call.state === 'unknown' || call.state === 'working')) {
       throw conflict('这次结果还没有确认，为避免重复扣量不能重新发送。请先刷新查看结果。');
     }
-    if (run.status !== 'failed') throw conflict('只有明确失败的规划树任务可以续跑。');
+    if (run.status === 'cancelled') return this.createReplacement(run);
+    if (run.status !== 'failed') {
+      if (this.executableRoster(run) === null) throw conflict(READ_ONLY_TREE_MESSAGE);
+      throw conflict('只有明确失败的规划树任务可以续跑。');
+    }
+    const currentSnapshot = this.sources.compile({
+      ownerId,
+      bookId,
+      treeKind: run.tree_kind,
+      scopeId: run.scope_id,
+      purpose: 'tree_generation'
+    });
+    let storedSnapshot: V7PlanningCompiledSnapshot;
+    try {
+      storedSnapshot = this.sources.require(ownerId, bookId, run.source_snapshot_id);
+    } catch (error) {
+      if (error instanceof DomainError && error.statusCode === 404) {
+        return this.createReplacement(run, currentSnapshot.snapshotId);
+      }
+      throw error;
+    }
+    const activeRecipe = this.runtime.activeRecipe(ownerId, bookId, 'confirmed');
+    const activeRoute = run.tree_kind === 'book'
+      ? this.runtime.activeRoute(ownerId, bookId, 'confirmed')
+      : undefined;
+    const mustReplace = this.executableRoster(run) === null
+      || storedSnapshot.sourceFingerprint !== currentSnapshot.sourceFingerprint
+      || activeRecipe?.recipe_version_id !== run.recipe_version_id
+      || (run.tree_kind === 'book' && activeRoute?.route_version_id !== run.route_version_id);
+    if (mustReplace) return this.createReplacement(run, currentSnapshot.snapshotId);
+    this.requireExecutableRoster(run);
     const retried = this.runtime.retryGeneration(ownerId, bookId, runId, this.clock.now().toISOString());
     if (retried === undefined) throw conflict('任务状态已经变化，请刷新后重试。');
     this.start(retried);
     return this.view(retried);
+  }
+
+  private createReplacement(run: V7PlanningGenerationRunRow, knownSnapshotId?: string): V7PlanningTreeGenerationView {
+    const snapshot = knownSnapshotId === undefined
+      ? this.sources.compile({
+          ownerId: run.owner_id,
+          bookId: run.book_id,
+          treeKind: run.tree_kind,
+          scopeId: run.scope_id,
+          purpose: 'tree_generation'
+        })
+      : this.sources.require(run.owner_id, run.book_id, knownSnapshotId);
+    const activeRecipe = this.runtime.activeRecipe(run.owner_id, run.book_id, 'confirmed');
+    const activeRoute = run.tree_kind === 'book'
+      ? this.runtime.activeRoute(run.owner_id, run.book_id, 'confirmed')
+      : undefined;
+    const recoveryKey = `tree-recovery:${sha256(stableJson({
+      sourceRunId: run.generation_run_id,
+      snapshotId: snapshot.snapshotId,
+      recipeVersionId: activeRecipe?.recipe_version_id ?? null,
+      routeVersionId: activeRoute?.route_version_id ?? null
+    })).slice(0, 48)}`;
+    return this.create(run.owner_id, run.book_id, run.tree_kind, run.scope_id, {
+      idempotencyKey: recoveryKey
+    });
   }
 
   public adminRun(ownerId: string, bookId: string, runId: string): unknown {

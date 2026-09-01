@@ -297,6 +297,115 @@ describe('V7规划编辑部三席协作', () => {
     }
   });
 
+  it('同一正式路线的旧名册失败任务可由重试或续接幂等创建当前形状新任务', async () => {
+    context = createTestContext('wenmi-v7-planning-tree-legacy-recovery-');
+    const resolver = new PlanningTreeRetryResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'planning-tree-legacy-recovery@example.com', '旧树恢复作者');
+      const bookId = await createBook(app, cookie, '旧树恢复测试书');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      confirmSetting(ownerId, bookId);
+      const routeStarted = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs`, {
+        authorGoal: '让正式路线能恢复旧失败的全书树。', candidateCount: 1,
+        idempotencyKey: 'planning-tree-legacy-route-0001'
+      });
+      const routeRunId = routeStarted.json().data.runId as string;
+      const routeReady = await pollRouteRun(app, cookie, bookId, routeRunId);
+      const routeDecision = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-routes/runs/${routeRunId}/decision`, {
+          mode: 'select', routeIds: [routeReady.routes[0].routeId], authorNote: '',
+          idempotencyKey: 'planning-tree-legacy-route-decision-0001'
+        });
+      expect(routeDecision.statusCode).toBe(200);
+
+      const createLegacyFailure = async (idempotencyKey: string): Promise<{
+        runId: string;
+        frozenJson: string;
+      }> => {
+        resolver.treeMode = 'known_failure';
+        const started = await request(app, cookie, 'POST',
+          `/api/v1/v7/books/${bookId}/planning-trees/book/${bookId}/generation-runs`, { idempotencyKey });
+        expect(started.statusCode).toBe(200);
+        const runId = started.json().data.runId as string;
+        expect(await pollTreeRun(app, cookie, bookId, runId)).toMatchObject({ runId, status: 'failed' });
+        const row = context!.database.prepare(`SELECT member_snapshot_json FROM v7_planning_generation_runs
+          WHERE owner_id=? AND book_id=? AND generation_run_id=?`).get(ownerId, bookId, runId) as {
+            member_snapshot_json: string;
+          };
+        const legacy = JSON.parse(row.member_snapshot_json) as Record<string, unknown>;
+        delete legacy.contextFallback;
+        delete legacy.contextPlan;
+        legacy.stage = 'context_planning';
+        legacy.contextMember = { memberKey: 'legacy-context-member', roleKey: 'context_editor' };
+        const frozenJson = JSON.stringify(legacy);
+        context!.database.prepare(`UPDATE v7_planning_generation_runs SET member_snapshot_json=?
+          WHERE owner_id=? AND book_id=? AND generation_run_id=?`).run(frozenJson, ownerId, bookId, runId);
+        return { runId, frozenJson };
+      };
+
+      const retryLegacy = await createLegacyFailure('planning-tree-legacy-generation-0001');
+      resolver.treeMode = 'success';
+      const retried = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-tree-generation-runs/${retryLegacy.runId}/retry`, {});
+      expect(retried.statusCode).toBe(200);
+      const retryReplacementRunId = retried.json().data.runId as string;
+      expect(retryReplacementRunId).not.toBe(retryLegacy.runId);
+      expect(await pollTreeRun(app, cookie, bookId, retryReplacementRunId)).toMatchObject({
+        runId: retryReplacementRunId, status: 'ready', canOpenCandidate: true
+      });
+      expect(context.database.prepare(`SELECT status,retry_count,member_snapshot_json
+        FROM v7_planning_generation_runs WHERE owner_id=? AND book_id=? AND generation_run_id=?`)
+        .get(ownerId, bookId, retryLegacy.runId)).toEqual({
+        status: 'failed', retry_count: 0, member_snapshot_json: retryLegacy.frozenJson
+      });
+      const repeatedRetry = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-tree-generation-runs/${retryLegacy.runId}/retry`, {});
+      expect(repeatedRetry.statusCode).toBe(200);
+      expect(repeatedRetry.json().data.runId).toBe(retryReplacementRunId);
+
+      const continueLegacy = await createLegacyFailure('planning-tree-legacy-generation-0002');
+      resolver.treeMode = 'success';
+      const continued = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-routes/runs/${routeRunId}/continue-to-tree`, {});
+      expect(continued.statusCode).toBe(200);
+      const continueReplacementRunId = continued.json().data.runId as string;
+      expect(continueReplacementRunId).not.toBe(continueLegacy.runId);
+      expect(continueReplacementRunId).not.toBe(retryReplacementRunId);
+      expect(await pollTreeRun(app, cookie, bookId, continueReplacementRunId)).toMatchObject({
+        runId: continueReplacementRunId, status: 'ready', canOpenCandidate: true
+      });
+      expect(context.database.prepare(`SELECT status,retry_count,member_snapshot_json
+        FROM v7_planning_generation_runs WHERE owner_id=? AND book_id=? AND generation_run_id=?`)
+        .get(ownerId, bookId, continueLegacy.runId)).toEqual({
+        status: 'failed', retry_count: 0, member_snapshot_json: continueLegacy.frozenJson
+      });
+      const repeatedContinue = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-routes/runs/${routeRunId}/continue-to-tree`, {});
+      expect(repeatedContinue.statusCode).toBe(200);
+      expect(repeatedContinue.json().data.runId).toBe(continueReplacementRunId);
+
+      const cancelledLegacy = await createLegacyFailure('planning-tree-legacy-generation-0003');
+      context.database.prepare(`UPDATE v7_planning_generation_runs SET status='cancelled'
+        WHERE owner_id=? AND book_id=? AND generation_run_id=?`).run(ownerId, bookId, cancelledLegacy.runId);
+      resolver.treeMode = 'success';
+      const restarted = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-tree-generation-runs/${cancelledLegacy.runId}/retry`, {});
+      expect(restarted.statusCode).toBe(200);
+      const restartedRunId = restarted.json().data.runId as string;
+      expect(restartedRunId).not.toBe(cancelledLegacy.runId);
+      expect(await pollTreeRun(app, cookie, bookId, restartedRunId)).toMatchObject({
+        runId: restartedRunId, status: 'ready', canOpenCandidate: true
+      });
+      expect(context.database.prepare(`SELECT status,retry_count FROM v7_planning_generation_runs
+        WHERE owner_id=? AND book_id=? AND generation_run_id=?`).get(ownerId, bookId, cancelledLegacy.runId))
+        .toEqual({ status: 'cancelled', retry_count: 0 });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('全书路线只补明确失败的席位，不重做已保存路线且使用新尝试编号', async () => {
     context = createTestContext('wenmi-v7-planning-route-retry-');
     const resolver = new PlanningRouteRetryResolver();

@@ -42,7 +42,7 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
   const hasRunning = useMemo(
     () => tasks.some((task) => task.isRunning) || designTasks.some((task) => task.status === 'working')
       || creationTasks.some((task) => ['waiting', 'working'].includes(task.status))
-      || planningTasks.some((task) => ['waiting', 'working'].includes(task.status))
+      || planningTasks.some((task) => task.actionable && ['waiting', 'working'].includes(task.status))
       || settingTasks.some((task) => ['waiting', 'working'].includes(task.status)),
     [creationTasks, designTasks, planningTasks, settingTasks, tasks]
   );
@@ -77,7 +77,7 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
         const hasVisibleRunning = visible?.some((task) => task.isRunning) ?? false;
         const hasDesignRunning = designResult.status === 'fulfilled' && designResult.value.some((task) => task.status === 'working');
         const hasCreationRunning = creationResult.status === 'fulfilled' && creationResult.value.some((task) => ['waiting', 'working'].includes(task.status));
-        const hasPlanningRunning = planningResult.status === 'fulfilled' && planningResult.value.some((task) => ['waiting', 'working'].includes(task.status));
+        const hasPlanningRunning = planningResult.status === 'fulfilled' && planningResult.value.some((task) => task.actionable && ['waiting', 'working'].includes(task.status));
         const hasSettingRunning = settingResult.status === 'fulfilled' && settingResult.value.some((task) => ['waiting', 'working'].includes(task.status));
         if (failed.length > 0 || hasVisibleRunning || hasDesignRunning || hasCreationRunning || hasPlanningRunning || hasSettingRunning) {
           timer = window.setTimeout(load, failed.length > 0 ? 4_000 : 2_000);
@@ -99,7 +99,7 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
   const designHistory = designTasks.filter((task) => task.status !== 'working');
   const activeCreationTasks = creationTasks.filter((task) => ['waiting', 'working', 'waiting_for_you', 'failed', 'partially_failed'].includes(task.status));
   const creationHistory = creationTasks.filter((task) => !activeCreationTasks.includes(task));
-  const activePlanningTasks = planningTasks.filter((task) => ['waiting', 'working', 'waiting_for_you', 'failed'].includes(task.status));
+  const activePlanningTasks = planningTasks.filter((task) => task.actionable && ['waiting', 'working', 'waiting_for_you', 'failed'].includes(task.status));
   const planningHistory = planningTasks.filter((task) => !activePlanningTasks.includes(task));
   const activeSettingTasks = settingTasks.filter((task) => task.status !== 'completed');
   const settingHistory = settingTasks.filter((task) => task.status === 'completed');
@@ -242,21 +242,23 @@ function PlanningTaskCard({ task, onOpen, onCancel }: {
   task: PlanningTaskView; onOpen: () => void; onCancel?: () => Promise<void>;
 }): React.JSX.Element {
   const [confirmingStop, setConfirmingStop] = useState(false);
-  const state = task.status === 'waiting_for_you' ? '等您决定' : task.status === 'completed' ? '已完成'
+  const state = !task.actionable ? '历史记录' : task.status === 'waiting_for_you' ? '等您决定' : task.status === 'completed' ? '已完成'
     : task.status === 'cancelled' ? '已停止' : task.status === 'failed' ? '本轮未完成'
       : task.status === 'working' ? '工作中' : '马上开始';
   const kind = task.taskKind === 'planning_route' ? '全书路线'
     : task.treeKind === 'volume' ? '本卷框架' : task.treeKind === 'chain' ? '单元链框架' : '全书框架';
-  const memberEmoji = task.status === 'failed' ? '🙇' : task.status === 'cancelled' ? '👌' : task.status === 'waiting_for_you' ? '🌿' : '✍️';
+  const memberEmoji = !task.actionable ? '🌿' : task.status === 'failed' ? '🙇' : task.status === 'cancelled' ? '👌' : task.status === 'waiting_for_you' ? '🌿' : '✍️';
   const displayName = task.memberKey === null || task.memberName === null ? null : memberDisplayName(task.memberKey, task.memberName);
-  const taskCopy = task.status === 'failed'
+  const taskCopy = !task.actionable
+    ? '这一轮已经由更新的任务接替，已有记录仍然保留。'
+    : task.status === 'failed'
     ? publicFailureCopy(task.message)
     : publicStatusCopy(task.message, ['waiting', 'working'].includes(task.status) ? '编辑部正在处理这项工作。' : '当前进度已经保存。');
   return <article className={`task-log-card state-${task.status}`}>
-    <div className="task-log-card-main"><span className={`task-state-dot ${['waiting', 'working'].includes(task.status) ? 'working' : ''}`} /><div><small>{kind} · {formatTime(task.updatedAt)}</small><strong>{task.bookTitle}</strong><p>{displayName === null ? taskCopy : `${memberEmoji} ${displayName}：${taskCopy}`}</p></div></div>
-    <div className="task-log-card-side">{task.memberKey !== null && <div className="task-member-stack"><i title={displayName ?? '编辑部成员'} style={{ backgroundPosition: memberAvatarPosition(task.memberKey) }} /></div>}<span className="task-state-label">{state}</span><button type="button" onClick={onOpen}>继续处理<ArrowRightIcon /></button>{task.canStop && onCancel !== undefined && !confirmingStop && <button className="task-abandon-button" type="button" onClick={() => setConfirmingStop(true)}>停止任务</button>}</div>
+    <div className="task-log-card-main"><span className={`task-state-dot ${task.actionable && ['waiting', 'working'].includes(task.status) ? 'working' : ''}`} /><div><small>{kind} · {formatTime(task.updatedAt)}</small><strong>{task.bookTitle}</strong><p>{displayName === null ? taskCopy : `${memberEmoji} ${displayName}：${taskCopy}`}</p></div></div>
+    <div className="task-log-card-side">{task.memberKey !== null && <div className="task-member-stack"><i title={displayName ?? '编辑部成员'} style={{ backgroundPosition: memberAvatarPosition(task.memberKey) }} /></div>}<span className="task-state-label">{state}</span><button type="button" onClick={onOpen}>{task.actionable ? '继续处理' : '查看当前进度'}<ArrowRightIcon /></button>{task.actionable && task.canStop && onCancel !== undefined && !confirmingStop && <button className="task-abandon-button" type="button" onClick={() => setConfirmingStop(true)}>停止任务</button>}</div>
     {task.canStop && onCancel !== undefined && confirmingStop && <div className="task-inline-confirm"><span>已经完成的路线会保留，只停止未完成工作。</span><button type="button" onClick={() => void onCancel().finally(() => setConfirmingStop(false))}>保留成果并停止</button><button type="button" onClick={() => setConfirmingStop(false)}>继续工作</button></div>}
-    {['waiting', 'working'].includes(task.status) && <div className="task-card-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress}><span style={{ width: `${task.progress}%` }} /></div>}
+    {task.actionable && ['waiting', 'working'].includes(task.status) && <div className="task-card-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress}><span style={{ width: `${task.progress}%` }} /></div>}
   </article>;
 }
 

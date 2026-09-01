@@ -79,6 +79,8 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
   const [selectedRouteIds, setSelectedRouteIds] = useState<string[]>([]);
   const [authorNote, setAuthorNote] = useState('');
   const [editingDirection, setEditingDirection] = useState(false);
+  const generationSupersededByRoute = routeSupersedesGeneration(routeRun, generation);
+  const visibleGeneration = generationSupersededByRoute ? null : generation;
 
   const loadActuals = useCallback(async (signal?: AbortSignal) => {
     const [progressResult, storyStateResult] = await Promise.allSettled([
@@ -88,11 +90,13 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
     if (Boolean(signal?.aborted)) return;
 
     let actualsIssue: string | null = null;
+    let relyingOnPreviousActuals = false;
     if (storyStateResult.status === 'fulfilled') {
       storyStateRef.current = storyStateResult.value;
       setStoryState(storyStateResult.value);
     } else {
       actualsIssue = actualsFailure(storyStateResult.reason);
+      relyingOnPreviousActuals = storyStateRef.current !== null;
     }
 
     if (progressResult.status === 'fulfilled') {
@@ -100,9 +104,11 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
       if (progressResult.value.finalizedChapterCount === 0 && latest === null) {
         if (writingProgressRef.current !== null) {
           actualsIssue ??= '正文进度本次返回不完整，页面已保留上次成功读取的定稿记录。';
+          relyingOnPreviousActuals = true;
         }
       } else if (latest === null) {
         actualsIssue ??= '正文进度暂时没有完整读取成功，请重新读取。';
+        relyingOnPreviousActuals ||= writingProgressRef.current !== null;
       } else {
         const nextProgress: FinalizedWritingProgress = {
           finalizedChapterCount: progressResult.value.finalizedChapterCount,
@@ -111,11 +117,15 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
         };
         writingProgressRef.current = nextProgress;
         setWritingProgress(nextProgress);
+        if (progressResult.value.latestConfirmedChainState === 'failed') {
+          actualsIssue ??= '已读取正文章数，但最近定稿链暂时没有读取成功，请稍后重新读取。';
+        }
       }
     } else {
       actualsIssue ??= actualsFailure(progressResult.reason);
+      relyingOnPreviousActuals ||= writingProgressRef.current !== null;
     }
-    if (actualsIssue !== null && (writingProgressRef.current !== null || storyStateRef.current !== null)) {
+    if (actualsIssue !== null && relyingOnPreviousActuals) {
       actualsIssue = `${actualsIssue} 已保留上次成功读取的内容，本页内容可能不是最新状态。`;
     }
     setActualsError(actualsIssue);
@@ -156,7 +166,10 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
       setGeneration(generationResult.value);
       const confirmedTreeReadFailed = treeResult.status === 'rejected'
         && !(treeResult.reason instanceof AuthorApiError && treeResult.reason.status === 404);
-      if (generationResult.value?.status === 'ready'
+      const generationIsSuperseded = routeResult.status === 'fulfilled'
+        && routeSupersedesGeneration(routeResult.value, generationResult.value);
+      if (!generationIsSuperseded
+        && generationResult.value?.status === 'ready'
         && generationResult.value.canOpenCandidate
         && !confirmedTreeReadFailed) {
         try {
@@ -261,14 +274,14 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
   }, [bookId]);
 
   useEffect(() => {
-    if (generation === null || !['waiting', 'working'].includes(generation.status)) return;
+    if (visibleGeneration === null || !['waiting', 'working'].includes(visibleGeneration.status)) return;
     const timer = window.setInterval(() => {
-      void fetchPlanningTreeGeneration(bookId, generation.runId).then(async (next) => {
+      void fetchPlanningTreeGeneration(bookId, visibleGeneration.runId).then(async (next) => {
         await applyGeneration(next);
       }).catch((reason: unknown) => setError(publicError(reason)));
     }, 1_800);
     return () => window.clearInterval(timer);
-  }, [applyGeneration, bookId, generation]);
+  }, [applyGeneration, bookId, visibleGeneration]);
 
   const recommendedId = routeRun?.chiefReview?.recommendedRouteId ?? null;
   useEffect(() => {
@@ -388,12 +401,12 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
   };
 
   const renderPlanningWorkflow = (compact = false, freshStart = false): React.JSX.Element => {
-    if (!freshStart && generation !== null && ['waiting', 'working'].includes(generation.status)) {
-      return <PlanningWaiting message={generation.message} state={generation.status === 'working' ? 'working' : 'waiting'} memberName={generation.member.name} memberKey={generation.member.memberKey} timing={generation.timing} busy={busy} onStop={stopGeneration} />;
+    if (!freshStart && visibleGeneration !== null && ['waiting', 'working'].includes(visibleGeneration.status)) {
+      return <PlanningWaiting message={visibleGeneration.message} state={visibleGeneration.status === 'working' ? 'working' : 'waiting'} memberName={visibleGeneration.member.name} memberKey={visibleGeneration.member.memberKey} timing={visibleGeneration.timing} busy={busy} onStop={stopGeneration} />;
     }
-    if (!freshStart && generation?.status === 'failed') {
+    if (!freshStart && visibleGeneration?.status === 'failed') {
       return <PlanningRecovery
-        message={generation.errorMessage ?? generation.message}
+        message={visibleGeneration.errorMessage ?? visibleGeneration.message}
         busy={busy}
         onRetry={retryGeneration}
         action="继续未完成步骤"
@@ -401,9 +414,9 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
         {...(onOpenSettings === undefined ? {} : { onOpenSettings })}
       />;
     }
-    if (!freshStart && generation?.status === 'result_unknown') {
+    if (!freshStart && visibleGeneration?.status === 'result_unknown') {
       return <PlanningRecovery
-        message={generation.errorMessage ?? generation.message}
+        message={visibleGeneration.errorMessage ?? visibleGeneration.message}
         busy={busy}
         onRetry={reconcileGeneration}
         action="核对这次结果"
@@ -455,13 +468,13 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
 
   const hasActivePlanning = routeRun?.canDecide === true
     || (routeRun !== null && ['waiting', 'working'].includes(routeRun.status))
-    || (generation !== null && ['waiting', 'working'].includes(generation.status));
+    || (visibleGeneration !== null && ['waiting', 'working'].includes(visibleGeneration.status));
   const hasPendingPlanning = hasActivePlanning
     || (routeRun !== null && routeRun.sourceIssues.length > 0)
     || routeRun?.status === 'failed'
     || routeRun?.nextStepPending === true
-    || generation?.status === 'failed'
-    || generation?.status === 'result_unknown';
+    || visibleGeneration?.status === 'failed'
+    || visibleGeneration?.status === 'result_unknown';
   const corePlanningFailed = !loading && treeReadState === 'failed';
   const showStandaloneActuals = !loading && tree === null && (
     actualsLoading
@@ -486,7 +499,7 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
     {!loading && suggestions.length > 0 && <PlanningSuggestionPanel suggestions={suggestions} busy={busy} onDecision={decideSuggestion} />}
     {loading ? <PlanningWaiting message="正在找回这本书的规划进度…" state="waiting" />
       : tree !== null ? <PlanningTreeResult
-          tree={tree} busy={busy} members={members} generation={generation} routeRun={routeRun}
+          tree={tree} busy={busy} members={members} generation={visibleGeneration} routeRun={routeRun}
           writingProgress={writingProgress} storyState={storyState} actualsLoading={actualsLoading}
           editorialOpen={editingDirection || hasPendingPlanning}
           editorialContent={editingDirection || hasPendingPlanning
@@ -977,7 +990,24 @@ function actualsFailure(reason: unknown): string {
 }
 
 function publicError(reason: unknown): string {
-  if (reason instanceof AuthorApiError && reason.retryable) return '对不起，暂时连接不上文秘写作服务，请稍后重试。';
+  if (reason instanceof AuthorApiError && reason.status >= 400 && reason.status < 500) {
+    return publicStatusCopy(reason.message, '对不起，这次操作没有完成，请稍后重试。');
+  }
+  if (reason instanceof AuthorApiError && (reason.retryable || reason.status >= 500)) {
+    return '对不起，暂时连接不上文秘写作服务，请稍后重试。';
+  }
   if (reason instanceof AuthorApiError) return publicStatusCopy(reason.message, '对不起，这次操作没有完成，请稍后重试。');
   return '对不起，这次操作没有完成，请稍后重试。';
+}
+
+function routeSupersedesGeneration(
+  route: PlanningRouteRunView | null,
+  currentGeneration: PlanningTreeGenerationView | null
+): boolean {
+  if (route?.timing === undefined || currentGeneration?.timing === undefined) return false;
+  const routeCreatedAt = Date.parse(route.timing.createdAt);
+  const generationCreatedAt = Date.parse(currentGeneration.timing.createdAt);
+  return Number.isFinite(routeCreatedAt)
+    && Number.isFinite(generationCreatedAt)
+    && routeCreatedAt > generationCreatedAt;
 }

@@ -230,6 +230,17 @@ describe('V7时光机真实规划闭环', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('请先确认至少一项设定，再开始规划全书。');
   });
 
+  it('创建规划时可重试的409仍显示服务端的真实处理办法', async () => {
+    mocked.createPlanningRouteRun.mockRejectedValue(new api.AuthorApiError('当前设定总审还没完成，请先完成设定确认。', true, 409));
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '开始规划全书' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('当前设定总审还没完成，请先完成设定确认。');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('暂时连接不上文秘写作服务');
+  });
+
   it('恢复失败的全书任务时明确道歉并续跑原任务', async () => {
     const failedRun: api.PlanningRouteRunView = {
       ...routeRun(), status: 'failed', phase: 'failed', routes: [], chiefReview: null, canDecide: false,
@@ -521,6 +532,23 @@ describe('V7时光机真实规划闭环', () => {
     expect(JSON.stringify(timeMachineProgressView())).not.toMatch(/manuscriptVersionId|volumeScopeId|chainScopeId/u);
   });
 
+  it('最近定稿链读取失败时仍显示真实正文章数并说明局部失败', async () => {
+    mocked.fetchConfirmedPlanningTree.mockResolvedValue({ ...treeView(), status: 'confirmed' });
+    mockedCreation.fetchTimeMachineProgress.mockResolvedValue({
+      finalizedChapterCount: 6,
+      latestFinalChapter: { chapterNumber: 6 },
+      latestConfirmedChain: null,
+      latestConfirmedChainState: 'failed'
+    });
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByText('已定稿6章 · 最新第6章')).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent('已读取正文章数，但最近定稿链暂时没有读取成功');
+    expect(screen.queryByText(/\u6700\u8fd1\u5b9a\u7a3f\u94fe：/u)).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).not.toHaveTextContent('已保留上次成功读取的内容');
+  });
+
   it('已确认框架后的新失败重规划仍显示真实失败并允许续跑', async () => {
     mocked.fetchConfirmedPlanningTree.mockResolvedValue({ ...treeView(), status: 'confirmed' });
     mocked.fetchLatestPlanningRouteRun.mockResolvedValue({
@@ -539,6 +567,32 @@ describe('V7时光机真实规划闭环', () => {
     expect(screen.queryByText('本轮方向调整正在进行')).not.toBeInTheDocument();
     const editorial = screen.getByText('编辑部').closest('details');
     expect(editorial).toHaveAttribute('open');
+  });
+
+  it('新路线任务晚于旧框架失败时优先展示新路线并不再把旧失败当成当前任务', async () => {
+    mocked.fetchLatestPlanningRouteRun.mockResolvedValue({
+      ...routeRun(),
+      status: 'working',
+      phase: 'designing_routes',
+      canDecide: false,
+      routes: [],
+      chiefReview: null,
+      message: '正在设计新的全书路线。',
+      timing: taskTiming('2026-09-01T12:00:00.000Z')
+    });
+    mocked.fetchLatestPlanningTreeGeneration.mockResolvedValue({
+      ...generation(),
+      status: 'failed',
+      message: '旧框架任务没有完成。',
+      errorMessage: '旧框架任务没有完成。',
+      timing: taskTiming('2026-08-31T12:00:00.000Z')
+    });
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByText('正在设计新的全书路线。')).toBeVisible();
+    expect(screen.queryByText(/\u65e7\u6846\u67b6\u4efb\u52a1\u6ca1\u6709\u5b8c\u6210/u)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '继续未完成步骤' })).not.toBeInTheDocument();
   });
   it('正式框架保留页内调整入口，并允许重新选择一到三位主编', async () => {
     mocked.fetchConfirmedPlanningTree.mockResolvedValue({ ...treeView(), status: 'confirmed' });
@@ -625,6 +679,10 @@ function routeRun(): api.PlanningRouteRunView {
 
 function generation(): api.PlanningTreeGenerationView {
   return { runId: 'generation-1', status: 'working', message: '正在展开正式框架。', treeKind: 'book', scopeId: 'book-1', canOpenCandidate: false, candidateTreeVersionId: null, errorMessage: null, member: { memberKey: 'planning-writer-glm-5-3', name: '规划编剧' } };
+}
+
+function taskTiming(createdAt: string): api.PlanningTaskTimingView {
+  return { createdAt, lastActivityAt: createdAt, elapsedSeconds: 1, idleSeconds: 0, state: 'normal' };
 }
 
 function treeView(): api.PlanningTreeView {

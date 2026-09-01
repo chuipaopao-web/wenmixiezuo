@@ -130,6 +130,7 @@ export interface V7PlanningTaskView {
   treeKind: 'book' | 'volume' | 'chain' | null;
   scopeId: string | null;
   modelCalls: number;
+  actionable: boolean;
   canStop: boolean;
   updatedAt: string;
 }
@@ -267,16 +268,26 @@ export class V7PlanningRouteService {
   }
 
   private taskViews(runs: ReturnType<V7PlanningRuntimeRepository['planningRouteTasks']>): V7PlanningTaskView[] {
+    const latestByScope = new Map<string, string | null>();
+    for (const run of runs) {
+      const scopeKey = `${run.owner_id}:${run.book_id}:planning_route`;
+      if (!latestByScope.has(scopeKey)) latestByScope.set(
+        scopeKey,
+        this.repository.latestPlanningRouteRun(run.owner_id, run.book_id)?.run_id ?? null
+      );
+    }
     return runs.map((run) => {
       const view = this.view(run);
       const active = view.actors.find((actor) => actor.status === 'working') ?? view.actors[0];
+      const actionable = latestByScope.get(`${run.owner_id}:${run.book_id}:planning_route`) === run.run_id;
       return {
         taskId: run.run_id, taskKind: 'planning_route', ownerId: run.owner_id, bookId: run.book_id, bookTitle: run.book_title,
         status: run.status === 'cancelled' ? 'cancelled' : view.status,
         message: view.message, progress: view.progress.percent,
         memberKey: active?.memberKey ?? null, memberName: active?.memberName ?? null,
         treeKind: null, scopeId: null, modelCalls: run.model_calls,
-        canStop: view.status === 'waiting' || view.status === 'working', updatedAt: run.updated_at
+        actionable,
+        canStop: actionable && (view.status === 'waiting' || view.status === 'working'), updatedAt: run.updated_at
       };
     });
   }
@@ -886,7 +897,7 @@ export class V7PlanningRouteService {
       : undefined;
     const existingTreeRun = currentDecision === undefined
       ? undefined
-      : this.repository.firstBookTreeGenerationForRoute(run.owner_id, run.book_id, currentDecision.route_version_id);
+      : this.repository.latestBookTreeGenerationForRoute(run.owner_id, run.book_id, currentDecision.route_version_id);
     return {
       runId: run.run_id,
       status: showReadOnlyFailure ? 'failed' : publicStatus(run.status),

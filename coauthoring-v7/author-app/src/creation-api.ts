@@ -157,6 +157,7 @@ export interface TimeMachineProgressView {
     chapterNumber: number;
   };
   latestConfirmedChain: PlanningTreeView | null;
+  latestConfirmedChainState?: 'loaded' | 'missing' | 'failed';
 }
 
 export interface StoryStateItemView {
