@@ -875,6 +875,75 @@ describe('V7开书Agent平台接入', () => {
     }
   });
 
+  it.each([
+    {
+      label: '未开通会员',
+      errorCode: 'MEMBERSHIP_REQUIRED',
+      expectedMessage: /开通会员/u
+    },
+    {
+      label: '会员已过期',
+      errorCode: 'MEMBERSHIP_EXPIRED',
+      expectedMessage: /会员已到期/u
+    },
+    {
+      label: '会员算力不足',
+      errorCode: 'MEMBERSHIP_QUOTA_EXHAUSTED',
+      expectedMessage: /算力/u
+    }
+  ])('$label时保留真实门禁并立即停止，不伪装成供应商故障或反复换人', async ({
+    errorCode,
+    expectedMessage
+  }) => {
+    context = createTestContext(`wenmi-v7-opening-membership-gate-${errorCode.toLowerCase()}-`);
+    const resolver = new ScriptedResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      await register(app, 'v7-membership-admin@example.com', '管理员', 'strong-pass-000');
+      const cookie = await register(app, 'v7-membership-author@example.com', '额度不足作者', 'strong-pass-789');
+      const owner = context.database.prepare(`
+        SELECT owner_id FROM user_accounts WHERE email_normalized = 'v7-membership-author@example.com'
+      `).get() as { owner_id: string };
+      if (errorCode === 'MEMBERSHIP_REQUIRED') {
+        context.database.prepare(`DELETE FROM user_memberships WHERE owner_id = ?`).run(owner.owner_id);
+      } else if (errorCode === 'MEMBERSHIP_EXPIRED') {
+        context.database.prepare(`UPDATE user_memberships SET period_end = '2000-01-01T00:00:00.000Z' WHERE owner_id = ?`)
+          .run(owner.owner_id);
+      } else {
+        context.database.prepare(`UPDATE user_memberships SET token_quota = 1 WHERE owner_id = ?`).run(owner.owner_id);
+      }
+
+      const started = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-agent/tasks',
+        headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          idea: '顾川穿越到群雄割据的乱世，从边城小吏开始求生。',
+          idempotencyKey: `v7-opening-membership-gate-${errorCode.toLowerCase()}`
+        }
+      });
+      expect(started.statusCode).toBe(200);
+      const taskId = started.json().data.taskId as string;
+      const view = await poll(app, cookie, taskId, ['failed']);
+
+      expect(view.errorMessage).toMatch(expectedMessage);
+      expect(resolver.generateCount).toBe(0);
+      expect(context.database.prepare(`
+        SELECT error_code, json_extract(state_json, '$.automaticMemberSwitches') AS switches,
+          json_array_length(state_json, '$.attempts') AS attempts
+        FROM v7_opening_agent_tasks WHERE task_id = ?
+      `).get(taskId)).toEqual({
+        error_code: errorCode,
+        switches: 0,
+        attempts: 1
+      });
+      expect(context.database.prepare(`
+        SELECT COUNT(*) AS count FROM v7_opening_agent_model_calls WHERE task_id = ?
+      `).get(taskId)).toEqual({ count: 0 });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('作者修改追加版本、主编复审并幂等转成一本没有旧团队的正式书', async () => {
     context = createTestContext('wenmi-v7-opening-author-loop-');
     const resolver = new ScriptedResolver();

@@ -11,6 +11,7 @@ import {
   type V7AgentFailureClass
 } from '@wenmi/v7-backend';
 import type { Clock } from '../../domain/ids.js';
+import { DomainError, errorCodes } from '../../domain/errors.js';
 import { assertMembershipAllowsGeneration } from '../security/membership-service.js';
 import type { ModelAdapter } from './model-adapter.js';
 import { ModelAdapterError } from './model-adapter.js';
@@ -86,7 +87,14 @@ export class V7OpeningAgentModelGateway implements OpeningAgentModelGateway {
       request.maxOutputTokens
     );
     const reservedTokens = Math.max(8_000, compiled.manifest.compiledPrompt.length + request.maxOutputTokens + reasoningTokens);
-    assertMembershipAllowsGeneration(this.database, request.ownerId, now, reservedTokens);
+    try {
+      assertMembershipAllowsGeneration(this.database, request.ownerId, now, reservedTokens);
+    } catch (error) {
+      if (error instanceof DomainError && MEMBERSHIP_GENERATION_ERRORS.has(error.code)) {
+        throw new OpeningAgentModelError(error.message, 'budget_exhausted', false, error.code);
+      }
+      throw error;
+    }
     this.database.prepare(`
       INSERT INTO v7_opening_agent_model_calls (
         request_id, owner_id, task_id, node_key, member_key, provider, model_id, plan,
@@ -314,6 +322,12 @@ export class V7OpeningAgentModelGateway implements OpeningAgentModelGateway {
     }
   }
 }
+
+const MEMBERSHIP_GENERATION_ERRORS = new Set<string>([
+  errorCodes.membershipRequired,
+  errorCodes.membershipExpired,
+  errorCodes.membershipQuotaExhausted
+]);
 
 function resultFromRow(row: CallRow): OpeningModelResult {
   if (row.output_text === null) throw new OpeningAgentModelError('成功调用缺少可恢复输出', 'outcome_unknown', true);

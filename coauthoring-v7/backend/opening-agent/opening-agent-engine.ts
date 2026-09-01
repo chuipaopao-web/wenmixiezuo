@@ -219,7 +219,11 @@ export class OpeningAgentEngine {
     while (member !== null) {
       const pending = findPendingAttempt(state, specification.nodeKey, member.memberKey);
       let result: OpeningModelResult | null = null;
-      let failure: { failureClass: V7AgentFailureClass; message: string } | null = null;
+      let failure: {
+        failureClass: V7AgentFailureClass;
+        message: string;
+        taskErrorCode: string | null;
+      } | null = null;
       if (pending !== undefined) {
         const reconciliation = await this.modelGateway.reconcile({
           requestId: pending.requestId,
@@ -234,7 +238,11 @@ export class OpeningAgentEngine {
           throw new OpeningAgentStoppedError(state.errorMessage!, state);
         }
         if (reconciliation.status === 'failed') {
-          failure = { failureClass: reconciliation.failureClass, message: reconciliation.message };
+          failure = {
+            failureClass: reconciliation.failureClass,
+            message: reconciliation.message,
+            taskErrorCode: null
+          };
           updateAttempt(state, pending.requestId, 'failed', failure.failureClass, failure.message);
           await this.toolGateway.saveTask(state);
         } else {
@@ -288,7 +296,11 @@ export class OpeningAgentEngine {
             await this.toolGateway.saveTask(state);
             continue;
           }
-          failure = { failureClass: normalized.failureClass, message: normalized.message };
+          failure = {
+            failureClass: normalized.failureClass,
+            message: normalized.message,
+            taskErrorCode: normalized.taskErrorCode
+          };
           updateAttempt(state, requestId, 'failed', failure.failureClass, failure.message);
           await this.toolGateway.saveTask(state);
         }
@@ -309,7 +321,11 @@ export class OpeningAgentEngine {
           const message = normalized.message;
           updateAttempt(state, activeAttempt.requestId, 'failed', normalized.failureClass, message);
           await this.toolGateway.saveTask(state);
-          failure = { failureClass: normalized.failureClass, message };
+          failure = {
+            failureClass: normalized.failureClass,
+            message,
+            taskErrorCode: normalized.taskErrorCode
+          };
         }
       }
 
@@ -342,7 +358,12 @@ export class OpeningAgentEngine {
         member = nextFallbackMember(fallbackChain, attempted);
         continue;
       }
-      state = await this.stop(state, 'failed', failure.failureClass, decision.reason);
+      state = await this.stop(
+        state,
+        'failed',
+        failure.taskErrorCode ?? failure.failureClass,
+        failure.taskErrorCode === null ? decision.reason : failure.message
+      );
       throw new OpeningAgentStoppedError(state.errorMessage!, state);
     }
     state = await this.stop(state, 'failed', 'provider_unavailable', '没有可用的备用成员，已保留所有成功检查点。');

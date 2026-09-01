@@ -347,7 +347,8 @@ export class OpeningAgentModelError extends Error {
   public constructor(
     message: string,
     public readonly failureClass: V7AgentFailureClass,
-    public readonly outcomeUnknown = false
+    public readonly outcomeUnknown = false,
+    public readonly taskErrorCode: string | null = null
   ) {
     super(message);
     this.name = 'OpeningAgentModelError';
