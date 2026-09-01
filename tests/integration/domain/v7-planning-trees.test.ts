@@ -94,6 +94,43 @@ describe('V7三棵竖向综合规划树后端', () => {
         expect(response.json().data.treeKind).toBe(kind);
       }
 
+      const confirmedChain = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-trees/chain/chain-1/confirm`, {
+          expectedRevision: 1, idempotencyKey: 'chain-tree-confirm-0001'
+        });
+      expect(confirmedChain.statusCode).toBe(200);
+      expect(confirmedChain.json().data).toMatchObject({ status: 'confirmed', revision: 2 });
+
+      const candidateChainV2 = tree('chain', 'chain-1', [
+        node('event-2', 'event', 1, '候选事件二：不应覆盖正文实际')
+      ]);
+      const createdChainV2 = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-trees/chain/chain-1/candidates`, {
+          expectedRevision: 2, tree: candidateChainV2, sourceRefs, idempotencyKey: 'chain-tree-create-0002'
+        });
+      expect(createdChainV2.statusCode).toBe(200);
+      expect(createdChainV2.json().data).toMatchObject({ status: 'candidate', revision: 3 });
+
+      const defaultChainRead = await request(app, cookie, 'GET',
+        `/api/v1/v7/books/${bookId}/planning-trees/chain/chain-1`);
+      expect(defaultChainRead.statusCode).toBe(200);
+      expect(defaultChainRead.json().data).toMatchObject({
+        status: 'candidate', root: { children: [expect.objectContaining({ title: '候选事件二：不应覆盖正文实际' })] }
+      });
+      const confirmedChainRead = await request(app, cookie, 'GET',
+        `/api/v1/v7/books/${bookId}/planning-trees/chain/chain-1?version=confirmed`);
+      expect(confirmedChainRead.statusCode).toBe(200);
+      expect(confirmedChainRead.json().data).toMatchObject({
+        status: 'confirmed', root: { children: [expect.objectContaining({ title: '事件一：被迫进入先锋营' })] }
+      });
+      expect(JSON.stringify(confirmedChainRead.json().data)).not.toContain('候选事件二');
+      const invalidVersion = await request(app, cookie, 'GET',
+        `/api/v1/v7/books/${bookId}/planning-trees/chain/chain-1?version=unknown`);
+      expect(invalidVersion.statusCode).toBe(400);
+      const crossOwnerConfirmed = await request(app, other, 'GET',
+        `/api/v1/v7/books/${bookId}/planning-trees/chain/chain-1?version=confirmed`);
+      expect(crossOwnerConfirmed.statusCode).toBe(404);
+      expect(crossOwnerConfirmed.body).not.toMatch(/事件一|候选事件二/u);
       const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string }).owner_id);
       const actuals = new V7PlanningTreeService(context.database, new SequenceIds(), new FixedClock());
       const actual = actuals.recordActual(ownerId, bookId, 'book', bookId, {
@@ -114,7 +151,7 @@ describe('V7三棵竖向综合规划树后端', () => {
 
       const crossOwner = await request(app, other, 'GET', `/api/v1/v7/books/${bookId}/planning-trees/book/${bookId}`);
       expect(crossOwner.statusCode).toBe(404);
-      expect(context.database.prepare('SELECT COUNT(*) AS count FROM v7_planning_tree_versions WHERE book_id=?').get(bookId)).toEqual({ count: 4 });
+      expect(context.database.prepare('SELECT COUNT(*) AS count FROM v7_planning_tree_versions WHERE book_id=?').get(bookId)).toEqual({ count: 5 });
       expect(context.database.prepare('SELECT COUNT(*) AS count FROM v7_planning_node_actuals WHERE book_id=?').get(bookId)).toEqual({ count: 1 });
     } finally {
       await app.close();

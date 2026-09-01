@@ -399,6 +399,24 @@ describe('V7全链路创作总线', () => {
       expect(count(context, 'v7_creation_stage_settlements', ownerId, bookId)).toBe(3);
       expect(count(context, 'v7_creation_stage_jobs', ownerId, bookId)).toBe(3);
 
+      const timeMachineProgress = await request(app, cookie, 'GET',
+        `/api/v1/v7/books/${bookId}/time-machine-progress`);
+      expect(timeMachineProgress.statusCode).toBe(200);
+      expect(timeMachineProgress.json().data).toMatchObject({
+        finalizedChapterCount: 6,
+        latestFinalChapter: {
+          manuscriptVersionId: expect.any(String), chapterNumber: 6,
+          volumeScopeId: 'volume-1', chainScopeId: 'chain-2'
+        }
+      });
+      expect(JSON.stringify(timeMachineProgress.json().data)).not.toContain(originalText);
+      const latestFinalVersionId = timeMachineProgress.json().data.latestFinalChapter.manuscriptVersionId as string;
+      const crossOwnerProgress = await request(app, otherCookie, 'GET',
+        `/api/v1/v7/books/${bookId}/time-machine-progress`);
+      expect(crossOwnerProgress.statusCode).toBe(404);
+      expect(crossOwnerProgress.body).not.toContain(latestFinalVersionId);
+      expect(crossOwnerProgress.body).not.toContain('chain-2');
+
       const isolated = await request(app, otherCookie, 'GET',
         `/api/v1/v7/books/${bookId}/creation-workflows/${workflowId}`);
       expect(isolated.statusCode).toBe(404);

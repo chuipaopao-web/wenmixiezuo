@@ -90,7 +90,7 @@
 
 规划树统一使用 `treeKind + scopeId` 标识当前树，不使用旧卷纲、事件纲和章纲接口：
 
-- `GET /api/v1/v7/books/:bookId/planning-trees/:treeKind/:scopeId`
+- `GET /api/v1/v7/books/:bookId/planning-trees/:treeKind/:scopeId`；作者端需要正式事实时使用 `?version=confirmed`，只返回已确认版本，不用较新的候选覆盖正式内容
 - `GET /api/v1/v7/books/:bookId/planning-trees/:treeKind/:scopeId/history`
 - `PATCH /api/v1/v7/books/:bookId/planning-trees/:treeKind/:scopeId/candidate`
 - `POST /api/v1/v7/books/:bookId/planning-trees/:treeKind/:scopeId/confirm`
@@ -101,6 +101,7 @@
 - `POST /api/v1/v7/books/:bookId/planning-routes/runs`
 - `GET /api/v1/v7/books/:bookId/planning-routes/runs/:runId`
 - `POST /api/v1/v7/books/:bookId/planning-routes/runs/:runId/{decision|retry-missing|cancel}`
+- `POST /api/v1/v7/books/:bookId/planning-routes/runs/:runId/continue-to-tree`：只允许当前仍为正式版本的已完成全书方向；若该方向已有全书树任务则返回原任务，否则以服务端稳定操作编号创建一次，重复请求不重复调用模型
 - `GET /api/v1/v7/books/:bookId/planning-routes/latest`
 - `GET /api/v1/v7/books/:bookId/planning-adjustment-suggestions`
 - `POST /api/v1/v7/books/:bookId/planning-adjustment-suggestions/:suggestionId/decision`
@@ -134,7 +135,10 @@
 - `POST /api/v1/v7/books/:bookId/creation-workflows/:workflowId/{cancel|member|options/retry|options/redesign|options/choose|continue-to-chain|continue-to-next-chain|outlines|outlines/confirm|manuscripts|managed/activate|manuscripts/finalize}`
 - `GET /api/v1/v7/books/:bookId/creation-workflows/:workflowId/write-back`
 - `GET /api/v1/v7/books/:bookId/story-state`
+- `GET /api/v1/v7/books/:bookId/time-machine-progress`
 - `GET /api/v1/v7/creation-tasks`
+
+`time-machine-progress` 只按当前会话的 `owner_id + book_id` 聚合不可变 `final` 正文版本，返回定稿章数和最近定稿章的版本、章号、卷、链定位；不返回正文内容，也不读取候选章纲冒充实际进度。
 
 正式化端点：
 

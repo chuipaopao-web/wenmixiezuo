@@ -171,6 +171,20 @@ export interface V7PlanningRouteVersionRow {
   confirmed_at: string | null;
 }
 
+export interface V7PlanningRouteDecisionRow {
+  decision_id: string;
+  owner_id: string;
+  book_id: string;
+  run_id: string;
+  route_version_id: string;
+  recipe_version_id: string;
+  idempotency_key: string;
+  decision_kind: 'select' | 'adjust' | 'merge';
+  source_route_ids_json: string;
+  author_note: string;
+  created_at: string;
+}
+
 export interface V7PlanningGenerationRunRow {
   generation_run_id: string;
   owner_id: string;
@@ -195,7 +209,11 @@ export interface V7PlanningGenerationRunRow {
 }
 
 export type V7PlanningRecipeTaskRow = V7PlanningRecipeRunRow & { book_title: string; model_calls: number };
-export type V7PlanningGenerationTaskRow = V7PlanningGenerationRunRow & { book_title: string; model_calls: number };
+export type V7PlanningGenerationTaskRow = V7PlanningGenerationRunRow & {
+  book_title: string;
+  model_calls: number;
+  result_lifecycle: 'candidate' | 'confirmed' | 'superseded' | null;
+};
 
 export interface V7PlanningModelCallRow {
   request_id: string;
@@ -637,6 +655,25 @@ export class V7PlanningRuntimeRepository {
       } | undefined;
   }
 
+  public currentConfirmedRouteDecision(
+    ownerId: string,
+    bookId: string,
+    runId: string
+  ): V7PlanningRouteDecisionRow | undefined {
+    return this.database.prepare(`SELECT d.* FROM v7_planning_route_decisions d
+      JOIN v7_planning_recipe_runs run ON run.owner_id=d.owner_id AND run.book_id=d.book_id AND run.run_id=d.run_id
+      JOIN v7_planning_route_versions route ON route.owner_id=d.owner_id AND route.book_id=d.book_id
+        AND route.route_version_id=d.route_version_id
+      JOIN v7_planning_recipe_versions recipe ON recipe.owner_id=d.owner_id AND recipe.book_id=d.book_id
+        AND recipe.recipe_version_id=d.recipe_version_id
+      WHERE d.owner_id=? AND d.book_id=? AND d.run_id=?
+        AND run.status='completed' AND run.current_phase='route_confirmed'
+        AND route.lifecycle='confirmed' AND recipe.lifecycle='confirmed'
+        AND route.recipe_version_id=d.recipe_version_id
+      ORDER BY d.created_at DESC,d.decision_id DESC LIMIT 1`)
+      .get(ownerId, bookId, runId) as V7PlanningRouteDecisionRow | undefined;
+  }
+
   public confirmPlanningRoute(input: {
     decisionId: string; routeVersionId: string; recipeVersionId: string;
     ownerId: string; bookId: string; runId: string; idempotencyKey: string;
@@ -811,20 +848,35 @@ export class V7PlanningRuntimeRepository {
       .get(ownerId, bookId, treeKind, scopeId) as V7PlanningGenerationRunRow | undefined;
   }
 
+  public firstBookTreeGenerationForRoute(
+    ownerId: string,
+    bookId: string,
+    routeVersionId: string
+  ): V7PlanningGenerationRunRow | undefined {
+    return this.database.prepare(`SELECT * FROM v7_planning_generation_runs
+      WHERE owner_id=? AND book_id=? AND tree_kind='book' AND scope_id=? AND route_version_id=?
+      ORDER BY created_at,generation_run_id LIMIT 1`)
+      .get(ownerId, bookId, bookId, routeVersionId) as V7PlanningGenerationRunRow | undefined;
+  }
+
   public planningGenerationTasks(ownerId: string, limit: number): V7PlanningGenerationTaskRow[] {
-    return this.database.prepare(`SELECT r.*,b.title AS book_title,
+    return this.database.prepare(`SELECT r.*,b.title AS book_title,v.lifecycle AS result_lifecycle,
         (SELECT COUNT(*) FROM v7_planning_model_calls c
           WHERE c.owner_id=r.owner_id AND c.book_id=r.book_id AND c.run_id=r.generation_run_id) AS model_calls
       FROM v7_planning_generation_runs r JOIN books b ON b.owner_id=r.owner_id AND b.book_id=r.book_id
+      LEFT JOIN v7_planning_tree_versions v ON v.owner_id=r.owner_id AND v.book_id=r.book_id
+        AND v.tree_version_id=r.candidate_tree_version_id
       WHERE r.owner_id=? ORDER BY r.updated_at DESC,r.generation_run_id DESC LIMIT ?`)
       .all(ownerId, limit) as unknown as V7PlanningGenerationTaskRow[];
   }
 
   public adminPlanningGenerationTasks(limit: number): V7PlanningGenerationTaskRow[] {
-    return this.database.prepare(`SELECT r.*,b.title AS book_title,
+    return this.database.prepare(`SELECT r.*,b.title AS book_title,v.lifecycle AS result_lifecycle,
         (SELECT COUNT(*) FROM v7_planning_model_calls c
           WHERE c.owner_id=r.owner_id AND c.book_id=r.book_id AND c.run_id=r.generation_run_id) AS model_calls
       FROM v7_planning_generation_runs r JOIN books b ON b.owner_id=r.owner_id AND b.book_id=r.book_id
+      LEFT JOIN v7_planning_tree_versions v ON v.owner_id=r.owner_id AND v.book_id=r.book_id
+        AND v.tree_version_id=r.candidate_tree_version_id
       ORDER BY r.updated_at DESC,r.generation_run_id DESC LIMIT ?`)
       .all(limit) as unknown as V7PlanningGenerationTaskRow[];
   }
@@ -852,12 +904,13 @@ export class V7PlanningRuntimeRepository {
     this.database.prepare(`INSERT INTO v7_planning_generation_runs
       (generation_run_id,owner_id,book_id,tree_kind,scope_id,recipe_version_id,source_snapshot_id,
        parent_tree_version_id,assigned_member_key,member_snapshot_json,idempotency_key,status,created_at,updated_at,request_hash,route_version_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,'queued',?,?,?,?)`).run(
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,'queued',?,?,?,?)
+      ON CONFLICT(owner_id,book_id,idempotency_key) DO NOTHING`).run(
       input.generationRunId, input.ownerId, input.bookId, input.treeKind, input.scopeId,
       input.recipeVersionId, input.sourceSnapshotId, input.parentTreeVersionId, input.assignedMemberKey,
       JSON.stringify(input.memberSnapshot), input.idempotencyKey, input.now, input.now, input.requestHash, input.routeVersionId ?? null
     );
-    const saved = this.generation(input.ownerId, input.bookId, input.generationRunId);
+    const saved = this.generationByKey(input.ownerId, input.bookId, input.idempotencyKey);
     if (saved === undefined) throw new Error('规划树生成任务保存后无法读取');
     return saved;
   }

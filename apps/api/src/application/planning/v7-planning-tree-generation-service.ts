@@ -152,8 +152,30 @@ export class V7PlanningTreeGenerationService {
       }, idempotencyKey, requestHash,
       now: this.clock.now().toISOString()
     });
+    if (run.request_hash !== requestHash) throw conflict('本次操作编号已经用于另一棵规划树。');
     this.start(run);
     return this.view(run);
+  }
+
+  public continueRouteToTree(ownerId: string, bookId: string, routeRunId: string, input: {
+    selectedMemberKey?: unknown;
+  }): V7PlanningTreeGenerationView {
+    const routeRun = this.runtime.recipeRun(ownerId, bookId, routeRunId);
+    if (routeRun === undefined) throw new DomainError(errorCodes.validation, '全书方向任务不存在或不属于本书。', {}, false, 404);
+    const decision = this.runtime.currentConfirmedRouteDecision(ownerId, bookId, routeRunId);
+    if (decision === undefined) {
+      if (routeRun.status !== 'completed') throw conflict('请先确认当前全书方向，再继续设计正式全书框架。');
+      throw conflict('这轮全书方向已经不是当前正式方案，请从当前全书方向继续。');
+    }
+    const existing = this.runtime.firstBookTreeGenerationForRoute(ownerId, bookId, decision.route_version_id);
+    if (existing !== undefined) {
+      this.start(existing);
+      return this.view(existing);
+    }
+    return this.create(ownerId, bookId, 'book', bookId, {
+      selectedMemberKey: input.selectedMemberKey,
+      idempotencyKey: `route-to-book-tree:${sha256(`${ownerId}:${bookId}:${routeRunId}`)}`
+    });
   }
 
   private members(): readonly V7PlanningMemberDefinition[] {
@@ -194,12 +216,20 @@ export class V7PlanningTreeGenerationService {
   private taskViews(runs: ReturnType<V7PlanningRuntimeRepository['planningGenerationTasks']>): V7PlanningTaskView[] {
     return runs.map((run) => {
       const view = this.view(run);
+      const resultLifecycle = run.result_lifecycle;
+      const resultAlreadyResolved = view.status === 'ready'
+        && resultLifecycle !== null
+        && resultLifecycle !== 'candidate';
+      const resolvedMessage = resultLifecycle === 'confirmed'
+        ? '正式框架已经确认，任务已完成。'
+        : '该轮方案已由新版方案接替，历史结果已经保留。';
       return {
         taskId: run.generation_run_id, taskKind: 'planning_tree', ownerId: run.owner_id, bookId: run.book_id, bookTitle: run.book_title,
         status: run.status === 'cancelled' ? 'cancelled'
-          : view.status === 'ready' ? 'waiting_for_you'
+          : resultAlreadyResolved ? 'completed'
+            : view.status === 'ready' ? 'waiting_for_you'
             : view.status === 'result_unknown' ? 'failed' : view.status,
-        message: view.message,
+        message: resultAlreadyResolved ? resolvedMessage : view.message,
         progress: view.status === 'ready' ? 100 : view.status === 'working' ? 70 : view.status === 'waiting' ? 10 : 0,
         memberKey: view.member.memberKey, memberName: view.member.name,
         treeKind: run.tree_kind, scopeId: run.scope_id, modelCalls: run.model_calls,
@@ -545,10 +575,18 @@ export class V7PlanningTreeGenerationService {
         ?? displayRoster?.fallback[0]
         ?? { memberKey: run.assigned_member_key, displayName: '历史规划成员' };
     const readOnly = roster === null;
-    const status = readOnly ? 'failed' : publicStatus(run.status);
+    // Retiring a frozen member/model binding only removes execution authority.
+    // It must not rewrite an already-succeeded generation with a persisted
+    // candidate into a failure: Time Machine reads this view alongside the
+    // confirmed tree, and that contradiction used to hide valid book history.
+    const preservedReadOnlyResult = readOnly
+      && run.status === 'succeeded'
+      && run.candidate_tree_version_id !== null;
+    const status = preservedReadOnlyResult ? 'ready' : readOnly ? 'failed' : publicStatus(run.status);
     return {
       runId: run.generation_run_id, treeKind: run.tree_kind, scopeId: run.scope_id, status,
-      message: readOnly ? READ_ONLY_TREE_MESSAGE
+      message: preservedReadOnlyResult ? '方案已经完成并安全保留，可以继续查看正式框架。'
+        : readOnly ? READ_ONLY_TREE_MESSAGE
         : status === 'ready' ? '方案已经设计好，等您查看和确认。'
         : status === 'failed' ? (run.error_message ?? '对不起，这次没有完成，您可以重新下单。')
           : status === 'result_unknown' ? '抱歉，这次结果还没有确认，为避免重复消耗已经暂停。'
@@ -559,7 +597,7 @@ export class V7PlanningTreeGenerationService {
       member: { memberKey: member.memberKey, name: member.displayName },
       candidateTreeVersionId: run.candidate_tree_version_id,
       canOpenCandidate: run.status === 'succeeded' && run.candidate_tree_version_id !== null,
-      errorMessage: readOnly ? READ_ONLY_TREE_MESSAGE : run.error_message,
+      errorMessage: preservedReadOnlyResult ? null : readOnly ? READ_ONLY_TREE_MESSAGE : run.error_message,
       timing: planningGenerationTiming(run, this.clock.now())
     };
   }

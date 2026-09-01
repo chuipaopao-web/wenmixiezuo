@@ -57,6 +57,13 @@ export async function registerV7CreationRoutes(
     }
   );
 
+  app.get<{ Params: { bookId: string } }>(
+    '/api/v1/v7/books/:bookId/time-machine-progress', async (request) => {
+      const ownerId = scope(request, request.params.bookId);
+      return success(workflows.timeMachineProgress(ownerId, request.params.bookId), request.id);
+    }
+  );
+
   app.get<{ Params: { bookId: string; manuscriptVersionId: string } }>(
     '/api/v1/v7/books/:bookId/manuscripts/:manuscriptVersionId', async (request) => {
       const ownerId = scope(request, request.params.bookId);

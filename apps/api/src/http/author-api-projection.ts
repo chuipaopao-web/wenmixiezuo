@@ -70,6 +70,15 @@ function publicErrorMessage(code: string, raw: unknown): string {
   return '这一步没有顺利完成。已经保存的作者内容和正式版本不会被覆盖，请返回检查后重试。';
 }
 
+function publicTaskRecoveryMessage(action: unknown): string | null {
+  const fixed: Readonly<Record<string, string>> = {
+    open_membership_required: '当前账号还没有开通这项创作服务。开书想法已经保存，可以先自己填写资料，或开通会员后再交给创作团队。',
+    open_membership_quota: '本期剩余创作额度不足以开始这轮团队设计。开书想法已经保存，可以先自己填写资料，或补充额度后再交给创作团队。',
+    open_membership_expired: '当前会员已经到期。开书想法已经保存，可以先自己填写资料，或续费后再交给创作团队。'
+  };
+  return typeof action === 'string' ? fixed[action] ?? null : null;
+}
+
 function projectAuthorErrorEnvelope(record: Record<string, unknown>): Record<string, unknown> {
   const internal = record.error as Record<string, unknown>;
   const code = typeof internal.code === 'string' ? internal.code : '';
@@ -107,13 +116,16 @@ export function projectAuthorApiValue(value: unknown, depth = 0): unknown {
   }
 
   const projected: Record<string, unknown> = {};
+  const taskRecoveryMessage = publicTaskRecoveryMessage(source.recoveryAction);
   for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
     if (DROPPED_FIELDS.test(key) || SENSITIVE_KEY.test(key)) continue;
     const publicKey = RENAMED_FIELDS[key] ?? key;
     if (publicKey === 'recoveryMessage' || publicKey === 'recovery_message') {
-      projected[publicKey] = raw === null || raw === undefined || raw === ''
-        ? null
-        : '这一步没有完成，已保存的作者内容和正式版本不会被覆盖，可以重试。';
+      projected[publicKey] = taskRecoveryMessage ?? (
+        raw === null || raw === undefined || raw === ''
+          ? null
+          : '这一步没有完成，已保存的作者内容和正式版本不会被覆盖，可以重试。'
+      );
       continue;
     }
     projected[publicKey] = projectAuthorApiValue(raw, depth + 1);

@@ -39,6 +39,7 @@ import { archiveBook, fetchBooks, restoreBook, type BookRecord } from './opening
 import { bookCoverTitle, bookCoverTone, bookStatusLabel } from './book-shelf-presentation';
 import { AuthorAccountCenter, useAuthorAccount } from './AuthorAccountBoundary';
 import { clearOpeningDraft } from './opening-draft-storage';
+import type { AuthorMembershipStatus } from './account-api';
 
 const NAV_ICONS = [
   TreeStructureIcon,
@@ -53,10 +54,71 @@ const NAV_ICONS = [
 
 type OpeningEntry = 'ai' | 'manual';
 type BookShelfStatus = 'loading' | 'ready' | 'error';
+type OpeningMembershipRecoveryAction =
+  | 'open_membership_required'
+  | 'open_membership_quota'
+  | 'open_membership_expired';
+type OpeningAccountReturn = {
+  entry: OpeningEntry;
+  taskId: string;
+  recoveryAction: OpeningMembershipRecoveryAction | null;
+};
+type OpeningMembershipRetryGrant = {
+  taskId: string;
+  recoveryAction: OpeningMembershipRecoveryAction;
+};
+type MembershipReturnRefresh = 'idle' | 'running' | 'completed' | 'failed';
+
+const OPENING_RETRY_MINIMUM_COMPUTE = 64_000;
+
+function openingMembershipRecoveryAction(value: string | null): OpeningMembershipRecoveryAction | null {
+  return value === 'open_membership_required'
+    || value === 'open_membership_quota'
+    || value === 'open_membership_expired'
+    ? value
+    : null;
+}
+
+function membershipAllowsOpeningRetry(
+  role: 'admin' | 'user',
+  membership: AuthorMembershipStatus | null,
+  action: OpeningMembershipRecoveryAction | null
+): boolean {
+  if (action === null) return false;
+  if (role === 'admin' || membership?.isAdmin === true) return true;
+  const record = membership?.membership ?? null;
+  return record !== null
+    && record.status === 'active'
+    && !record.expired
+    && record.computeRemaining >= OPENING_RETRY_MINIMUM_COMPUTE;
+}
 
 function openingEntryFromSearch(search: string): OpeningEntry {
   return new URLSearchParams(search).get('entry') === 'manual' ? 'manual' : 'ai';
 }
+
+function openingAccountReturnFromSearch(search: string): OpeningAccountReturn | null {
+  const params = new URLSearchParams(search);
+  const taskId = params.get('returnOpeningTaskId')?.trim() || null;
+  if (taskId === null) return null;
+  return {
+    taskId,
+    entry: params.get('returnOpeningEntry') === 'manual' ? 'manual' : 'ai',
+    recoveryAction: openingMembershipRecoveryAction(params.get('returnOpeningRecoveryAction'))
+  };
+}
+
+function openingMembershipRetryGrantFromSearch(search: string): OpeningMembershipRetryGrant | null {
+  const params = new URLSearchParams(search);
+  const taskId = params.get('membershipRetryTaskId')?.trim() || null;
+  const recoveryAction = openingMembershipRecoveryAction(params.get('membershipRetryRecoveryAction'));
+  return taskId === null || recoveryAction === null ? null : { taskId, recoveryAction };
+}
+
+type OpeningRecoveryNavigation = {
+  accountReturn?: OpeningAccountReturn;
+  membershipRetry?: OpeningMembershipRetryGrant;
+};
 
 function HomePage({ onCreateNovel }: { onCreateNovel: (entry: OpeningEntry) => void }): React.JSX.Element {
   return (
@@ -112,6 +174,10 @@ export function AuthorApp(): React.JSX.Element {
   const [archiveConfirmation, setArchiveConfirmation] = useState<string | null>(null);
   const [lifecycleBusy, setLifecycleBusy] = useState<string | null>(null);
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
+  const [openingAccountReturn, setOpeningAccountReturn] = useState<OpeningAccountReturn | null>(() => openingAccountReturnFromSearch(window.location.search));
+  const [membershipRetryGrant, setMembershipRetryGrant] = useState<OpeningMembershipRetryGrant | null>(() => openingMembershipRetryGrantFromSearch(window.location.search));
+  const [pendingMembershipReturn, setPendingMembershipReturn] = useState<OpeningAccountReturn | null>(null);
+  const [membershipReturnRefresh, setMembershipReturnRefresh] = useState<MembershipReturnRefresh>('idle');
 
   useEffect(() => {
     const onPopState = () => {
@@ -119,6 +185,8 @@ export function AuthorApp(): React.JSX.Element {
       setBookId(bookIdFromSearch(window.location.search));
       setOpeningEntry(openingEntryFromSearch(window.location.search));
       setOpeningTaskId(openingTaskIdFromSearch(window.location.search));
+      setOpeningAccountReturn(openingAccountReturnFromSearch(window.location.search));
+      setMembershipRetryGrant(openingMembershipRetryGrantFromSearch(window.location.search));
       setInformationSection(informationSectionFromSearch(window.location.search));
       setSettingRecoveryFocus(settingRecoveryFocusFromSearch(window.location.search));
     };
@@ -154,7 +222,8 @@ export function AuthorApp(): React.JSX.Element {
     nextBookId: string | null = null,
     nextEntry: OpeningEntry = openingEntry,
     nextTaskId: string | null = null,
-    creationScope: CreationScopeOverride = {}
+    creationScope: CreationScopeOverride = {},
+    openingRecovery: OpeningRecoveryNavigation = {}
   ) => {
     let search = nextView === 'new-novel'
       ? `${searchForAuthorView(nextView, nextBookId, nextTaskId)}&entry=${nextEntry}`
@@ -162,11 +231,30 @@ export function AuthorApp(): React.JSX.Element {
     if (['volume', 'chain', 'chapter', 'account'].includes(nextView) && nextBookId !== null && nextBookId === bookId) {
       search = preserveCreationScopeInSearch(window.location.search, search, creationScope);
     }
+    if (openingRecovery.accountReturn !== undefined || openingRecovery.membershipRetry !== undefined) {
+      const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+      if (openingRecovery.accountReturn !== undefined) {
+        params.set('returnOpeningTaskId', openingRecovery.accountReturn.taskId);
+        params.set('returnOpeningEntry', openingRecovery.accountReturn.entry);
+        if (openingRecovery.accountReturn.recoveryAction !== null) {
+          params.set('returnOpeningRecoveryAction', openingRecovery.accountReturn.recoveryAction);
+        }
+      }
+      if (openingRecovery.membershipRetry !== undefined) {
+        params.set('membershipRetryTaskId', openingRecovery.membershipRetry.taskId);
+        params.set('membershipRetryRecoveryAction', openingRecovery.membershipRetry.recoveryAction);
+      }
+      search = `?${params.toString()}`;
+    }
     window.history.pushState({}, '', search);
     setView(nextView);
     setBookId(nextBookId);
     setOpeningEntry(nextEntry);
     setOpeningTaskId(nextTaskId);
+    setOpeningAccountReturn(openingRecovery.accountReturn ?? null);
+    setMembershipRetryGrant(openingRecovery.membershipRetry ?? null);
+    setPendingMembershipReturn(null);
+    setMembershipReturnRefresh('idle');
     if (nextView === 'information') setInformationSection('profile');
     setSettingRecoveryFocus(null);
     setLeftOpen(false);
@@ -183,8 +271,66 @@ export function AuthorApp(): React.JSX.Element {
   };
 
   const beginNewNovel = (entry: OpeningEntry) => {
+    setOpeningAccountReturn(null);
+    setMembershipRetryGrant(null);
     clearOpeningDraft(accountSession.account.userId, entry);
     navigate('new-novel', null, entry);
+  };
+
+  const openAccountFromOpening = (recoveryAction: OpeningMembershipRecoveryAction): void => {
+    const currentTaskId = openingTaskIdFromSearch(window.location.search);
+    const target = currentTaskId === null ? null : { entry: openingEntry, taskId: currentTaskId, recoveryAction };
+    setPendingMembershipReturn(null);
+    setMembershipReturnRefresh('idle');
+    navigate('account', bookId, openingEntry, null, {}, target === null ? {} : { accountReturn: target });
+  };
+
+  const returnToOpeningFromAccount = (): void => {
+    if (openingAccountReturn === null || membershipReturnRefresh === 'running') return;
+    setPendingMembershipReturn(openingAccountReturn);
+    setMembershipReturnRefresh('running');
+    void accountSession.refreshMembership()
+      .then(() => setMembershipReturnRefresh('completed'))
+      .catch(() => setMembershipReturnRefresh('failed'));
+  };
+
+  useEffect(() => {
+    if (pendingMembershipReturn === null || membershipReturnRefresh === 'idle' || membershipReturnRefresh === 'running') return;
+    if (membershipReturnRefresh === 'completed' && accountSession.membershipState === 'loading') return;
+    const target = pendingMembershipReturn;
+    const retryReady = membershipReturnRefresh === 'completed'
+      && accountSession.membershipState === 'ready'
+      && membershipAllowsOpeningRetry(
+        accountSession.account.role,
+        accountSession.membership,
+        target.recoveryAction
+      );
+    setPendingMembershipReturn(null);
+    setMembershipReturnRefresh('idle');
+    navigate(
+      'new-novel',
+      null,
+      target.entry,
+      target.taskId,
+      {},
+      retryReady && target.recoveryAction !== null
+        ? { membershipRetry: { taskId: target.taskId, recoveryAction: target.recoveryAction } }
+        : {}
+    );
+  }, [
+    accountSession.account.role,
+    accountSession.membership,
+    accountSession.membershipState,
+    membershipReturnRefresh,
+    pendingMembershipReturn
+  ]);
+
+  const consumeMembershipRecovery = (): void => {
+    const params = new URLSearchParams(window.location.search);
+    params.delete('membershipRetryTaskId');
+    params.delete('membershipRetryRecoveryAction');
+    window.history.replaceState({}, '', `?${params.toString()}`);
+    setMembershipRetryGrant(null);
   };
 
   const activeBooks = books.filter((book) => book.status === 'active');
@@ -251,7 +397,7 @@ export function AuthorApp(): React.JSX.Element {
         </div>
 
         <div className="sidebar-account">
-          <button className={`sidebar-account-profile ${view === 'account' ? 'active' : ''}`} type="button" aria-current={view === 'account' ? 'page' : undefined} onClick={() => navigate('account', bookId)}>
+          <button className={`sidebar-account-profile ${view === 'account' ? 'active' : ''}`} type="button" aria-current={view === 'account' ? 'page' : undefined} onClick={() => { setOpeningAccountReturn(null); navigate('account', bookId); }}>
             <span className="sidebar-account-avatar" aria-hidden="true">{Array.from(accountSession.account.displayName.trim())[0]?.toUpperCase() ?? '文'}</span>
             <span className="sidebar-account-copy"><strong>{accountSession.account.displayName}</strong><small>个人中心 · {accountSession.account.role === 'admin' ? '管理员' : '作者'}</small></span>
             <GearSixIcon />
@@ -284,10 +430,10 @@ export function AuthorApp(): React.JSX.Element {
 
       <main className="workspace-main">
         {view === 'home' && <HomePage onCreateNovel={beginNewNovel} />}
-        {view === 'new-novel' && <NewNovelPage key={`${accountSession.account.userId}-${openingEntry}-${openingTaskId ?? 'new'}`} entryMode={openingEntry} onBack={() => navigate('home')} onCreated={(createdBookId) => navigate('information', createdBookId)} onAuthenticationRequired={accountSession.requireSignIn} />}
+        {view === 'new-novel' && <NewNovelPage key={`${accountSession.account.userId}-${openingEntry}-${openingTaskId ?? 'new'}`} entryMode={openingEntry} onBack={() => navigate('home')} onCreated={(createdBookId) => navigate('information', createdBookId)} onAuthenticationRequired={accountSession.requireSignIn} onOpenAccount={openAccountFromOpening} membershipRetryReady={openingTaskId !== null && membershipRetryGrant?.taskId === openingTaskId && accountSession.membershipState === 'ready' && membershipAllowsOpeningRetry(accountSession.account.role, accountSession.membership, membershipRetryGrant.recoveryAction)} onMembershipRetryConsumed={consumeMembershipRecovery} />}
         {view === 'information' && bookId !== null && <InformationPage key={`${bookId}-${informationSection}-${settingRecoveryFocus ?? 'default'}`} bookId={bookId} initialSection={informationSection} settingRecoveryFocus={settingRecoveryFocus} onOpenTimeMachine={() => navigate('time-machine', bookId)} />}
         {view === 'information' && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
-        {view === 'time-machine' && bookId !== null && <TimeMachinePage bookId={bookId} onOpenSettings={() => {
+        {view === 'time-machine' && bookId !== null && <TimeMachinePage key={bookId} bookId={bookId} onOpenSettings={() => {
           openSettings(bookId);
         }} />}
         {view === 'time-machine' && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
@@ -298,7 +444,7 @@ export function AuthorApp(): React.JSX.Element {
         {view === 'library' && bookId !== null && <LibraryPage bookId={bookId} />}
         {view === 'tasks' && <TaskLogPage onOpenTask={(taskId) => navigate('new-novel', null, 'ai', taskId)} onOpenBook={(nextBookId) => navigate('information', nextBookId)} onOpenSetting={openSettings} onOpenPlanning={(nextBookId) => navigate('time-machine', nextBookId)} onOpenCreation={(nextBookId, focus) => navigate(focus, nextBookId)} />}
         {view === 'team' && <TeamPage />}
-        {view === 'account' && <section className="v7-account-page"><AuthorAccountCenter /></section>}
+        {view === 'account' && <section className="v7-account-page"><AuthorAccountCenter {...(openingAccountReturn === null ? {} : { onClose: returnToOpeningFromAccount, closeLabel: membershipReturnRefresh === 'running' ? '正在确认会员状态…' : '返回这次开书' })} /></section>}
       </main>
     </div>
   );

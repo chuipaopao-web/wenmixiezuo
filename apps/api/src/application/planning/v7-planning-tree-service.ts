@@ -52,6 +52,16 @@ export class V7PlanningTreeService {
     return this.view(ownerId, bookId, row, head.revision);
   }
 
+  public getConfirmed(ownerId: string, bookId: string, treeKindValue: unknown, scopeIdValue: unknown): AuthorPlanningTreeView {
+    const treeKind = treeKindOf(treeKindValue);
+    const scopeId = scopeIdOf(scopeIdValue);
+    const head = this.repository.head(ownerId, bookId, treeKind, scopeId);
+    if (head?.confirmed_version_id === null || head?.confirmed_version_id === undefined) throw missingTree();
+    const row = this.repository.version(ownerId, bookId, head.confirmed_version_id);
+    if (row === undefined || row.tree_kind !== treeKind || row.scope_id !== scopeId || row.lifecycle !== 'confirmed') throw missingTree();
+    return this.view(ownerId, bookId, row, head.revision);
+  }
+
   public history(ownerId: string, bookId: string, treeKindValue: unknown, scopeIdValue: unknown): V7PlanningTreeHistoryItem[] {
     const treeKind = treeKindOf(treeKindValue);
     const scopeId = scopeIdOf(scopeIdValue);

@@ -146,6 +146,8 @@ function installFetch(overrides?: (url: string, init?: RequestInit) => Response 
     if (override !== null && override !== undefined) return override;
     if (url.endsWith('/api/v1/v7/books')) return response([]);
     if (url.includes('/api/v1/v7/books/') && url.endsWith('/creation-library')) return response({ volumes: [] });
+    if (url.includes('/api/v1/v7/books/') && url.endsWith('/time-machine-progress')) return response({ finalizedChapterCount: 0, latestFinalChapter: null });
+    if (url.includes('/api/v1/v7/books/') && url.endsWith('/story-state')) return response([]);
     if (url.endsWith('/api/v1/v7/opening-agent/tasks?limit=50')) return response([]);
     if (url.endsWith('/api/v1/v7/design-tasks?limit=50')) return response([]);
     if (url.endsWith('/api/v1/v7/creation-tasks?limit=50')) return response([]);
@@ -406,6 +408,41 @@ describe('V7 author opening flow', () => {
     expect(screen.queryByText('v7-book-tree-1')).not.toBeInTheDocument();
   });
 
+  it('remounts the time machine by book so an old core retry cannot overwrite the newly selected book', async () => {
+    window.history.replaceState({}, '', '/?view=time-machine&bookId=book-a');
+    let bookATreeCalls = 0;
+    let resolveOldRetry!: (value: Response) => void;
+    installFetch((url) => {
+      if (url.endsWith('/api/v1/v7/books')) return response([
+        { bookId: 'book-a', title: 'A书', status: 'active', updatedAt: '2026-08-26T00:00:00Z' },
+        { bookId: 'book-b', title: 'B书', status: 'active', updatedAt: '2026-08-26T00:00:00Z' }
+      ]);
+      if (url.endsWith('/api/v1/v7/books/book-a/planning-trees/book/book-a')) {
+        bookATreeCalls += 1;
+        if (bookATreeCalls === 1) return response({ message: 'temporarily unavailable' }, 503);
+        return new Promise((resolve) => { resolveOldRetry = resolve; });
+      }
+      if (url.endsWith('/api/v1/v7/books/book-b/planning-trees/book/book-b')) {
+        return response({ message: 'not found' }, 404);
+      }
+      return null;
+    });
+
+    render(<AuthorApp />);
+    fireEvent.click(await screen.findByRole('button', { name: '重新读取核心规划' }));
+    await waitFor(() => expect(bookATreeCalls).toBe(2));
+
+    await act(async () => {
+      window.history.pushState({}, '', '/?view=time-machine&bookId=book-b');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(await screen.findByRole('button', { name: '开始规划全书' })).toBeEnabled();
+
+    await act(async () => { resolveOldRetry(response({ message: 'old retry failed' }, 503)); });
+
+    expect(screen.getByRole('button', { name: '开始规划全书' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '重新读取核心规划' })).not.toBeInTheDocument();
+  });
   it('opens the retained two-step form directly without repeating the opening idea', async () => {
     let bookCreated = false;
     installFetch((url, init) => {
@@ -735,6 +772,314 @@ describe('V7 author opening flow', () => {
     expect(retryBody).toMatchObject({ idea: failed.idea });
   });
 
+  it('服务端已接收但响应丢失后，刷新重试会复用同一开书任务幂等键', async () => {
+    const idea = '服务端已经接收、但浏览器没有拿到响应的开书想法。';
+    const working: OpeningTaskView = {
+      ...COMPLETE_TASK,
+      taskId: 'response-lost-opening-task',
+      idea,
+      status: 'working',
+      phase: 'package_design',
+      isRunning: true,
+      candidates: []
+    };
+    const requestBodies: Array<Record<string, unknown>> = [];
+    installFetch((url, init) => {
+      if (url.endsWith('/api/v1/v7/opening-agent/tasks') && init?.method === 'POST') {
+        requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return requestBodies.length === 1
+          ? Promise.reject(new TypeError('response lost after server commit'))
+          : response(working);
+      }
+      if (url.endsWith(`/api/v1/v7/opening-agent/tasks/${working.taskId}`)) return response(working);
+      return null;
+    });
+    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+
+    const firstMount = render(<AuthorApp />);
+    fireEvent.change(await screen.findByLabelText('说说您想写什么'), { target: { value: idea } });
+    fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
+    await waitFor(() => expect(requestBodies).toHaveLength(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: '开始设计' })).toBeEnabled());
+    const stored = JSON.parse(localStorage.getItem(AI_DRAFT_KEY) ?? 'null') as {
+      openingSubmitAction?: { key?: string };
+    } | null;
+    expect(stored?.openingSubmitAction?.key).toBe(requestBodies[0]?.idempotencyKey);
+    firstMount.unmount();
+
+    render(<AuthorApp />);
+    expect(await screen.findByLabelText('说说您想写什么')).toHaveValue(idea);
+    fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
+    await waitFor(() => expect(requestBodies).toHaveLength(2));
+    expect(requestBodies[1]?.idempotencyKey).toBe(requestBodies[0]?.idempotencyKey);
+    expect(await screen.findByLabelText('编辑部工作进度')).toBeVisible();
+  });
+
+  it('作者修改开书输入后会开始新意图并轮换任务幂等键', async () => {
+    const firstIdea = '第一版开书想法，服务端响应丢失。';
+    const secondIdea = '第二版开书想法，作者已经明确修改。';
+    const working: OpeningTaskView = {
+      ...COMPLETE_TASK,
+      taskId: 'changed-input-opening-task',
+      idea: secondIdea,
+      status: 'working',
+      phase: 'package_design',
+      isRunning: true,
+      candidates: []
+    };
+    const requestBodies: Array<Record<string, unknown>> = [];
+    installFetch((url, init) => {
+      if (url.endsWith('/api/v1/v7/opening-agent/tasks') && init?.method === 'POST') {
+        requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return requestBodies.length === 1
+          ? Promise.reject(new TypeError('response lost after server commit'))
+          : response(working);
+      }
+      if (url.endsWith(`/api/v1/v7/opening-agent/tasks/${working.taskId}`)) return response(working);
+      return null;
+    });
+    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+
+    render(<AuthorApp />);
+    const input = await screen.findByLabelText('说说您想写什么');
+    fireEvent.change(input, { target: { value: firstIdea } });
+    fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
+    await waitFor(() => expect(requestBodies).toHaveLength(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: '开始设计' })).toBeEnabled());
+    fireEvent.change(input, { target: { value: secondIdea } });
+    fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
+
+    await waitFor(() => expect(requestBodies).toHaveLength(2));
+    expect(requestBodies[1]?.idempotencyKey).not.toBe(requestBodies[0]?.idempotencyKey);
+    expect(requestBodies[1]).toMatchObject({ idea: secondIdea });
+  });
+
+  it('手工建书服务端已成功但响应丢失后，刷新重试复用同一幂等键并保留原想法', async () => {
+    const idea = '这份手工开书原想法必须完整保留。';
+    const requestBodies: Array<Record<string, unknown>> = [];
+    localStorage.setItem(MANUAL_DRAFT_KEY, JSON.stringify({
+      idea,
+      taskId: null,
+      mode: 'manual',
+      publishingPlatform: 'fanqie',
+      openingPackage: PACKAGE,
+      baseCandidateId: null,
+      adjustmentNote: '',
+      selectedDesignerMemberKey: '',
+      manualStep: 2
+    }));
+    installFetch((url, init) => {
+      if (url.endsWith('/api/v1/v7/opening-books') && init?.method === 'POST') {
+        requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return requestBodies.length === 1
+          ? Promise.reject(new TypeError('response lost after book commit'))
+          : response({ bookId: 'v7-book-manual-replayed', title: PACKAGE.title, status: 'active', nextView: 'information' });
+      }
+      return null;
+    });
+    window.history.replaceState({}, '', '/?view=new-novel&entry=manual');
+
+    const firstMount = render(<AuthorApp />);
+    const firstConfirm = await screen.findByRole('button', { name: '确认开书资料，创建书籍' });
+    await waitFor(() => expect(firstConfirm).toBeEnabled());
+    fireEvent.click(firstConfirm);
+    await waitFor(() => expect(requestBodies).toHaveLength(1));
+    await waitFor(() => expect(firstConfirm).toBeEnabled());
+    const stored = JSON.parse(localStorage.getItem(MANUAL_DRAFT_KEY) ?? 'null') as {
+      manualConfirmAction?: { key?: string };
+    } | null;
+    expect(stored?.manualConfirmAction?.key).toBe(requestBodies[0]?.idempotencyKey);
+    firstMount.unmount();
+
+    render(<AuthorApp />);
+    const secondConfirm = await screen.findByRole('button', { name: '确认开书资料，创建书籍' });
+    await waitFor(() => expect(secondConfirm).toBeEnabled());
+    fireEvent.click(secondConfirm);
+    await waitFor(() => expect(requestBodies).toHaveLength(2));
+    expect(requestBodies[1]?.idempotencyKey).toBe(requestBodies[0]?.idempotencyKey);
+    expect(requestBodies[1]).toMatchObject({ openingIdea: idea, openingPackage: PACKAGE });
+  });
+
+  it('普通失败即使没有候选结果，也能带着原想法转为手工填写', async () => {
+    const failed: OpeningTaskView = {
+      ...COMPLETE_TASK,
+      taskId: 'failed-without-candidate-task',
+      idea: '保留这份失败任务里的开书想法。',
+      status: 'failed',
+      isRunning: false,
+      candidates: [],
+      errorMessage: '对不起，这次没有完成。'
+    };
+    const fetchMock = installFetch((url) => url.endsWith(`/api/v1/v7/opening-agent/tasks/${failed.taskId}`)
+      ? response(failed)
+      : null);
+    window.history.replaceState({}, '', `/?view=new-novel&entry=ai&taskId=${failed.taskId}`);
+
+    render(<AuthorApp />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '自己填写开书资料' }));
+    expect(await screen.findByLabelText('自己设计开书资料')).toBeVisible();
+    expect(new URLSearchParams(window.location.search).get('taskId')).toBeNull();
+    expect(fetchMock.mock.calls.filter(([url, init]) => (
+      String(url).endsWith('/api/v1/v7/opening-agent/tasks') && (init as RequestInit | undefined)?.method === 'POST'
+    ))).toHaveLength(0);
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(AI_DRAFT_KEY) ?? 'null')).toMatchObject({
+      idea: failed.idea, mode: 'manual', taskId: null
+    }));
+  });
+
+  it('会员额度不足时可返回原任务，使用保存的想法只重试一次', async () => {
+    const failed: OpeningTaskView = {
+      ...COMPLETE_TASK,
+      taskId: 'membership-quota-opening-task',
+      status: 'failed', phase: 'package_design', isRunning: false,
+      candidates: [],
+      errorMessage: '本期剩余创作额度不足以开始这轮团队设计。开书想法已经保存，可以先自己填写资料，或补充额度后再交给创作团队。',
+      recoveryAction: 'open_membership_quota'
+    };
+    const retried: OpeningTaskView = {
+      ...failed,
+      taskId: 'membership-quota-opening-retry-task',
+      status: 'failed',
+      isRunning: false
+    };
+    let retryBody: Record<string, unknown> | null = null;
+    const fetchMock = installFetch((url, init) => {
+      if (url.endsWith(`/api/v1/v7/opening-agent/tasks/${failed.taskId}`)) return response(failed);
+      if (url.endsWith(`/api/v1/v7/opening-agent/tasks/${retried.taskId}`)) return response(retried);
+      if (url.endsWith('/api/v1/v7/opening-agent/tasks') && init?.method === 'POST') {
+        retryBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return response(retried);
+      }
+      return null;
+    });
+    window.history.replaceState({}, '', `/?view=new-novel&entry=ai&taskId=${failed.taskId}`);
+
+    const openingMount = render(<AuthorApp />);
+
+    expect(await screen.findByText(/剩余创作额度不足/u)).toBeVisible();
+    expect(screen.queryByRole('button', { name: '重新交给创作团队' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '自己填写开书资料' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: '查看会员与额度' }));
+    expect(new URLSearchParams(window.location.search).get('view')).toBe('account');
+    expect(new URLSearchParams(window.location.search).get('returnOpeningTaskId')).toBe(failed.taskId);
+    expect(new URLSearchParams(window.location.search).get('returnOpeningRecoveryAction')).toBe('open_membership_quota');
+    openingMount.unmount();
+
+    const accountMount = render(<AuthorApp />);
+    expect(await screen.findByRole('region', { name: '会员与算力' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '返回这次开书' }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get('view')).toBe('new-novel'));
+    expect(new URLSearchParams(window.location.search).get('taskId')).toBe(failed.taskId);
+    expect(new URLSearchParams(window.location.search).get('membershipRetryTaskId')).toBe(failed.taskId);
+    expect(new URLSearchParams(window.location.search).get('membershipRetryRecoveryAction')).toBe('open_membership_quota');
+    expect(testSession.refreshMembership).toHaveBeenCalledTimes(1);
+    accountMount.unmount();
+
+    render(<AuthorApp />);
+    const membershipRetryButton = await screen.findByRole('button', { name: '重新交给创作团队' });
+    fireEvent.click(membershipRetryButton);
+    fireEvent.click(membershipRetryButton);
+    await waitFor(() => expect(retryBody).toMatchObject({ idea: failed.idea }));
+    expect(new URLSearchParams(window.location.search).get('membershipRetryTaskId')).toBeNull();
+    expect(fetchMock.mock.calls.filter(([url, init]) => (
+      String(url).endsWith('/api/v1/v7/opening-agent/tasks') && (init as RequestInit | undefined)?.method === 'POST'
+    ))).toHaveLength(1);
+    expect(await screen.findByText(/剩余创作额度不足/u)).toBeVisible();
+    expect(screen.queryByRole('button', { name: '重新交给创作团队' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看会员与额度' })).toBeEnabled();
+  });
+
+  it('会员刷新失败时返回原任务但不会误开放重试', async () => {
+    const failed: OpeningTaskView = {
+      ...COMPLETE_TASK,
+      taskId: 'membership-refresh-failed-task',
+      status: 'failed',
+      phase: 'package_design',
+      isRunning: false,
+      candidates: [],
+      errorMessage: '本期剩余创作额度不足以开始这轮团队设计。',
+      recoveryAction: 'open_membership_quota'
+    };
+    const base = createTestSession();
+    testSession = {
+      ...base,
+      refreshMembership: vi.fn(async () => { throw new Error('membership refresh unavailable'); })
+    };
+    installFetch((url) => url.endsWith(`/api/v1/v7/opening-agent/tasks/${failed.taskId}`) ? response(failed) : null);
+    window.history.replaceState({}, '', `/?view=account&returnOpeningTaskId=${failed.taskId}&returnOpeningEntry=ai&returnOpeningRecoveryAction=open_membership_quota`);
+
+    render(<AuthorApp />);
+    fireEvent.click(await screen.findByRole('button', { name: '返回这次开书' }));
+
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get('view')).toBe('new-novel'));
+    expect(testSession.refreshMembership).toHaveBeenCalledTimes(1);
+    expect(new URLSearchParams(window.location.search).get('taskId')).toBe(failed.taskId);
+    expect(new URLSearchParams(window.location.search).get('membershipRetryTaskId')).toBeNull();
+    expect(await screen.findByText(/剩余创作额度不足/u)).toBeVisible();
+    expect(screen.queryByRole('button', { name: '重新交给创作团队' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看会员与额度' })).toBeEnabled();
+  });
+
+  it('会员刷新成功但剩余额度仍不足时不会误开放重试', async () => {
+    const failed: OpeningTaskView = {
+      ...COMPLETE_TASK,
+      taskId: 'membership-still-insufficient-task',
+      status: 'failed',
+      phase: 'package_design',
+      isRunning: false,
+      candidates: [],
+      errorMessage: '本期剩余创作额度不足以开始这轮团队设计。',
+      recoveryAction: 'open_membership_quota'
+    };
+    const base = createTestSession();
+    testSession = {
+      ...base,
+      membership: {
+        ...base.membership!,
+        membership: { ...base.membership!.membership!, computeRemaining: 26_226 }
+      }
+    };
+    installFetch((url) => url.endsWith(`/api/v1/v7/opening-agent/tasks/${failed.taskId}`) ? response(failed) : null);
+    window.history.replaceState({}, '', `/?view=account&returnOpeningTaskId=${failed.taskId}&returnOpeningEntry=ai&returnOpeningRecoveryAction=open_membership_quota`);
+
+    render(<AuthorApp />);
+    fireEvent.click(await screen.findByRole('button', { name: '返回这次开书' }));
+
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get('view')).toBe('new-novel'));
+    expect(testSession.refreshMembership).toHaveBeenCalledTimes(1);
+    expect(new URLSearchParams(window.location.search).get('membershipRetryTaskId')).toBeNull();
+    expect(await screen.findByText(/剩余创作额度不足/u)).toBeVisible();
+    expect(screen.queryByRole('button', { name: '重新交给创作团队' })).not.toBeInTheDocument();
+  });
+  it('跨刷新保留的重试地址也会按当前会员状态重新校验', async () => {
+    const failed: OpeningTaskView = {
+      ...COMPLETE_TASK,
+      taskId: 'stale-membership-retry-grant-task',
+      status: 'failed',
+      phase: 'package_design',
+      isRunning: false,
+      candidates: [],
+      errorMessage: '本期剩余创作额度不足以开始这轮团队设计。',
+      recoveryAction: 'open_membership_quota'
+    };
+    const base = createTestSession();
+    testSession = {
+      ...base,
+      membership: {
+        ...base.membership!,
+        membership: { ...base.membership!.membership!, computeRemaining: 26_226 }
+      }
+    };
+    installFetch((url) => url.endsWith(`/api/v1/v7/opening-agent/tasks/${failed.taskId}`) ? response(failed) : null);
+    window.history.replaceState({}, '', `/?view=new-novel&entry=ai&taskId=${failed.taskId}&membershipRetryTaskId=${failed.taskId}&membershipRetryRecoveryAction=open_membership_quota`);
+
+    render(<AuthorApp />);
+
+    expect(await screen.findByText(/剩余创作额度不足/u)).toBeVisible();
+    expect(screen.queryByRole('button', { name: '重新交给创作团队' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看会员与额度' })).toBeEnabled();
+  });
   it('keeps the recovered package in manual mode after leaving a failed AI task and refreshing', async () => {
     const failed: OpeningTaskView = {
       ...COMPLETE_TASK,
@@ -747,9 +1092,15 @@ describe('V7 author opening flow', () => {
       taskId: failed.taskId,
       mode: 'ai'
     }));
-    installFetch((url) => url.endsWith(`/api/v1/v7/opening-agent/tasks/${failed.taskId}`)
-      ? response(failed)
-      : null);
+    let manualConfirmBody: Record<string, unknown> | null = null;
+    installFetch((url, init) => {
+      if (url.endsWith(`/api/v1/v7/opening-agent/tasks/${failed.taskId}`)) return response(failed);
+      if (url.endsWith('/api/v1/v7/opening-books') && init?.method === 'POST') {
+        manualConfirmBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return response({ bookId: 'v7-book-manual-recovery', title: PACKAGE.title, status: 'active', nextView: 'information' });
+      }
+      return null;
+    });
     window.history.replaceState({}, '', `/?view=new-novel&entry=ai&taskId=${failed.taskId}`);
 
     const mounted = render(<AuthorApp />);
@@ -771,6 +1122,13 @@ describe('V7 author opening flow', () => {
     render(<AuthorApp />);
     expect(await screen.findByLabelText('自己设计开书资料')).toBeVisible();
     expect(screen.getByText(PACKAGE.title)).toBeVisible();
+    const next = screen.getByRole('button', { name: '下一步' });
+    await waitFor(() => expect(next).toBeEnabled());
+    fireEvent.click(next);
+    const confirm = screen.getByRole('button', { name: '确认开书资料，创建书籍' });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+    await waitFor(() => expect(manualConfirmBody).toMatchObject({ openingIdea: failed.idea }));
   });
 
   it('ends an unresponsive task recovery after the 15-second upper bound', async () => {

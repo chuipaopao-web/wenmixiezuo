@@ -104,6 +104,8 @@ export interface V7PlanningRouteRunView {
   sourceIssues: string[];
   expectedRoutes: number;
   canDecide: boolean;
+  canContinueTree: boolean;
+  nextStepPending: boolean;
   errorMessage: string | null;
   timing: {
     createdAt: string;
@@ -871,16 +873,27 @@ export class V7PlanningRouteService {
     const sourceIssues = checkpointSourceIssues(run.checkpoint_json);
     const frozenRoster = storedRouteRoster(run);
     const readOnlyWorkflow = executableRouteRoster(frozenRoster, this.members(), this.contextMembers()) === null;
+    // A retired frozen roster blocks future execution, but a route the author
+    // already confirmed is still a completed historical fact. Presenting that
+    // terminal result as failed makes Time Machine override the confirmed tree.
+    const preservedReadOnlyResult = readOnlyWorkflow && run.status === 'completed';
+    const showReadOnlyFailure = readOnlyWorkflow && !preservedReadOnlyResult;
     const expectedRoutes = Math.max(1, frozenRoster.directChiefs.length || frozenRoster.routeWriters.length || routes.length || 3);
     const total = expectedRoutes * 2 + (expectedRoutes >= 2 ? 1 : 0);
     const completed = Math.min(total, proposals.length + routes.length + (review === null ? 0 : 1));
+    const currentDecision = run.status === 'completed'
+      ? this.repository.currentConfirmedRouteDecision(run.owner_id, run.book_id, run.run_id)
+      : undefined;
+    const existingTreeRun = currentDecision === undefined
+      ? undefined
+      : this.repository.firstBookTreeGenerationForRoute(run.owner_id, run.book_id, currentDecision.route_version_id);
     return {
       runId: run.run_id,
-      status: readOnlyWorkflow ? 'failed' : publicStatus(run.status),
-      phase: readOnlyWorkflow ? 'failed' : publicPhase(run),
-      message: readOnlyWorkflow ? READ_ONLY_ROUTE_MESSAGE : publicMessage(run, completed, sourceIssues, expectedRoutes),
+      status: showReadOnlyFailure ? 'failed' : publicStatus(run.status),
+      phase: showReadOnlyFailure ? 'failed' : publicPhase(run),
+      message: showReadOnlyFailure ? READ_ONLY_ROUTE_MESSAGE : publicMessage(run, completed, sourceIssues, expectedRoutes),
       progress: { completed, total, percent: Math.round(completed / total * 100) },
-      actors: planningActors(run, this.repository.modelCallsForRun(run.owner_id, run.book_id, run.run_id), readOnlyWorkflow),
+      actors: planningActors(run, this.repository.modelCallsForRun(run.owner_id, run.book_id, run.run_id), showReadOnlyFailure),
       routes: routes.map((row) => {
         const route = JSON.parse(row.route_json) as V7PlanningStoryRoute;
         return {
@@ -903,7 +916,9 @@ export class V7PlanningRouteService {
       expectedRoutes,
       canDecide: !readOnlyWorkflow && run.status === 'awaiting_author' && sourceIssues.length === 0 && routes.length > 0
         && (routes.length < expectedRoutes || expectedRoutes === 1 || review !== null || run.error_message !== null),
-      errorMessage: readOnlyWorkflow ? READ_ONLY_ROUTE_MESSAGE : run.error_message,
+      canContinueTree: currentDecision !== undefined,
+      nextStepPending: currentDecision !== undefined && existingTreeRun === undefined,
+      errorMessage: preservedReadOnlyResult ? null : showReadOnlyFailure ? READ_ONLY_ROUTE_MESSAGE : run.error_message,
       timing: planningTaskTiming(
         run.created_at,
         run.updated_at,

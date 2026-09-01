@@ -115,6 +115,7 @@ export interface OpeningTaskView {
   };
   candidates: OpeningCandidate[];
   errorMessage: string | null;
+  recoveryAction?: 'open_membership_required' | 'open_membership_quota' | 'open_membership_expired' | null;
   resultBookId: string | null;
   progress: { currentStep: number; totalSteps: number; percent: number };
   createdAt: string;
@@ -151,11 +152,12 @@ interface OpeningTaskWireCandidate extends Omit<OpeningCandidate, 'kind'> {
   kind: string;
 }
 
-interface OpeningTaskWireView extends Omit<OpeningTaskView, 'taskId' | 'errorMessage' | 'retired' | 'candidates'> {
+interface OpeningTaskWireView extends Omit<OpeningTaskView, 'taskId' | 'errorMessage' | 'recoveryAction' | 'retired' | 'candidates'> {
   taskId?: string;
   recoveryKey?: string;
   errorMessage?: string | null;
   recoveryMessage?: string | null;
+  recoveryAction?: OpeningTaskView['recoveryAction'];
   workflowStyle?: string;
   candidates: OpeningTaskWireCandidate[];
 }
@@ -529,7 +531,8 @@ function normalizeOpeningTaskView(value: OpeningTaskWireView): OpeningTaskView {
     isRunning: retired ? false : publicView.isRunning,
     retired,
     candidates,
-    errorMessage: internalErrorMessage ?? recoveryMessage ?? null
+    errorMessage: internalErrorMessage ?? recoveryMessage ?? null,
+    recoveryAction: value.recoveryAction ?? null
   };
 }
 
@@ -908,6 +911,8 @@ export interface PlanningRouteRunView {
   sourceIssues: string[];
   expectedRoutes?: number;
   canDecide: boolean;
+  canContinueTree?: boolean;
+  nextStepPending?: boolean;
   errorMessage: string | null;
   timing?: PlanningTaskTimingView;
 }
@@ -1077,6 +1082,22 @@ export function decidePlanningRoute(bookId: string, runId: string, input: {
 
 export function fetchPlanningTree(bookId: string, treeKind: 'book' | 'volume' | 'chain', scopeId: string, signal?: AbortSignal): Promise<PlanningTreeView> {
   return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/planning-trees/${treeKind}/${encodeURIComponent(scopeId)}`, signal === undefined ? undefined : { signal });
+}
+
+export function fetchConfirmedPlanningTree(bookId: string, treeKind: 'book' | 'volume' | 'chain', scopeId: string, signal?: AbortSignal): Promise<PlanningTreeView> {
+  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/planning-trees/${treeKind}/${encodeURIComponent(scopeId)}?version=confirmed`, signal === undefined ? undefined : { signal });
+}
+
+export function continuePlanningRouteToTree(
+  bookId: string,
+  runId: string,
+  selectedMemberKey?: string
+): Promise<PlanningTreeGenerationView> {
+  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/planning-routes/runs/${encodeURIComponent(runId)}/continue-to-tree`, {
+    method: 'POST', body: JSON.stringify({
+      ...(selectedMemberKey === undefined || selectedMemberKey.length === 0 ? {} : { selectedMemberKey })
+    })
+  });
 }
 
 export function createPlanningTreeGeneration(

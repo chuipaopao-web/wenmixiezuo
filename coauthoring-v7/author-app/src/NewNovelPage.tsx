@@ -44,6 +44,13 @@ interface OpeningDraftSnapshot {
   adjustmentNote: string;
   selectedDesignerMemberKey: string;
   manualStep: 1 | 2;
+  openingSubmitAction: PendingOpeningAction | null;
+  manualConfirmAction: PendingOpeningAction | null;
+}
+
+interface PendingOpeningAction {
+  key: string;
+  inputFingerprint: string;
 }
 
 function openingDecisionKey(userId: string, taskId: string, candidateId: string): string {
@@ -60,8 +67,28 @@ function emptySnapshot(entryMode: 'ai' | 'manual'): OpeningDraftSnapshot {
     baseCandidateId: null,
     adjustmentNote: '',
     selectedDesignerMemberKey: '',
-    manualStep: 1
+    manualStep: 1,
+    openingSubmitAction: null,
+    manualConfirmAction: null
   };
+}
+
+function pendingOpeningAction(value: unknown): PendingOpeningAction | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const record = value as Record<string, unknown>;
+  const key = typeof record.key === 'string' ? record.key.trim() : '';
+  const inputFingerprint = typeof record.inputFingerprint === 'string' ? record.inputFingerprint : '';
+  return key.length >= 8 && key.length <= 128 && inputFingerprint.length > 0
+    ? { key, inputFingerprint }
+    : null;
+}
+
+function definitivelyRejectedAction(reason: unknown): boolean {
+  return reason instanceof AuthorApiError
+    && reason.status >= 400
+    && reason.status < 500
+    && reason.status !== 401
+    && !reason.retryable;
 }
 
 function readSnapshot(entryMode: 'ai' | 'manual', userId: string): OpeningDraftSnapshot {
@@ -85,6 +112,8 @@ function readSnapshot(entryMode: 'ai' | 'manual', userId: string): OpeningDraftS
       ? parsed.selectedDesignerMemberKey.slice(0, 120)
       : '';
     const manualStep = parsed?.manualStep === 2 ? 2 : 1;
+    const openingSubmitAction = pendingOpeningAction(parsed?.openingSubmitAction);
+    const manualConfirmAction = pendingOpeningAction(parsed?.manualConfirmAction);
     const restored: OpeningDraftSnapshot = {
       idea,
       taskId: null,
@@ -94,7 +123,9 @@ function readSnapshot(entryMode: 'ai' | 'manual', userId: string): OpeningDraftS
       baseCandidateId,
       adjustmentNote,
       selectedDesignerMemberKey,
-      manualStep
+      manualStep,
+      openingSubmitAction,
+      manualConfirmAction
     };
     if (entryMode === 'manual') {
       return parsed?.mode === 'manual'
@@ -299,11 +330,16 @@ export function authorFacingReviewText(value: string): string {
   );
 }
 
-export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationRequired }: {
+type OpeningMembershipRecoveryAction = NonNullable<OpeningTaskView['recoveryAction']>;
+
+export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationRequired, onOpenAccount, membershipRetryReady, onMembershipRetryConsumed }: {
   entryMode: 'ai' | 'manual';
   onBack: () => void;
   onCreated: (bookId: string) => void;
   onAuthenticationRequired: () => void;
+  onOpenAccount: (recoveryAction: OpeningMembershipRecoveryAction) => void;
+  membershipRetryReady: boolean;
+  onMembershipRetryConsumed: () => void;
 }): React.JSX.Element {
   const { account } = useAuthorAccount();
   const draftStorageKey = openingDraftKey(account.userId, entryMode);
@@ -328,8 +364,11 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   const [recoveryAttempt, setRecoveryAttempt] = useState(0);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [resetConfirmationOpen, setResetConfirmationOpen] = useState(false);
+  const [openingSubmitAction, setOpeningSubmitAction] = useState<PendingOpeningAction | null>(initial.openingSubmitAction);
+  const [manualConfirmAction, setManualConfirmAction] = useState<PendingOpeningAction | null>(initial.manualConfirmAction);
   const loadedCandidateRef = useRef<string | null>(initial.baseCandidateId);
   const openingSubmitRef = useRef(false);
+  const confirmSubmitRef = useRef(false);
   const onCreatedRef = useRef(onCreated);
 
   useEffect(() => { onCreatedRef.current = onCreated; }, [onCreated]);
@@ -372,12 +411,26 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
         baseCandidateId,
         adjustmentNote,
         selectedDesignerMemberKey,
-        manualStep
+        manualStep,
+        openingSubmitAction,
+        manualConfirmAction
       } satisfies OpeningDraftSnapshot));
     } catch {
       // 浏览器拒绝本地存储时仍保留当前内存输入；提交失败会继续显示原位恢复提示。
     }
-  }, [adjustmentNote, baseCandidateId, draftStorageKey, idea, manualStep, mode, openingPackage, publishingPlatform, selectedDesignerMemberKey, taskId]);
+  }, [adjustmentNote, baseCandidateId, draftStorageKey, idea, manualConfirmAction, manualStep, mode, openingPackage, openingSubmitAction, publishingPlatform, selectedDesignerMemberKey, taskId]);
+
+  const persistPendingAction = useCallback((
+    field: 'openingSubmitAction' | 'manualConfirmAction',
+    value: PendingOpeningAction | null
+  ): void => {
+    try {
+      const current = JSON.parse(localStorage.getItem(draftStorageKey) ?? '{}') as Record<string, unknown>;
+      localStorage.setItem(draftStorageKey, JSON.stringify({ ...current, [field]: value }));
+    } catch {
+      // 页面状态仍保留本轮动作键；浏览器恢复存储后，常规草稿保存会再次写入。
+    }
+  }, [draftStorageKey]);
 
   const removeTaskFromLocation = useCallback(() => {
     const url = new URL(window.location.href);
@@ -411,6 +464,8 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     setError(null);
     setRecoveryError(null);
     setResetConfirmationOpen(false);
+    setOpeningSubmitAction(null);
+    setManualConfirmAction(null);
   }, [account.userId, removeTaskFromLocation, taskId]);
 
   useEffect(() => {
@@ -539,13 +594,25 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     openingSubmitRef.current = true;
     setBusy(true);
     setError(null);
+    const inputFingerprint = JSON.stringify({
+      idea: idea.trim(),
+      publishingPlatform: 'fanqie',
+      selectedDesignerMemberKey: selectedDesignerMemberKey || null
+    });
+    const action = openingSubmitAction?.inputFingerprint === inputFingerprint
+      ? openingSubmitAction
+      : { key: newActionKey('opening'), inputFingerprint };
+    setOpeningSubmitAction(action);
+    persistPendingAction('openingSubmitAction', action);
     try {
       const next = await createOpeningTask(
         idea.trim(),
         'fanqie',
-        newActionKey('opening'),
+        action.key,
         selectedDesignerMemberKey || undefined
       );
+      setOpeningSubmitAction(null);
+      persistPendingAction('openingSubmitAction', null);
       loadedCandidateRef.current = null;
       setTask(next);
       setIdea(next.idea || idea.trim());
@@ -556,6 +623,10 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
       setOpeningPackage(null);
       setBaseCandidateId(null);
     } catch (reason) {
+      if (definitivelyRejectedAction(reason)) {
+        setOpeningSubmitAction(null);
+        persistPendingAction('openingSubmitAction', null);
+      }
       handleRequestFailure(reason);
     } finally {
       openingSubmitRef.current = false;
@@ -564,17 +635,30 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   };
 
   const redesignWithMember = async () => {
-    if (taskId === null || busy || selectedDesignerMemberKey.length === 0) return;
+    if (taskId === null || busy || selectedDesignerMemberKey.length === 0 || openingSubmitRef.current) return;
+    openingSubmitRef.current = true;
     setBusy(true);
     setError(null);
+    const inputFingerprint = JSON.stringify({
+      idea: idea.trim(),
+      publishingPlatform: 'fanqie',
+      selectedDesignerMemberKey
+    });
+    const action = openingSubmitAction?.inputFingerprint === inputFingerprint
+      ? openingSubmitAction
+      : { key: newActionKey('opening-redesign'), inputFingerprint };
+    setOpeningSubmitAction(action);
+    persistPendingAction('openingSubmitAction', action);
     try {
       const previousTaskId = taskId;
       const next = await createOpeningTask(
         idea.trim(),
         'fanqie',
-        newActionKey('opening-redesign'),
+        action.key,
         selectedDesignerMemberKey
       );
+      setOpeningSubmitAction(null);
+      persistPendingAction('openingSubmitAction', null);
       loadedCandidateRef.current = null;
       setTask(next);
       setIdea(next.idea || idea.trim());
@@ -591,8 +675,13 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
         setError('新方案已经开始，但上一轮任务暂时没有归档；它不会覆盖新方案。');
       });
     } catch (reason) {
+      if (definitivelyRejectedAction(reason)) {
+        setOpeningSubmitAction(null);
+        persistPendingAction('openingSubmitAction', null);
+      }
       handleRequestFailure(reason);
     } finally {
+      openingSubmitRef.current = false;
       setBusy(false);
     }
   };
@@ -631,22 +720,45 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   };
 
   const confirm = async () => {
-    if (!canConfirm || openingPackage === null) return;
+    if (!canConfirm || openingPackage === null || confirmSubmitRef.current) return;
+    confirmSubmitRef.current = true;
     setBusy(true);
     setError(null);
+    const manualInputFingerprint = mode === 'manual'
+      ? JSON.stringify({ openingIdea: idea.trim(), openingPackage })
+      : null;
+    const action = manualInputFingerprint === null
+      ? { key: newActionKey('confirm'), inputFingerprint: '' }
+      : manualConfirmAction?.inputFingerprint === manualInputFingerprint
+        ? manualConfirmAction
+        : { key: newActionKey('confirm'), inputFingerprint: manualInputFingerprint };
+    if (mode === 'manual') {
+      setManualConfirmAction(action);
+      persistPendingAction('manualConfirmAction', action);
+    }
     try {
       const result = await confirmOpeningBook({
         ...(mode === 'ai' && taskId !== null && baseCandidateId !== null
           ? { taskId, candidateId: baseCandidateId }
           : {}),
+        ...(mode === 'manual' && idea.trim().length > 0 ? { openingIdea: idea.trim() } : {}),
         openingPackage,
-        idempotencyKey: newActionKey('confirm')
+        idempotencyKey: action.key
       });
+      if (mode === 'manual') {
+        setManualConfirmAction(null);
+        persistPendingAction('manualConfirmAction', null);
+      }
       localStorage.removeItem(draftStorageKey);
       onCreated(result.bookId);
     } catch (reason) {
+      if (mode === 'manual' && definitivelyRejectedAction(reason)) {
+        setManualConfirmAction(null);
+        persistPendingAction('manualConfirmAction', null);
+      }
       handleRequestFailure(reason);
     } finally {
+      confirmSubmitRef.current = false;
       setBusy(false);
     }
   };
@@ -665,6 +777,8 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
       setBaseCandidateId(null);
       setAdjustmentNote('');
       setSelectedDesignerMemberKey('');
+      setOpeningSubmitAction(null);
+      setManualConfirmAction(null);
       setDecisionResolutions({});
       setError(null);
       setResetConfirmationOpen(false);
@@ -694,7 +808,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   if (mode === 'ai' && task?.retired === true) {
     return <section className="novel-create-surface" aria-label="开书任务恢复"><div className="failure-card compact-failure-card">
       <WarningCircleIcon /><p className="eyebrow">本轮未完成</p><h2 id="novel-create-title">已有结果和开书思路都已保留</h2><p>对不起，这项未完成任务已经停止，请按当前流程重新开始。</p>
-    </div><WorkflowActionDock title="继续这本书" detail="历史结果已安全保留。" primary={<button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '按当前流程重新开始'}</button>} secondary={<>{openingPackage !== null && <button className="secondary-action" type="button" disabled={busy} onClick={startManual}>保留现有资料，自己完成</button>}<button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
+    </div><WorkflowActionDock title="继续这本书" detail="历史结果已安全保留。" primary={<button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '按当前流程重新开始'}</button>} secondary={<><button className="secondary-action" type="button" disabled={busy} onClick={startManual}>{openingPackage === null ? '自己填写开书资料' : '保留现有资料，自己完成'}</button><button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
   }
 
   if (mode === 'ai' && task !== null && task.isRunning) {
@@ -702,9 +816,20 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   }
 
   if (mode === 'ai' && task !== null && (task.status === 'failed' || task.status === 'interrupted')) {
+    const membershipRecoveryAction = task.recoveryAction;
+    const membershipBlocked = membershipRecoveryAction === 'open_membership_required'
+      || membershipRecoveryAction === 'open_membership_quota'
+      || membershipRecoveryAction === 'open_membership_expired';
+    if (membershipBlocked) {
+      return <section className="novel-create-surface" aria-label="开书任务恢复"><div className="failure-card compact-failure-card">
+        <WarningCircleIcon /><p className="eyebrow">需要先处理会员或额度</p><h2 id="novel-create-title">开书想法已经安全保存</h2><p>{publicFailureCopy(task.errorMessage)}</p>
+      </div><WorkflowActionDock title="这本书仍然可以继续" detail={membershipRetryReady ? '会员信息已经重新确认，当前状态可以使用已保存的想法发起一轮新任务，不会覆盖旧结果。' : '先查看会员或额度；也可以不等AI，直接自己填写开书资料。'} primary={membershipRetryReady || busy
+        ? <button className="primary-action" type="button" disabled={busy} onClick={() => { onMembershipRetryConsumed(); void startAi(); }}>{busy ? '正在提交…' : '重新交给创作团队'}</button>
+        : <button className="primary-action" type="button" onClick={() => onOpenAccount(membershipRecoveryAction)}>查看会员与额度</button>} secondary={<>{membershipRetryReady && <button className="secondary-action" type="button" onClick={() => onOpenAccount(membershipRecoveryAction)}>再次查看会员与额度</button>}<button className="secondary-action" type="button" disabled={busy} onClick={startManual}>自己填写开书资料</button><button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
+    }
     return <section className="novel-create-surface" aria-label="开书任务恢复"><div className="failure-card compact-failure-card">
       <WarningCircleIcon /><p className="eyebrow">{task.status === 'interrupted' ? '本轮连接结果未知' : '本轮未完成'}</p><h2 id="novel-create-title">已有结果和开书思路都已保留</h2><p>{publicFailureCopy(task.errorMessage)}</p>
-    </div><WorkflowActionDock title="选择恢复方式" detail="重试只会创建新一轮任务，不会覆盖旧结果。" primary={<button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '重新交给创作团队'}</button>} secondary={<>{openingPackage !== null && <button className="secondary-action" type="button" disabled={busy} onClick={startManual}>保留现有资料，自己完成</button>}<button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
+    </div><WorkflowActionDock title="选择恢复方式" detail="重试只会创建新一轮任务，不会覆盖旧结果。" primary={<button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '重新交给创作团队'}</button>} secondary={<><button className="secondary-action" type="button" disabled={busy} onClick={startManual}>{openingPackage === null ? '自己填写开书资料' : '保留现有资料，自己完成'}</button><button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
   }
 
   if (mode === 'idea') {

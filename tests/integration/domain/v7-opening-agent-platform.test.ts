@@ -879,20 +879,24 @@ describe('V7开书Agent平台接入', () => {
     {
       label: '未开通会员',
       errorCode: 'MEMBERSHIP_REQUIRED',
+      expectedAction: 'open_membership_required',
       expectedMessage: /开通会员/u
     },
     {
       label: '会员已过期',
       errorCode: 'MEMBERSHIP_EXPIRED',
+      expectedAction: 'open_membership_expired',
       expectedMessage: /会员已到期/u
     },
     {
       label: '会员算力不足',
       errorCode: 'MEMBERSHIP_QUOTA_EXHAUSTED',
+      expectedAction: 'open_membership_quota',
       expectedMessage: /算力/u
     }
   ])('$label时保留真实门禁并立即停止，不伪装成供应商故障或反复换人', async ({
     errorCode,
+    expectedAction,
     expectedMessage
   }) => {
     context = createTestContext(`wenmi-v7-opening-membership-gate-${errorCode.toLowerCase()}-`);
@@ -926,6 +930,19 @@ describe('V7开书Agent平台接入', () => {
       const view = await poll(app, cookie, taskId, ['failed']);
 
       expect(view.errorMessage).toMatch(expectedMessage);
+      expect(view.recoveryAction).toBe(expectedAction);
+      const cleanView = await app.inject({
+        method: 'GET', url: `/api/v1/v7/opening-agent/tasks/${taskId}`,
+        headers: { host: BROWSER_HEADERS.host, cookie, 'x-wenmi-author-projection': 'clean-v1' }
+      });
+      expect(cleanView.json().data).toMatchObject({
+        recoveryKey: taskId,
+        recoveryAction: expectedAction,
+        recoveryMessage: expect.stringContaining(errorCode === 'MEMBERSHIP_QUOTA_EXHAUSTED'
+          ? '剩余创作额度不足'
+          : errorCode === 'MEMBERSHIP_EXPIRED' ? '会员已经到期' : '还没有开通')
+      });
+      expect(JSON.stringify(cleanView.json())).not.toContain(errorCode);
       expect(resolver.generateCount).toBe(0);
       expect(context.database.prepare(`
         SELECT error_code, json_extract(state_json, '$.automaticMemberSwitches') AS switches,

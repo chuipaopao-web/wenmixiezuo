@@ -74,6 +74,7 @@ export interface V7OpeningAgentTaskView {
     sourceCandidateIds: string[];
   }>;
   errorMessage: string | null;
+  recoveryAction: 'open_membership_required' | 'open_membership_quota' | 'open_membership_expired' | null;
   resultBookId: string | null;
   progress: { currentStep: number; totalSteps: number; percent: number };
   createdAt: string;
@@ -436,6 +437,7 @@ export class V7OpeningAgentService {
         : retiredWorkflow
           ? '对不起，这项历史开书任务不能继续执行。已有结果已经保留，请按当前流程重新提交开书想法。'
           : row.error_message,
+      recoveryAction: retiredWorkflow || status === 'archived' ? null : openingRecoveryAction(row.error_code),
       resultBookId: this.repository.confirmedBookForDraft(row.owner_id, openingDraftId(row.owner_id, row.task_id)),
       progress: retiredWorkflow
         ? { currentStep: 0, totalSteps: 2, percent: 0 }
@@ -444,6 +446,15 @@ export class V7OpeningAgentService {
       updatedAt: row.updated_at
     };
   }
+}
+
+function openingRecoveryAction(
+  errorCode: string | null
+): V7OpeningAgentTaskView['recoveryAction'] {
+  if (errorCode === errorCodes.membershipRequired) return 'open_membership_required';
+  if (errorCode === errorCodes.membershipQuotaExhausted) return 'open_membership_quota';
+  if (errorCode === errorCodes.membershipExpired) return 'open_membership_expired';
+  return null;
 }
 
 function validateSubmittedRevisionDraft(

@@ -6,14 +6,14 @@ import {
   PathIcon,
   SparkleIcon
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AuthorApiError,
   cancelPlanningRouteRun,
   cancelPlanningTreeGeneration,
   confirmPlanningTree,
+  continuePlanningRouteToTree,
   createPlanningRouteRun,
-  createPlanningTreeGeneration,
   decidePlanningRoute,
   decidePlanningAdjustmentSuggestion,
   fetchLatestPlanningRouteRun,
@@ -22,6 +22,7 @@ import {
   fetchPlanningAdjustmentSuggestions,
   fetchPlanningRouteRun,
   fetchPlanningTree,
+  fetchConfirmedPlanningTree,
   fetchPlanningTreeGeneration,
   retryMissingPlanningRoutes,
   retryPlanningTreeGeneration,
@@ -35,20 +36,46 @@ import {
 } from './opening-api';
 import { memberAvatarPosition, memberDisplayName } from './member-avatars';
 import { publicFailureCopy, publicRoleLabel, publicStatusCopy, uniqueByMemberKey } from './author-projection';
+import {
+  fetchStoryState,
+  fetchTimeMachineProgress,
+  type StoryStateItemView
+} from './creation-api';
 import { WorkflowActionDock } from './WorkflowActionDock';
 
 type DecisionMode = 'select' | 'adjust' | 'merge';
+
+interface FinalizedWritingProgress {
+  finalizedChapterCount: number;
+  latestChapterNumber: number;
+  manuscriptVersionId: string;
+  volumeScopeId: string | null;
+  chainScopeId: string | null;
+  chainTree: PlanningTreeView | null;
+  chainTreeState: 'loaded' | 'missing' | 'failed';
+}
+
+type PlanningTreeReadState = 'loading' | 'loaded' | 'missing' | 'failed';
 
 export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; onOpenSettings?: () => void }): React.JSX.Element {
   const [routeRun, setRouteRun] = useState<PlanningRouteRunView | null>(null);
   const [generation, setGeneration] = useState<PlanningTreeGenerationView | null>(null);
   const [tree, setTree] = useState<PlanningTreeView | null>(null);
+  const [treeReadState, setTreeReadState] = useState<PlanningTreeReadState>('loading');
+  const [writingProgress, setWritingProgress] = useState<FinalizedWritingProgress | null>(null);
+  const [storyState, setStoryState] = useState<StoryStateItemView[] | null>(null);
+  const writingProgressRef = useRef<FinalizedWritingProgress | null>(null);
+  const storyStateRef = useRef<StoryStateItemView[] | null>(null);
   const [members, setMembers] = useState<PlanningMemberView[]>([]);
   const [suggestions, setSuggestions] = useState<PlanningAdjustmentSuggestionView[]>([]);
   const [treeMemberKey, setTreeMemberKey] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actualsError, setActualsError] = useState<string | null>(null);
+  const [actualsLoading, setActualsLoading] = useState(true);
+  const [actualsBusy, setActualsBusy] = useState(false);
+  const [coreRetryBusy, setCoreRetryBusy] = useState(false);
   const [authorGoal, setAuthorGoal] = useState('');
   const [candidateCount, setCandidateCount] = useState<1 | 2 | 3>(1);
   const [routeMemberKeys, setRouteMemberKeys] = useState<string[]>([]);
@@ -57,6 +84,68 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
   const [authorNote, setAuthorNote] = useState('');
   const [editingDirection, setEditingDirection] = useState(false);
 
+  const loadActuals = useCallback(async (signal?: AbortSignal) => {
+    const [progressResult, storyStateResult] = await Promise.allSettled([
+      fetchTimeMachineProgress(bookId, signal),
+      fetchStoryState(bookId, signal)
+    ]);
+    if (Boolean(signal?.aborted)) return;
+
+    let actualsIssue: string | null = null;
+    if (storyStateResult.status === 'fulfilled') {
+      storyStateRef.current = storyStateResult.value;
+      setStoryState(storyStateResult.value);
+    } else {
+      actualsIssue = actualsFailure(storyStateResult.reason);
+    }
+
+    if (progressResult.status === 'fulfilled') {
+      const latest = progressResult.value.latestFinalChapter;
+      if (progressResult.value.finalizedChapterCount === 0 && latest === null) {
+        if (writingProgressRef.current !== null) {
+          actualsIssue ??= '正文进度本次返回不完整，页面已保留上次成功读取的定稿记录。';
+        }
+      } else if (latest === null) {
+        actualsIssue ??= '正文进度暂时没有完整读取成功，请重新读取。';
+      } else {
+        let chainTree: PlanningTreeView | null = null;
+        let chainTreeState: FinalizedWritingProgress['chainTreeState'] = 'missing';
+        if (latest.chainScopeId !== null) {
+          try {
+            chainTree = await fetchConfirmedPlanningTree(bookId, 'chain', latest.chainScopeId, signal);
+            chainTreeState = 'loaded';
+          } catch (reason) {
+            if (Boolean(signal?.aborted)) return;
+            if (!(reason instanceof AuthorApiError && reason.status === 404)) {
+              chainTreeState = 'failed';
+              if (writingProgressRef.current?.chainScopeId === latest.chainScopeId) {
+                chainTree = writingProgressRef.current.chainTree;
+              }
+              actualsIssue ??= actualsFailure(reason);
+            }
+          }
+        }
+        if (Boolean(signal?.aborted)) return;
+        const nextProgress: FinalizedWritingProgress = {
+          finalizedChapterCount: progressResult.value.finalizedChapterCount,
+          latestChapterNumber: latest.chapterNumber,
+          manuscriptVersionId: latest.manuscriptVersionId,
+          volumeScopeId: latest.volumeScopeId,
+          chainScopeId: latest.chainScopeId,
+          chainTree,
+          chainTreeState
+        };
+        writingProgressRef.current = nextProgress;
+        setWritingProgress(nextProgress);
+      }
+    } else {
+      actualsIssue ??= actualsFailure(progressResult.reason);
+    }
+    if (actualsIssue !== null && (writingProgressRef.current !== null || storyStateRef.current !== null)) {
+      actualsIssue = `${actualsIssue} 已保留上次成功读取的内容，本页内容可能不是最新状态。`;
+    }
+    setActualsError(actualsIssue);
+  }, [bookId]);
   const load = useCallback(async (signal?: AbortSignal) => {
     setError(null);
     const [treeResult, routeResult, generationResult, rosterResult, suggestionsResult] = await Promise.allSettled([
@@ -73,10 +162,14 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
     if (treeResult.status === 'fulfilled') {
       loadedTree = treeResult.value;
       setTree(treeResult.value);
+      setTreeReadState('loaded');
     }
-    else if (treeResult.reason instanceof AuthorApiError && treeResult.reason.status === 404) setTree(null);
-    else {
+    else if (treeResult.reason instanceof AuthorApiError && treeResult.reason.status === 404) {
       setTree(null);
+      setTreeReadState('missing');
+    }
+    else {
+      setTreeReadState('failed');
       coreError = publicError(treeResult.reason);
     }
 
@@ -92,8 +185,15 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
           loadedTree = await fetchPlanningTree(bookId, 'book', bookId, signal);
           if (Boolean(signal?.aborted)) return;
           setTree(loadedTree);
+          setTreeReadState('loaded');
         } catch (reason) {
-          if (!(reason instanceof AuthorApiError && reason.status === 404)) coreError ??= publicError(reason);
+          if (reason instanceof AuthorApiError && reason.status === 404) {
+            setTree(null);
+            setTreeReadState('missing');
+          } else {
+            setTreeReadState('failed');
+            coreError ??= publicError(reason);
+          }
         }
       }
     }
@@ -105,20 +205,62 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
     // 成员名单和未来调整建议都是辅助信息；它们临时失败时，核心规划仍可自动安排并继续。
     setMembers(rosterResult.status === 'fulfilled' ? uniqueByMemberKey(rosterResult.value) : []);
     setSuggestions(suggestionsResult.status === 'fulfilled' ? suggestionsResult.value : []);
+    if (loadedTree === null && coreError !== null) setTreeReadState('failed');
     setError(coreError);
   }, [bookId]);
 
   useEffect(() => {
     const controller = new AbortController();
+    setLoading(true);
+    setTree(null);
+    setTreeReadState('loading');
+    setRouteRun(null);
+    setGeneration(null);
+    setMembers([]);
+    setSuggestions([]);
+    writingProgressRef.current = null;
+    storyStateRef.current = null;
+    setWritingProgress(null);
+    setStoryState(null);
+    setActualsError(null);
+    setActualsLoading(true);
     void load(controller.signal)
       .catch((reason: unknown) => {
-        if (!controller.signal.aborted) setError(publicError(reason));
+        if (!controller.signal.aborted) {
+          setError(publicError(reason));
+          setTreeReadState('failed');
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
+    void loadActuals(controller.signal)
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) setActualsError(actualsFailure(reason));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setActualsLoading(false);
+      });
     return () => controller.abort();
-  }, [load]);
+  }, [load, loadActuals]);
+
+  const retryActuals = async (): Promise<void> => {
+    setActualsBusy(true);
+    try { await loadActuals(); }
+    catch (reason) { setActualsError(actualsFailure(reason)); }
+    finally { setActualsBusy(false); }
+  };
+
+  const retryCorePlanning = async (): Promise<void> => {
+    setCoreRetryBusy(true);
+    try { await load(); }
+    catch (reason) {
+      setError(publicError(reason));
+      setTreeReadState('failed');
+    } finally {
+      setCoreRetryBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (routeRun === null || !['waiting', 'working'].includes(routeRun.status)) return;
@@ -133,8 +275,14 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
   const applyGeneration = useCallback(async (next: PlanningTreeGenerationView): Promise<void> => {
     setGeneration(next);
     if (next.status !== 'ready') return;
-    setTree(await fetchPlanningTree(bookId, 'book', bookId));
-    setEditingDirection(false);
+    try {
+      setTree(await fetchPlanningTree(bookId, 'book', bookId));
+      setTreeReadState('loaded');
+      setEditingDirection(false);
+    } catch (reason) {
+      setTreeReadState(reason instanceof AuthorApiError && reason.status === 404 ? 'missing' : 'failed');
+      throw reason;
+    }
   }, [bookId]);
 
   useEffect(() => {
@@ -171,8 +319,9 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
   };
 
   const continueTree = async (): Promise<void> => {
+    if (routeRun?.canContinueTree !== true) return;
     setBusy(true); setError(null);
-    try { await applyGeneration(await createPlanningTreeGeneration(bookId, 'book', bookId, treeMemberKey || undefined)); }
+    try { await applyGeneration(await continuePlanningRouteToTree(bookId, routeRun.runId, treeMemberKey || undefined)); }
     catch (reason) { setError(publicError(reason)); }
     finally { setBusy(false); }
   };
@@ -211,8 +360,14 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
     setBusy(true); setError(null);
     try {
       await decidePlanningRoute(bookId, routeRun.runId, { mode, routeIds: selectedRouteIds, authorNote });
-      setRouteRun(await fetchPlanningRouteRun(bookId, routeRun.runId));
-      setGeneration(await createPlanningTreeGeneration(bookId, 'book', bookId, treeMemberKey || undefined));
+      const decidedRun = await fetchPlanningRouteRun(bookId, routeRun.runId);
+      setRouteRun(decidedRun);
+      if (decidedRun.canContinueTree !== true) {
+        setTreeReadState('failed');
+        setError('全书方向已经确认，但正式框架的接续状态还没有准备好，请重新读取核心规划。');
+        return;
+      }
+      await applyGeneration(await continuePlanningRouteToTree(bookId, decidedRun.runId, treeMemberKey || undefined));
     } catch (reason) { setError(publicError(reason)); }
     finally { setBusy(false); }
   };
@@ -306,8 +461,11 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
         {...(onOpenSettings === undefined ? {} : { onOpenSettings })}
       />;
     }
-    if (!freshStart && routeRun?.status === 'completed') {
+    if (!freshStart && routeRun?.status === 'completed' && routeRun.canContinueTree === true) {
       return <TreeGenerationStart members={members} selectedMemberKey={treeMemberKey} busy={busy} onMember={setTreeMemberKey} onStart={continueTree} />;
+    }
+    if (!freshStart && routeRun?.status === 'completed') {
+      return <PlanningRouteComplete />;
     }
     return <PlanningStart
       members={members} authorGoal={authorGoal} candidateCount={candidateCount}
@@ -320,13 +478,23 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
     />;
   };
 
-  const hasPendingPlanning = routeRun?.canDecide === true
+  const hasActivePlanning = routeRun?.canDecide === true
     || (routeRun !== null && ['waiting', 'working'].includes(routeRun.status))
-    || (generation !== null && ['waiting', 'working'].includes(generation.status))
-    || (editingDirection && routeRun !== null && routeRun.sourceIssues.length > 0)
+    || (generation !== null && ['waiting', 'working'].includes(generation.status));
+  const hasPendingPlanning = hasActivePlanning
+    || (routeRun !== null && routeRun.sourceIssues.length > 0)
     || routeRun?.status === 'failed'
+    || routeRun?.nextStepPending === true
     || generation?.status === 'failed'
     || generation?.status === 'result_unknown';
+  const corePlanningFailed = !loading && treeReadState === 'failed';
+  const showStandaloneActuals = !loading && tree === null && (
+    actualsLoading
+    || actualsError !== null
+    || writingProgress !== null
+    || storyState === null
+    || storyState.length > 0
+  );
 
   return <section className="time-machine-surface" aria-label="时光机">
     <header className="time-machine-heading">
@@ -334,21 +502,33 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
       {tree?.status === 'confirmed' && <span className="planning-confirmed-mark"><CheckCircleIcon /> 已确认</span>}
     </header>
 
-    {error !== null && <div className="planning-error" role="alert">{error}</div>}
+    {error !== null && !corePlanningFailed && <div className="planning-error" role="alert">{error}</div>}
+    {corePlanningFailed && <div className="planning-error" role="alert">
+      <span>{error ?? '对不起，核心规划暂时没有读取成功。'}{tree === null ? ' 正文和故事实际仍会单独显示。' : ' 已保留上次成功读取的规划，本页内容可能不是最新状态。'}</span>
+      <button type="button" className="planning-secondary" disabled={coreRetryBusy} onClick={() => void retryCorePlanning()}>{coreRetryBusy ? '正在重新读取…' : '重新读取核心规划'}</button>
+    </div>}
+    {actualsError !== null && <div className="planning-error time-machine-actual-error" role="alert"><span>{actualsError}</span><button type="button" className="planning-secondary" disabled={actualsBusy} onClick={() => void retryActuals()}>{actualsBusy ? '正在重新读取…' : '重新读取正文进度'}</button></div>}
     {!loading && suggestions.length > 0 && <PlanningSuggestionPanel suggestions={suggestions} busy={busy} onDecision={decideSuggestion} />}
     {loading ? <PlanningWaiting message="正在找回这本书的规划进度…" state="waiting" />
       : tree !== null ? <PlanningTreeResult
           tree={tree} busy={busy} members={members} generation={generation} routeRun={routeRun}
+          writingProgress={writingProgress} storyState={storyState} actualsLoading={actualsLoading}
           editorialOpen={editingDirection || hasPendingPlanning}
           editorialContent={editingDirection || hasPendingPlanning
-            ? renderPlanningWorkflow(true, editingDirection && !hasPendingPlanning)
+            ? renderPlanningWorkflow(true, editingDirection && !hasActivePlanning)
             : null}
           onEditDirection={() => setEditingDirection(true)} onConfirm={confirmTree}
         />
-        : renderPlanningWorkflow()}
+      : treeReadState === 'missing' ? renderPlanningWorkflow()
+      : null}
+    {showStandaloneActuals && <TimeMachineActualPanels
+      volumes={[]}
+      writingProgress={writingProgress}
+      storyState={storyState}
+      actualsLoading={actualsLoading}
+    />}
   </section>;
 }
-
 function PlanningSourceIssues({ run, onOpenSettings }: { run: PlanningRouteRunView; onOpenSettings?: () => void }): React.JSX.Element {
   const chief = run.actors.find((actor) => actor.role.includes('主编')) ?? run.actors[0];
   const memberKey = chief?.memberKey ?? 'planning-chief-deepseek-v4-pro';
@@ -478,6 +658,11 @@ function TreeGenerationStart({ members, selectedMemberKey, busy, onMember, onSta
   </section>;
 }
 
+function PlanningRouteComplete(): React.JSX.Element {
+  return <section className="planning-tree-start">
+    <div><strong>全书方向已经完成</strong><p>这轮方向已经接续或不再允许重复生成正式框架，现有结果会继续保留。</p></div>
+  </section>;
+}
 function PlanningRecovery({ message, busy, onRetry, onReturnDirection, onOpenSettings, action = '重新开始' }: {
   message: string;
   busy: boolean;
@@ -554,12 +739,15 @@ function RouteCard({ route, index, selected, recommended, review, multi, onSelec
   </article>;
 }
 
-function PlanningTreeResult({ tree, busy, members, generation, routeRun, editorialOpen, editorialContent, onEditDirection, onConfirm }: {
+function PlanningTreeResult({ tree, busy, members, generation, routeRun, writingProgress, storyState, actualsLoading, editorialOpen, editorialContent, onEditDirection, onConfirm }: {
   tree: PlanningTreeView;
   busy: boolean;
   members: PlanningMemberView[];
   generation: PlanningTreeGenerationView | null;
   routeRun: PlanningRouteRunView | null;
+  writingProgress: FinalizedWritingProgress | null;
+  storyState: StoryStateItemView[] | null;
+  actualsLoading: boolean;
   editorialOpen: boolean;
   editorialContent: ReactNode | null;
   onEditDirection: () => void;
@@ -570,11 +758,12 @@ function PlanningTreeResult({ tree, busy, members, generation, routeRun, editori
   const visibleMembers = uniqueByMemberKey(members.filter((member) => member.roleKey === 'chief_editor' || member.roleKey === 'planning_writer')).slice(0, 4);
   const activeActor = routeRun?.actors.find((actor) => actor.status === 'working')
     ?? routeRun?.actors.find((actor) => actor.status === 'waiting');
-  const activeMemberKey = activeActor?.memberKey ?? generation?.member.memberKey;
+  const activeGeneration = generation !== null && ['waiting', 'working'].includes(generation.status) ? generation : null;
+  const activeMemberKey = activeActor?.memberKey ?? activeGeneration?.member.memberKey;
   const activeMemberName = activeActor === undefined
-    ? generation === null ? null : memberDisplayName(generation.member.memberKey, generation.member.name)
+    ? activeGeneration === null ? null : memberDisplayName(activeGeneration.member.memberKey, activeGeneration.member.name)
     : memberDisplayName(activeActor.memberKey, activeActor.memberName);
-  const editorialSummary = activeActor !== undefined || generation !== null && ['waiting', 'working'].includes(generation.status)
+  const editorialSummary = activeActor !== undefined || activeGeneration !== null
     ? `${activeMemberName ?? '编辑部'}正在整理方向`
     : tree.status === 'candidate' ? '框架草案已完成，等您确认' : '正式框架已保存，需要时可以重新规划';
 
@@ -592,7 +781,7 @@ function PlanningTreeResult({ tree, busy, members, generation, routeRun, editori
           {activeMemberKey === undefined
             ? <span className="planning-member-orb"><SparkleIcon /></span>
             : <span className="planning-waiting-avatar" style={{ backgroundPosition: memberAvatarPosition(activeMemberKey) }} aria-hidden="true" />}
-          <span><strong>{editorialSummary}</strong><small>{tree.status === 'confirmed' ? '方向调整只影响未来规划，已经定稿的正文不会被改写。' : '确认后，后续分卷会沿用这份全书方向。'}</small></span>
+          <span><strong>{activeMemberName !== null ? '本轮方向调整正在进行' : tree.status === 'candidate' ? '请确认这份框架草案' : '已确认内容不会被历史任务覆盖'}</strong><small>{tree.status === 'confirmed' ? '方向调整只影响未来规划，已经定稿的正文不会被改写。' : '确认后，后续分卷会沿用这份全书方向。'}</small></span>
         </div>
         {visibleMembers.length > 0 && <PlanningMemberFaces members={visibleMembers} />}
         <button type="button" className="planning-secondary" onClick={onEditDirection}>调整方向与成员</button>
@@ -636,20 +825,69 @@ function PlanningTreeResult({ tree, busy, members, generation, routeRun, editori
         : <div className="planning-tree-vertical">{tree.root.children.map((node, index) => <PlanningTreeBranch key={node.key} node={node} index={index} defaultOpen={index === currentVolumeIndex} />)}</div>}
     </TimeMachineGroup>
 
-    <TimeMachineGroup
-      className="time-machine-dynamics-group"
-      icon={<GitBranchIcon />}
-      title="故事动态"
-      summary="故事线、交汇点与伏笔会随正文定稿持续更新"
-    >
-      <StoryDynamicsPlaceholder volumes={tree.root.children} />
-    </TimeMachineGroup>
+    <TimeMachineActualPanels
+      volumes={tree.root.children}
+      writingProgress={writingProgress}
+      storyState={storyState}
+      actualsLoading={actualsLoading}
+    />
     {tree.status === 'candidate' && editorialContent === null && <WorkflowActionDock
       title="正式框架草案已经完成"
       detail="确认后才会成为后续分卷的方向依据。"
       primary={<button type="button" className="planning-primary" disabled={busy} onClick={onConfirm}>{busy ? '正在保存…' : '确认采用框架'}</button>}
     />}
   </section>;
+}
+
+function TimeMachineActualPanels({ volumes, writingProgress, storyState, actualsLoading }: {
+  volumes: PlanningTreeNodeView[];
+  writingProgress: FinalizedWritingProgress | null;
+  storyState: StoryStateItemView[] | null;
+  actualsLoading: boolean;
+}): React.JSX.Element {
+  return <>
+    {writingProgress !== null && <ActualWritingProgress progress={writingProgress} />}
+    <TimeMachineGroup
+      className="time-machine-dynamics-group"
+      icon={<GitBranchIcon />}
+      title="故事动态"
+      summary={actualsLoading ? '正在读取正文实际' : storyState === null ? '正文实际暂时没有读取成功' : storyState.length === 0 ? '故事线、交汇点与伏笔会随正文定稿持续更新' : `已从定稿正文记录${storyState.length}项真实变化`}
+    >
+      {actualsLoading
+        ? <p className="time-machine-empty-state">正在读取已经定稿的正文进度和故事变化…</p>
+        : storyState === null
+        ? <p className="time-machine-empty-state">正文实际暂时没有读取成功。请使用页面上方的“重新读取正文进度”，这里不会把读取失败说成没有内容。</p>
+        : <StoryDynamics volumes={volumes} storyState={storyState} />}
+    </TimeMachineGroup>
+  </>;
+}
+function ActualWritingProgress({ progress }: { progress: FinalizedWritingProgress }): React.JSX.Element {
+  const actualNodes = progress.chainTree === null
+    ? []
+    : flattenPlanningNodes(progress.chainTree.root).filter((node) => node.actual !== null);
+  const chainTitle = progress.chainTree?.root.title ?? null;
+  return <TimeMachineGroup
+    className="time-machine-actual-group"
+    icon={<CheckCircleIcon />}
+    title="正文进度"
+    summary={`已定稿${progress.finalizedChapterCount}章 · 最新第${progress.latestChapterNumber}章`}
+    open
+  >
+    <div className="time-machine-story-dynamics">
+      <details open>
+        <summary><span><strong>{chainTitle === null ? '最近定稿链' : `最近定稿链：${chainTitle}`}</strong><small>第{progress.latestChapterNumber}章已成为正式正文</small></span><CaretDownIcon /></summary>
+        {progress.chainTreeState === 'failed' && <p>{progress.chainTree === null
+          ? '最近定稿链暂时没有读取成功；已定稿章数仍直接来自不可变正文版本，请使用页面上方的“重新读取正文进度”。'
+          : '最近定稿链本次刷新失败，下面保留的是上次成功读取的正文实际，可能不是最新状态。'}</p>}
+        {actualNodes.length === 0
+          ? progress.chainTreeState === 'failed' ? null : <p>最近定稿链还没有可核对的已确认链级记录；已定稿章数直接来自不可变正文版本，这里不会用候选方案或章纲冒充已经发生的内容。</p>
+          : <div className="time-machine-planned-threads">{actualNodes.map((node) => <span key={node.key}>
+              <b>{node.title} · {actualStateCopy(node.actual!.state)}</b>
+              {node.actual!.summary}
+            </span>)}</div>}
+      </details>
+    </div>
+  </TimeMachineGroup>;
 }
 
 function TimeMachineGroup({ className = '', icon, title, summary, open = false, children }: {
@@ -670,17 +908,40 @@ function TimeMachineGroup({ className = '', icon, title, summary, open = false, 
   </details>;
 }
 
-function StoryDynamicsPlaceholder({ volumes }: { volumes: PlanningTreeNodeView[] }): React.JSX.Element {
+function StoryDynamics({ volumes, storyState }: { volumes: PlanningTreeNodeView[]; storyState: StoryStateItemView[] }): React.JSX.Element {
   const plannedForeshadowing = volumes.flatMap((volume) => volume.threads.foreshadowing.map((item) => ({ volume: volume.title, item })));
+  const intersections = storyState.filter((item) => item.kind === 'story_line' && item.state === 'intersected');
+  const storyLines = storyState.filter((item) => item.kind === 'story_line' && item.state !== 'intersected');
+  const foreshadowing = storyState.filter((item) => item.kind === 'foreshadowing');
+  const openQuestions = storyState.filter((item) => item.kind === 'open_question');
   return <div className="time-machine-story-dynamics">
-    <details><summary><span><strong>故事线</strong><small>正文定稿后自动整理</small></span><CaretDownIcon /></summary><p>这里会根据已经定稿的正文，显示主线、重要线和支线的真实推进状态。目前没有可结算的故事线数据。</p></details>
-    <details><summary><span><strong>交汇点</strong><small>正文定稿后自动识别</small></span><CaretDownIcon /></summary><p>故事线真正发生交汇后才会记录；规划中的可能性不会冒充已经发生的事实。</p></details>
-    <details><summary><span><strong>伏笔</strong><small>{plannedForeshadowing.length === 0 ? '正文定稿后自动记录' : `规划中${plannedForeshadowing.length}项，实际状态待正文记录`}</small></span><CaretDownIcon /></summary>
-      {plannedForeshadowing.length === 0
-        ? <p>目前没有可展示的伏笔。正文定稿后，这里会记录实际埋下、强化和回收的内容。</p>
-        : <div className="time-machine-planned-threads"><p>下面只是分卷规划，只有正文真正写入并定稿后，才会记为已埋下。</p>{plannedForeshadowing.map((thread) => <span key={`${thread.volume}-${thread.item}`}><b>{thread.volume}</b>{thread.item}</span>)}</div>}
-    </details>
+    <StoryStateSection title="故事线" emptySummary="正文定稿后自动整理" items={storyLines} emptyCopy="这里会根据已经定稿的正文，显示故事线的真实推进状态。目前还没有可结算的故事线数据。" />
+    <StoryStateSection title="交汇点" emptySummary="正文定稿后自动识别" items={intersections} emptyCopy="故事线真正发生交汇后才会记录；规划中的可能性不会冒充已经发生的事实。" />
+    {foreshadowing.length > 0
+      ? <StoryStateSection title="伏笔" emptySummary="正文定稿后自动记录" items={foreshadowing} emptyCopy="目前还没有正文实际记录。" />
+      : <details><summary><span><strong>伏笔</strong><small>{plannedForeshadowing.length === 0 ? '正文定稿后自动记录' : `规划中${plannedForeshadowing.length}项，实际状态待正文记录`}</small></span><CaretDownIcon /></summary>
+          {plannedForeshadowing.length === 0
+            ? <p>目前没有可展示的伏笔。正文定稿后，这里会记录实际埋下、强化和回收的内容。</p>
+            : <div className="time-machine-planned-threads"><p>下面只是分卷规划，只有正文真正写入并定稿后，才会记为已埋下。</p>{plannedForeshadowing.map((thread) => <span key={`${thread.volume}-${thread.item}`}><b>{thread.volume}</b>{thread.item}</span>)}</div>}
+        </details>}
+    <StoryStateSection title="未解问题" emptySummary="正文定稿后自动记录" items={openQuestions} emptyCopy="目前没有由定稿正文留下的未解问题。" />
   </div>;
+}
+
+function StoryStateSection({ title, emptySummary, items, emptyCopy }: {
+  title: string;
+  emptySummary: string;
+  items: StoryStateItemView[];
+  emptyCopy: string;
+}): React.JSX.Element {
+  return <details><summary><span><strong>{title}</strong><small>{items.length === 0 ? emptySummary : `已记录${items.length}项正文实际`}</small></span><CaretDownIcon /></summary>
+    {items.length === 0
+      ? <p>{emptyCopy}</p>
+      : <div className="time-machine-planned-threads">{items.map((item) => <span key={`${item.kind}:${item.stableKey}`}>
+          <b>{item.title} · {storyStateCopy(item.state)}</b>
+          {storyStateDetail(item)}
+        </span>)}</div>}
+  </details>;
 }
 
 function findCurrentVolumeIndex(volumes: PlanningTreeNodeView[]): number {
@@ -710,7 +971,39 @@ function PlanningTreeBranch({ node, index, defaultOpen }: { node: PlanningTreeNo
   </details>;
 }
 
+function flattenPlanningNodes(root: PlanningTreeNodeView): PlanningTreeNodeView[] {
+  return [root, ...root.children.flatMap(flattenPlanningNodes)];
+}
+
+function actualStateCopy(state: NonNullable<PlanningTreeNodeView['actual']>['state']): string {
+  if (state === 'completed') return '已完成';
+  if (state === 'deviated') return '正文出现变化';
+  return '正在推进';
+}
+
+function storyStateCopy(state: string): string {
+  const labels: Record<string, string> = {
+    introduced: '已经出现', advancing: '正在推进', paused: '暂时停留', intersected: '已经交汇', completed: '已经完成', abandoned: '已经结束',
+    planted: '已经埋下', deepened: '已经强化', partially_revealed: '已经部分揭示', resolved: '已经回收', retired: '已经结束',
+    open: '仍待回答', answered: '已经回答'
+  };
+  return labels[state] ?? '已由正文记录';
+}
+
+function storyStateDetail(item: StoryStateItemView): string {
+  if (typeof item.detail === 'object' && item.detail !== null && !Array.isArray(item.detail)) {
+    const detail = item.detail as Record<string, unknown>;
+    if (typeof detail.summary === 'string' && detail.summary.trim().length > 0) return detail.summary.trim();
+    if (typeof detail.answer === 'string' && detail.answer.trim().length > 0) return detail.answer.trim();
+  }
+  return '这项状态来自已定稿正文的结算记录。';
+}
+
 function formatWords(value: number): string { return value >= 10_000 ? `${Number((value / 10_000).toFixed(1))}万字` : `${value}字`; }
+function actualsFailure(reason: unknown): string {
+  return `正文实际暂时没有完整读取成功。${publicError(reason)}`;
+}
+
 function publicError(reason: unknown): string {
   if (reason instanceof AuthorApiError && reason.retryable) return '对不起，暂时连接不上文秘写作服务，请稍后重试。';
   if (reason instanceof AuthorApiError) return publicStatusCopy(reason.message, '对不起，这次操作没有完成，请稍后重试。');

@@ -41,4 +41,32 @@ describe('作者API投影门', () => {
     expect(JSON.stringify(projected)).not.toMatch(/code|details|SQL|sqlite|provider|modelId|stack|worker/iu);
   });
 
+  it('保留任务级会员恢复动作，并把内部失败原文改成准确的作者说明', () => {
+    const projected = projectAuthorApiValue({
+      taskId: 'opening-task-1',
+      errorMessage: 'MEMBERSHIP_QUOTA_EXHAUSTED provider modelId',
+      recoveryAction: 'open_membership_quota',
+      errorCode: 'MEMBERSHIP_QUOTA_EXHAUSTED'
+    }) as Record<string, unknown>;
+    expect(projected).toMatchObject({
+      recoveryKey: 'opening-task-1',
+      recoveryAction: 'open_membership_quota',
+      recoveryMessage: expect.stringContaining('剩余创作额度不足')
+    });
+    expect(JSON.stringify(projected)).not.toMatch(/MEMBERSHIP_QUOTA_EXHAUSTED|provider|modelId|errorCode/iu);
+  });
+
+  it('即使旧任务没写失败原文，也根据会员恢复动作生成安全说明', () => {
+    const projected = projectAuthorApiValue({
+      taskId: 'opening-task-with-empty-error',
+      errorMessage: null,
+      recoveryAction: 'open_membership_expired'
+    }) as Record<string, unknown>;
+    expect(projected).toMatchObject({
+      recoveryKey: 'opening-task-with-empty-error',
+      recoveryAction: 'open_membership_expired',
+      recoveryMessage: expect.stringContaining('会员已经到期')
+    });
+  });
+
 });

@@ -84,6 +84,14 @@ export interface V7ManuscriptVersionRow {
   request_id: string; created_at: string; finalized_at: string | null;
 }
 
+export interface V7TimeMachineProgressRow {
+  finalized_chapter_count: number;
+  manuscript_version_id: string | null;
+  chapter_number: number | null;
+  volume_scope_id: string | null;
+  chain_scope_id: string | null;
+}
+
 export interface V7ManuscriptReviewRow {
   review_id: string; owner_id: string; book_id: string; workflow_id: string;
   manuscript_version_id: string; member_key: string; member_snapshot_json: string;
@@ -749,6 +757,31 @@ export class V7CreationRuntimeRepository {
     return this.database.prepare(`SELECT * FROM v7_manuscript_versions
       WHERE owner_id=? AND book_id=? ORDER BY chapter_number,revision`)
       .all(ownerId, bookId) as unknown as V7ManuscriptVersionRow[];
+  }
+
+  public timeMachineProgress(ownerId: string, bookId: string): V7TimeMachineProgressRow {
+    return this.database.prepare(`WITH ranked_final AS (
+      SELECT m.manuscript_version_id,m.chapter_number,m.workflow_id,
+        w.volume_scope_id,w.chain_scope_id,
+        ROW_NUMBER() OVER (
+          PARTITION BY m.chapter_number
+          ORDER BY m.revision DESC,COALESCE(m.finalized_at,m.created_at) DESC,m.manuscript_version_id DESC
+        ) AS chapter_rank
+      FROM v7_manuscript_versions m
+      LEFT JOIN v7_creation_workflows w
+        ON w.owner_id=m.owner_id AND w.book_id=m.book_id AND w.workflow_id=m.workflow_id
+      WHERE m.owner_id=? AND m.book_id=? AND m.lifecycle='final'
+    ), final_chapters AS (
+      SELECT manuscript_version_id,chapter_number,volume_scope_id,chain_scope_id
+      FROM ranked_final WHERE chapter_rank=1
+    ), latest AS (
+      SELECT manuscript_version_id,chapter_number,volume_scope_id,chain_scope_id
+      FROM final_chapters ORDER BY chapter_number DESC LIMIT 1
+    )
+    SELECT (SELECT COUNT(*) FROM final_chapters) AS finalized_chapter_count,
+      latest.manuscript_version_id,latest.chapter_number,latest.volume_scope_id,latest.chain_scope_id
+    FROM (SELECT 1) seed LEFT JOIN latest ON 1=1`)
+      .get(ownerId, bookId) as unknown as V7TimeMachineProgressRow;
   }
 
   public finalManuscriptsForSequence(ownerId: string, bookId: string, sequenceId: string): V7ManuscriptVersionRow[] {

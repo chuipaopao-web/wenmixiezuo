@@ -347,7 +347,13 @@ export function AuthorAuthenticationPage({
   </main>;
 }
 
-export function AuthorAccountCenter({ onClose }: { onClose?: () => void }): React.JSX.Element {
+export function AuthorAccountCenter({
+  onClose,
+  closeLabel = '收起'
+}: {
+  onClose?: () => void;
+  closeLabel?: string;
+}): React.JSX.Element {
   const session = useAuthorAccount();
   const [feedbackCategory, setFeedbackCategory] = useState<'bug' | 'experience' | 'suggestion' | 'other'>('experience');
   const [feedbackMessage, setFeedbackMessage] = useState('');
@@ -395,7 +401,7 @@ export function AuthorAccountCenter({ onClose }: { onClose?: () => void }): Reac
         <h2>{session.account.displayName}</h2>
         <p>{session.account.email}</p>
       </div>
-      {onClose !== undefined && <button className="v7-account-quiet" type="button" onClick={onClose}>收起</button>}
+      {onClose !== undefined && <button className="v7-account-quiet" type="button" onClick={onClose}>{closeLabel}</button>}
     </header>
 
     <dl className="v7-account-facts">

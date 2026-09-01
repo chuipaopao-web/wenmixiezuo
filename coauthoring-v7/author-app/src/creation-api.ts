@@ -151,6 +151,27 @@ export interface CreationLibraryView {
   }>;
 }
 
+export interface TimeMachineProgressView {
+  finalizedChapterCount: number;
+  latestFinalChapter: null | {
+    manuscriptVersionId: string;
+    chapterNumber: number;
+    volumeScopeId: string | null;
+    chainScopeId: string | null;
+  };
+}
+
+export interface StoryStateItemView {
+  kind: 'story_line' | 'foreshadowing' | 'open_question';
+  stableKey: string;
+  title: string;
+  state: string;
+  revision: number;
+  detail: unknown;
+  evidenceRefs: unknown;
+  updatedAt: string;
+}
+
 export interface CreationManuscriptView {
   manuscriptVersionId: string;
   workflowId: string;
@@ -176,6 +197,14 @@ export function fetchLatestCreationWorkflow(bookId: string, signal?: AbortSignal
 
 export function fetchCreationLibrary(bookId: string, signal?: AbortSignal): Promise<CreationLibraryView> {
   return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/creation-library`, signal === undefined ? undefined : { signal });
+}
+
+export function fetchTimeMachineProgress(bookId: string, signal?: AbortSignal): Promise<TimeMachineProgressView> {
+  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/time-machine-progress`, signal === undefined ? undefined : { signal });
+}
+
+export function fetchStoryState(bookId: string, signal?: AbortSignal): Promise<StoryStateItemView[]> {
+  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/story-state`, signal === undefined ? undefined : { signal });
 }
 
 export function fetchCreationManuscript(

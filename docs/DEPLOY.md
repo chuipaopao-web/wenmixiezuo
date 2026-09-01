@@ -68,7 +68,7 @@ sudo apt install -y caddy
 sudo apt install -y sqlite3
 
 # 安装其他工具
-sudo apt install -y git curl unzip build-essential
+sudo apt install -y git curl unzip build-essential python3 psmisc
 ```
 
 ## 部署步骤
@@ -177,14 +177,30 @@ V7写后维护由Worker独立追赶时，需要在Worker环境中显式设置`WE
 ### 第八步：配置自动备份
 
 ```bash
-# 确保备份脚本可执行
-sudo chmod +x /opt/wenmi/deploy/backup.sh
+# 冻结脚本先做语法检查；生产安装时还必须与本次发布包 SHA-256 一致。
+sudo -u wenmi /usr/bin/bash -n /opt/wenmi/deploy/backup.sh
+sudo chown wenmi:wenmi /opt/wenmi/deploy/backup.sh
+sudo chmod 640 /opt/wenmi/deploy/backup.sh
+sudo sha256sum /opt/wenmi/deploy/backup.sh
 
-# 添加 cron 定时任务（每日凌晨 3 点）
-sudo -u wenmi crontab -e
-# 添加以下行：
-# 0 3 * * * /opt/wenmi/deploy/backup.sh >> /var/log/wenmi-backup.log 2>&1
+# 日志必须位于 wenmi 可写目录。
+sudo -u wenmi install -d -m 700 /opt/wenmi/data/logs
+sudo -u wenmi touch /opt/wenmi/data/logs/backup.log
+sudo -u wenmi chmod 600 /opt/wenmi/data/logs/backup.log
+
+# 幂等替换旧备份 cron，并添加每日凌晨 3 点的真实命令。
+(
+  sudo -u wenmi crontab -l 2>/dev/null | grep -vF '/opt/wenmi/deploy/backup.sh'
+  printf '%s\n' '0 3 * * * /usr/bin/timeout --signal=TERM --kill-after=2m 55m /usr/bin/bash /opt/wenmi/deploy/backup.sh >> /opt/wenmi/data/logs/backup.log 2>&1'
+) | sudo -u wenmi crontab -
+sudo -u wenmi crontab -l
 ```
+
+每次运行在 `backups/.staging` 生成唯一暂存集，SQLite 完整性、外键、归档结构和 `file_registry` 中全部 `active/archived` 作者文件的路径、大小、SHA-256 均通过后，先把无标记目录原子移入 `daily`，回读成功后才原子写入 `.complete`。因此日常发现程序只读 `daily/weekly` 的非隐藏一级目录并要求标记有效，不扫描 `.staging`。同日运行不会覆盖早先恢复点；周日按服务器本地时区复制同一套完整内容。
+
+脚本内部全局上限为 50 分钟，外层再以 55 分钟和 `--kill-after=2m` 兜底。备份完成后必须至少保留 5 GiB；生产脚本会硬拒绝更低值，只有 `WENMI_BACKUP_TEST_MODE=true` 且数据目录位于 `/tmp` 或 `/var/tmp` 时才能降低。脚本不自动删除任何历史备份；异机副本、恢复演练、最小保留套数和删除预览没有独立验收前，即使设置旧的 retention 环境变量也会拒绝运行。
+
+上线后要实际手动运行一次，并核对脚本 SHA、`backup.log`、完整集权限（目录 `700`、文件 `600`）、三项 payload SHA-256、marker 中的 run ID/校验文件哈希和 `.complete` 发现范围。下一次 03:00 后再次核对新鲜度；“最新完整集超过 26 小时”必须进入自动运维告警，不能只依赖人工查看。第二物理介质或异机副本和实际恢复演练完成前，本机备份只能算部署回滚点，不能宣称具备灾难恢复能力。
 
 ### 第九步：验证部署
 
@@ -219,7 +235,7 @@ sudo journalctl -u wenmi-worker -f -n 100
 sudo tail -f /var/log/caddy/wenmi-access.log
 
 # 备份日志
-sudo tail -f /var/log/wenmi-backup.log
+sudo tail -f /opt/wenmi/data/logs/backup.log
 ```
 
 ### 重启服务
@@ -268,37 +284,242 @@ sudo systemctl start wenmi-worker
 ### 手动备份
 
 ```bash
-sudo -u wenmi /opt/wenmi/deploy/backup.sh
+sudo -u wenmi /usr/bin/timeout --signal=TERM --kill-after=2m 55m \
+  /usr/bin/bash /opt/wenmi/deploy/backup.sh
+
+# 只发现 daily 下非隐藏的一级目录；.staging 和无 .complete 目录永不进入恢复清单。
+sudo -u wenmi find /opt/wenmi/data/backups/daily \
+  -mindepth 1 -maxdepth 1 -type d ! -name '.*' \
+  -exec test -f '{}/.complete' ';' -printf '%T@ %p\n' | sort -nr
 ```
 
 ### 恢复备份
 
+生产恢复会覆盖当前状态，必须先完成影响预览、确认在途任务为零，并取得本次明确恢复授权。以下命令必须作为一个完整 Bash 块执行；它先验证唯一备份目录、marker、三项 payload 校验和、完整数据库和归档安全，再只把作者文件解压到隔离区。只有数据库会在授权步骤被替换；`books/staging/archives/imports` 不会自动覆盖。任一步失败时，如果服务已经停止，脚本会在数据库已替换时先回滚到本次 `before-restore` 副本，再尝试恢复原 API/Worker；自动回滚失败时保持服务停止并要求人工处理。
+
 ```bash
-# 1. 停止服务
-sudo systemctl stop wenmi-worker wenmi-api
+# 先填写从“手动备份”清单中人工核对过的唯一目录名，再整块执行。
+BACKUP_RUN=YYYYMMDDTHHMMSSZ-PID
+set -Eeuo pipefail
 
-# 2. 校验备份文件
-sha256sum -c /opt/wenmi/data/backups/daily/wenmi-YYYYMMDD.sqlite.sha256
+[[ "${BACKUP_RUN}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || {
+  echo "BACKUP_RUN 含有不安全字符" >&2
+  exit 64
+}
+BACKUP_BASE=/opt/wenmi/data/backups/daily
+BACKUP_BASE_REAL="$(sudo -u wenmi realpath -e -- "${BACKUP_BASE}")"
+BACKUP_SET_INPUT="${BACKUP_BASE}/${BACKUP_RUN}"
+sudo -u wenmi test -d "${BACKUP_SET_INPUT}"
+sudo -u wenmi test ! -L "${BACKUP_SET_INPUT}"
+BACKUP_SET="$(sudo -u wenmi realpath -e -- "${BACKUP_SET_INPUT}")"
+[[ "${BACKUP_SET}" == "${BACKUP_BASE_REAL}/${BACKUP_RUN}" ]] || {
+  echo "备份目录不是真实 daily 一级目录" >&2
+  exit 65
+}
 
-# 3. 替换数据库
-sudo -u wenmi cp /opt/wenmi/data/database/wenmi.sqlite \
-  /opt/wenmi/data/database/wenmi.sqlite.before-restore
-sudo -u wenmi cp /opt/wenmi/data/backups/daily/wenmi-YYYYMMDD.sqlite \
-  /opt/wenmi/data/database/wenmi.sqlite
+MARKER="${BACKUP_SET}/.complete"
+for payload in .complete wenmi.sqlite author-files.tar.gz manifest.txt checksums.sha256; do
+  sudo -u wenmi test -f "${BACKUP_SET}/${payload}"
+  sudo -u wenmi test ! -L "${BACKUP_SET}/${payload}"
+done
+sudo -u wenmi test "$(sudo -u wenmi wc -l < "${MARKER}")" = 3
+sudo -u wenmi test "$(sudo -u wenmi grep -c '^run_id=' "${MARKER}")" = 1
+sudo -u wenmi test "$(sudo -u wenmi grep -c '^completed_at=' "${MARKER}")" = 1
+sudo -u wenmi test "$(sudo -u wenmi grep -c '^checksums_sha256=' "${MARKER}")" = 1
+sudo -u wenmi grep -Fxq "run_id=${BACKUP_RUN}" "${MARKER}"
+sudo -u wenmi grep -Eq '^completed_at=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' "${MARKER}"
+CHECKSUMS_HASH="$(sudo -u wenmi sha256sum "${BACKUP_SET}/checksums.sha256" | sudo -u wenmi awk '{ print $1 }')"
+sudo -u wenmi grep -Fxq "checksums_sha256=${CHECKSUMS_HASH}" "${MARKER}"
 
-# 4. 恢复文件
-sudo -u wenmi tar -xzf /opt/wenmi/data/backups/daily/wenmi-files-YYYYMMDD.tar.gz \
-  -C /opt/wenmi/data/
+sudo -u wenmi test "$(sudo -u wenmi wc -l < "${BACKUP_SET}/checksums.sha256")" = 3
+for payload in wenmi.sqlite author-files.tar.gz manifest.txt; do
+  sudo -u wenmi grep -Eq "^[0-9a-f]{64}  ${payload}$" "${BACKUP_SET}/checksums.sha256"
+done
+sudo -u wenmi bash -c 'cd "$1" && sha256sum --strict -c checksums.sha256' _ "${BACKUP_SET}"
+sudo -u wenmi grep -Fxq 'format=wenmi-backup-set-v2' "${BACKUP_SET}/manifest.txt"
+sudo -u wenmi grep -Fxq "run_id=${BACKUP_RUN}" "${BACKUP_SET}/manifest.txt"
+sudo -u wenmi test "$(sudo -u wenmi sqlite3 -readonly -noheader "${BACKUP_SET}/wenmi.sqlite" 'PRAGMA integrity_check;')" = ok
+sudo -u wenmi test -z "$(sudo -u wenmi sqlite3 -readonly -noheader "${BACKUP_SET}/wenmi.sqlite" 'PRAGMA foreign_key_check;')"
 
-# 5. 启动服务
+# 只检查归档成员，不解压：拒绝绝对路径、..、反斜杠、符号/硬链接和特殊文件。
+sudo -u wenmi python3 - "${BACKUP_SET}/author-files.tar.gz" <<'PY'
+from pathlib import PurePosixPath
+import sys
+import tarfile
+
+allowed_roots = {"books", "staging", "archives", "imports"}
+with tarfile.open(sys.argv[1], mode="r:gz") as archive:
+    for member in archive.getmembers():
+        raw = member.name.rstrip("/")
+        if not raw or "\\" in raw or "\x00" in raw:
+            raise SystemExit("归档含空路径或非 POSIX 路径")
+        path = PurePosixPath(raw)
+        if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+            raise SystemExit(f"归档含越界路径：{raw}")
+        if path.parts[0] not in allowed_roots:
+            raise SystemExit(f"归档含合同外根目录：{raw}")
+        if member.issym() or member.islnk():
+            raise SystemExit(f"归档含链接：{raw}")
+        if not (member.isdir() or member.isreg()):
+            raise SystemExit(f"归档含特殊文件：{raw}")
+print("archive_members_safe=true")
+PY
+
+# 创建不可复用的隔离恢复目录；mktemp 保证重跑不会覆盖旧目录。
+RESTORE_BASE=/opt/wenmi/data/restore-staging
+sudo -u wenmi install -d -m 700 "${RESTORE_BASE}"
+RESTORE_ROOT="$(sudo -u wenmi mktemp -d "${RESTORE_BASE}/restore-${BACKUP_RUN}.XXXXXXXX")"
+RESTORE_FILES="${RESTORE_ROOT}/files"
+sudo -u wenmi install -d -m 700 "${RESTORE_FILES}"
+sudo -u wenmi install -m 600 "${BACKUP_SET}/wenmi.sqlite" "${RESTORE_ROOT}/wenmi.sqlite"
+sudo -u wenmi tar --extract --gzip --file="${BACKUP_SET}/author-files.tar.gz" \
+  --directory="${RESTORE_FILES}" --no-same-owner --no-same-permissions
+sudo -u wenmi bash -c 'cd "$1" && sha256sum --strict -c checksums.sha256' _ "${BACKUP_SET}"
+sudo -u wenmi test "$(sudo -u wenmi sqlite3 -readonly -noheader "${RESTORE_ROOT}/wenmi.sqlite" 'PRAGMA integrity_check;')" = ok
+sudo -u wenmi test -z "$(sudo -u wenmi sqlite3 -readonly -noheader "${RESTORE_ROOT}/wenmi.sqlite" 'PRAGMA foreign_key_check;')"
+
+# 用恢复数据库的 file_registry 再核对解压后的 active/archived 作者文件。
+sudo -u wenmi python3 - "${RESTORE_ROOT}/wenmi.sqlite" "${RESTORE_FILES}" <<'PY'
+import hashlib
+import os
+from pathlib import Path, PurePosixPath
+import sqlite3
+import stat
+import sys
+
+snapshot = Path(sys.argv[1]).resolve(strict=True)
+files_root = Path(sys.argv[2]).resolve(strict=True)
+allowed_roots = {"books", "staging", "archives", "imports"}
+connection = sqlite3.connect(f"file:{snapshot}?mode=ro", uri=True)
+try:
+    rows = connection.execute(
+        "SELECT relative_path,size_bytes,lower(content_hash) FROM file_registry "
+        "WHERE status IN ('active','archived') ORDER BY relative_path"
+    ).fetchall()
+finally:
+    connection.close()
+for raw, expected_size, expected_hash in rows:
+    if not isinstance(raw, str) or not raw or "\\" in raw or "\x00" in raw:
+        raise SystemExit("file_registry 路径非法")
+    relative = PurePosixPath(raw)
+    if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        raise SystemExit(f"file_registry 路径越界：{raw}")
+    if relative.parts[0] not in allowed_roots:
+        raise SystemExit(f"file_registry 根目录未归档：{raw}")
+    target = files_root.joinpath(*relative.parts)
+    lexical = Path(os.path.abspath(target))
+    resolved = target.resolve(strict=True)
+    metadata = os.stat(target, follow_symlinks=False)
+    if resolved != lexical or target.is_symlink() or not stat.S_ISREG(metadata.st_mode):
+        raise SystemExit(f"恢复文件不是隔离目录内普通文件：{raw}")
+    digest = hashlib.sha256()
+    with target.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if metadata.st_size != int(expected_size) or digest.hexdigest() != str(expected_hash):
+        raise SystemExit(f"恢复文件大小或哈希不匹配：{raw}")
+print(f"restored_registered_files_verified={len(rows)}")
+PY
+
+DATABASE_DIR=/opt/wenmi/data/database
+DATABASE="${DATABASE_DIR}/wenmi.sqlite"
+SERVICES_STOPPED=0
+DATABASE_REPLACED=0
+BEFORE_DIR=""
+DATABASE_NEXT=""
+
+rollback_database() {
+  local rollback_next
+  rollback_next="$(sudo -u wenmi mktemp "${DATABASE_DIR}/.rollback-next.XXXXXXXX")" || return 1
+  sudo -u wenmi install -m 600 "${BEFORE_DIR}/wenmi.sqlite" "${rollback_next}" || return 1
+  sudo -u wenmi sync -f "${rollback_next}" || return 1
+  sudo -u wenmi find "${DATABASE_DIR}" -maxdepth 1 -type f \
+    \( -name 'wenmi.sqlite-wal' -o -name 'wenmi.sqlite-shm' \) -delete || return 1
+  sudo -u wenmi mv -Tf "${rollback_next}" "${DATABASE}" || return 1
+  for suffix in -wal -shm; do
+    if sudo -u wenmi test -f "${BEFORE_DIR}/wenmi.sqlite${suffix}"; then
+      sudo -u wenmi install -m 600 "${BEFORE_DIR}/wenmi.sqlite${suffix}" "${DATABASE}${suffix}" || return 1
+    fi
+  done
+  sudo -u wenmi sync -f "${DATABASE_DIR}" || return 1
+}
+
+on_restore_exit() {
+  local exit_code=$?
+  local rollback_ok=1
+  trap - EXIT
+  if [[ "${exit_code}" != "0" && "${SERVICES_STOPPED}" == "1" ]]; then
+    set +e
+    sudo systemctl stop wenmi-worker wenmi-api || rollback_ok=0
+    if sudo fuser -v "${DATABASE}" "${DATABASE}-wal" "${DATABASE}-shm"; then
+      rollback_ok=0
+    fi
+    if [[ -n "${DATABASE_NEXT}" ]]; then
+      sudo -u wenmi test ! -e "${DATABASE_NEXT}" || sudo -u wenmi find "${DATABASE_NEXT}" -maxdepth 0 -type f -delete
+    fi
+    if [[ "${DATABASE_REPLACED}" == "1" && "${rollback_ok}" == "1" ]]; then
+      rollback_database || rollback_ok=0
+    fi
+    if [[ "${rollback_ok}" == "1" ]]; then
+      sudo systemctl start wenmi-api
+      sleep 5
+      sudo systemctl start wenmi-worker
+      echo "恢复失败，已回滚数据库并尝试恢复原服务。" >&2
+    else
+      echo "恢复失败且自动回滚未通过；服务保持停止，必须人工处理。" >&2
+    fi
+  fi
+  exit "${exit_code}"
+}
+trap on_restore_exit EXIT
+
+# 到这里才停服。先停 Worker，再停 API，并确认主库没有活动句柄。
+SERVICES_STOPPED=1
+sudo systemctl stop wenmi-worker
+sudo systemctl stop wenmi-api
+if sudo fuser -v "${DATABASE}" "${DATABASE}-wal" "${DATABASE}-shm"; then
+  echo "数据库仍有活动句柄，停止恢复并先查明进程。" >&2
+  exit 1
+fi
+
+# mktemp 创建唯一 before-restore 目录；逐文件复制、比对字节与 SHA-256，再检查完整库。
+BEFORE_DIR="$(sudo -u wenmi mktemp -d "${DATABASE_DIR}/before-restore-${BACKUP_RUN}.XXXXXXXX")"
+for source in "${DATABASE}" "${DATABASE}-wal" "${DATABASE}-shm"; do
+  if sudo -u wenmi test -f "${source}"; then
+    destination="${BEFORE_DIR}/$(basename "${source}")"
+    sudo -u wenmi install -m 600 "${source}" "${destination}"
+    sudo -u wenmi cmp -s "${source}" "${destination}"
+    source_hash="$(sudo -u wenmi sha256sum "${source}" | sudo -u wenmi awk '{ print $1 }')"
+    copied_hash="$(sudo -u wenmi sha256sum "${destination}" | sudo -u wenmi awk '{ print $1 }')"
+    [[ "${source_hash}" == "${copied_hash}" ]]
+  fi
+done
+sudo -u wenmi test "$(sudo -u wenmi sqlite3 -readonly -noheader "${BEFORE_DIR}/wenmi.sqlite" 'PRAGMA integrity_check;')" = ok
+sudo -u wenmi test -z "$(sudo -u wenmi sqlite3 -readonly -noheader "${BEFORE_DIR}/wenmi.sqlite" 'PRAGMA foreign_key_check;')"
+
+# 只有取得本次恢复授权后才替换数据库；旧 WAL/SHM 已在唯一 before-restore 目录中保留。
+DATABASE_NEXT="$(sudo -u wenmi mktemp "${DATABASE_DIR}/.restore-next.XXXXXXXX")"
+sudo -u wenmi install -m 600 "${RESTORE_ROOT}/wenmi.sqlite" "${DATABASE_NEXT}"
+sudo -u wenmi sync -f "${DATABASE_NEXT}"
+sudo -u wenmi find "${DATABASE_DIR}" -maxdepth 1 -type f \
+  \( -name 'wenmi.sqlite-wal' -o -name 'wenmi.sqlite-shm' \) -delete
+sudo -u wenmi mv -Tf "${DATABASE_NEXT}" "${DATABASE}"
+DATABASE_NEXT=""
+DATABASE_REPLACED=1
+sudo -u wenmi sync -f "${DATABASE_DIR}"
+sudo -u wenmi test "$(sudo -u wenmi sqlite3 -readonly -noheader "${DATABASE}" 'PRAGMA integrity_check;')" = ok
+sudo -u wenmi test -z "$(sudo -u wenmi sqlite3 -readonly -noheader "${DATABASE}" 'PRAGMA foreign_key_check;')"
+
+# 作者文件仍只在 RESTORE_ROOT/files。任何上线目录覆盖/删除需同一次授权和单独影响预览。
 sudo systemctl start wenmi-api
 sleep 5
+sudo systemctl is-active --quiet wenmi-api
 sudo systemctl start wenmi-worker
-
-# 6. 验证健康检查
-curl -s http://127.0.0.1:43111/health | python3 -m json.tool
+sudo systemctl is-active --quiet wenmi-worker
+curl -fsS http://127.0.0.1:43111/health | python3 -m json.tool
+SERVICES_STOPPED=0
+printf 'restore_database=passed\nrestore_staging=%s\nbefore_restore=%s\n' "${RESTORE_ROOT}" "${BEFORE_DIR}"
 ```
-
 ## 安全清单
 
 部署完成后，逐项确认以下安全检查：

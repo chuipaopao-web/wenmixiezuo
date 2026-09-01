@@ -60,9 +60,15 @@ export async function registerV7PlanningTreeRoutes(
     return success(tasks, request.id);
   });
 
-  app.get<{ Params: TreeParams }>('/api/v1/v7/books/:bookId/planning-trees/:treeKind/:scopeId', async (request) => {
+  app.get<{ Params: TreeParams; Querystring: { version?: string } }>('/api/v1/v7/books/:bookId/planning-trees/:treeKind/:scopeId', async (request) => {
     const ownerId = scope(request, request.params.bookId);
-    return success(service.get(ownerId, request.params.bookId, request.params.treeKind, request.params.scopeId), request.id);
+    if (request.query.version === undefined) {
+      return success(service.get(ownerId, request.params.bookId, request.params.treeKind, request.params.scopeId), request.id);
+    }
+    if (request.query.version === 'confirmed') {
+      return success(service.getConfirmed(ownerId, request.params.bookId, request.params.treeKind, request.params.scopeId), request.id);
+    }
+    throw new DomainError(errorCodes.validation, '规划版本参数无效。');
   });
   app.get<{ Params: TreeParams }>('/api/v1/v7/books/:bookId/planning-trees/:treeKind/:scopeId/history', async (request) => {
     const ownerId = scope(request, request.params.bookId);
@@ -155,6 +161,15 @@ export async function registerV7PlanningTreeRoutes(
     const ownerId = scope(request, request.params.bookId);
     return success(await routes.decide(ownerId, request.params.bookId, request.params.runId, request.body ?? {}), request.id);
   });
+  app.post<{ Params: { bookId: string; runId: string }; Body: { selectedMemberKey?: unknown } }>(
+    '/api/v1/v7/books/:bookId/planning-routes/runs/:runId/continue-to-tree',
+    async (request) => {
+      const ownerId = scope(request, request.params.bookId);
+      return success(generation.continueRouteToTree(
+        ownerId, request.params.bookId, request.params.runId, request.body ?? {}
+      ), request.id);
+    }
+  );
   app.post<{ Params: TreeParams; Body: { selectedMemberKey?: unknown; idempotencyKey?: unknown } }>(
     '/api/v1/v7/books/:bookId/planning-trees/:treeKind/:scopeId/generation-runs',
     async (request) => {

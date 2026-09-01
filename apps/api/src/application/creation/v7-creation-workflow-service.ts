@@ -212,6 +212,16 @@ export interface V7CreationLibraryView {
   }>;
 }
 
+export interface V7TimeMachineProgressView {
+  finalizedChapterCount: number;
+  latestFinalChapter: null | {
+    manuscriptVersionId: string;
+    chapterNumber: number;
+    volumeScopeId: string | null;
+    chainScopeId: string | null;
+  };
+}
+
 export interface V7CreationManuscriptView {
   manuscriptVersionId: string;
   workflowId: string;
@@ -371,6 +381,25 @@ export class V7CreationWorkflowService {
           })
         };
       })
+    };
+  }
+
+  /**
+   * 时光机只需要不可变正文的聚合进度和最近定稿所属范围。
+   * 这一读取固定为一条按 owner_id + book_id 隔离的 SQL，不展开章纲、审校或正文内容。
+   */
+  public timeMachineProgress(ownerId: string, bookId: string): V7TimeMachineProgressView {
+    const row = this.repository.timeMachineProgress(ownerId, bookId);
+    return {
+      finalizedChapterCount: row.finalized_chapter_count,
+      latestFinalChapter: row.manuscript_version_id === null || row.chapter_number === null
+        ? null
+        : {
+            manuscriptVersionId: row.manuscript_version_id,
+            chapterNumber: row.chapter_number,
+            volumeScopeId: row.volume_scope_id,
+            chainScopeId: row.chain_scope_id
+          }
     };
   }
 

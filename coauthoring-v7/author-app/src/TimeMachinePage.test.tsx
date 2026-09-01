@@ -1,30 +1,40 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TimeMachinePage } from './TimeMachinePage';
 import * as api from './opening-api';
+import * as creationApi from './creation-api';
 
 vi.mock('./opening-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./opening-api')>();
   return {
     ...actual,
-    fetchPlanningTree: vi.fn(), fetchLatestPlanningRouteRun: vi.fn(), fetchLatestPlanningTreeGeneration: vi.fn(), fetchPlanningMembers: vi.fn(), fetchPlanningAdjustmentSuggestions: vi.fn(),
+    fetchPlanningTree: vi.fn(), fetchConfirmedPlanningTree: vi.fn(), fetchLatestPlanningRouteRun: vi.fn(), fetchLatestPlanningTreeGeneration: vi.fn(), fetchPlanningMembers: vi.fn(), fetchPlanningAdjustmentSuggestions: vi.fn(),
     createPlanningRouteRun: vi.fn(), retryMissingPlanningRoutes: vi.fn(), fetchPlanningRouteRun: vi.fn(), decidePlanningRoute: vi.fn(),
-    createPlanningTreeGeneration: vi.fn(), fetchPlanningTreeGeneration: vi.fn(), confirmPlanningTree: vi.fn(),
+    continuePlanningRouteToTree: vi.fn(), createPlanningTreeGeneration: vi.fn(), fetchPlanningTreeGeneration: vi.fn(), confirmPlanningTree: vi.fn(),
     retryPlanningTreeGeneration: vi.fn(), cancelPlanningRouteRun: vi.fn(), cancelPlanningTreeGeneration: vi.fn()
   };
 });
 
+vi.mock('./creation-api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./creation-api')>();
+  return { ...actual, fetchTimeMachineProgress: vi.fn(), fetchStoryState: vi.fn() };
+});
+
 const mocked = vi.mocked(api);
+const mockedCreation = vi.mocked(creationApi);
 
 describe('V7时光机真实规划闭环', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.fetchPlanningTree.mockRejectedValue(new api.AuthorApiError('还没有正式框架', false, 404));
+    mocked.fetchConfirmedPlanningTree.mockRejectedValue(new api.AuthorApiError('还没有已确认框架', false, 404));
     mocked.fetchLatestPlanningRouteRun.mockResolvedValue(null);
     mocked.fetchLatestPlanningTreeGeneration.mockResolvedValue(null);
     mocked.fetchPlanningMembers.mockResolvedValue([]);
     mocked.fetchPlanningAdjustmentSuggestions.mockResolvedValue([]);
+    mockedCreation.fetchTimeMachineProgress.mockResolvedValue({ finalizedChapterCount: 0, latestFinalChapter: null });
+    mockedCreation.fetchStoryState.mockResolvedValue([]);
   });
 
   afterEach(() => cleanup());
@@ -76,6 +86,61 @@ describe('V7时光机真实规划闭环', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('暂时连接不上文秘写作服务');
   });
 
+  it('核心规划503时不把失败冒充空白新书，重读后恢复正式框架', async () => {
+    mocked.fetchPlanningTree
+      .mockRejectedValueOnce(new api.AuthorApiError('核心规划暂时不可用', true, 503))
+      .mockResolvedValueOnce({ ...treeView(), status: 'confirmed' });
+    mockedCreation.fetchTimeMachineProgress.mockResolvedValue(timeMachineProgressView());
+    mockedCreation.fetchStoryState.mockResolvedValue([
+      storyStateItem('story_line', 'survival', '乱世求生线', 'completed', '张三已经带队站稳脚跟。')
+    ]);
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByText('已定稿6章 · 最新第6章')).toBeVisible();
+    expect(screen.getByText('张三已经带队站稳脚跟。')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '开始规划全书' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重新读取核心规划' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '重新读取核心规划' }));
+
+    expect(await screen.findByText('张三从小卒到改变时代')).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole('button', { name: '重新读取核心规划' })).not.toBeInTheDocument());
+    expect(mocked.fetchPlanningTree).toHaveBeenCalledTimes(2);
+  });
+
+  it('全书规划真实404时仍显示不可变正文和故事实际，并且只在此时允许新建', async () => {
+    mockedCreation.fetchTimeMachineProgress.mockResolvedValue(timeMachineProgressView());
+    mockedCreation.fetchStoryState.mockResolvedValue([
+      storyStateItem('story_line', 'survival', '乱世求生线', 'completed', '张三已经带队站稳脚跟。')
+    ]);
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByRole('button', { name: '开始规划全书' })).toBeEnabled();
+    expect(screen.getByText('已定稿6章 · 最新第6章')).toBeVisible();
+    expect(screen.getByText('张三已经带队站稳脚跟。')).toBeInTheDocument();
+  });
+
+  it('切换书籍后延迟返回的旧书响应不会覆盖或短暂展示到新书', async () => {
+    let resolveBookA!: (value: api.PlanningTreeView) => void;
+    const bookATree = { ...treeView(), title: 'A书旧方向', root: { ...treeView().root, title: 'A书旧方向' } };
+    const bookBTree = { ...treeView(), scopeId: 'book-b', title: 'B书正式方向', root: { ...treeView().root, title: 'B书正式方向' } };
+    mocked.fetchPlanningTree.mockImplementation((currentBookId) => currentBookId === 'book-a'
+      ? new Promise((resolve) => { resolveBookA = resolve; })
+      : Promise.resolve(bookBTree));
+
+    const view = render(<TimeMachinePage key="book-a" bookId="book-a" />);
+    await waitFor(() => expect(mocked.fetchPlanningTree).toHaveBeenCalledWith('book-a', 'book', 'book-a', expect.any(AbortSignal)));
+
+    view.rerender(<TimeMachinePage key="book-b" bookId="book-b" />);
+    expect(await screen.findByText('B书正式方向')).toBeVisible();
+
+    await act(async () => { resolveBookA(bookATree); });
+
+    expect(screen.getByText('B书正式方向')).toBeVisible();
+    expect(screen.queryByText('A书旧方向')).not.toBeInTheDocument();
+  });
   it('成员名单或未来建议暂时失败时，仍能进入全书方向主流程', async () => {
     mocked.fetchPlanningMembers.mockRejectedValue(new api.AuthorApiError('成员名单暂时不可用', true, 503));
     mocked.fetchPlanningAdjustmentSuggestions.mockRejectedValue(new api.AuthorApiError('建议暂时不可用', true, 503));
@@ -85,6 +150,23 @@ describe('V7时光机真实规划闭环', () => {
     expect(await screen.findByRole('heading', { name: '先准备全书方向' })).toBeVisible();
     expect(screen.getByRole('button', { name: '开始规划全书' })).toBeEnabled();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('正文实际读取缓慢时不阻塞已确认的全书方向', async () => {
+    let resolveProgress!: (value: creationApi.TimeMachineProgressView) => void;
+    let resolveStoryState!: (value: creationApi.StoryStateItemView[]) => void;
+    mocked.fetchPlanningTree.mockResolvedValue({ ...treeView(), status: 'confirmed' });
+    mockedCreation.fetchTimeMachineProgress.mockReturnValue(new Promise((resolve) => { resolveProgress = resolve; }));
+    mockedCreation.fetchStoryState.mockReturnValue(new Promise((resolve) => { resolveStoryState = resolve; }));
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByText('张三从小卒到改变时代')).toBeVisible();
+    expect(screen.getByText('正在读取正文实际')).toBeVisible();
+    resolveProgress({ finalizedChapterCount: 0, latestFinalChapter: null });
+    resolveStoryState([]);
+    await waitFor(() => expect(screen.queryByText('正在读取已经定稿的正文进度和故事变化…')).not.toBeInTheDocument());
+    expect(screen.getByText(/目前还没有可结算的故事线数据/u)).toBeInTheDocument();
   });
 
   it('刷新时任务已经完成但框架稍后入库，会再次取回真实框架', async () => {
@@ -100,6 +182,24 @@ describe('V7时光机真实规划闭环', () => {
 
     expect(await screen.findByText('张三从小卒到改变时代')).toBeVisible();
     expect(mocked.fetchPlanningTree).toHaveBeenCalledTimes(2);
+  });
+
+  it('历史成员已退役但成功框架仍按完成结果展示，不覆盖已确认全书方向', async () => {
+    mocked.fetchPlanningTree.mockResolvedValue({ ...treeView(), status: 'confirmed' });
+    mocked.fetchLatestPlanningRouteRun.mockResolvedValue({
+      ...routeRun(), status: 'completed', phase: 'completed', canDecide: false,
+      message: '全书方向已经确认，可以生成正式框架树。', errorMessage: null
+    });
+    mocked.fetchLatestPlanningTreeGeneration.mockResolvedValue({
+      ...generation(), status: 'ready', message: '方案已经完成并安全保留，可以继续查看正式框架。',
+      candidateTreeVersionId: 'tree-version-1', canOpenCandidate: true, errorMessage: null
+    });
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByText('张三从小卒到改变时代')).toBeVisible();
+    expect(screen.queryByText(/规划树任务不能继续执行/u)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '继续未完成步骤' })).not.toBeInTheDocument();
   });
 
   it('把安全的前置条件原话告诉作者，不用笼统失败掩盖处理办法', async () => {
@@ -134,8 +234,11 @@ describe('V7时光机真实规划闭环', () => {
     const run = routeRun();
     mocked.fetchLatestPlanningRouteRun.mockResolvedValue(run);
     mocked.decidePlanningRoute.mockResolvedValue({ routeVersionId: 'route-version-1', recipeVersionId: 'recipe-version-1', status: 'confirmed', nextStep: 'book_tree' });
-    mocked.fetchPlanningRouteRun.mockResolvedValue({ ...run, status: 'completed', phase: 'completed', canDecide: false });
-    mocked.createPlanningTreeGeneration.mockResolvedValue(generation());
+    mocked.fetchPlanningRouteRun.mockResolvedValue({
+      ...run, status: 'completed', phase: 'completed', canDecide: false,
+      canContinueTree: true, nextStepPending: true
+    });
+    mocked.continuePlanningRouteToTree.mockResolvedValue(generation());
 
     render(<TimeMachinePage bookId="book-1" />);
     expect(await screen.findByText('边军立足到新政破局')).toBeVisible();
@@ -149,9 +252,44 @@ describe('V7时光机真实规划闭环', () => {
     await waitFor(() => expect(mocked.decidePlanningRoute).toHaveBeenCalledWith('book-1', 'route-run-1', expect.objectContaining({
       mode: 'select', routeIds: ['route-2']
     })));
-    expect(mocked.createPlanningTreeGeneration).toHaveBeenCalledWith('book-1', 'book', 'book-1', undefined);
+    expect(mocked.continuePlanningRouteToTree).toHaveBeenCalledWith('book-1', 'route-run-1', undefined);
+    expect(mocked.createPlanningTreeGeneration).not.toHaveBeenCalled();
   });
 
+  it('刷新时已完成路线仍有待接续步骤，会在已有正式框架的编辑部内继续同一run', async () => {
+    mocked.fetchPlanningTree.mockResolvedValue({ ...treeView(), status: 'confirmed' });
+    mocked.fetchLatestPlanningRouteRun.mockResolvedValue({
+      ...routeRun(), status: 'completed', phase: 'completed', canDecide: false,
+      canContinueTree: true, nextStepPending: true,
+      message: '全书方向已经确认，等待展开正式框架。'
+    });
+    mocked.continuePlanningRouteToTree.mockResolvedValue(generation());
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    const editorial = (await screen.findByText('编辑部')).closest('details');
+    expect(editorial).toHaveAttribute('open');
+    fireEvent.click(screen.getByRole('button', { name: '生成正式框架' }));
+
+    await waitFor(() => expect(mocked.continuePlanningRouteToTree).toHaveBeenCalledWith('book-1', 'route-run-1', undefined));
+    expect(mocked.createPlanningTreeGeneration).not.toHaveBeenCalled();
+  });
+
+  it('已完成路线不可续接时不显示重复生成或重新规划入口', async () => {
+    mocked.fetchLatestPlanningRouteRun.mockResolvedValue({
+      ...routeRun(), status: 'completed', phase: 'completed', canDecide: false,
+      canContinueTree: false, nextStepPending: false,
+      message: '全书方向已经完成。'
+    });
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByText('这轮方向已经接续或不再允许重复生成正式框架，现有结果会继续保留。')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '生成正式框架' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '开始规划全书' })).not.toBeInTheDocument();
+    expect(mocked.continuePlanningRouteToTree).not.toHaveBeenCalled();
+    expect(mocked.createPlanningTreeGeneration).not.toHaveBeenCalled();
+  });
   it('框架已知失败时续跑原任务，不会另建一条重复任务', async () => {
     const onOpenSettings = vi.fn();
     const failedGeneration: api.PlanningTreeGenerationView = {
@@ -253,6 +391,139 @@ describe('V7时光机真实规划闭环', () => {
     await waitFor(() => expect(mocked.confirmPlanningTree).toHaveBeenCalledWith('book-1', 'book', 'book-1', 1));
   });
 
+  it('从不可变正文聚合和已确认链树显示真实写作进度，候选链不能覆盖正文实际', async () => {
+    const bookTree = { ...treeView(), status: 'confirmed' as const };
+    const confirmedChainTree = chainTreeView();
+    const candidateChainTree = { ...chainTreeView(), status: 'candidate' as const, title: '候选链不应展示', root: { ...chainTreeView().root, title: '候选链不应展示' } };
+    mocked.fetchPlanningTree.mockImplementation(async (_bookId, treeKind) => treeKind === 'chain' ? candidateChainTree : bookTree);
+    mocked.fetchConfirmedPlanningTree.mockResolvedValue(confirmedChainTree);
+    mockedCreation.fetchTimeMachineProgress.mockResolvedValue(timeMachineProgressView());
+    mockedCreation.fetchStoryState.mockResolvedValue([
+      { kind: 'story_line', stableKey: 'survival', title: '乱世求生线', state: 'completed', revision: 6, detail: { summary: '张三已经带队站稳脚跟。' }, evidenceRefs: [], updatedAt: '2026-08-30T18:02:41.336Z' },
+      { kind: 'foreshadowing', stableKey: 'merit-ledger', title: '军功簿疑点', state: 'deepened', revision: 3, detail: { summary: '军功簿的异常已经被张三记下。' }, evidenceRefs: [], updatedAt: '2026-08-30T18:02:41.336Z' },
+      { kind: 'open_question', stableKey: 'next-mission', title: '西沟续探会遇到什么', state: 'open', revision: 1, detail: {}, evidenceRefs: [], updatedAt: '2026-08-30T18:02:41.336Z' }
+    ]);
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByText('正文进度')).toBeVisible();
+    expect(screen.getByText('已定稿6章 · 最新第6章')).toBeVisible();
+    expect(screen.getByText('最近定稿链：溃兵归营')).toBeVisible();
+    expect(screen.getByText('张三正式成为队率，并带队继续西沟任务。')).toBeVisible();
+    expect(screen.getByText('张三已经带队站稳脚跟。')).toBeInTheDocument();
+    expect(screen.getByText('军功簿的异常已经被张三记下。')).toBeInTheDocument();
+    expect(screen.getByText('西沟续探会遇到什么 · 仍待回答')).toBeInTheDocument();
+    expect(screen.queryByText('候选链不应展示')).not.toBeInTheDocument();
+    expect(screen.queryByText('目前还没有可结算的故事线数据。')).not.toBeInTheDocument();
+    expect(mocked.fetchConfirmedPlanningTree).toHaveBeenCalledWith('book-1', 'chain', 'rout-and-regroup', expect.any(AbortSignal));
+    expect(mocked.fetchPlanningTree).not.toHaveBeenCalledWith('book-1', 'chain', 'rout-and-regroup', expect.anything());
+  });
+
+  it('故事状态先失败、重读时正文接口失败，仍保留上次成功的6章并显示新故事状态', async () => {
+    mocked.fetchPlanningTree.mockResolvedValue({ ...treeView(), status: 'confirmed' });
+    mockedCreation.fetchTimeMachineProgress
+      .mockResolvedValueOnce(timeMachineProgressView())
+      .mockRejectedValueOnce(new api.AuthorApiError('正文进度本次刷新失败', true, 503));
+    mockedCreation.fetchStoryState
+      .mockRejectedValueOnce(new api.AuthorApiError('故事状态首次读取失败', true, 503))
+      .mockResolvedValueOnce([
+        storyStateItem('story_line', 'survival', '乱世求生线', 'completed', '张三已经带队站稳脚跟。')
+      ]);
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByText('已定稿6章 · 最新第6章')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '重新读取正文进度' }));
+
+    expect(await screen.findByText('张三已经带队站稳脚跟。')).toBeInTheDocument();
+    expect(screen.getByText('已定稿6章 · 最新第6章')).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent('已保留上次成功读取的内容');
+    expect(screen.getByRole('alert')).toHaveTextContent('可能不是最新状态');
+  });
+
+  it('正文进度先失败、重读时故事接口失败，仍保留上次成功故事并补回6章', async () => {
+    mocked.fetchPlanningTree.mockResolvedValue({ ...treeView(), status: 'confirmed' });
+    mockedCreation.fetchTimeMachineProgress
+      .mockRejectedValueOnce(new api.AuthorApiError('正文进度首次读取失败', true, 503))
+      .mockResolvedValueOnce(timeMachineProgressView());
+    mockedCreation.fetchStoryState
+      .mockResolvedValueOnce([
+        storyStateItem('story_line', 'survival', '乱世求生线', 'completed', '张三已经带队站稳脚跟。')
+      ])
+      .mockRejectedValueOnce(new api.AuthorApiError('故事状态本次刷新失败', true, 503));
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByText('张三已经带队站稳脚跟。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重新读取正文进度' }));
+
+    expect(await screen.findByText('已定稿6章 · 最新第6章')).toBeVisible();
+    expect(screen.getByText('张三已经带队站稳脚跟。')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('已保留上次成功读取的内容');
+    expect(screen.getByRole('alert')).toHaveTextContent('可能不是最新状态');
+  });
+  it('正文实际接口失败时不冒充空数据，并能在原页重新读取', async () => {
+    mocked.fetchPlanningTree.mockResolvedValue({ ...treeView(), status: 'confirmed' });
+    mockedCreation.fetchTimeMachineProgress
+      .mockRejectedValueOnce(new api.AuthorApiError('正文进度暂时不可用', true, 503))
+      .mockResolvedValueOnce(timeMachineProgressView());
+    mockedCreation.fetchStoryState
+      .mockRejectedValueOnce(new api.AuthorApiError('故事状态暂时不可用', true, 503))
+      .mockResolvedValueOnce([]);
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('正文实际暂时没有完整读取成功');
+    expect(screen.getByText('正文实际暂时没有读取成功。请使用页面上方的“重新读取正文进度”，这里不会把读取失败说成没有内容。')).toBeInTheDocument();
+    expect(screen.queryByText('目前还没有可结算的故事线数据。')).not.toBeInTheDocument();
+    expect(mocked.fetchPlanningTree).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '重新读取正文进度' }));
+
+    expect(await screen.findByText('已定稿6章 · 最新第6章')).toBeVisible();
+    expect(mocked.fetchPlanningTree).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(mockedCreation.fetchTimeMachineProgress).toHaveBeenCalledTimes(2);
+  });
+
+  it('已确认链读取失败时保留正文计数，不把服务错误冒充没有链记录', async () => {
+    mocked.fetchPlanningTree.mockResolvedValue({ ...treeView(), status: 'confirmed' });
+    mockedCreation.fetchTimeMachineProgress.mockResolvedValue(timeMachineProgressView());
+    mocked.fetchConfirmedPlanningTree
+      .mockRejectedValueOnce(new api.AuthorApiError('确认链暂时不可用', true, 503))
+      .mockResolvedValueOnce(chainTreeView());
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByText('已定稿6章 · 最新第6章')).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent('正文实际暂时没有完整读取成功');
+    expect(screen.getByText('最近定稿链暂时没有读取成功；已定稿章数仍直接来自不可变正文版本，请使用页面上方的“重新读取正文进度”。')).toBeVisible();
+    expect(screen.queryByText(/最近定稿链还没有可核对/u)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '重新读取正文进度' }));
+
+    expect(await screen.findByText('最近定稿链：溃兵归营')).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+
+  it('已确认框架后的新失败重规划仍显示真实失败并允许续跑', async () => {
+    mocked.fetchPlanningTree.mockResolvedValue({ ...treeView(), status: 'confirmed' });
+    mocked.fetchLatestPlanningRouteRun.mockResolvedValue({
+      ...routeRun(), status: 'completed', phase: 'completed', canDecide: false,
+      message: '路线选择已经完成。', errorMessage: null
+    });
+    mocked.fetchLatestPlanningTreeGeneration.mockResolvedValue({
+      ...generation(), status: 'failed', message: '这次重规划没有完成，已确认框架仍然保留。', errorMessage: '这次重规划没有完成，已确认框架仍然保留。'
+    });
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByText('张三从小卒到改变时代')).toBeVisible();
+    expect(screen.getByText('对不起，这次没有完成。这次重规划没有完成，已确认框架仍然保留。')).toBeVisible();
+    expect(screen.getByRole('button', { name: '继续未完成步骤' })).toBeVisible();
+    expect(screen.queryByText('本轮方向调整正在进行')).not.toBeInTheDocument();
+    const editorial = screen.getByText('编辑部').closest('details');
+    expect(editorial).toHaveAttribute('open');
+  });
   it('正式框架保留页内调整入口，并允许重新选择一到三位主编', async () => {
     mocked.fetchPlanningTree.mockResolvedValue({ ...treeView(), status: 'confirmed' });
     mocked.fetchPlanningMembers.mockResolvedValue([
@@ -351,6 +622,60 @@ function treeView(): api.PlanningTreeView {
   };
 }
 
+function chainTreeView(): api.PlanningTreeView {
+  const event = {
+    ...node('rout-and-regroup-event-3', '押粮哨探，提为队率', []),
+    kind: 'event' as const,
+    budget: { wordTarget: 24_000, chapterRange: [5, 8] as const },
+    actual: {
+      state: 'completed' as const,
+      summary: '张三正式成为队率，并带队继续西沟任务。',
+      emotionResult: '压力后获得阶段确认。',
+      experienceResult: '身份变化和下一步任务同时兑现。',
+      outcome: '张三成为队率。',
+      recordedAt: '2026-08-30T18:02:41.336Z'
+    }
+  };
+  return {
+    treeKind: 'chain', scopeId: 'rout-and-regroup', status: 'confirmed', revision: 2, title: '溃兵归营',
+    root: {
+      ...node('rout-and-regroup', '溃兵归营', [event]),
+      kind: 'chain',
+      budget: { wordTarget: 48_000, chapterRange: [1, 8] },
+      actual: null
+    }
+  };
+}
+
+function storyStateItem(
+  kind: creationApi.StoryStateItemView['kind'],
+  stableKey: string,
+  title: string,
+  state: string,
+  summary: string
+): creationApi.StoryStateItemView {
+  return {
+    kind,
+    stableKey,
+    title,
+    state,
+    revision: 1,
+    detail: { summary },
+    evidenceRefs: [],
+    updatedAt: '2026-08-30T18:02:41.336Z'
+  };
+}
+function timeMachineProgressView(): creationApi.TimeMachineProgressView {
+  return {
+    finalizedChapterCount: 6,
+    latestFinalChapter: {
+      manuscriptVersionId: 'manuscript-6',
+      chapterNumber: 6,
+      volumeScopeId: 'volume-1',
+      chainScopeId: 'rout-and-regroup'
+    }
+  };
+}
 function node(key: string, title: string, children: api.PlanningTreeNodeView[]): api.PlanningTreeNodeView {
   return {
     key, kind: key.startsWith('book') ? 'book' : 'volume', sequence: 1, title,
