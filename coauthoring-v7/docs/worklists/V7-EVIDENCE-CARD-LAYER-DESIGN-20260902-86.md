@@ -72,6 +72,10 @@
 - 详版字段（publicExplanation/cautionSignals/responsibilities 等）**不删**，留后台供管理员参考，**不再进任何任务输入**。
 - 确定性校验：每张提名卡 ≤100字，超出构建期报错；两组资产必须全覆盖。
 
+### 3.1补 节奏线段数不定死（老板第十二轮确认）
+
+提名卡的"分段节奏线"**有几段画几段**（三幕式3段、五幕式5段、配方按自身阶段数），不存在"必须五段"。现状36条配方恰好都是5段，是 GPT 建库时在校验器里写死的（`validatePlotRecipeRegistry` 要求 `stages.length === 5`）——本批将该硬编码放宽为 **2~7段**，新入库配方按内容需要定段数；现有36条内容本身合格，不返工。
+
 ### 3.2 补 chapter 层标注（修自相似断链）
 
 宏观节奏框架按"能在章层自相似成立"补 `chapter` 标注：三幕式、四幕式/起承转合、五幕式、起承转结、完形原则、承诺-进展-兑现等。`layersForScopes` 已有 chapter→chapter_execution 映射，补标即生效。`validateMethodExecutionProfiles` 增加检查：framework 类资产至少覆盖一个层（现有）+ 宏观框架组（exclusiveGroup='macro-framework'）应覆盖 chapter 层（新，防再次断链）。
