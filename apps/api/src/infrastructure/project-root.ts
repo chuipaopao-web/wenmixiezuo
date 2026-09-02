@@ -17,7 +17,7 @@ export function findProjectRoot(start = process.cwd()): string {
 
 export function readReleaseId(projectRoot: string): string {
   const releaseId = readFileSync(resolve(projectRoot, 'RELEASE_ID'), 'utf8').trim();
-  if (!/^wm-(?:v[1-9][0-9]*|[a-z][a-z0-9-]*-r[1-9][0-9]*)-[0-9]{8}-[0-9]{6}-[a-f0-9]{8}$/.test(releaseId)) {
+  if (!/^wm-(?:v[1-9][0-9]*|[a-z][a-z0-9-]*-r[1-9][0-9]*)-[0-9]{8}-[0-9]{6}-[a-f0-9]{7,8}$/.test(releaseId)) {
     throw new Error('RELEASE_ID 格式无效');
   }
   return releaseId;
