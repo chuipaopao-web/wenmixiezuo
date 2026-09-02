@@ -81,9 +81,9 @@ function publicViewCopy(candidate: OpeningPackage): OpeningPackage {
   return copy as unknown as OpeningPackage;
 }
 
-function reordered(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(reordered);
+function reordered<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(reordered) as T;
   if (value === null || typeof value !== 'object') return value;
   const entries = Object.entries(value as Record<string, unknown>).reverse();
-  return Object.fromEntries(entries.map(([key, item]) => [key, reordered(item)]));
+  return Object.fromEntries(entries.map(([key, item]) => [key, reordered(item)])) as T;
 }
