@@ -7,10 +7,10 @@
 - 生产作者端：`https://wenmixiezuo.com/`
 - 生产独立后台：`https://admin.wenmixiezuo.com/`
 - 本地组合入口：`http://127.0.0.1:43110/`，后台位于 `/v7/`
-- 生产 API、Worker、Caddy 均运行第81批 V7 `wm-v7-20260902-100400-40c109f8`、Worker ready，静态版本保持第80批 `363e8b5c7989d05e8fba`
-- 静态发布本批未切换（`static_switch_required=0`），manifest SHA-256 为 `7d5e34a71de63bd9ff90606571368b890f91dc359ebeafad29019e1ac72a971d`；第78批服务 `wm-v7-20260901-230200-78a11ce0` 保留为部署脚本声明的回滚点，静态 previous 指针为 `37fde3ad807a5b4c87c6`
+- 生产 API、Worker、Caddy 均运行第82批 V7 `wm-v7-20260902-174800-e5b21c74`、Worker ready，静态版本保持第80批 `363e8b5c7989d05e8fba`
+- 静态发布本批未切换（`static_switch_required=0`），manifest SHA-256 为 `7d5e34a71de63bd9ff90606571368b890f91dc359ebeafad29019e1ac72a971d`；第81批服务 `wm-v7-20260902-100400-40c109f8` 保留为立即回滚点，静态 previous 指针为 `37fde3ad807a5b4c87c6`
 - 当前分支：`codex/light-coauthoring-v7`
-- 当前最新工单：`docs/worklists/V7-CREATION-CHAR-BUDGET-RECOVERY-20260902-81.md`
+- 当前最新工单：`docs/worklists/V7-PLANNING-LIBRARY-REF-RECOVERY-20260902-82.md`
 
 ## 已上线能力
 
@@ -68,6 +68,7 @@
 - 第78批产品提交 `780c3d8`、发布稳定性提交 `038fccc`；本地和生产隔离完整门禁最终均为746项通过、3项既有条件跳过，六工作区类型检查和构建通过。完整备份 `20260901T153310Z-r78`、两次迁移no-op、隔离API、连续30秒零任务、公网资源和切换后日志均通过。生产验收账号真实创建路线任务，旧409已消失；额度不足准确显示且任务中心只有最新任务可继续，390×844操作可达。
 - 生产当前保留第78批当前源码、第77批立即回滚源码和第76批更早回滚源码。发布前只清理两个未引用旧发布的可重建依赖缓存及npm/apt缓存，释放952,832,000字节；旧V6隔离数据库、作者生产数据、106个迁移、数据库回滚副本和完整备份均未删除。
 - 第81批 `wm-v7-20260902-100400-40c109f8` 已于 2026-09-02 12:51 CST 部署上线；源码包 SHA-256 为 `8a0cfa3c0d60b0501573cdea36719ac419b613e16d560fe7a185f6f477a9c8a3`，完整备份 `20260902T045012Z-418412`，`/health` 返回 `status=ok`、`worker=ready`、`canStartModelTasks=true` 且 releaseId 匹配。部署前 prune 只删除未引用旧发布和失败半成品目录，作者数据、数据库、备份和回滚版本未触碰；部署物料脚本修正了闭包报告目录权限和备份锁自锁问题。
+- 第82批 `wm-v7-20260902-174800-e5b21c74` 已于 2026-09-02 18:04 CST 部署上线；源码包 SHA-256 为 `a2c99a5bef61563ae1245f065d86d76c32053fef2fbd35bd5dea12cbb53e2ab1`，完整备份 `20260902T100232Z-423695`，`/health` 返回 `status=ok`、`worker=ready`、`canStartModelTasks=true` 且 releaseId 匹配。部署前 prune 未删除任何保留链目录；首次上传误用第81批源码包被 SHA 门禁拒绝且线上未切换，修正第82 wrapper 后重跑成功。
 - Git工作树包含完整V7开发成果和本轮清理，禁止重置和强推。
 
 ## 第 71 批真实回归
