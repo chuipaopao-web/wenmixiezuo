@@ -261,7 +261,11 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
 
   const applyGeneration = useCallback(async (next: PlanningTreeGenerationView): Promise<void> => {
     setGeneration(next);
-    if (next.status !== 'ready' || !next.canOpenCandidate) return;
+    if (next.status !== 'ready') return;
+    // 候选已不是当前最新版本（被更新候选接替或确认收编）时，若页面已经展示
+    // 已确认框架则保持不动；否则必须取回当前实际存在的框架，避免续接点击
+    // 静默回到"生成正式框架"起点按钮。
+    if (!next.canOpenCandidate && tree !== null && tree.status === 'confirmed') return;
     try {
       const currentTree = await fetchPlanningTree(bookId, 'book', bookId);
       setTree(currentTree);
@@ -271,7 +275,7 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
       setTreeReadState('failed');
       throw reason;
     }
-  }, [bookId]);
+  }, [bookId, tree]);
 
   useEffect(() => {
     if (visibleGeneration === null || !['waiting', 'working'].includes(visibleGeneration.status)) return;

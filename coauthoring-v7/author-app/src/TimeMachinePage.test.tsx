@@ -306,6 +306,46 @@ describe('V7时光机真实规划闭环', () => {
     expect(mocked.createPlanningTreeGeneration).not.toHaveBeenCalled();
   });
 
+  it('续接返回已完成但候选已被接替时，仍取回现有框架展示，不让按钮静默失效', async () => {
+    mocked.fetchLatestPlanningRouteRun.mockResolvedValue({
+      ...routeRun(), status: 'completed', phase: 'completed', canDecide: false,
+      canContinueTree: true, nextStepPending: true,
+      message: '全书方向已经确认，等待展开正式框架。'
+    });
+    mocked.continuePlanningRouteToTree.mockResolvedValue({
+      ...generation(), status: 'ready', message: '方案已经设计好，等您查看和确认。',
+      candidateTreeVersionId: 'tree-version-1', canOpenCandidate: false, errorMessage: null
+    });
+    mocked.fetchPlanningTree.mockResolvedValue(treeView());
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '生成正式框架' }));
+
+    expect(await screen.findByText('张三从小卒到改变时代')).toBeVisible();
+    expect(mocked.fetchPlanningTree).toHaveBeenCalledTimes(1);
+    expect(mocked.createPlanningTreeGeneration).not.toHaveBeenCalled();
+  });
+
+  it('续接返回已完成但候选已接替且取回失败时，显示可恢复错误而不是静默回起点', async () => {
+    mocked.fetchLatestPlanningRouteRun.mockResolvedValue({
+      ...routeRun(), status: 'completed', phase: 'completed', canDecide: false,
+      canContinueTree: true, nextStepPending: true,
+      message: '全书方向已经确认，等待展开正式框架。'
+    });
+    mocked.continuePlanningRouteToTree.mockResolvedValue({
+      ...generation(), status: 'ready', message: '方案已经设计好，等您查看和确认。',
+      candidateTreeVersionId: 'tree-version-1', canOpenCandidate: false, errorMessage: null
+    });
+    mocked.fetchPlanningTree.mockRejectedValue(new api.AuthorApiError('核心规划暂时没有读取成功', true, 503));
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '生成正式框架' }));
+
+    expect(await screen.findByRole('button', { name: '重新读取核心规划' })).toBeVisible();
+  });
+
   it('已完成路线不可续接时不显示重复生成或重新规划入口', async () => {
     mocked.fetchLatestPlanningRouteRun.mockResolvedValue({
       ...routeRun(), status: 'completed', phase: 'completed', canDecide: false,
