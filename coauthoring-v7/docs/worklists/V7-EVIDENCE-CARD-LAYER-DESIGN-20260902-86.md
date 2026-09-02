@@ -23,7 +23,7 @@ interface V7EvidenceCard {
   cardType: 'fact' | 'rhythm' | 'method' | 'responsibility';
   // fact=硬事实（人物/世界观/已发生剧情/伏笔状态）
   // rhythm=节奏锚（上层对本层的节奏/预算/转折位置要求）
-  // method=方法提名（只传名字，不传解释——方法论是模型内建知识，见下）
+  // method=精简方法提名卡（名字+分段节奏+一句注意，≤100字；详版解释不进输入，见下）
   // responsibility=责任卡（本层必须完成什么，如"本卷中段升级冲突，不提前解决核心矛盾"）
   key: string;                 // 复合键：cardType + 资产 key（沿用第82批复合键归一）
   title: string;
