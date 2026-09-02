@@ -7,10 +7,10 @@
 - 生产作者端：`https://wenmixiezuo.com/`
 - 生产独立后台：`https://admin.wenmixiezuo.com/`
 - 本地组合入口：`http://127.0.0.1:43110/`，后台位于 `/v7/`
-- 生产 API、Worker、Caddy 均运行第84批 V7 `wm-v7-20260902-203200-84a1f2c6`、Worker ready，静态版本保持第80批 `363e8b5c7989d05e8fba`
-- 静态发布本批未切换（`static_switch_required=0`），manifest SHA-256 为 `7d5e34a71de63bd9ff90606571368b890f91dc359ebeafad29019e1ac72a971d`；第82批服务 `wm-v7-20260902-174800-e5b21c74` 保留为立即回滚点，静态 previous 指针为 `37fde3ad807a5b4c87c6`
+- 生产 API、Worker、Caddy 均运行第85批 V7 `wm-v7-20260902-224500-f77079b`、Worker ready，静态版本保持第80批 `363e8b5c7989d05e8fba`
+- 静态发布本批未切换（`static_switch_required=0`），manifest SHA-256 为 `7d5e34a71de63bd9ff90606571368b890f91dc359ebeafad29019e1ac72a971d`；第84批服务 `wm-v7-20260902-203200-84a1f2c6` 保留为立即回滚点，静态 previous 指针为 `37fde3ad807a5b4c87c6`
 - 当前分支：`codex/light-coauthoring-v7`
-- 当前最新工单：`docs/worklists/V7-OPENING-CONFIRM-DEADLOCK-20260902-84.md`
+- 当前最新工单：`docs/worklists/V7-GLM53-THINKING-BURNOUT-20260902-85.md`
 
 ## 已上线能力
 
@@ -70,7 +70,8 @@
 - 第81批 `wm-v7-20260902-100400-40c109f8` 已于 2026-09-02 12:51 CST 部署上线；源码包 SHA-256 为 `8a0cfa3c0d60b0501573cdea36719ac419b613e16d560fe7a185f6f477a9c8a3`，完整备份 `20260902T045012Z-418412`，`/health` 返回 `status=ok`、`worker=ready`、`canStartModelTasks=true` 且 releaseId 匹配。部署前 prune 只删除未引用旧发布和失败半成品目录，作者数据、数据库、备份和回滚版本未触碰；部署物料脚本修正了闭包报告目录权限和备份锁自锁问题。
 - 第82批 `wm-v7-20260902-174800-e5b21c74` 已于 2026-09-02 18:04 CST 部署上线；源码包 SHA-256 为 `a2c99a5bef61563ae1245f065d86d76c32053fef2fbd35bd5dea12cbb53e2ab1`，完整备份 `20260902T100232Z-423695`，`/health` 返回 `status=ok`、`worker=ready`、`canStartModelTasks=true` 且 releaseId 匹配。部署前 prune 未删除任何保留链目录；首次上传误用第81批源码包被 SHA 门禁拒绝且线上未切换，修正第82 wrapper 后重跑成功。
 - 第84批 `wm-v7-20260902-203200-84a1f2c6` 已于 2026-09-02 21:41 CST 部署上线；实际部署源码提交 `3fcaa03`（在第84批提交 `1fd45d7` 基础上仅补测试类型修复），源码包 SHA-256 为 `4b30854a51e4a2d74d54bf334461c6cda13f16fd95fe91e7df863d566eeb9a6c`，完整备份 `20260902T133852Z-429407`，`/health` 返回 `status=ok`、`worker=ready`、`canStartModelTasks=true` 且 releaseId 匹配。首次部署在远端门禁阶段因新增测试类型错误失败，线上未切换；修复后重跑通过，部署前 prune 只删除失败半成品发布目录，作者数据、数据库、备份和回滚版本未触碰。部署后只读 SQL 定性：`1248307030@qq.com` 的西施失败主要是第82批上线前旧任务；第82上线后无新的规划生成失败；`glm-5.3/coding` 近48小时成功52失败59，失败集中为 `max_tokens` 截断/无可提交 JSON，后续应在模型路由、失败降级和资料包瘦身中处理。
-- Git工作树包含完整V7开发成果和本轮清理，禁止重置和强推。第84批实际部署源码提交 `3fcaa03` 尚未推送到远程：本轮 `git push origin codex/light-coauthoring-v7` 被自动安全审核拒绝，原因是生产部署授权不等于代码外传授权；如需远程与线上发布一致，需老板明确授权推送。
+- 第85批 `wm-v7-20260902-224500-f77079b` 已于 2026-09-02 23:19 CST 部署上线；GLM 思考烧穿修复实现提交 `f77079b`，发布元数据提交 `f57bd97`，实际部署源码提交 `12e1522`（仅追加发布号尾部 7 位短 SHA 兼容），源码包 SHA-256 为 `51ec538d2b25e668afe429cc2ed5373c8295d03de1877fe87d3903e5c767a984`，完整备份 `20260902T151204Z-438739`，`/health` 返回 `status=ok`、`worker=ready`、`canStartModelTasks=true` 且 releaseId 匹配。部署流程复用第84批 stage→backup→preflight→cutover→postdeploy；无新数据库迁移，迁移仍为106个，静态版本保持 `363e8b5c7989d05e8fba` 且 `static_switch_required=0`。两次失败都发生在切换前：第一次是部署脚本只允许8位发布号尾缀，第二次是应用 `readReleaseId` 只允许8位发布号尾缀；均未切换线上。修复为7-8位后 `verify:full`、运行闭包、静态身份、两次迁移 no-op、隔离API、30秒零在途和 postdeploy 通过，作者数据、数据库、备份和回滚版本未触碰。
+- Git工作树包含完整V7开发成果和本轮清理，禁止重置和强推。远程当前已到第86批设计稿提交 `1d03742`（未实施、未部署），不能用远程 HEAD 判断生产版本；生产运行事实以 `/opt/wenmi/RELEASE_ID` 和 `/health` 为准。
 
 ## 第 71 批真实回归
 
