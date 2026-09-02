@@ -11,18 +11,18 @@
 - 当前代码区：`coauthoring-v7/`
 - 当前分支：`codex/light-coauthoring-v7`
 
-生产 API、Worker、Caddy 和 V7 静态发布已于 2026-09-02 切换到第79批 `wm-v7-20260902-032349-499e3819`，静态版本 `37fde3ad807a5b4c87c6`（9文件，manifest `805a5d8f187d817e614a3320f3c0dd2619329484ffa6dda58c6462781145ccd7`）；106 个迁移、API/Worker 发布号、作者端、独立后台、静态哈希资源、公网健康、队列清零和数据库完整性均已独立验证。第78批应用 `wm-v7-20260901-230200-78a11ce0` 与静态版本 `eecbb419c22bbba7a8de` 现为立即回滚点，第77批应用 `wm-v7-20260901-203016-69bf9d6d` 与静态版本 `e33dd243118bc63140c5` 继续保留；本批完整备份为 `20260901T190001Z-396659`。本次为满足发布空间门禁，仅删除两个不在 current/previous/rollback 指针中的旧实验发布目录，作者数据、数据库、备份和回滚版本未触碰。阿里云 `admin + sudo` 公钥自动发布通道已验证，后续不再需要老板打开 Workbench 手工输入部署命令；生产数据库和服务器运行目录始终是线上事实来源，本地数据不能回写或替代生产数据。**注意：第81批（全书字符预算门禁修复，`wm-v7-20260902-100400-40c109f8`）代码已完成并推送，但尚未部署上线；部署物料与执行方式见"新任务最小阅读"第2条，部署前必须先执行 prune 脚本清理磁盘。**
+生产 API、Worker 和 Caddy 已于 2026-09-02 12:51 CST 切换到第81批 `wm-v7-20260902-100400-40c109f8`；静态版本保持第80批 `363e8b5c7989d05e8fba`（manifest SHA-256 `7d5e34a71de63bd9ff90606571368b890f91dc359ebeafad29019e1ac72a971d`，本批 `static_switch_required=0`）。106 个迁移、发布号、公网健康、作者端、独立后台和服务状态已独立验证；`/health` 返回 `status=ok`、`worker=ready`、`canStartModelTasks=true`、`releaseId=wm-v7-20260902-100400-40c109f8`，API/Worker/Caddy 均为 `active`。本批完整备份为 `20260902T045012Z-418412`；第78批应用 `wm-v7-20260901-230200-78a11ce0` 继续作为部署脚本声明的回滚保留点，静态 previous 指针为 `37fde3ad807a5b4c87c6`。为满足发布空间门禁，部署前 prune 仅删除不在指针链中的旧发布目录和失败半成品目录，作者数据、数据库、备份和回滚版本未触碰。阿里云 `admin + sudo` 公钥自动发布通道已验证，后续不再需要老板打开 Workbench 手工输入部署命令；生产数据库和服务器运行目录始终是线上事实来源，本地数据不能回写或替代生产数据。
 
 ## 新任务最小阅读
 
 1. 当前已完成的最新工单：`coauthoring-v7/docs/worklists/V7-CREATION-CHAR-BUDGET-RECOVERY-20260902-81.md`。第81批一次性修复全书字符预算门禁这一类问题：卷/链/章生成门禁与时光机同源（正文超预算即整门禁失败）、外加事实账本 40 条硬上限截断；实现提交 `3239108`、工单证据提交 `42cbb86b`、发布号提交 `1958fabb`（`RELEASE_ID` = `wm-v7-20260902-100400-40c109f8`），均已推送到远程 `codex/light-coauthoring-v7`。测试证据：预算恢复专项 10/10、时光机回归 9/9、设定编辑部集成 33/33、设定+流水线合并 49/49、章门禁 18/18，apps/api 与 apps/worker 类型检查通过（backend dist 已重建）。
-2. **第81批尚未部署上线，待交接执行**。首次部署尝试在 stage 磁盘门禁失败（可用 9.49GB < 门禁 10GiB），服务器未被触碰、未产生任何切换。所有部署物料已冻结在 `artifacts/`：
+2. **第81批已部署上线**。最终部署结果：`DEPLOYMENT_PASSED`，`release=wm-v7-20260902-100400-40c109f8`，`apps=/opt/wenmi-releases/wm-v7-20260902-100400-40c109f8/source/apps`，`static=/opt/wenmi/releases/versions/363e8b5c7989d05e8fba`，`backup_run_id=20260902T045012Z-418412`，`started_at=2026-09-02T04:45:24Z`，`switch_started_at=2026-09-02T04:51:49+00:00`，`completed_at=2026-09-02T04:51:54Z`。部署前先执行 prune 清理了未引用旧发布和失败半成品；部署过程中修正了 `artifacts/deploy/deploy-r81-1958fabb.sh` 两个编排问题：运行闭包报告目录需由 `wenmi` 可写、备份锁只做启动探测避免和 `backup.sh` 自锁冲突。冻结物料仍保留在 `artifacts/`：
    - 源码包 `artifacts/deploy/1958fabb-source.tar.gz`（SHA256 `8a0cfa3c0d60b0501573cdea36719ac419b613e16d560fe7a185f6f477a9c8a3`，4204122 字节，`git -c core.autocrlf=false -c core.eol=lf archive 1958fabb` 生成）。
    - 部署编排 `artifacts/deploy/deploy-r81-1958fabb.sh`（阶段顺序 stage→backup→preflight→cutover→postdeploy，flock 防并发，失败自动回滚，期望迁移数 106）。
    - 磁盘清理 `artifacts/deploy/prune-unreferenced-releases-r81.sh`：删除 `/opt/wenmi-releases` 下不在指针链的旧目录（保留第79/78/77/76批四个目录），带 apps 符号链接校验，必须先于部署执行以过磁盘门禁。
    - 一键封装 `artifacts/deploy-batch81.ps1`：本地哈希校验→LF 规范化→上传并执行 prune→上传脚本与源码包→远端 sha256 校验→后台启动部署→每45秒轮询日志至 DEPLOYMENT_PASSED/DEPLOY_R81_FAILED，最后输出 `deployment-result.txt` 与 `RELEASE_ID`。执行方式：`powershell -NoProfile -ExecutionPolicy Bypass -File D:\wenmixiezuo\artifacts\deploy-batch81.ps1`（约165分钟超时上限，通常几十分钟完成）。
    - 静态身份分支：web 静态不嵌入 RELEASE_ID，本批构建应复现第80批静态版本 `363e8b5c7989d05e8fba`；脚本内置校验 manifest sha256 `7d5e34a71de63bd9ff90606571368b890f91dc359ebeafad29019e1ac72a971d` 后跳过静态切换，仅切换应用。
-   - 部署成功后需回写：本条目改为"已上线"并补部署证据（备份 RUN_ID、切换后 RELEASE_ID、/health 结果），`coauthoring-v7/HANDOFF.md` 同步。
+   - 已回写部署证据并同步 `coauthoring-v7/HANDOFF.md`。注意：`artifacts/deploy-batch81.ps1` 的轮询只看日志最后3行，成功结果最后3行不含 `DEPLOYMENT_PASSED` 时可能继续等待；本次通过读取 `deployment-result.txt` 与 `/opt/wenmi/RELEASE_ID` 独立确认上线成功。
 3. 开发规则：`AGENTS.md`
 4. V7 代码交接：`coauthoring-v7/HANDOFF.md`
 5. 只有涉及数据、接口或部署时，按需读取 `docs/DATA_MODEL.md`、`docs/API.md`、`docs/DEPLOY.md`
