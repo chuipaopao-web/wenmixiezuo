@@ -23,7 +23,7 @@ interface V7EvidenceCard {
   cardType: 'fact' | 'rhythm' | 'method' | 'responsibility';
   // fact=硬事实（人物/世界观/已发生剧情/伏笔状态）
   // rhythm=节奏锚（上层对本层的节奏/预算/转折位置要求）
-  // method=方法卡（现有 narrative_method/plot_recipe/plot_pattern 收编进来）
+  // method=方法提名（只传名字，不传解释——方法论是模型内建知识，见下）
   // responsibility=责任卡（本层必须完成什么，如"本卷中段升级冲突，不提前解决核心矛盾"）
   key: string;                 // 复合键：cardType + 资产 key（沿用第82批复合键归一）
   title: string;
@@ -35,7 +35,7 @@ interface V7EvidenceCard {
 }
 ```
 
-与现有 `V7PlanningReferenceCard` 的关系：method 卡沿用其字段（title/explanation/caution），`caution` 归入 `misreadGuard`，零破坏收编。
+**方法提名原则（2026-09-02 老板定稿）**：五幕式、故事圈等叙事方法论是 AI 成员的内建知识，不需要也不应该把解释原文喂进任务输入——老板说"全书采用五幕式节奏"，成员自然明白第一幕建置、第二幕发酵。因此 method 卡**只传名字/一句定位**（约 3~30 Token，如"本卷节奏：五幕式"），零解释、零注意事项；方法库的解释文本只留在后台供资料策划选型参考，不再进入任何任务输入。任务输入的预算全部让给模型不可能知道的东西：本书事实、节奏决定、本层责任。现有 `V7PlanningReferenceCard` 的 explanation/caution 字段在收编时不再下发，仅保留 title 作为提名。
 
 ## 三、分层装配与递降（解决"资料包过大"的核心）
 
@@ -52,7 +52,7 @@ interface V7EvidenceCard {
 
 **谁选卡**：
 - fact/rhythm 卡：确定性投影（按 scope 和树结构判定相关性），不消耗模型调用、不引入资料策划的自由摘要漂移；
-- method 卡：沿用现状（资料策划召回 → 确定性裁剪，`buildPlanningLayerReferencePack` 不做第二次泛召回的原则不变）；
+- method 卡：资料策划召回后**只下发提名**（名字+一句定位，≤30字），方法库解释文本不下发；召回仍不做第二次泛召回（`buildPlanningLayerReferencePack` 原则不变）；
 - responsibility 卡：从上层确认树的节点责任确定性提取。
 
 与现有预算体系的关系：卡预算**取代**自由文本包成为任务输入的主形态；快照 sources 机制**保留**，降级为追溯与审计来源（sourceFingerprint、sourceTraces 不动）——卡引用 sourceKey，排查时能一路查回原文。
