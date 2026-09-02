@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPlanningLayerReferencePack } from './planning-layer-reference-pack.js';
+import { buildPlanningLayerReferencePack, type V7PlanningLayerReferencePack } from './planning-layer-reference-pack.js';
 import { parsePlanningTreeOutput } from './planning-tree-agent-runtime.js';
 import { projectPlanningTreeForChild } from './planning-tree-context-projection.js';
 
@@ -17,14 +17,74 @@ describe('V7分层候选工具包', () => {
     expect(chain.policy.originalStrategyRequired).toBe(true);
   });
 
-  it('拒绝成员引用本轮候选包之外的资产', () => {
+  it('候选包之外的引用被确定性丢弃，剧情与原创策略不受影响', () => {
     const pack = buildPlanningLayerReferencePack('chain');
     const document = treeDocument();
     document.designStrategy!.libraryRefs = [{
       assetType: 'plot_pattern', key: 'not-in-pack', applicationNote: '错误引用'
     }];
-    expect(() => parsePlanningTreeOutput(JSON.stringify(document), 'chain', 'chain-1', pack))
-      .toThrow('未提供的后台资产');
+    const parsed = parsePlanningTreeOutput(JSON.stringify(document), 'chain', 'chain-1', pack);
+    expect(parsed.designStrategy?.libraryRefs).toEqual([]);
+    expect(parsed.designStrategy?.originalStrategies[0]?.title).toBe('军粮账本反向追责');
+    expect(parsed.root.story.summary).toBe('发生具体行动。');
+  });
+
+  it('libraryRefs 缺失或非数组时按合同视为零引用', () => {
+    const source = treeDocument();
+    const missing = { ...source, designStrategy: { ...source.designStrategy } };
+    delete (missing.designStrategy as Record<string, unknown>).libraryRefs;
+    expect(parsePlanningTreeOutput(JSON.stringify(missing), 'chain', 'chain-1', buildPlanningLayerReferencePack('chain'))
+      .designStrategy?.libraryRefs).toEqual([]);
+    const malformed = {
+      ...source,
+      designStrategy: { ...source.designStrategy, libraryRefs: '照抄上层引用' }
+    };
+    expect(parsePlanningTreeOutput(JSON.stringify(malformed), 'chain', 'chain-1', buildPlanningLayerReferencePack('chain'))
+      .designStrategy?.libraryRefs).toEqual([]);
+  });
+
+  it('按复合键归一引用，类型名漂移但 key 唯一时仍能匹配', () => {
+    const pack = packWithCards([
+      { assetType: 'narrative_method', key: 'ledger-pressure', title: '账本压力法', explanation: '以账目细节持续施压。', caution: '只在适合时使用。' }
+    ]);
+    const document = treeDocument();
+    document.designStrategy!.libraryRefs = [
+      { assetType: 'plot_recipe', key: 'ledger-pressure', applicationNote: '用账本细节持续给克扣者压力。' }
+    ];
+    const parsed = parsePlanningTreeOutput(JSON.stringify(document), 'chain', 'chain-1', pack);
+    expect(parsed.designStrategy?.libraryRefs).toEqual([
+      { assetType: 'narrative_method', key: 'ledger-pressure', applicationNote: '用账本细节持续给克扣者压力。' }
+    ]);
+  });
+
+  it('重复引用去重、超出 libraryUseLimit 保留前 N 项、缺使用说明的引用丢弃', () => {
+    const pack = packWithCards([
+      { assetType: 'narrative_method', key: 'method-1', title: '方法一', explanation: 'e1', caution: 'c1' },
+      { assetType: 'narrative_method', key: 'method-2', title: '方法二', explanation: 'e2', caution: 'c2' },
+      { assetType: 'plot_recipe', key: 'recipe-1', title: '配方一', explanation: 'e3', caution: 'c3' },
+      { assetType: 'plot_pattern', key: 'pattern-1', title: '模式一', explanation: 'e4', caution: 'c4' },
+      { assetType: 'plot_pattern', key: 'pattern-2', title: '模式二', explanation: 'e5', caution: 'c5' },
+      { assetType: 'plot_pattern', key: 'pattern-3', title: '模式三', explanation: 'e6', caution: 'c6' }
+    ]);
+    const document = treeDocument();
+    document.designStrategy!.libraryRefs = [
+      { assetType: 'narrative_method', key: 'method-1', applicationNote: 'a1' },
+      { assetType: 'narrative_method', key: 'method-1', applicationNote: '重复引用' },
+      { assetType: 'plot_recipe', key: 'recipe-1', applicationNote: 'a3' },
+      { assetType: 'plot_pattern', key: 'pattern-1', applicationNote: 'a4' },
+      { assetType: 'plot_pattern', key: 'pattern-2', applicationNote: '   ' },
+      { assetType: 'plot_pattern', key: 'pattern-3', applicationNote: 'a6' },
+      { assetType: 'plot_pattern', key: 'pattern-2', applicationNote: 'a2-again' },
+      { assetType: 'narrative_method', key: 'method-2', applicationNote: 'a7' }
+    ];
+    const parsed = parsePlanningTreeOutput(JSON.stringify(document), 'chain', 'chain-1', pack);
+    expect(parsed.designStrategy?.libraryRefs).toEqual([
+      { assetType: 'narrative_method', key: 'method-1', applicationNote: 'a1' },
+      { assetType: 'plot_recipe', key: 'recipe-1', applicationNote: 'a3' },
+      { assetType: 'plot_pattern', key: 'pattern-1', applicationNote: 'a4' },
+      { assetType: 'plot_pattern', key: 'pattern-3', applicationNote: 'a6' },
+      { assetType: 'plot_pattern', key: 'pattern-2', applicationNote: 'a2-again' }
+    ]);
   });
 
   it('允许完全不套后台资产、只采用本书原创推进', () => {
@@ -117,6 +177,25 @@ describe('V7分层候选工具包', () => {
     expect(projection.root.children[1].threads).toBeUndefined();
   });
 });
+
+function packWithCards(cards: Array<{
+  assetType: 'narrative_method' | 'plot_recipe' | 'plot_pattern';
+  key: string; title: string; explanation: string; caution: string;
+}>): V7PlanningLayerReferencePack {
+  return {
+    schema: 'v7-planning-layer-reference-pack-v1',
+    treeKind: 'chain',
+    policy: {
+      candidateOnly: true,
+      libraryUseLimit: 5,
+      originalStrategyRequired: true,
+      instruction: '测试候选包。'
+    },
+    narrativeMethods: cards.filter((card) => card.assetType === 'narrative_method'),
+    plotRecipes: cards.filter((card) => card.assetType === 'plot_recipe'),
+    plotPatterns: cards.filter((card) => card.assetType === 'plot_pattern')
+  };
+}
 
 function treeDocument() {
   return {

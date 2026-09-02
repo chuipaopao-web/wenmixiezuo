@@ -7,7 +7,7 @@ import {
 } from './planning-tree-contracts.js';
 import type { CompiledLayeredPlanningTask } from '../planning-methods/layered-planning-engine.js';
 import type { V7PlanningMethodSearchRequest } from '../planning-methods/planning-method-retrieval.js';
-import type { V7PlanningLayerReferencePack } from './planning-layer-reference-pack.js';
+import type { V7PlanningLayerReferencePack, V7PlanningReferenceCard } from './planning-layer-reference-pack.js';
 
 export function parsePlanningTreeOutput(
   output: string,
@@ -45,7 +45,7 @@ export function planningTreeGenerationPrompt(input: {
     '已确认上层规划中的designStrategy、伏笔和开放问题属于本层交接责任。承接它们不等于复制上层分段：即使继续使用同一个方法，也必须按当前层的跨度、冲突、人物选择和回报重新设计，并让本层的埋设、兑现和下一层接口能追溯到上层承诺。',
     `资料策划签发的本任务身份、责任与创意空间：${JSON.stringify(input.contextPlan)}`,
     '顶层JSON字段必须完整且只按本合同输出：schema="v7-planning-tree-v1",treeKind,scopeId,title,designStrategy,root。不得省略服务端已给出的固定字段。',
-    '输出顶层designStrategy：libraryRefs最多使用候选包允许的数量，也可以为0；originalStrategies为1至6项，每项必须是{title,applicationNote}，说明只适合本书当前人物与局势的原创推进办法；decisionNote说明为什么这样取舍。',
+    '输出顶层designStrategy：libraryRefs最多使用候选包允许的数量，也可以为0；只能引用"当前层少量候选工具"里列出的资产，冻结资料中上层规划的引用不代表本轮可用，会被直接忽略；originalStrategies为1至6项，每项必须是{title,applicationNote}，说明只适合本书当前人物与局势的原创推进办法；decisionNote说明为什么这样取舍。',
     '正式资料与已确认上层方向不可静默改写；正文实际只能来自结算，不得把未来计划写成已经发生。',
     '每个节点必须同时写清剧情、情绪、阅读体验、因果、伏笔与篇幅；没有必要的伏笔可用空数组，不能凑数。已有上层伏笔必须明确在本层继续加深、局部兑现、正式回收或有理由延后，不能静默丢失。',
     '全书树根节点kind=book，子节点只能是volume或ending；单卷树根节点kind=volume，子节点只能是chain；单元链树根节点kind=chain，子节点只能是event。',
@@ -96,22 +96,41 @@ function validateDesignStrategy(document: PlanningTreeDocument, referencePack: V
       throw new Error('本书原创策略缺少名称或使用说明');
     }
   }
-  if (!Array.isArray(strategy.libraryRefs) || strategy.libraryRefs.length > referencePack.policy.libraryUseLimit) {
-    throw new Error('规划成员引用的后台资产过多');
-  }
-  const allowed = new Set([
+  // libraryRefs 是簿记字段：产品合同声明资产只是候选、可以为 0。模型看到
+  // 冻结资料里上层规划的引用后常照抄本轮候选包之外的 key；这与 normalize
+  // NodeFormats 同理，只做确定性归一（丢弃无效引用、去重、限量），不调用
+  // 模型重写、不改剧情，也不能因此让整棵树失败。
+  const cards = [
     ...referencePack.narrativeMethods,
     ...referencePack.plotRecipes,
     ...referencePack.plotPatterns
-  ].map((item) => `${item.assetType}:${item.key}`));
-  const used = new Set<string>();
-  for (const reference of strategy.libraryRefs) {
-    const key = `${reference.assetType}:${reference.key}`;
-    if (!allowed.has(key)) throw new Error('规划成员引用了本轮未提供的后台资产');
-    if (used.has(key)) throw new Error('规划成员重复引用了同一后台资产');
-    if (reference.applicationNote?.trim().length === 0) throw new Error('后台资产缺少本书使用说明');
-    used.add(key);
+  ];
+  const byCompositeKey = new Map(cards.map((card) => [`${card.assetType}:${card.key}`, card]));
+  const byKey = new Map<string, V7PlanningReferenceCard>();
+  for (const card of cards) {
+    if (!byKey.has(card.key)) byKey.set(card.key, card);
   }
+  const rawRefs = Array.isArray(strategy.libraryRefs) ? strategy.libraryRefs : [];
+  const normalized: NonNullable<PlanningTreeDocument['designStrategy']>['libraryRefs'] = [];
+  const seen = new Set<string>();
+  for (const reference of rawRefs) {
+    if (!isRecord(reference)) continue;
+    const assetType = typeof reference.assetType === 'string' ? reference.assetType : '';
+    const key = typeof reference.key === 'string' ? reference.key.trim() : '';
+    if (key.length === 0) continue;
+    const card = byCompositeKey.get(`${assetType}:${key}`) ?? byKey.get(key);
+    if (card === undefined) continue;
+    if (seen.has(card.key)) continue;
+    if (typeof reference.applicationNote !== 'string' || reference.applicationNote.trim().length === 0) continue;
+    seen.add(card.key);
+    normalized.push({
+      assetType: card.assetType,
+      key: card.key,
+      applicationNote: reference.applicationNote.trim()
+    });
+    if (normalized.length >= referencePack.policy.libraryUseLimit) break;
+  }
+  strategy.libraryRefs = normalized;
   if (strategy.decisionNote?.trim().length === 0) throw new Error('规划成员没有说明本层设计取舍');
 }
 
