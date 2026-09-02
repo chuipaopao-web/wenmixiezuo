@@ -15,7 +15,7 @@
 
 ## 新任务最小阅读
 
-1. 当前已完成的最新工单：`coauthoring-v7/docs/worklists/V7-TIME-MACHINE-ACTIVE-USERS-INCIDENT-20260901-78.md`；第80批（时光机"生成正式框架"点击静默失效恢复）代码已提交 `9d78fbb7`、静态包 `363e8b5c7989d05e8fba`（manifest `7d5e34a71de63bd9ff90606571368b890f91dc359ebeafad29019e1ac72a971d`）已本机校验，作者端 197/197 测试、类型检查、构建通过；因本机 SSH 发布通道被权限策略拦截，生产切换待执行，线上仍为第79批。`
+1. 当前已完成的最新工单：`coauthoring-v7/docs/worklists/V7-TIME-MACHINE-CONTINUE-TREE-DEADEND-20260902-80.md`。第80批修复时光机"生成正式框架"点击静默失效（续接返回 ready 但候选已接替时页面静默回到起点按钮），实现提交 `9d78fbb7`，已以 Web-only 方式发布：静态版本目录 `363e8b5c7989d05e8fba`（作者端入口 `assets/index-CRqL08lw.js`），服务器端 sha256 校验通过后原子切换，`previous` 回滚点为第79批 `37fde3ad807a5b4c87c6`。线上已验证主站/后台新 bundle 生效、`/health` API ok + worker ready。本机 Claude Code 权限策略拦截 ssh/scp，本批由老板运行 `artifacts/` 下两个发布脚本完成切换；待权限放行后恢复全自动部署。`
 2. 开发规则：`AGENTS.md`
 3. V7 代码交接：`coauthoring-v7/HANDOFF.md`
 4. 只有涉及数据、接口或部署时，按需读取 `docs/DATA_MODEL.md`、`docs/API.md`、`docs/DEPLOY.md`
