@@ -1024,6 +1024,56 @@ describe('V7设定编辑部', () => {
     } finally { await app.close(); }
   });
 
+  it('语义索引仍超限时总审自动降到限长一句话索引，全部条目仍被逐一核对', async () => {
+    context = createTestContext('wenmi-v7-setting-final-review-minimal-');
+    const resolver = new SettingResolver(false);
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'setting-minimal-review@example.com', '最小索引作者', 'strong-pass-910');
+      const bookId = await createBook(app, cookie, '超大设定总审测试', 'minimal-final-review-book-0001', '历史脑洞');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      for (let index = 1; index <= 45; index += 1) {
+        const itemKey = `minimal-setting-${index}`;
+        const versionId = `minimal-setting-version-${index}`;
+        context.database.prepare(`INSERT INTO v7_setting_item_versions
+          (version_id,owner_id,book_id,item_key,revision,status,content_json,created_by,created_at)
+          VALUES (?,?,?,?,1,'confirmed',?,'author','2026-01-01T00:00:00.000Z')`).run(
+          versionId,
+          ownerId,
+          bookId,
+          itemKey,
+          JSON.stringify({
+            finalContent: `原文标记${index}：`.padEnd(720, '详'),
+            contextSummary: `第${index}项设定锁定人物身份、时代边界和行动规则。${'冗'.repeat(180)}`,
+            factEntries: [`第${index}项的身份与规则已经确认。`]
+          })
+        );
+        context.database.prepare(`INSERT INTO v7_setting_items
+          (owner_id,book_id,item_key,item_label,group_title,item_prompt,state,active_version_id,revision,updated_at)
+          VALUES (?,?,?,?,?,'完成当前设定','confirmed',?,1,'2026-01-01T00:00:00.000Z')`).run(
+          ownerId, bookId, itemKey, `长设定${index}`, `分组${Math.ceil(index / 5)}`, versionId
+        );
+      }
+      const requested = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-final-reviews`, headers: { ...HEADERS, cookie },
+        payload: { idempotencyKey: 'minimal-final-review-task-0001' }
+      });
+      expect(requested.statusCode, requested.body).toBe(200);
+      const completed = await pollFinalReview(app, cookie, bookId);
+      expect(completed).toMatchObject({ status: 'ready', result: { verdict: 'pass' } });
+      expect(completed.result.factLedger).toHaveLength(45);
+      const reviewPrompt = resolver.prompts.map(settingStagePrompt)
+        .find((prompt) => prompt.includes('v7_setting_batch_final_review_v1'))!;
+      expect(reviewPrompt).toContain('layered_semantic_index');
+      expect(reviewPrompt).toContain('一句话索引');
+      expect(reviewPrompt).not.toContain('冗'.repeat(60));
+      expect(Array.from(reviewPrompt).length).toBeLessThanOrEqual(12_000);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
+        WHERE book_id=? AND node_key='batch_final_review' AND state='succeeded'`).get(bookId)).toEqual({ count: 1 });
+    } finally { await app.close(); }
+  });
+
   it('轻量总审发现跨条目冲突后分小包真正改回正文，而不是只在页面口头宣布统一', async () => {
     context = createTestContext('wenmi-v7-setting-final-review-patches-');
     const resolver = new SettingResolver(false);

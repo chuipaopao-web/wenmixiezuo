@@ -8,6 +8,7 @@ import {
 } from '@wenmi/v7-backend';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
+import { boundProjectionTexts } from '../creation/v7-creation-context-compiler.js';
 import { V7SettingLedgerReader, type V7CompactSettingLedger } from '../books/v7-setting-ledger-reader.js';
 import {
   V7PlanningRuntimeRepository,
@@ -129,7 +130,7 @@ export class V7PlanningSourceCompiler {
       settings
     });
 
-    const sources: SourceCandidate[] = [{
+    let sources: SourceCandidate[] = [{
       sourceKind: 'opening',
       sourceId: opening.opening_blueprint_id,
       sourceVersion: String(opening.version),
@@ -243,16 +244,34 @@ export class V7PlanningSourceCompiler {
     }
 
     const budgetChars = planningBudgetChars(input.treeKind);
-    const sourceCharacters = Array.from(stableJson(sources.map((source) => ({
+    const measure = (items: SourceCandidate[]): number => Array.from(stableJson(items.map((source) => ({
       sourceKind: source.sourceKind,
       sourceId: source.sourceId,
       label: source.label,
       content: source.content
     })))).length;
+    let sourceCharacters = measure(sources);
+    // 超限时逐层确定性降级：逐项设定全文换成语义索引（保留 schema/itemKey，
+    // 资料策划仍能按 sourceId 精确引用）→ 全部来源字符串字段按固定上限限长
+    // → 逐项设定只剩最小条目目录。三步都不判断语义、不删除条目；精确原文
+    // 仍可按版本追溯。只有最小形态仍超限才真实失败，且不再让作者承担内部
+    // 预算管理。
+    if (sourceCharacters > budgetChars) {
+      sources = sources.map(lightPlanningSettingSource);
+      sourceCharacters = measure(sources);
+    }
+    if (sourceCharacters > budgetChars) {
+      sources = sources.map((source) => ({ ...source, content: boundProjectionTexts(source.content, 200) }));
+      sourceCharacters = measure(sources);
+    }
+    if (sourceCharacters > budgetChars) {
+      sources = sources.map(minimalPlanningSettingSource);
+      sourceCharacters = measure(sources);
+    }
     if (sourceCharacters > budgetChars) {
       throw new DomainError(
         errorCodes.validation,
-        `对不起，当前规划资料仍有${sourceCharacters}字，超过本步骤${budgetChars}字的安全范围。请先整理设定事实账本或缩小本次规划范围。`,
+        `对不起，这次没有完成。系统已自动压缩本轮规划资料，仍超过本步骤${budgetChars}字的安全范围。您的设定和规划资料都完好保留；可先在设定页让主编重新整理设定事实账本，再重新开始本步骤。`,
         { sourceCharacters, budgetChars, treeKind: input.treeKind },
         true,
         409
@@ -505,6 +524,51 @@ function planningLedgerSummary(content: V7CompactSettingLedger['content']): Omit
   void ignoredFacts;
   void ignoredIndex;
   return summary;
+}
+
+/**
+ * 超限降级第一层：逐项设定全文换成语义索引。保留 schema 与 itemKey，
+ * 资料策划仍能按 sourceId/itemKey 精确引用；事实账本摘要保持原样。
+ */
+function lightPlanningSettingSource(source: SourceCandidate): SourceCandidate {
+  if (source.sourceKind !== 'setting' || source.content === null
+    || typeof source.content !== 'object' || Array.isArray(source.content)) return source;
+  const content = source.content as Record<string, unknown>;
+  if (content.schema === 'v7-compact-setting-ledger-v1') return source;
+  const itemKey = typeof content.itemKey === 'string' && content.itemKey.length > 0
+    ? content.itemKey
+    : source.sourceId;
+  return {
+    ...source,
+    label: `${source.label}（轻量索引）`,
+    content: {
+      schema: 'v7-setting-fact-source-v1',
+      itemKey,
+      label: typeof content.label === 'string' ? content.label : source.label,
+      contextSummary: typeof content.contextSummary === 'string' ? content.contextSummary : null,
+      factCount: Array.isArray(content.facts) ? content.facts.length : 0
+    },
+    includedReason: `${source.includedReason} 当前快照超限，本轮只携带本条目语义索引；完整事实仍在原版本中可追溯。`
+  };
+}
+
+/** 超限降级第三层：逐项设定只剩最小条目目录，schema/itemKey 仍可精确引用。 */
+function minimalPlanningSettingSource(source: SourceCandidate): SourceCandidate {
+  if (source.sourceKind !== 'setting' || source.content === null
+    || typeof source.content !== 'object' || Array.isArray(source.content)) return source;
+  const content = source.content as Record<string, unknown>;
+  if (content.schema === 'v7-compact-setting-ledger-v1') return source;
+  const itemKey = typeof content.itemKey === 'string' && content.itemKey.length > 0
+    ? content.itemKey
+    : source.sourceId;
+  return {
+    ...source,
+    content: {
+      schema: 'v7-setting-fact-source-v1',
+      itemKey,
+      label: typeof content.label === 'string' ? content.label : source.label
+    }
+  };
 }
 
 function missingPlanningScaleProfile(): DomainError {

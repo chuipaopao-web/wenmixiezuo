@@ -602,7 +602,7 @@ export function assertCreationContextPlannerInputBudget(
   if (characterCount > budgetChars) {
     throw new DomainError(
       errorCodes.validation,
-      `对不起，当前资料策划候选仍有${characterCount}字，超过本步骤${budgetChars}字的安全范围。请先缩小本次正式资料范围，再重新开始。`,
+      `对不起，这次没有完成。系统已自动把候选资料压缩到最小目录，仍超过本步骤${budgetChars}字的安全范围。您的资料都完好保留，没有任何丢失；请通过页面底部的反馈入口联系我们处理。`,
       { characterCount, budgetChars, taskKind },
       true,
       409
@@ -631,8 +631,11 @@ export function compileCreationContextPlannerPrompt(input: {
 
   // First remove transport-only candidate metadata while preserving every
   // semantic index.  If that still does not fit, reduce each optional source
-  // to a stable per-source directory entry.  Neither step uses task words,
-  // scores or inferred relevance, and every real sourceKey remains selectable.
+  // to a stable per-source directory entry, then — only as the last tier —
+  // required formal sources too: they are always selected anyway, so the
+  // directory only needs to tell the planner they exist.  No step uses task
+  // words, scores or inferred relevance, every real sourceKey remains
+  // selectable, and the exact content still reaches the final pack.
   const compactDirectoryPrompt = contextSelectionPrompt({
     ...promptInput,
     minimalCandidateDirectory: true
@@ -641,11 +644,18 @@ export function compileCreationContextPlannerPrompt(input: {
 
   const minimumDirectoryPrompt = contextSelectionPrompt({
     ...promptInput,
-    candidates: input.candidates.map(minimumPlannerDirectoryCandidate),
+    candidates: input.candidates.map((item) => minimumPlannerDirectoryCandidate(item, false)),
     minimalCandidateDirectory: true
   });
-  assertCreationContextPlannerInputBudget(input.taskKind, minimumDirectoryPrompt);
-  return minimumDirectoryPrompt;
+  if (Array.from(minimumDirectoryPrompt).length <= budgetChars) return minimumDirectoryPrompt;
+
+  const allMinimalDirectoryPrompt = contextSelectionPrompt({
+    ...promptInput,
+    candidates: input.candidates.map((item) => minimumPlannerDirectoryCandidate(item, true)),
+    minimalCandidateDirectory: true
+  });
+  assertCreationContextPlannerInputBudget(input.taskKind, allMinimalDirectoryPrompt);
+  return allMinimalDirectoryPrompt;
 }
 
 function compilePack(
@@ -679,10 +689,22 @@ function compilePack(
     selected = selectedCandidates.map(compactPackSource);
     characterCount = packedCharacterCount(input, selected, selection, methodPlan);
   }
+  // Final deterministic tier: cap every string field of the semantic indexes
+  // while keeping the full structure, every entry and every sourceKey.  The
+  // exact sources stay in the trace/audit store; this only bounds the
+  // transport projection.
+  let boundedIndexesUsed = false;
+  if (characterCount > budgetChars) {
+    selected = selectedCandidates.map((source) => source.selectionContent === undefined
+      ? exactSource(source)
+      : { ...compactPackSource(source), content: boundProjectionTexts(source.selectionContent, 200) });
+    characterCount = packedCharacterCount(input, selected, selection, methodPlan);
+    boundedIndexesUsed = true;
+  }
   if (characterCount > budgetChars) {
     throw new DomainError(
       errorCodes.validation,
-      `对不起，当前资料仍有${characterCount}字，超过本步骤${budgetChars}字的安全范围。请减少原文回查项，或先让主编重建设定事实账本。`,
+      `对不起，这次没有完成。系统已自动完成资料压缩，当前资料仍有${characterCount}字，超过本步骤${budgetChars}字的安全范围。您的资料都完好保留；可先在设定页让主编重新整理设定事实账本，再重新开始本步骤。`,
       { characterCount, budgetChars, taskKind: input.taskKind },
       true,
       409
@@ -702,7 +724,7 @@ function compilePack(
     creativeSpace: selection.creativeSpace,
     methodPlan,
     sourceRefs: selectedCandidates.flatMap(sourceRef),
-    contextPolicyVersion: compactIndexesUsed ? 'layered-context-v3' : 'layered-context-v2',
+    contextPolicyVersion: boundedIndexesUsed ? 'layered-context-v4' : compactIndexesUsed ? 'layered-context-v3' : 'layered-context-v2',
     characterCount,
     budgetChars,
     estimatedTokens: estimateV7Tokens(stableJson(creationPromptContext({
@@ -719,7 +741,7 @@ function compilePack(
       creativeSpace: selection.creativeSpace,
       methodPlan,
       sourceRefs: [],
-      contextPolicyVersion: compactIndexesUsed ? 'layered-context-v3' : 'layered-context-v2',
+      contextPolicyVersion: boundedIndexesUsed ? 'layered-context-v4' : compactIndexesUsed ? 'layered-context-v3' : 'layered-context-v2',
       characterCount,
       budgetChars,
       estimatedTokens: 0
@@ -1076,10 +1098,16 @@ function storyStateContextProjection(item: Record<string, unknown>): Record<stri
   };
 }
 
-function minimumPlannerDirectoryCandidate(source: V7CreationSourceCandidate): V7CreationSourceCandidate {
-  if (source.required) return source;
+function minimumPlannerDirectoryCandidate(
+  source: V7CreationSourceCandidate,
+  includeRequired = false
+): V7CreationSourceCandidate {
+  // 必要正式源最终必然入选（parseContextSelection 强制保留），其完整内容仍会
+  // 进入资料包。目录层把它们也压成固定字段条目，只是让资料策划知道这份资料
+  // 存在，不改变任何选择结果，也不删除任何正式资料。
+  if (source.required && !includeRequired) return source;
   const index = recordOrEmpty(source.selectionContent ?? source.content);
-  if (source.sourceKind === 'character') {
+  if (!source.required && source.sourceKind === 'character') {
     return {
       ...source,
       selectionContent: {
@@ -1089,7 +1117,7 @@ function minimumPlannerDirectoryCandidate(source: V7CreationSourceCandidate): V7
       }
     };
   }
-  if (source.sourceKind === 'story_state') {
+  if (!source.required && source.sourceKind === 'story_state') {
     return {
       ...source,
       selectionContent: {
@@ -1120,6 +1148,24 @@ function contextIndexText(value: unknown, maximum: number): string | null {
   const characters = Array.from(value.trim());
   if (characters.length === 0) return null;
   return characters.length <= maximum ? characters.join('') : `${characters.slice(0, maximum - 1).join('')}…`;
+}
+
+/**
+ * 确定性传输限长：只封顶每个字符串字段的展示长度，完整保留对象结构、数组
+ * 条目和来源标识。不判断语义、不删除条目、不改写内容；精确原文仍在来源
+ * 版本与追溯链路中。供资料包限长层与规划快照限长层共用。
+ */
+export function boundProjectionTexts(value: unknown, maximum: number): unknown {
+  if (typeof value === 'string') {
+    const characters = Array.from(value);
+    return characters.length <= maximum ? value : `${characters.slice(0, maximum - 1).join('')}…`;
+  }
+  if (Array.isArray(value)) return value.map((item) => boundProjectionTexts(item, maximum));
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => [key, boundProjectionTexts(item, maximum)]));
+  }
+  return value;
 }
 
 function isActiveStoryState(value: unknown): boolean {

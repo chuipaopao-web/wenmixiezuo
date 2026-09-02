@@ -442,6 +442,87 @@ describe('V7规划正式资料快照', () => {
       await app.close();
     }
   });
+
+  it('逐项设定事实超过快照预算时自动降级为语义索引，规划不再要求作者缩小资料', async () => {
+    context = createTestContext('wenmi-v7-planning-light-index-');
+    const app = await createServer(context.config, context.database);
+    try {
+      const cookie = await register(app, 'snapshot-light-index@example.com', '轻量索引作者');
+      const bookId = await createBook(app, cookie, '两百条设定长篇');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      const opening = context.database.prepare(`SELECT version FROM book_opening_blueprints
+        WHERE owner_id=? AND book_id=? AND status='active'`).get(ownerId, bookId) as { version: number };
+      const itemKeys: string[] = [];
+      for (let index = 1; index <= 80; index += 1) {
+        const itemKey = `bulk-setting-${index}`;
+        const versionId = `bulk-ledger-version-${index}`;
+        itemKeys.push(itemKey);
+        const content = {
+          finalContent: `这是第${index}项设定的完整原文，包含完整的世界规则和人物约束。`.repeat(8),
+          contextSummary: `第${index}项设定的关键身份、边界和规则。`,
+          factEntries: [`第${index}项硬事实：这是一条很长的设定硬事实，用于让完整事实账超过快照预算。`.repeat(6)]
+        };
+        context.database.prepare(`INSERT INTO v7_setting_item_versions
+          (version_id,owner_id,book_id,item_key,revision,status,content_json,created_by,created_at)
+          VALUES (?,?,?,?,1,'confirmed',?,'author','2026-07-16T00:00:00.000Z')`)
+          .run(versionId, ownerId, bookId, itemKey, JSON.stringify(content));
+        context.database.prepare(`INSERT INTO v7_setting_items
+          (owner_id,book_id,item_key,item_label,group_title,item_prompt,state,active_version_id,revision,updated_at)
+          VALUES (?,?,?,?,?,'测试设定','confirmed',?,1,'2026-07-16T00:00:00.000Z')`)
+          .run(ownerId, bookId, itemKey, `设定${index}`, `分组${Math.ceil(index / 20)}`, versionId);
+      }
+      const groupSummaries = Array.from({ length: 10 }, (_, index) => ({
+        groupTitle: `分组${index + 1}`,
+        summary: `这一组统一说明第${index * 20 + 1}至${index * 20 + 20}项设定的关键边界。`,
+        itemKeys: itemKeys.slice(index * 20, index * 20 + 20)
+      }));
+      context.database.prepare(`INSERT INTO v7_setting_batches
+        (batch_id,owner_id,book_id,idempotency_key,request_hash,status,selected_items_json,custom_items_json,
+          opening_version,opening_hash,roster_json,created_at,updated_at)
+        VALUES ('bulk-light-review',?,?,'bulk-light-review-key','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','awaiting_author',?,?,?,'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','[]',
+          '2026-07-16T00:01:00.000Z','2026-07-16T00:01:00.000Z')`).run(
+        ownerId,
+        bookId,
+        JSON.stringify({
+          taskKind: 'batch_final_review',
+          resultHash: 'bulk-light-hash',
+          result: {
+            verdict: 'pass',
+            summary: '全部设定已经统一。',
+            contextSummary: '主角、时代、规则和禁项已经统一，后续按分组边界展开。',
+            factLedger: itemKeys.map((itemKey, index) => ({
+              itemKey, label: `设定${index + 1}`,
+              facts: [`第${index + 1}项硬事实：这是一条很长的设定硬事实，用于让完整事实账超过快照预算。`.repeat(6)]
+            })),
+            groupSummaries,
+            unifiedDecisions: [], conflicts: [], patchedItemKeys: []
+          }
+        }),
+        JSON.stringify({ taskKind: 'batch_final_review', phase: 'ready', progress: 100 }),
+        opening.version
+      );
+
+      const compiler = new V7PlanningSourceCompiler(context.database, new SequenceIds(), new FixedClock());
+      const compiled = compiler.compile({ ownerId, bookId, treeKind: 'book', scopeId: bookId, purpose: 'recipe_design' });
+      const settingSources = compiled.sources.filter((source) => source.sourceKind === 'setting');
+      const ledgerSources = settingSources.filter((source) => (source.content as { schema?: string }).schema === 'v7-compact-setting-ledger-v1');
+      const itemSources = settingSources.filter((source) => (source.content as { schema?: string }).schema === 'v7-setting-fact-source-v1');
+      expect(ledgerSources).toHaveLength(1);
+      expect(itemSources).toHaveLength(80);
+      expect(ledgerSources[0]?.content).toMatchObject({ schema: 'v7-compact-setting-ledger-v1' });
+      expect(itemSources[0]?.content).toMatchObject({
+        schema: 'v7-setting-fact-source-v1', itemKey: 'bulk-setting-1', label: '设定1'
+      });
+      expect(itemSources[0]?.content).not.toHaveProperty('facts');
+      expect(itemSources[0]?.content).not.toHaveProperty('contextSummary');
+      expect(itemSources[0]?.label).toContain('轻量索引');
+      expect(JSON.stringify(compiled.sources)).not.toContain('完整的世界规则和人物约束');
+      expect(JSON.stringify(compiled.sources)).not.toContain('超过快照预算');
+    } finally {
+      await app.close();
+    }
+  });
 });
 
 describe('V7设定总账门禁只校验导航投影', () => {

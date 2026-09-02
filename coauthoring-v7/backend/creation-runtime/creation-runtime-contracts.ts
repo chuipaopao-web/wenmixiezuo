@@ -173,7 +173,7 @@ export interface V7CreationContextPack {
   creativeSpace: string[];
   methodPlan: V7CreationMethodPlan;
   sourceRefs: PlanningTreeSourceRef[];
-  contextPolicyVersion: 'layered-context-v2' | 'layered-context-v3';
+  contextPolicyVersion: 'layered-context-v2' | 'layered-context-v3' | 'layered-context-v4';
   characterCount: number;
   budgetChars: number;
   estimatedTokens: number;

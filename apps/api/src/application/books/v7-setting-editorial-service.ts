@@ -3416,7 +3416,35 @@ function compileBatchFinalReviewPrompt(
   const compactPrompt = JSON.stringify(compactPayload);
   const compactCharacters = Array.from(compactPrompt).length;
   if (compactCharacters > 12_000) {
-    throw new Error(`设定总审轻量索引仍有${compactCharacters}字，超过12000字安全范围`);
+    // 语义索引仍超限时按固定上限缩短每条语义摘要并去掉待决定问题附件，
+    // 全部条目标识、分组与解析合同保持不变。本轮继续禁止改原文。
+    const minimalPayload = {
+      ...compactPayload,
+      responsibility: `${common.responsibility} 当前条目极多，本轮只读取每条目的一句话索引，分组摘要在下方提供。`,
+      compactModeRules: [
+        '本轮负责全书级统一、分组摘要和冲突定位，不凭一句话索引重写任何完整条目。',
+        'patches必须返回空数组；发现需要改原文的问题时放入conflicts，交回对应条目单独处理。',
+        'factLedger每项只摘录一句话索引已经明确表达的1条核心事实，不能补猜。'
+      ],
+      currentSettingCandidates: items.map((item) => {
+        const projection = projectionByKey.get(item.itemKey);
+        if (projection === undefined) throw new Error(`设定“${item.label}”缺少当前语义索引`);
+        return {
+          itemKey: item.itemKey,
+          label: item.label,
+          groupTitle: item.groupTitle,
+          revision: item.revision,
+          contextSummary: boundIndexText(projection.contextSummary, 48),
+          factCount: projection.factEntries.length
+        };
+      })
+    };
+    const minimalPrompt = JSON.stringify(minimalPayload);
+    const minimalCharacters = Array.from(minimalPrompt).length;
+    if (minimalCharacters > 12_000) {
+      throw new Error(`设定总审最小条目索引仍有${minimalCharacters}字，超过12000字安全范围`);
+    }
+    return { prompt: minimalPrompt, allowPatches: false };
   }
   return { prompt: compactPrompt, allowPatches: false };
 }
@@ -3550,7 +3578,7 @@ function parseBatchFinalReview(
   const contextSummary = requiredText(value.contextSummary ?? value.summary, '全书设定摘要', 1, 600);
   const hasProvidedFactLedger = Array.isArray(value.factLedger) && value.factLedger.length > 0;
   const rawFactLedger = hasProvidedFactLedger
-    ? finalObjectArray(value.factLedger, '设定事实账本')
+    ? finalObjectArrayOfLength(value.factLedger, '设定事实账本', items.length)
     : items.map((item) => ({ itemKey: item.itemKey, label: item.label, facts: [item.content ?? ''] }));
   const factLedger = rawFactLedger.map((entry) => {
     const itemKey = requiredText(entry.itemKey, '事实条目键', 1, 160);
@@ -3643,9 +3671,23 @@ function finalObjectArray(value: unknown, label: string): Array<Record<string, u
   return value as Array<Record<string, unknown>>;
 }
 
+// 事实账本必须逐项覆盖全部条目，上限跟随当前条目数，而不是固定40条；
+// 否则设定较多的书在分层总审下永远无法通过解析。
+function finalObjectArrayOfLength(value: unknown, label: string, maximum: number): Array<Record<string, unknown>> {
+  if (!Array.isArray(value) || value.length > maximum || value.some((entry) => entry === null || typeof entry !== 'object' || Array.isArray(entry))) {
+    throw new Error(`${label}格式不正确`);
+  }
+  return value as Array<Record<string, unknown>>;
+}
+
 function finalStringArray(value: unknown, label: string, minimum: number, maximum: number): string[] {
   if (!Array.isArray(value) || value.length < minimum || value.length > maximum) throw new Error(`${label}数量不正确`);
   return value.map((entry) => requiredText(entry, label, 1, 500));
+}
+
+function boundIndexText(value: string, maximum: number): string {
+  const characters = Array.from(value);
+  return characters.length <= maximum ? value : `${characters.slice(0, maximum - 1).join('')}…`;
 }
 
 function finalReviewState(row: BatchRow): FinalReviewState {

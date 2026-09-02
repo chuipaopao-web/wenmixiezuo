@@ -73,7 +73,7 @@ describe('V7全链路创作总线', () => {
         excludedSources: Array<{ sourceKey: string }>;
         sourceRefs: Array<{ sourceKind: string; sourceId: string; version: string }>;
       };
-      expect(['layered-context-v2', 'layered-context-v3']).toContain(firstVolumePack.contextPolicyVersion);
+      expect(['layered-context-v2', 'layered-context-v3', 'layered-context-v4']).toContain(firstVolumePack.contextPolicyVersion);
       expect(firstVolumePack.budgetChars).toBe(12_000);
       expect(firstVolumePack).toMatchObject({
         taskPersona: expect.objectContaining({ workingIdentity: expect.any(String) }),
@@ -484,7 +484,7 @@ describe('V7全链路创作总线', () => {
       }>;
       expect(outlinePack.selectedSources.length).toBeGreaterThan(0);
       expect(outlinePack.excludedSources.length).toBeGreaterThan(0);
-      expect(['layered-context-v2', 'layered-context-v3']).toContain(outlinePack.contextPolicyVersion);
+      expect(['layered-context-v2', 'layered-context-v3', 'layered-context-v4']).toContain(outlinePack.contextPolicyVersion);
       expect(outlinePack.budgetChars).toBe(6_000);
       expect(outlinePack.characterCount).toBeLessThanOrEqual(outlinePack.budgetChars);
       expect(outlinePack.selectedSources.some((source) => source.sourceKey === 'formal:setting-ledger')).toBe(true);

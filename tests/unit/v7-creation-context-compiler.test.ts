@@ -6,6 +6,7 @@ import {
 } from '@wenmi/v7-backend';
 import {
   assertCreationContextPlannerInputBudget,
+  boundProjectionTexts,
   compileCreationContextPlannerPrompt
 } from '../../apps/api/src/application/creation/v7-creation-context-compiler.js';
 
@@ -54,15 +55,64 @@ describe('V7创作资料策划输入预算', () => {
     expect(prompt).not.toContain('不应进入资料策划目录的精确线路证据');
   });
 
-  it('必要正式源加最小目录仍超限时真实失败，不静默删除正式资料', () => {
+  it('必要正式源在第三层超限时降到第四层最小目录，仍成功编译且不泄漏精确内容', () => {
     const required = requiredCandidate();
     required.content = { ...(required.content as Record<string, unknown>), exact: '硬'.repeat(12_000) };
-    expect(() => compileCreationContextPlannerPrompt({
+    const prompt = compileCreationContextPlannerPrompt({
       taskKind: 'outline',
       taskBrief: '承接当前正式规划。',
       candidates: [required, characterCandidate(0)],
       maximumSources: 12
-    })).toThrow('超过本步骤12000字的安全范围');
+    });
+    expect(Array.from(prompt).length).toBeLessThanOrEqual(V7_CREATION_CONTEXT_PLANNER_CHAR_BUDGETS.outline);
+    const directory = JSON.parse(prompt.split('候选资料：').at(-1)!) as Array<{
+      sourceKey: string;
+      required: boolean;
+      content: Record<string, unknown>;
+    }>;
+    const requiredEntry = directory.find((item) => item.sourceKey === 'formal:tree:chain:current');
+    expect(requiredEntry).toMatchObject({ required: true, content: { kind: 'planning_tree', name: '当前单元链' } });
+    expect(prompt).not.toContain('硬'.repeat(50));
+  });
+
+  it('四层降级后仍超限时真实失败，不再要求作者缩小资料范围', () => {
+    const candidates = Array.from({ length: 600 }, (_, index) => characterCandidate(index))
+      .concat(Array.from({ length: 600 }, (_, index) => storyStateCandidate(index)));
+    try {
+      compileCreationContextPlannerPrompt({
+        taskKind: 'outline',
+        taskBrief: '承接当前正式规划。',
+        candidates,
+        maximumSources: 12
+      });
+      throw new Error('应当因超过预算而失败');
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain('超过本步骤12000字的安全范围');
+      expect((error as Error).message).not.toContain('缩小');
+      expect((error as Error).message).toContain('反馈');
+    }
+  });
+
+  it('限长助手只封顶字符串字段并完整保留结构、条目与非字符串值', () => {
+    const value = {
+      a: '字'.repeat(300),
+      b: ['短', '长'.repeat(260)],
+      c: { d: [{ e: '好'.repeat(250) }] },
+      n: 5,
+      keep: null
+    };
+    const bounded = boundProjectionTexts(value, 200) as {
+      a: string; b: string[]; c: { d: Array<{ e: string }> }; n: number; keep: null;
+    };
+    expect(Array.from(bounded.a)).toHaveLength(200);
+    expect(bounded.a.endsWith('…')).toBe(true);
+    expect(bounded.b[0]).toBe('短');
+    expect(Array.from(bounded.b[1]!)).toHaveLength(200);
+    expect(bounded.c.d[0]!.e.endsWith('…')).toBe(true);
+    expect(bounded.n).toBe(5);
+    expect(bounded.keep).toBeNull();
+    expect(JSON.stringify(bounded).length).toBeLessThan(JSON.stringify(value).length);
   });
 });
 
