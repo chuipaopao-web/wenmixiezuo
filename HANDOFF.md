@@ -15,7 +15,7 @@
 
 ## 新任务最小阅读
 
-1. 当前已完成的最新工单：`coauthoring-v7/docs/worklists/V7-TIME-MACHINE-ACTIVE-USERS-INCIDENT-20260901-78.md`
+1. 当前已完成的最新工单：`coauthoring-v7/docs/worklists/V7-TIME-MACHINE-ACTIVE-USERS-INCIDENT-20260901-78.md`；第80批（时光机"生成正式框架"点击静默失效恢复）代码已提交 `9d78fbb7`、静态包 `363e8b5c7989d05e8fba`（manifest `7d5e34a71de63bd9ff90606571368b890f91dc359ebeafad29019e1ac72a971d`）已本机校验，作者端 197/197 测试、类型检查、构建通过；因本机 SSH 发布通道被权限策略拦截，生产切换待执行，线上仍为第79批。`
 2. 开发规则：`AGENTS.md`
 3. V7 代码交接：`coauthoring-v7/HANDOFF.md`
 4. 只有涉及数据、接口或部署时，按需读取 `docs/DATA_MODEL.md`、`docs/API.md`、`docs/DEPLOY.md`
