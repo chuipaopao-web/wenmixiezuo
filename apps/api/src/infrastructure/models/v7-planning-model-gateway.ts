@@ -12,7 +12,7 @@ import { UuidGenerator, type Clock } from '../../domain/ids.js';
 import { V7PlanningRuntimeRepository } from '../db/repositories/v7-planning-runtime-repository.js';
 import { assertMembershipAllowsGeneration } from '../security/membership-service.js';
 import type { ModelAdapter } from './model-adapter.js';
-import { ModelAdapterError } from './model-adapter.js';
+import { ModelAdapterError, type ModelResult } from './model-adapter.js';
 import type { ModelPurpose } from './model-runtime-config.js';
 import { thinkingTokenAllowance } from './model-runtime-config.js';
 import { resolveV7TaskPolicy } from '../../application/agents/v7-agent-runtime-policy.js';
@@ -85,6 +85,10 @@ export class V7PlanningModelCallInProgressError extends V7PlanningModelError {
 
 // Ark调用硬上限为15分钟；多留1分钟只用于跨实例交接，超过后按结果未知处理。
 const MODEL_CALL_ACTIVE_WINDOW_MILLISECONDS = 16 * 60_000;
+// GLM-5.3 隐式思考失控（2026-08-31 端点行为变化）会把冻结预算全部烧进 thinking
+// 并以 max_tokens 结束、零可见文字。识别到该特征时用更大额度升级重试一次；
+// 动态思考余量（glmPlanningHeadroomTokens）上线后这是兜底而非主修复。
+const THINKING_BURN_RETRY_EXTRA_TOKENS = 16_000;
 
 export class V7PlanningModelGateway {
   private readonly repository: V7PlanningRuntimeRepository;
@@ -158,7 +162,7 @@ export class V7PlanningModelGateway {
       createdAt: now,
       retrySnapshot: retrySnapshot ?? undefined
     });
-    const reasoningTokens = thinkingTokenAllowance(request.member.model.modelId, 'structured_planning', request.maxOutputTokens);
+    const reasoningTokens = thinkingTokenAllowance(request.member.model.modelId, 'structured_planning', request.maxOutputTokens, compiled.manifest.compiledPrompt.length);
     const reservedTokens = Math.max(8_000, compiled.manifest.compiledPrompt.length + request.maxOutputTokens + reasoningTokens);
     let claimed = false;
     let winner: ReturnType<V7PlanningRuntimeRepository['modelCall']> = undefined;
@@ -184,16 +188,50 @@ export class V7PlanningModelGateway {
     try {
       promptGovernance.saveRuntimeBundle(compiled);
       const adapter = this.adapters.resolve(request.member.model.provider, request.member.model.modelId, 'structured_planning');
-      const result = await adapter.generate({
-        requestId: request.requestId,
-        taskId: request.runId,
-        ownerId: request.ownerId,
-        bookId: request.bookId,
-        agentId: request.member.memberKey,
-        prompt: compiled.manifest.compiledPrompt,
-        maxOutputTokens: request.maxOutputTokens,
-        temperature: runtimePolicy.temperature
-      });
+      let result: ModelResult;
+      try {
+        result = await adapter.generate({
+          requestId: request.requestId,
+          taskId: request.runId,
+          ownerId: request.ownerId,
+          bookId: request.bookId,
+          agentId: request.member.memberKey,
+          prompt: compiled.manifest.compiledPrompt,
+          maxOutputTokens: request.maxOutputTokens,
+          temperature: runtimePolicy.temperature
+        });
+      } catch (error) {
+        if (!isThinkingBurnFailure(error)) throw error;
+        // 升级重试前重新核对会员额度；额度不足时保留原始失败，不静默透支。
+        try {
+          assertMembershipAllowsGeneration(
+            this.database, request.ownerId,
+            this.clock.now().toISOString(),
+            reservedTokens + THINKING_BURN_RETRY_EXTRA_TOKENS
+          );
+        } catch {
+          throw error;
+        }
+        try {
+          result = await adapter.generate({
+            requestId: request.requestId,
+            taskId: request.runId,
+            ownerId: request.ownerId,
+            bookId: request.bookId,
+            agentId: request.member.memberKey,
+            prompt: compiled.manifest.compiledPrompt,
+            maxOutputTokens: request.maxOutputTokens + THINKING_BURN_RETRY_EXTRA_TOKENS,
+            temperature: runtimePolicy.temperature
+          });
+        } catch (retryError) {
+          throw retryError instanceof ModelAdapterError
+            ? new ModelAdapterError(
+                `${retryError.message}（已用加大额度重试一次，仍未形成可提交文字）`,
+                retryError.failureClass, retryError.retryable, retryError.statusCode, retryError.outcomeUnknown
+              )
+            : retryError;
+        }
+      }
       if (result.output.trim().length === 0) throw new V7PlanningModelError('成员没有返回可见方案');
       const completedAt = this.clock.now().toISOString();
       const completed = this.repository.completeModelCall({
@@ -352,4 +390,15 @@ function normalizeFailure(error: unknown): { message: string; outcomeUnknown: bo
   const message = error instanceof Error ? error.message : String(error);
   if (error instanceof ModelAdapterError) return { message, outcomeUnknown: error.outcomeUnknown };
   return { message, outcomeUnknown: false };
+}
+
+/**
+ * GLM-5.3 思考烧穿特征：适配层已拿到 2xx 响应（结果已知、可安全重试），
+ * 停止原因是 max_tokens 且没有形成可提交文字。这与请求中断/超时（结果未知）
+ * 不同，升级重试不会造成供应商侧重复扣费的不确定性。
+ */
+function isThinkingBurnFailure(error: unknown): boolean {
+  return error instanceof ModelAdapterError && error.retryable
+    && error.message.includes('max_tokens')
+    && error.message.includes('没有形成可提交文字');
 }

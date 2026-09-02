@@ -114,7 +114,8 @@ export function assertPlanBaseUrl(plan: Extract<ModelPlan, 'coding' | 'agent'>, 
 
 /**
  * 方舟套餐模型按模型和用途配置思考：创作性正文保留显式思考；
- * MiniMax关闭思考；GLM-5.3短讨论、结构化规划和证据型审校省略thinking字段，并只追加1k默认推理余量。
+ * MiniMax关闭思考；GLM-5.3短讨论、结构化规划和证据型审校省略thinking字段（直出路由），
+ * 并追加随提示词规模折算的推理余量（glmPlanningHeadroomTokens，2026-09-02 实测定型）。
  * GLM的disabled会被当前Coding Plan端点拒绝，不能用“关闭思考”实现提速。
  *
  * 思考或默认推理 Token 同时计入 max_tokens 与 usage.output_tokens，因此适配器的
@@ -123,6 +124,22 @@ export function assertPlanBaseUrl(plan: Extract<ModelPlan, 'coding' | 'agent'>, 
  */
 export const SUBSCRIPTION_THINKING_BUDGET_TOKENS = 16_000;
 export const GLM_VISIBLE_OUTPUT_REASONING_HEADROOM_TOKENS = 1_000;
+// 2026-09-02 生产证据：GLM-5.3 在方舟端点上的思考不再受提示侧控制——
+// 不发 thinking 字段也会自行产出 4.4万~5.1万字符思考（约2万 Token），
+// 把 maxOutputTokens+1k 的总额全部烧完并零可见文字，规划成功率跌至9%。
+// 服务器实测：直出路由下给足余量即可救活（40k 总额 107 秒正常返回 JSON；
+// 显式 enabled 16k 反而思考多2.6倍、贵2倍）。余量随提示词长度折算：
+// 大资料包思考按输入规模增长，1/3 折算并封顶 32k；小提示词保底 8k。
+export const GLM_PLANNING_HEADROOM_MIN_TOKENS = 8_000;
+export const GLM_PLANNING_HEADROOM_MAX_TOKENS = 32_000;
+
+export function glmPlanningHeadroomTokens(promptChars: number): number {
+  if (!Number.isFinite(promptChars) || promptChars <= 0) return GLM_PLANNING_HEADROOM_MIN_TOKENS;
+  return Math.min(
+    GLM_PLANNING_HEADROOM_MAX_TOKENS,
+    Math.max(GLM_PLANNING_HEADROOM_MIN_TOKENS, Math.ceil(promptChars / 3))
+  );
+}
 // 2026-08-29 real V7 manuscript evidence: Kimi K3 spent 19,786 output tokens
 // and 573 seconds on a 3k-character chapter when given the generic 16k thinking
 // allowance. Earlier accepted chapters completed with roughly 12k total output.
@@ -150,7 +167,8 @@ export function usesGlmVisibleOutputRoute(
 export function thinkingTokenAllowance(
   modelId: string,
   purpose?: ModelPurpose,
-  maxOutputTokens?: number
+  maxOutputTokens?: number,
+  promptChars?: number
 ): number {
   // 本地确定性夹具不经过真实模型，没有思考开销。
   if (modelId === 'wenmi-fixture-v1') return 0;
@@ -166,7 +184,12 @@ export function thinkingTokenAllowance(
   // 显式16k思考让GLM为1413字符报告消耐10945输出Token并耗时145秒。
   // 因此审校同样走直出路由；创作性正文仍保留独立思考预算。
   if (usesGlmVisibleOutputRoute(modelId, purpose, maxOutputTokens)) {
-    return GLM_VISIBLE_OUTPUT_REASONING_HEADROOM_TOKENS;
+    // 2026-09-02 起 GLM-5.3 的隐式思考不再受端点抑制，1k 余量会被思考
+    // 全部烧穿后零可见文字（生产成功率跌至9%）。改为随提示词规模折算的
+    // 动态余量；未传提示词长度的旧调用点按保底 8k 处理。
+    return promptChars === undefined
+      ? GLM_PLANNING_HEADROOM_MIN_TOKENS
+      : glmPlanningHeadroomTokens(promptChars);
   }
   // 5k以内的结构化规划用于单元链等有限范围节点。真实 DeepSeek 链方案
   // 即使声明4k思考仍上报20,939输出Token并耗时249秒，端点未可靠遵守预算。

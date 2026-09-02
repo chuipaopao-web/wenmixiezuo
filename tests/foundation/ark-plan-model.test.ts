@@ -360,12 +360,16 @@ describe('火山方舟严格套餐适配器', () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it('GLM 5.3 的短设定、结构化规划和证据审校都走可见直出', async () => {
+  it('GLM 5.3 的短设定、结构化规划和证据审校都走可见直出，余量按提示词规模折算', async () => {
+    // 2026-09-02 生产实证：固定1k余量会被GLM失控的隐式思考全部烧穿（思考
+    // 4.4万~5.1万字符、max_tokens截断、零可见文字，成功率跌至9%）。直出路由
+    // 改为按提示词长度折算的动态余量；测试夹具提示词极短，取保底 8_000。
+    const smallPromptHeadroom = 8_000;
     for (const [purpose, maxOutputTokens, expectedBudget, omitThinking] of [
-      ['discussion', 100, 1_000, true],
+      ['discussion', 100, smallPromptHeadroom, true],
       ['discussion', 4_000, 16_000, false],
-      ['structured_planning', 15_000, 1_000, true],
-      ['novel_reviewer', 100, 1_000, true]
+      ['structured_planning', 15_000, smallPromptHeadroom, true],
+      ['novel_reviewer', 100, smallPromptHeadroom, true]
     ] as const) {
       const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
         const body = JSON.parse(String(init?.body)) as { max_tokens?: number; thinking?: { type?: string; budget_tokens?: number } };
@@ -385,6 +389,48 @@ describe('火山方舟严格套餐适配器', () => {
       await adapter.generate({ ...request, maxOutputTokens });
       expect(fetchImpl).toHaveBeenCalledOnce();
     }
+  });
+
+  it('GLM 5.3 大资料包规划按提示词1/3折算思考余量并封顶32k', async () => {
+    // 生产失败调用编译后提示词达数万~十万字符，最坏思考约2万 Token；
+    // 9万字符提示词 → ceil(90000/3)=30000 → max_tokens = 预算 + 30000，
+    // 覆盖实测最坏组合（思考约2万 + 可见输出19k）。
+    const bigPrompt = '资'.repeat(90_000);
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { max_tokens?: number; thinking?: { type?: string } };
+      expect(body.thinking).toBeUndefined();
+      expect(body.max_tokens).toBe(19_000 + 30_000);
+      return Response.json({
+        content: [{ type: 'text', text: '{"volumeTitle":"可见方案"}' }],
+        usage: { input_tokens: 30_000, output_tokens: 39_000 }
+      });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'coding', provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding', apiKey: 'coding-test-key', purpose: 'structured_planning'
+    }, fetchImpl);
+
+    await adapter.generate({ ...request, prompt: bigPrompt, maxOutputTokens: 19_000 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('GLM 5.3 超长提示词的思考余量封顶在32k', async () => {
+    const hugePrompt = '设'.repeat(300_000);
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { max_tokens?: number };
+      expect(body.max_tokens).toBe(19_000 + 32_000);
+      return Response.json({
+        content: [{ type: 'text', text: '{"volumeTitle":"可见方案"}' }],
+        usage: { input_tokens: 90_000, output_tokens: 40_000 }
+      });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'coding', provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding', apiKey: 'coding-test-key', purpose: 'structured_planning'
+    }, fetchImpl);
+
+    await adapter.generate({ ...request, prompt: hugePrompt, maxOutputTokens: 19_000 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
   it('DeepSeek 的有限链规划关闭隐藏思考，较大规划仍保留有限预算', async () => {
@@ -433,7 +479,7 @@ describe('火山方舟严格套餐适配器', () => {
     }
   });
 
-  it('套餐模型按用途追加推理余量，只有 GLM 5.3 短讨论省略显式思考并使用 1000 Token', async () => {
+  it('套餐模型按用途追加推理余量，GLM 5.3 短讨论走直出并使用动态余量保底8k', async () => {
     const seen: Array<{ model: string; maxTokens: number }> = [];
     const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number };
@@ -451,7 +497,7 @@ describe('火山方舟严格套餐适配器', () => {
       await adapter.generate(request);
     }
     expect(seen).toEqual([
-      { model: 'glm-5.3', maxTokens: 100 + 1_000 },
+      { model: 'glm-5.3', maxTokens: 100 + 8_000 },
       { model: 'glm-5.2', maxTokens: 100 + 16_000 },
       { model: 'kimi-k2.7-code', maxTokens: 100 + 16_000 },
       { model: 'deepseek-v4-flash', maxTokens: 100 + 16_000 }

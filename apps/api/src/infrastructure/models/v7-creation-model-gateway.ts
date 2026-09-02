@@ -170,7 +170,7 @@ export class V7CreationModelGateway {
       createdAt: now
     });
     promptGovernance.saveRuntimeBundle(compiled);
-    const reasoningTokens = thinkingTokenAllowance(request.member.model.modelId, request.purpose, request.maxOutputTokens);
+    const reasoningTokens = thinkingTokenAllowance(request.member.model.modelId, request.purpose, request.maxOutputTokens, compiled.manifest.compiledPrompt.length);
     // 额度单位是 Token，不能把中文字符数直接当 Token 冻结。真实链方案约
     // 2 个中文字符/Token；继续使用字符数会把 7.8k 输入误报成近 20k，
     // 既阻塞会员额度，也让后台看起来像收到了一份异常巨大的资料包。

@@ -317,7 +317,7 @@ export class V7BookCoverDesignService {
     });
     promptGovernance.saveRuntimeBundle(compiled);
     const maxOutputTokens = 1_600;
-    const reserved = Math.max(8_000, compiled.manifest.compiledPrompt.length + maxOutputTokens + thinkingTokenAllowance(chief.model.modelId, 'structured_planning', maxOutputTokens));
+    const reserved = Math.max(8_000, compiled.manifest.compiledPrompt.length + maxOutputTokens + thinkingTokenAllowance(chief.model.modelId, 'structured_planning', maxOutputTokens, compiled.manifest.compiledPrompt.length));
     assertMembershipAllowsGeneration(this.database, ownerId, createdAt, reserved);
     const accountUsage = new SupplementalAccountUsageRepository(this.database);
     accountUsage.start({

@@ -75,8 +75,9 @@ export class ArkPlanModelAdapter implements ModelAdapter {
         body: JSON.stringify({
           model: this.modelId,
           // max_tokens 在可见输出限额之上追加与当前模型策略一致的推理余量；
-          // thinking字段是否发送由模型和用途能力决定。
-          max_tokens: request.maxOutputTokens + thinkingTokenAllowance(this.modelId, this.options.purpose, request.maxOutputTokens),
+          // thinking字段是否发送由模型和用途能力决定。GLM 直出路由的余量
+          // 随提示词规模折算（2026-09-02 实测：固定1k会被失控思考全部烧穿）。
+          max_tokens: request.maxOutputTokens + thinkingTokenAllowance(this.modelId, this.options.purpose, request.maxOutputTokens, request.prompt.length),
           ...temperature,
           ...thinkingField(this.options.plan, this.modelId, this.options.purpose, request.maxOutputTokens),
           system: appendSupplement(

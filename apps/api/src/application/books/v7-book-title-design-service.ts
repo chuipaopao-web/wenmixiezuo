@@ -112,7 +112,7 @@ export class V7BookTitleDesignService {
     });
 
     const maxOutputTokens = 1_200;
-    const reserved = Math.max(8_000, compiled.manifest.compiledPrompt.length + maxOutputTokens + thinkingTokenAllowance(member.model.modelId, 'structured_planning', maxOutputTokens));
+    const reserved = Math.max(8_000, compiled.manifest.compiledPrompt.length + maxOutputTokens + thinkingTokenAllowance(member.model.modelId, 'structured_planning', maxOutputTokens, compiled.manifest.compiledPrompt.length));
     const accountUsage = new SupplementalAccountUsageRepository(this.database);
     try {
       assertMembershipAllowsGeneration(this.database, ownerId, now, reserved);

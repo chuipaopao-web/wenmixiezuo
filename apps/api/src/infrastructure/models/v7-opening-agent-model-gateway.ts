@@ -84,7 +84,8 @@ export class V7OpeningAgentModelGateway implements OpeningAgentModelGateway {
     const reasoningTokens = thinkingTokenAllowance(
       request.member.model.modelId,
       'structured_planning',
-      request.maxOutputTokens
+      request.maxOutputTokens,
+      compiled.manifest.compiledPrompt.length
     );
     const reservedTokens = Math.max(8_000, compiled.manifest.compiledPrompt.length + request.maxOutputTokens + reasoningTokens);
     try {

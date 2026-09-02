@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadModelRuntimeConfig } from '../../apps/api/src/infrastructure/models/model-runtime-config.js';
+import { glmPlanningHeadroomTokens, loadModelRuntimeConfig, thinkingTokenAllowance } from '../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import { ModelAdapterFactory } from '../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import { V7_TEXT_MODEL_PROFILE_KEYS, modelBindingForProfile } from '@wenmi/v7-backend';
 
@@ -152,5 +152,30 @@ describe('模型运行配置', () => {
       WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key',
       WENMI_ARK_AGENT_PLAN_BASE_URL: 'https://ark.cn-beijing.volces.com/api/v3'
     })).toThrow('只允许火山方舟套餐端点');
+  });
+});
+
+describe('GLM-5.3 直出路由的动态思考余量', () => {
+  // 2026-09-02 生产实证：固定1k余量被GLM失控隐式思考全部烧穿（规划成功率跌至9%），
+  // 余量改为随提示词规模折算（1/3），保底8k、封顶32k。
+  it('按提示词字符数的三分之一折算', () => {
+    expect(glmPlanningHeadroomTokens(15_000)).toBe(8_000);
+    expect(glmPlanningHeadroomTokens(60_000)).toBe(20_000);
+    expect(glmPlanningHeadroomTokens(90_000)).toBe(30_000);
+  });
+
+  it('保底8k、封顶32k，非法输入回到保底', () => {
+    expect(glmPlanningHeadroomTokens(0)).toBe(8_000);
+    expect(glmPlanningHeadroomTokens(-5)).toBe(8_000);
+    expect(glmPlanningHeadroomTokens(Number.NaN)).toBe(8_000);
+    expect(glmPlanningHeadroomTokens(300_000)).toBe(32_000);
+  });
+
+  it('GLM结构化规划命中动态余量，DeepSeek不受影响', () => {
+    expect(thinkingTokenAllowance('glm-5.3', 'structured_planning', 19_000, 90_000)).toBe(30_000);
+    expect(thinkingTokenAllowance('glm-5.3', 'structured_planning', 19_000, 3_000)).toBe(8_000);
+    // 未传提示词长度的调用点按保底8k，不再使用旧的1k。
+    expect(thinkingTokenAllowance('glm-5.3', 'structured_planning', 19_000)).toBe(8_000);
+    expect(thinkingTokenAllowance('deepseek-v4-pro', 'structured_planning', 8_000, 90_000)).toBe(4_000);
   });
 });

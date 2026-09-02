@@ -144,7 +144,7 @@ export class V7CharacterMemoryModelGateway {
     });
     promptGovernance.saveRuntimeBundle(compiled);
     const purpose: ModelPurpose = request.runKind === 'maintenance' ? 'novel_reviewer' : 'structured_planning';
-    const reasoningTokens = thinkingTokenAllowance(request.member.model.modelId, purpose, request.maxOutputTokens);
+    const reasoningTokens = thinkingTokenAllowance(request.member.model.modelId, purpose, request.maxOutputTokens, compiled.manifest.compiledPrompt.length);
     const reservedTokens = Math.max(8_000, compiled.manifest.compiledPrompt.length + request.maxOutputTokens + reasoningTokens);
     assertMembershipAllowsGeneration(this.database, request.ownerId, now, reservedTokens);
     this.repository.startModelCall({
