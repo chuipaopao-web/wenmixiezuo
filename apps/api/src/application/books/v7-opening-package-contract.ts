@@ -238,8 +238,24 @@ export function validateV7OpeningRevisionDraft(
   };
 }
 
-export function openingPackageHash(value: OpeningPackage): string {
-  return createHash('sha256').update(JSON.stringify(publicV7OpeningPackage(value))).digest('hex');
+/**
+ * 确认开书时判断"作者是否改动了页面内容"。两侧都必须经过同一个纯投影：
+ * 只剥离编辑部内部字段（revisionDirective），不做设计期严格重建——作者修订稿
+ * （revise 直接落库的候选）合法保留 authorNotes、goal 等设计期会留空的字段，
+ * 用 parse 重建会制造永久性哈希差，把通过复审的作者锁死在确认页外。
+ * 比较对键序不敏感：序列化顺序差异不是作者修改。
+ */
+export function openingPackageUnchanged(stored: OpeningPackage, submitted: OpeningPackage): boolean {
+  return stableJson(publicV7OpeningPackage(stored)) === stableJson(publicV7OpeningPackage(submitted));
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map((item) => stableJson(item)).join(',')}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, item]) => item !== undefined)
+    .toSorted(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+  return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(',')}}`;
 }
 
 /**

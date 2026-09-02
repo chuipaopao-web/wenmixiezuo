@@ -9,7 +9,7 @@ import { BookOnboardingService } from './book-onboarding-service.js';
 import { PositioningService } from './positioning-service.js';
 import { isCurrentV7OpeningTask } from './v7-opening-agent-service.js';
 import {
-  openingPackageHash,
+  openingPackageUnchanged,
   toV7OpeningBlueprint,
   validateV7ManualOpeningPackage,
   validateV7OpeningPackage
@@ -123,7 +123,7 @@ export class V7OpeningBookService {
     if (candidate.kind !== 'opening_package' || review.kind !== 'opening_review' || review.content.verdict !== 'pass') {
       throw new DomainError(errorCodes.validation, '当前资料还没有通过主编审查。', {}, false, 409);
     }
-    if (openingPackageHash(candidate.content) !== openingPackageHash(submittedPackage)) {
+    if (!openingPackageUnchanged(candidate.content, submittedPackage)) {
       throw new DomainError(errorCodes.validation, '页面内容已经修改，请先提交主编复审。', {}, false, 409);
     }
     return { sourceKey: `agent-${taskId}`, idea: row.idea_text };
