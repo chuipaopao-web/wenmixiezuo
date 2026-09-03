@@ -17,6 +17,12 @@ export interface BookPurgeRecord {
   readonly deletedAt: string;
 }
 
+export interface CleanCutoverDeleteAuthorization {
+  readonly operationId: string;
+  readonly authorizationHash: string;
+  readonly createdAt: string;
+}
+
 function quoteIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
@@ -39,11 +45,22 @@ export class BookPurgeRepository {
     return rows.map((row) => row.relative_path);
   }
 
-  public permanentlyDelete(scope: BookScope, record: BookPurgeRecord): void {
+  public permanentlyDelete(
+    scope: BookScope,
+    record: BookPurgeRecord,
+    cleanCutover?: CleanCutoverDeleteAuthorization
+  ): void {
     assertBookScope(scope);
     this.database.exec('BEGIN IMMEDIATE');
     try {
       this.database.exec('PRAGMA defer_foreign_keys = ON');
+      if (cleanCutover !== undefined) {
+        this.database.prepare(`
+          INSERT INTO clean_cutover_delete_guard (
+            guard_id, operation_id, authorization_hash, created_at
+          ) VALUES (1, ?, ?, ?)
+        `).run(cleanCutover.operationId, cleanCutover.authorizationHash, cleanCutover.createdAt);
+      }
       this.database.prepare(`
         INSERT INTO deletion_tombstones (
           tombstone_id, owner_id, deleted_book_id, deleted_book_title,
@@ -75,6 +92,12 @@ export class BookPurgeRepository {
       this.#deleteScopedRows(scope);
       this.database.prepare('DELETE FROM books WHERE owner_id = ? AND book_id = ?')
         .run(scope.ownerId, scope.bookId);
+      if (cleanCutover !== undefined) {
+        this.database.prepare(`
+          DELETE FROM clean_cutover_delete_guard
+          WHERE guard_id = 1 AND operation_id = ?
+        `).run(cleanCutover.operationId);
+      }
       this.database.exec('COMMIT');
     } catch (error) {
       this.database.exec('ROLLBACK');
