@@ -47,7 +47,7 @@ describe('V7独立后台创作运行', () => {
             },
             taskResponsibilities: ['把当前链设计成因果闭合的具体推进'],
             creativeSpace: ['可以忽略候选方法并按人物处境原创'],
-            methodPlan: { mode: 'combined', publicSummary: '少量借用压力递进，同时保留本书原创解法。', candidateCount: 6, candidates: [] },
+            methodPlan: { mode: 'combined', publicSummary: '少量借用压力递进，同时保留本书原创解法。', assetMenuVersion: 'v7-layer-asset-menu-v1', assetMenuChars: 1200 },
             selectedSources: [{ sourceKey: 'formal:opening', sourceKind: 'opening', authority: 'formal', label: '开书资料' }],
             excludedSources: [{ sourceKey: 'setting:unused', reason: '与本链无关' }], openQuestions: [],
             characterCount: 6200, budgetChars: 8000, estimatedTokens: 2400
@@ -107,7 +107,7 @@ describe('V7独立后台创作运行', () => {
           taskPersona: { publicLabel: '全书路线资料策划', workingIdentity: '历史军营长篇路线设计者' },
           taskResponsibilities: ['组织全书因果'], creativeSpace: ['可以组合方法或自主原创']
         },
-        candidates: [{ methodKey: 'causal-chain' }]
+        assetMenu: { allowedKeys: ['causal-chain'] }
       },
       calls: [
         { member_key: 'deputy-deepseek-v4-pro', model_id: 'deepseek-v4-pro', state: 'succeeded', input_tokens: 100, output_tokens: 50, failure_message: null },
@@ -122,7 +122,7 @@ describe('V7独立后台创作运行', () => {
     expect(callsMetric).toHaveTextContent('3');
     fireEvent.click(screen.getByText('张三北宋行'));
     await waitFor(() => expect(mockedApi.fetchV7PlanningAdminAudit).toHaveBeenCalledOnce());
-    fireEvent.click(screen.getByText(/全书路线资料策划 · 1 个方法候选/u));
+    fireEvent.click(screen.getByText(/全书路线资料策划 · 菜单1 项资产/u));
     expect(screen.getByText('历史军营长篇路线设计者')).toBeVisible();
     expect(screen.getByText('组织全书因果')).toBeVisible();
     expect(screen.getByText('可以组合方法或自主原创')).toBeVisible();

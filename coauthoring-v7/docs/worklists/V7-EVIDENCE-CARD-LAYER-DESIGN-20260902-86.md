@@ -1,7 +1,7 @@
 # 第86批工单（终稿）：资产层重构——菜单式资产供给 + 节奏继承结构化 + 资料包卡片化
 
-- 日期：2026-09-02 初稿，2026-09-03 终稿（第六轮老板反馈后重写）
-- 状态：**终稿，待老板批准实施**
+- 日期：2026-09-02 初稿，2026-09-03 终稿（第六轮老板反馈后重写）；2026-09-03 86a 实现完成
+- 状态：**86a 已实现并全部测试通过（待部署）；86b/86c 未实施**。86a 实施记录见文末「十三、86a 实施记录」
 - 关联：第82批（libraryRefs 确定性归一 + 遗留"证据卡层"）、第85批（GLM-5.3 思考余量修复）
 - 老板定稿原则（六轮反馈收敛）：
   1. 方法论是 AI 成员的内建知识，后台资产**只做参考**，成员自己判断——设计不出更好的才采用；**不限制成员的创意和模型本身能力**。
@@ -251,3 +251,29 @@ interface PlanningNodeRhythm {
 - 不做全量语义回校（v1 只确定性检查+事实矛盾）。
 - 不做老书数据兼容与迁移（老板决策全量清空，见七补之二）。
 - 不更换任何成员底座模型。
+
+## 十三、86a 实施记录（2026-09-03，全部测试通过，待部署）
+
+### 交付清单
+
+1. **提名卡**（新文件 `coauthoring-v7/backend/narrative-methods/method-nomination-cards.ts` + node:test 测试）：方法卡 21 张（宏观节奏框架组 13 + 全书形态组 8）+ 配方卡 36 张 = 57 张，全部 ≤100 字、结构固定「名字：节奏线。注意：防误读」；节奏线有几段画几段（三幕3段、五幕5段、配方按自身段数）。**卡文为模型凝缩初稿，按 3.1 节流程待管理员逐条审核后生效。**
+2. **chapter 层补标 + 回归闸**：宏观框架组补 chapter 标注修自相似断链；`validateMethodExecutionProfiles` 新增"宏观框架组必须覆盖 chapter 层"检查，防止再次断链。
+3. **配方段数放宽**：`validatePlotRecipeRegistry` 从写死 5 段放宽为 2~7 段（第十二轮定稿）。
+4. **层资产菜单生成器**（新文件 `coauthoring-v7/backend/planning-methods/layer-asset-menu.ts` + vitest 测试 7 项）：`buildLayerAssetMenu(layer, genreFamilies)` 三库合一按层供给——主节奏框架提名卡组（每层）+ 全书形态提名卡（仅全书两层）+ 配方提名卡（卷/链，按 `commonGenreFamilies` 题材过滤）+ 模式名册（链/章，按 6 类节奏角色分组）+ 方法名册（每层，按 16 维度分组）。配套 `layerAssetEntries/layerAssetKeySet`（引用名册，替代检索召回）、`renderLayerAssetMenuText`（菜单文本）、`buildStoredLayerAssetMenu/parseStoredLayerAssetMenu`（菜单存档无损往返）、`validateLayerAssetMenus`（全层完整性校验）。
+5. **移除妙玉方法检索（协调变更）**：`retrievePlanningMethodCandidates` 及语义子串打分退役；资料策划合同瘦身为「本书事实/设定筛选 + 任务身份签发」（publicGoal/scaleHint/avoidNotes/relevantSettingSourceIds/missingCriticalInputs/taskPersona/taskResponsibilities/creativeSpace），老字段（planningLayers/dimensions/searchQueries/desiredCount）解析容忍一个版本周期。三个生产流全部改造：路线（route-service，菜单存 `candidate_methods_json`，菜单层=volume_distribution）、树生成（tree-generation-service，经 reference pack 注入）、创作选项（creation-context-compiler，methodPlan 带 assetMenu/policy）。引用校验改按 `layerAssetEntries` 名册。
+6. **灰度开关**：`WENMI_V7_ASSET_MENU=1` 才注入菜单文本/启用名册校验，**默认关闭**；关闭时注入占位说明文字、allowedAssets=[]（第82批归一静默丢弃引用），菜单仍照常生成存档（便于先观察存量）。
+7. **后台/审计视图**：管理后台方法策划页显示菜单条数；创作运营页显示 methodPlan 的 assetMenuVersion/assetMenuChars；审计摘要不再输出候选方法列表。
+8. **数据清空脚本（86a 部署前置作业）**：`scripts/ops/wipe-production-books.ts`——默认 dry-run 输出全书范围表计数与验证 SQL；`--execute` 复用 `BookPurgeRepository` 既有单书永久删除逻辑（含删除墓碑防 ID 复活）逐本清空，**账号/会员/owner/备份/墓碑保留**；执行前硬门禁要求最新备份状态为 verified（`--skip-backup-gate` 仅限抢救）；执行后自动验证（书籍为零、书范围表为零、账号数不变、外键 0、integrity ok）并落证据文件 `data/verification/production-book-wipe.json`。已用 3 本书的临时库实测 `--execute` 全通过（3 本清空、磁盘目录删除、2 账号保留、3 条墓碑、passed=true）。
+
+### 测试证据（2026-09-03）
+
+- backend：vitest 10 文件 97 测试全绿；node:test 5 脚本 16 测试全绿（含新增 method-nomination-cards 4 项）。
+- 根目录全套：vitest 74 文件 427 测试全绿（含改写的检索合同 7 项、路线合同 2 项、创作管线 16 项、编辑运行时 16 项）。
+- 类型检查：apps/api、apps/worker、v7-author-app、v7-admin-console、backend dist 重建后、根 tests tsconfig 全部 0 错误。
+- 旧合同测试同步更新：`tests/unit/v7-planning-method-retrieval.test.ts`（改测新合同+老字段容忍）、`tests/unit/v7-planning-story-route-contract.test.ts`、`tests/integration/domain/v7-creation-pipeline.test.ts`（methodPlan 断言改 policy/searchRequest）、`tests/integration/domain/v7-planning-editorial-runtime.test.ts`（提示词文案、存档菜单、retrieval_version='1.0.0'、assetMenu 断言）。
+
+### 部署注意事项（交 codex）
+
+1. 按七补之二执行清空：全量备份并拉异地 → dry-run 核对计数 → `--execute` → 核对 production-book-wipe.json passed=true。
+2. 灰度开关默认关闭上线；观察后由老板决定何时 `WENMI_V7_ASSET_MENU=1` 并做开关前后规划对比。
+3. 57 张提名卡需管理员在后台逐条审核（3.1 节流程），审核前生产已按初稿卡文供给。

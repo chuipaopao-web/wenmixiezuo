@@ -381,7 +381,8 @@ export function validatePlotRecipeRegistry(): string[] {
   for (const item of V7_PLOT_RECIPES) {
     if (keys.has(item.key)) errors.push(`剧情配方键重复：${item.key}`);
     keys.add(item.key);
-    if (item.stages.length !== 5) errors.push(`${item.key} 必须提供 5 个标准阶段责任`);
+    // 第86批：节奏段数不定死，按内容需要取 2~7 段（原为硬编码必须 5 段）。
+    if (item.stages.length < 2 || item.stages.length > 7) errors.push(`${item.key} 阶段数必须在 2~7 之间`);
     const stageKeys = new Set<string>();
     for (const stageValue of item.stages) {
       if (stageKeys.has(stageValue.key)) errors.push(`${item.key} 阶段键重复：${stageValue.key}`);

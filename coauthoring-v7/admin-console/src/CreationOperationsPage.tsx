@@ -108,7 +108,7 @@ function AuditDetail({ value }: { value: V7CreationAdminAudit | undefined }): Re
 function ContextPlanSummary({ value }: { value: V7PlanningAdminAudit['contextPlan'] }): React.JSX.Element {
   const request = value?.request;
   if (request === undefined) return <article><b>资料策划</b><small>旧任务没有结构化资料策划记录</small></article>;
-  return <details className="creation-ops-context"><summary><b>资料策划</b><small>{request.taskPersona?.publicLabel ?? '本任务临时题材身份'} · {value?.candidates?.length ?? 0} 个方法候选</small><CaretDown/></summary><dl>
+  return <details className="creation-ops-context"><summary><b>资料策划</b><small>{request.taskPersona?.publicLabel ?? '本任务临时题材身份'} · 菜单{value?.assetMenu?.allowedKeys?.length ?? 0} 项资产</small><CaretDown/></summary><dl>
     <div><dt>任务身份</dt><dd>{request.taskPersona?.workingIdentity ?? request.taskPersona?.publicLabel ?? '未记录'}</dd></div>
     <div><dt>本轮责任</dt><dd>{request.taskResponsibilities?.join('；') || '未记录'}</dd></div>
     <div><dt>创意空间</dt><dd>{request.creativeSpace?.join('；') || '未记录'}</dd></div>
@@ -118,7 +118,7 @@ function ContextPlanSummary({ value }: { value: V7PlanningAdminAudit['contextPla
 
 function ContextPackSummary({ value }: { value: NonNullable<V7CreationAdminAudit['creation']['contextPacks']>[number] }): React.JSX.Element {
   const summary = value.context_summary;
-  return <details className="creation-ops-context"><summary><b>{contextTaskName(value.task_kind)}资料包</b><small>{summary === undefined ? value.status : `${summary.characterCount}/${summary.budgetChars} 字符 · ${summary.methodPlan.candidateCount} 个方法候选`}</small><CaretDown/></summary>
+  return <details className="creation-ops-context"><summary><b>{contextTaskName(value.task_kind)}资料包</b><small>{summary === undefined ? value.status : `${summary.characterCount}/${summary.budgetChars} 字符 · ${summary.methodPlan.assetMenuVersion === null ? '无资产菜单' : `资产菜单${summary.methodPlan.assetMenuChars}字符`}`}</small><CaretDown/></summary>
     {summary === undefined ? <p>这份旧资料包没有结构化摘要。</p> : <dl>
       <div><dt>任务身份</dt><dd>{summary.taskPersona.workingIdentity}</dd></div>
       <div><dt>本轮责任</dt><dd>{summary.taskResponsibilities.join('；')}</dd></div>

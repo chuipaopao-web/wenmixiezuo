@@ -813,7 +813,7 @@ describe('V7规划编辑部三席协作', () => {
       expect(methodSearchPrompts).toHaveLength(1);
       const briefPrompts = resolver.prompts.filter((prompt) => prompt.includes('你是文秘写作V7的一名全案规划主编'));
       expect(briefPrompts).toHaveLength(3);
-      expect(briefPrompts.every((prompt) => prompt.includes('少量候选方法中选4—6项'))).toBe(true);
+      expect(briefPrompts.every((prompt) => prompt.includes('参考本轮资产菜单选4—6项适合本书的工具'))).toBe(true);
       const searches = context.database.prepare(`SELECT search_request_json,candidate_methods_json FROM v7_planning_method_searches
         WHERE owner_id=? AND book_id=? AND run_id=?`).all(ownerId, bookId, routeRunId) as Array<{
           search_request_json: string; candidate_methods_json: string;
@@ -823,7 +823,10 @@ describe('V7规划编辑部三席协作', () => {
         const ids = (JSON.parse(row.search_request_json) as { relevantSettingSourceIds: string[] }).relevantSettingSourceIds;
         return ids.length > 0 && !ids.includes(`setting-ledger:${bookId}`);
       })).toBe(true);
-      expect(searches.every((row) => (JSON.parse(row.candidate_methods_json) as unknown[]).length <= 8)).toBe(true);
+      expect(searches.every((row) => {
+        const menu = JSON.parse(row.candidate_methods_json) as { schema: string; allowedKeys: string[] };
+        return menu.schema === 'v7-layer-asset-menu-v1' && menu.allowedKeys.length > 0;
+      })).toBe(true);
       const settingSourceTraces = context.database.prepare(`SELECT trace.owner_id AS ownerId,trace.book_id AS bookId,
         trace.source_id AS sourceId,trace.source_version AS sourceVersion,trace.decision,trace.reason
         FROM v7_context_source_traces trace
@@ -979,7 +982,10 @@ describe('V7规划编辑部三席协作', () => {
       });
       expect(routeAudit.statusCode).toBe(200);
       expect(routeAudit.json().data).toMatchObject({
-        methodSearches: expect.arrayContaining([expect.objectContaining({ retrieval_version: 'v7-method-retrieval-1' })]),
+        methodSearches: expect.arrayContaining([expect.objectContaining({
+          retrieval_version: '1.0.0',
+          assetMenu: expect.objectContaining({ schema: 'v7-layer-asset-menu-v1' })
+        })]),
         methodProposals: expect.any(Array), storyRoutes: expect.any(Array),
         routeReview: expect.objectContaining({ review: expect.objectContaining({ schema: 'v7-planning-route-review-v1' }) })
       });

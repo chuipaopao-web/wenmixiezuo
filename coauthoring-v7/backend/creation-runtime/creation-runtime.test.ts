@@ -39,30 +39,33 @@ describe('V7 creation runtime contracts', () => {
       selectionReasons: [{ sourceKey: 'method:1', reason: '参考' }], excludedSourceKeys: ['opening:1'], openQuestions: [] }), candidates, 8)).toThrow('必要正式来源');
   });
 
-  it('freezes task persona, responsibilities and semantic method retrieval for the current layer', () => {
+  it('freezes task persona, responsibilities and the fact-filter request for the current task', () => {
     const candidates = [{
       sourceKey: 'setting:1', sourceKind: 'setting' as const, sourceId: 'setting-version-1', sourceVersion: '1',
       authority: 'formal' as const, label: '当前设定', content: {}, contentHash: 'c'.repeat(64), required: true,
       includedReason: '当前任务必须核对。'
     }];
-    const selection = parseContextSelection(JSON.stringify(contextSelectionFixture('volume')), candidates, 8, 'volume');
+    const selection = parseContextSelection(JSON.stringify(contextSelectionFixture()), candidates, 8, 'volume');
     expect(selection).toMatchObject({
       taskPersona: { publicLabel: '历史战争融合执行身份' },
-      methodStrategy: { mode: 'combined', searchRequest: { planningLayers: ['volume'] } }
+      methodStrategy: { mode: 'combined', searchRequest: { relevantSettingSourceIds: ['setting-version-1'] } }
     });
     expect(selection.taskResponsibilities).toHaveLength(2);
     expect(selection.creativeSpace).toHaveLength(1);
   });
 
-  it('rejects method retrieval from another planning layer and method assets in factual settlement', () => {
+  it('rejects invalid setting sources in the fact-filter request and method assets in factual settlement', () => {
     const candidates = [{
       sourceKey: 'setting:1', sourceKind: 'setting' as const, sourceId: 'setting-version-1', sourceVersion: '1',
       authority: 'formal' as const, label: '当前设定', content: {}, contentHash: 'd'.repeat(64), required: true,
       includedReason: '当前任务必须核对。'
     }];
-    expect(() => parseContextSelection(JSON.stringify(contextSelectionFixture('chain')), candidates, 8, 'volume'))
-      .toThrow('越过了当前任务层级');
-    expect(() => parseContextSelection(JSON.stringify(contextSelectionFixture('chapter_execution')), candidates, 8, 'settlement'))
+    const invalidSource = contextSelectionFixture();
+    (invalidSource.methodStrategy as { searchRequest: { relevantSettingSourceIds: string[] } })
+      .searchRequest.relevantSettingSourceIds = ['setting-other-book'];
+    expect(() => parseContextSelection(JSON.stringify(invalidSource), candidates, 8, 'volume'))
+      .toThrow('资料策划引用了无效设定来源');
+    expect(() => parseContextSelection(JSON.stringify(contextSelectionFixture()), candidates, 8, 'settlement'))
       .toThrow('定稿事实结算不能注入叙事方法');
   });
 
@@ -269,7 +272,7 @@ describe('V7 creation runtime contracts', () => {
   });
 });
 
-function contextSelectionFixture(planningLayer: 'volume' | 'chain' | 'chapter_execution'): Record<string, unknown> {
+function contextSelectionFixture(): Record<string, unknown> {
   return {
     schema: 'v7-creation-context-v1', publicSummary: '已按当前任务整理最小资料。',
     selectedSourceKeys: ['setting:1'], selectionReasons: [{ sourceKey: 'setting:1', reason: '当前任务需要。' }],
@@ -283,9 +286,8 @@ function contextSelectionFixture(planningLayer: 'volume' | 'chain' | 'chapter_ex
     methodStrategy: {
       mode: 'combined', publicSummary: '组合少量资产并保留原创空间.',
       searchRequest: {
-        schema: 'v7-planning-method-search-v1', publicGoal: '寻找当前层级的因果与连载推进方法。',
-        searchQueries: ['人物行动怎样改变局势', '压力怎样逐步升级'], planningLayers: [planningLayer],
-        dimensions: ['causal_dynamics', 'serial_rhythm'], desiredCount: 8, scaleHint: '只覆盖当前任务。',
+        schema: 'v7-planning-method-search-v1', publicGoal: '核对当前任务相关的军营设定事实。',
+        scaleHint: '只覆盖当前任务。',
         avoidNotes: ['不机械套模板'], relevantSettingSourceIds: ['setting-version-1'], missingCriticalInputs: []
       }
     }

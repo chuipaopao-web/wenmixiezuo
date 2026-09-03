@@ -1269,12 +1269,8 @@ function contextPackAuditSummary(row: Record<string, unknown>): Record<string, u
         methodPlan: {
           mode: pack.methodPlan.mode,
           publicSummary: pack.methodPlan.publicSummary,
-          candidateCount: pack.methodPlan.candidates.length,
-          candidates: pack.methodPlan.candidates.map((candidate) => ({
-            publicExplanation: candidate.publicExplanation,
-            responsibilities: candidate.responsibilities,
-            caution: candidate.caution
-          }))
+          assetMenuVersion: pack.methodPlan.assetMenuVersion,
+          assetMenuChars: pack.methodPlan.assetMenu === null ? 0 : Array.from(pack.methodPlan.assetMenu).length
         },
         selectedSources: pack.selectedSources.map((source) => ({
           sourceKey: source.sourceKey,

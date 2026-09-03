@@ -6,8 +6,9 @@ import {
   type PlanningTreeKind
 } from './planning-tree-contracts.js';
 import type { CompiledLayeredPlanningTask } from '../planning-methods/layered-planning-engine.js';
+import type { LayerAssetEntry } from '../planning-methods/layer-asset-menu.js';
 import type { V7PlanningMethodSearchRequest } from '../planning-methods/planning-method-retrieval.js';
-import type { V7PlanningLayerReferencePack, V7PlanningReferenceCard } from './planning-layer-reference-pack.js';
+import type { V7PlanningLayerReferencePack } from './planning-layer-reference-pack.js';
 
 export function parsePlanningTreeOutput(
   output: string,
@@ -45,7 +46,7 @@ export function planningTreeGenerationPrompt(input: {
     '已确认上层规划中的designStrategy、伏笔和开放问题属于本层交接责任。承接它们不等于复制上层分段：即使继续使用同一个方法，也必须按当前层的跨度、冲突、人物选择和回报重新设计，并让本层的埋设、兑现和下一层接口能追溯到上层承诺。',
     `资料策划签发的本任务身份、责任与创意空间：${JSON.stringify(input.contextPlan)}`,
     '顶层JSON字段必须完整且只按本合同输出：schema="v7-planning-tree-v1",treeKind,scopeId,title,designStrategy,root。不得省略服务端已给出的固定字段。',
-    '输出顶层designStrategy：libraryRefs最多使用候选包允许的数量，也可以为0；只能引用"当前层少量候选工具"里列出的资产，冻结资料中上层规划的引用不代表本轮可用，会被直接忽略；originalStrategies为1至6项，每项必须是{title,applicationNote}，说明只适合本书当前人物与局势的原创推进办法；decisionNote说明为什么这样取舍。',
+    '输出顶层designStrategy：libraryRefs最多使用候选包允许的数量，也可以为0；只能引用"当前层资产菜单"里列出的资产（名册中只列名字的资产也可引用其key），冻结资料中上层规划的引用不代表本轮可用，会被直接忽略；originalStrategies为1至6项，每项必须是{title,applicationNote}，说明只适合本书当前人物与局势的原创推进办法；decisionNote说明为什么这样取舍。',
     '正式资料与已确认上层方向不可静默改写；正文实际只能来自结算，不得把未来计划写成已经发生。',
     '每个节点必须同时写清剧情、情绪、阅读体验、因果、伏笔与篇幅；没有必要的伏笔可用空数组，不能凑数。已有上层伏笔必须明确在本层继续加深、局部兑现、正式回收或有理由延后，不能静默丢失。',
     '全书树根节点kind=book，子节点只能是volume或ending；单卷树根节点kind=volume，子节点只能是chain；单元链树根节点kind=chain，子节点只能是event。',
@@ -57,7 +58,7 @@ export function planningTreeGenerationPrompt(input: {
     'causality字段：trigger,causes,coreConflict,turningPoint,consequences。threads字段：foreshadowing,openQuestions。budget字段：wordTarget,chapterRange；chapterRange只能是null或[start,end]数字数组，不能写成"1-40"。',
     `分层执行责任：${JSON.stringify(input.layeredTask)}`,
     `当前树输出合同：${JSON.stringify(input.generationTask)}`,
-    `当前层少量候选工具：${JSON.stringify(input.referencePack)}`,
+    `当前层资产菜单（候选参考，可少用、组合、忽略或完全原创）：\n${input.referencePack.menuText}`,
     `服务端冻结资料：${JSON.stringify(input.sourceSnapshot)}`
   ].join('\n\n');
 }
@@ -97,18 +98,14 @@ function validateDesignStrategy(document: PlanningTreeDocument, referencePack: V
     }
   }
   // libraryRefs 是簿记字段：产品合同声明资产只是候选、可以为 0。模型看到
-  // 冻结资料里上层规划的引用后常照抄本轮候选包之外的 key；这与 normalize
+  // 冻结资料里上层规划的引用后常照抄本轮名册之外的 key；这与 normalize
   // NodeFormats 同理，只做确定性归一（丢弃无效引用、去重、限量），不调用
   // 模型重写、不改剧情，也不能因此让整棵树失败。
-  const cards = [
-    ...referencePack.narrativeMethods,
-    ...referencePack.plotRecipes,
-    ...referencePack.plotPatterns
-  ];
-  const byCompositeKey = new Map(cards.map((card) => [`${card.assetType}:${card.key}`, card]));
-  const byKey = new Map<string, V7PlanningReferenceCard>();
-  for (const card of cards) {
-    if (!byKey.has(card.key)) byKey.set(card.key, card);
+  const assets = referencePack.allowedAssets;
+  const byCompositeKey = new Map(assets.map((asset) => [`${asset.assetType}:${asset.key}`, asset]));
+  const byKey = new Map<string, LayerAssetEntry>();
+  for (const asset of assets) {
+    if (!byKey.has(asset.key)) byKey.set(asset.key, asset);
   }
   const rawRefs = Array.isArray(strategy.libraryRefs) ? strategy.libraryRefs : [];
   const normalized: NonNullable<PlanningTreeDocument['designStrategy']>['libraryRefs'] = [];
@@ -118,14 +115,14 @@ function validateDesignStrategy(document: PlanningTreeDocument, referencePack: V
     const assetType = typeof reference.assetType === 'string' ? reference.assetType : '';
     const key = typeof reference.key === 'string' ? reference.key.trim() : '';
     if (key.length === 0) continue;
-    const card = byCompositeKey.get(`${assetType}:${key}`) ?? byKey.get(key);
-    if (card === undefined) continue;
-    if (seen.has(card.key)) continue;
+    const asset = byCompositeKey.get(`${assetType}:${key}`) ?? byKey.get(key);
+    if (asset === undefined) continue;
+    if (seen.has(asset.key)) continue;
     if (typeof reference.applicationNote !== 'string' || reference.applicationNote.trim().length === 0) continue;
-    seen.add(card.key);
+    seen.add(asset.key);
     normalized.push({
-      assetType: card.assetType,
-      key: card.key,
+      assetType: asset.assetType,
+      key: asset.key,
       applicationNote: reference.applicationNote.trim()
     });
     if (normalized.length >= referencePack.policy.libraryUseLimit) break;

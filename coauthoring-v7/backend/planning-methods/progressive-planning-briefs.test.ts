@@ -6,19 +6,19 @@ import {
   validateProgressivePlanningBriefCandidates
 } from './progressive-planning-briefs.js';
 import { parsePlanningRouteFusion } from './planning-story-routes.js';
-import type { V7PlanningMethodCandidate } from './planning-method-retrieval.js';
+import type { LayerAssetEntry } from './layer-asset-menu.js';
 import type { V7PlanningStoryRoute } from './planning-story-routes.js';
 
 describe('V7渐进式规划依据', () => {
-  it('只给成员精简方法卡，并明确允许本书原创策略', () => {
+  it('只给成员本轮资产菜单，并明确允许本书原创策略', () => {
     const prompt = progressivePlanningBriefPrompt({
       seatKey: 'chief_editor',
       sourceSnapshot: { formal: '张三必须是主角' },
-      candidates: [candidate('causal-chain')]
+      assetMenuText: menuText()
     });
     expect(prompt).toContain('至少1项必须是agent_original');
     expect(prompt).toContain('不得为了用完资产');
-    expect(prompt).toContain('"methodKey":"causal-chain"');
+    expect(prompt).toContain('causal-chain');
     expect(prompt).not.toContain('combinationGuidance');
     expect(prompt).not.toContain('fitSignals');
   });
@@ -50,8 +50,8 @@ describe('V7渐进式规划依据', () => {
 
   it('公共方法不能被成员挪到不适用的规划层', () => {
     const parsed = parseProgressivePlanningBrief(JSON.stringify(brief()), 'chief_editor', ['causal-chain']);
-    const wrongLayerCandidate = { ...candidate('causal-chain'), planningLayers: ['volume_distribution'] as const };
-    expect(() => validateProgressivePlanningBriefCandidates(parsed, [wrongLayerCandidate]))
+    const wrongLayerAsset: LayerAssetEntry = { ...assetEntry('causal-chain'), planningLayers: ['volume_distribution'] };
+    expect(() => validateProgressivePlanningBriefCandidates(parsed, [wrongLayerAsset]))
       .toThrow('不能用于全书主骨架层');
   });
 
@@ -72,21 +72,16 @@ describe('V7渐进式规划依据', () => {
   });
 });
 
-function candidate(methodKey: string): V7PlanningMethodCandidate {
+function menuText(): string {
+  return ['【主节奏框架提名卡】', '- causal-chain 因果链：让下一步由上一步结果触发。'].join('\n');
+}
+
+function assetEntry(methodKey: string): LayerAssetEntry {
   return {
-    methodKey,
-    professionalName: '因果链',
-    publicExplanation: '让下一步由上一步结果触发。',
-    dimension: 'causal_dynamics',
-    kind: 'foundation',
-    recommendationTier: 'default',
-    exclusiveGroup: null,
-    planningLayers: ['book_backbone'],
-    recommendedScale: ['全书'],
-    fitSignals: ['因果'],
-    cautionSignals: ['不要依赖巧合'],
-    responsibilities: ['确保结果触发下一步'],
-    combinationGuidance: '可与人物弧线组合。'
+    assetType: 'narrative_method',
+    key: methodKey,
+    title: '因果链',
+    planningLayers: ['book_backbone']
   };
 }
 

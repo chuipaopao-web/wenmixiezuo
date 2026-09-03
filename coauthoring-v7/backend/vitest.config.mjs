@@ -14,6 +14,7 @@ export default defineConfig({
       '**/dist/**',
       'agents/agent-foundation.test.ts',
       'narrative-methods/narrative-method-library.test.ts',
+      'narrative-methods/method-nomination-cards.test.ts',
       'opening-agent/opening-agent-engine.test.ts',
       'plot-patterns/plot-pattern-library.test.ts'
     ]

@@ -1,12 +1,5 @@
 import type { PlanningTreeDocument, PlanningTreeSourceRef } from '../planning-trees/planning-tree-contracts.js';
-import type {
-  NarrativeDimension,
-  NarrativeMethodDefinition
-} from '../narrative-methods/narrative-method-library.js';
-import type {
-  PlanningLayerKey,
-  V7PlanningMethodSearchRequest
-} from '../planning-methods/index.js';
+import type { V7PlanningMethodSearchRequest } from '../planning-methods/index.js';
 
 export const V7_CREATION_CONTEXT_SCHEMA = 'v7-creation-context-v1' as const;
 export const V7_VOLUME_OPTION_SCHEMA = 'v7-volume-option-v1' as const;
@@ -137,20 +130,13 @@ export interface V7CreationMethodStrategy {
   searchRequest: V7PlanningMethodSearchRequest | null;
 }
 
-export interface V7CreationMethodCandidate {
-  methodKey: string;
-  publicExplanation: string;
-  dimension: NarrativeDimension;
-  kind: NarrativeMethodDefinition['kind'];
-  planningLayers: readonly PlanningLayerKey[];
-  responsibilities: string[];
-  combinationGuidance: string;
-  caution: string[];
-}
-
+/**
+ * 第86批：方法计划不再携带资料策划召回的候选方法卡，改为系统按当前任务层
+ * 确定性生成的资产菜单文本（提名卡 + 名册）。mode=none 或菜单开关关闭时为 null。
+ */
 export interface V7CreationMethodPlan extends V7CreationMethodStrategy {
-  candidates: V7CreationMethodCandidate[];
-  retrievalVersion: 'v7-method-retrieval-1' | null;
+  assetMenu: string | null;
+  assetMenuVersion: 'v7-layer-asset-menu-v1' | null;
   policy: {
     candidateOnly: true;
     executorMayCombine: true;
@@ -198,13 +184,7 @@ export function creationPromptContext(value: unknown): unknown {
     methodPlan: pack.methodPlan === undefined ? undefined : {
       mode: pack.methodPlan.mode,
       publicSummary: pack.methodPlan.publicSummary,
-      candidates: pack.methodPlan.candidates.map((candidate) => ({
-        methodKey: candidate.methodKey,
-        publicExplanation: candidate.publicExplanation,
-        responsibilities: candidate.responsibilities,
-        combinationGuidance: candidate.combinationGuidance,
-        caution: candidate.caution
-      })),
+      assetMenu: pack.methodPlan.assetMenu,
       policy: pack.methodPlan.policy
     },
     sources: pack.selectedSources.map((source) => ({

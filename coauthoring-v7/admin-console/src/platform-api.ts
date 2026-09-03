@@ -499,7 +499,7 @@ export interface V7PromptManifestDetail {
 export interface V7PlanningRuntimeAudit {
   run: { run_id: string; status: string; current_phase: string; error_message: string | null; created_at: string; updated_at: string };
   snapshot: { snapshotId?: string; sources?: unknown[]; excludedSources?: unknown[] };
-  methodSearches: Array<{ seat_key: string; member_key: string; candidates: unknown[]; request: unknown }>;
+  methodSearches: Array<{ seat_key: string; member_key: string; assetMenu: { allowedKeys?: unknown[]; menuText?: string } | null; request: unknown }>;
   methodProposals: Array<{ seat_key: string; member_key: string; proposal: unknown }>;
   storyRoutes: Array<{ route_id: string; member_key: string; route: unknown }>;
   routeReview: null | { member_key: string; review: unknown };
@@ -532,8 +532,8 @@ export interface V7CreationAdminAudit {
         taskResponsibilities: string[];
         creativeSpace: string[];
         methodPlan: {
-          mode: 'asset' | 'combined' | 'original' | 'none'; publicSummary: string; candidateCount: number;
-          candidates: Array<{ publicExplanation: string; responsibilities: string[]; caution: string[] }>;
+          mode: 'asset' | 'combined' | 'original' | 'none'; publicSummary: string;
+          assetMenuVersion: string | null; assetMenuChars: number;
         };
         selectedSources: Array<{ sourceKey: string; sourceKind: string; authority: string; label: string }>;
         excludedSources: Array<{ sourceKey: string; reason: string }>;
@@ -577,7 +577,7 @@ export interface V7PlanningAdminAudit {
       taskResponsibilities?: string[];
       creativeSpace?: string[];
     };
-    candidates?: unknown[];
+    assetMenu?: { allowedKeys?: unknown[] } | null;
   };
   calls: Array<{ member_key: string; model_id: string; state: string; input_tokens: number | null; output_tokens: number | null; failure_message: string | null }>;
 }

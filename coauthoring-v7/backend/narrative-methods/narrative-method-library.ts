@@ -127,16 +127,16 @@ const STORY_FORM_METHODS: readonly NarrativeMethodDefinition[] = [
 ];
 
 const MACRO_ARCHITECTURE_METHODS: readonly NarrativeMethodDefinition[] = [
-  method('story-completeness', '开端—发展—结果完形', 'macro_architecture', 'foundation', 'default', 'book', ['book', 'storyline', 'volume', 'event'], null,
+  method('story-completeness', '开端—发展—结果完形', 'macro_architecture', 'foundation', 'default', 'book', ['book', 'storyline', 'volume', 'event', 'chapter'], null,
     '先让读者进入一个明确局面，再让局面发生变化，最后给出阶段结果。', ['所有故事'], [],
     ['建立可理解的进入状态', '让中间变化由行动和后果推动', '结束时形成不同于开头的新状态'], []),
-  method('three-act', '三幕式结构', 'macro_architecture', 'framework', 'recommended', 'book', ['book', 'volume', 'event'], 'macro-framework',
+  method('three-act', '三幕式结构', 'macro_architecture', 'framework', 'recommended', 'book', ['book', 'volume', 'event', 'chapter'], 'macro-framework',
     '先建立目标，中段持续对抗并改变理解，最后用主动选择解决核心问题。', ['商业', '冒险', '目标驱动'], ['中段容易重复阻力'],
     ['尽快建立人物目标与不可回避的问题', '让中段结果迫使人物调整方法或理解', '用人物主动选择集中解决阶段冲突'], ['three-act']),
-  method('four-act', '四幕式／起承转合', 'macro_architecture', 'framework', 'recommended', 'book', ['book', 'storyline', 'volume', 'event'], 'macro-framework',
+  method('four-act', '四幕式／起承转合', 'macro_architecture', 'framework', 'recommended', 'book', ['book', 'storyline', 'volume', 'event', 'chapter'], 'macro-framework',
     '先立住处境，再深化发展，用一次真正转向重排选择，最后收束结果。', ['情感', '智斗', '悬疑', '通用'], ['把“转”写成无因果的突然反转'],
     ['建立人物与局面', '让发展积累可见变化', '用有前因的转折改变理解或目标', '收束当前责任并留下后续空间'], ['four-act']),
-  method('five-act', '五幕式／弗赖塔格', 'macro_architecture', 'framework', 'advanced', 'book', ['book', 'volume', 'event'], 'macro-framework',
+  method('five-act', '五幕式／弗赖塔格', 'macro_architecture', 'framework', 'advanced', 'book', ['book', 'volume', 'event', 'chapter'], 'macro-framework',
     '让压力持续上升，在高点后暴露更深代价，经历下落或低谷再完成结局。', ['史诗', '历史', '悲剧', '大起大落'], ['机械追求对称', '高潮之后失去推进'],
     ['铺设冲突条件', '让行动推动压力上升', '在高点兑现重大变化', '展示高点造成的后果', '用结局回应人物最终选择'], ['five-act']),
   method('six-act', '六幕式', 'macro_architecture', 'framework', 'advanced', 'volume', ['volume', 'event'], 'macro-framework',
@@ -166,10 +166,10 @@ const MACRO_ARCHITECTURE_METHODS: readonly NarrativeMethodDefinition[] = [
   method('fichtean-curve', '菲希特式危机曲线', 'macro_architecture', 'framework', 'advanced', 'volume', ['volume', 'event'], 'macro-framework',
     '快速进入冲突，用一连串因果相连的危机逼近高潮，最后用较短篇幅结算。', ['惊悚', '求生', '动作', '强对抗'], ['一直加压没有人物反应', '危机彼此无因果'],
     ['尽早让人物进入必须行动的危机', '让每次解决制造下一次更难的局面', '在高潮前逼出关键选择', '高潮后完成必要后果结算'], []),
-  method('kishotenketsu', '起承转结的非对抗结构', 'macro_architecture', 'framework', 'advanced', 'event', ['book', 'volume', 'event'], 'macro-framework',
+  method('kishotenketsu', '起承转结的非对抗结构', 'macro_architecture', 'framework', 'advanced', 'event', ['book', 'volume', 'event', 'chapter'], 'macro-framework',
     '先建立和发展日常或现象，再用意外视角改变理解，最后把前后内容重新连起来。', ['日常', '治愈', '寓言', '氛围'], ['没有转变只剩流水账', '把突然信息当作转'],
     ['建立可感受的初始状态', '通过细节深化而非强行冲突', '引入能重释前文的变化', '让结尾把变化与原内容连成新意义'], []),
-  method('story-spine', '故事脊柱', 'macro_architecture', 'foundation', 'default', 'storyline', ['book', 'storyline', 'volume', 'event'], null,
+  method('story-spine', '故事脊柱', 'macro_architecture', 'foundation', 'default', 'storyline', ['book', 'storyline', 'volume', 'event', 'chapter'], null,
     '用“原来如此—直到某天—因此不断—最后—从此”快速检查故事是否真的在前进。', ['提案', '蓝图', '方向检查'], ['把简化句式直接写进正文'],
     ['说明改变发生前的稳定状态', '指出打破稳定的触发变化', '让后续行动由前一结果推动', '形成阶段性解决和新状态'], [])
 ];

@@ -1,7 +1,6 @@
 import type { LayeredPlanningRecipe } from './layered-planning-engine.js';
-import type { V7PlanningMethodCandidate, V7PlanningMethodSearchRequest } from './planning-method-retrieval.js';
+import type { V7PlanningMethodSearchRequest } from './planning-method-retrieval.js';
 import {
-  compactPlanningMethodCards,
   parseProgressivePlanningBrief,
   type V7ProgressivePlanningBrief
 } from './progressive-planning-briefs.js';
@@ -198,7 +197,7 @@ export function validateRecipeMethods(recipe: LayeredPlanningRecipe, allowedMeth
 export function planningStoryRoutePrompt(input: {
   sourceSnapshot: unknown;
   planningBrief: V7ProgressivePlanningBrief;
-  selectedMethods: readonly V7PlanningMethodCandidate[];
+  assetMenuText: string;
   routeLabel: string;
 }): string {
   return [
@@ -215,7 +214,7 @@ export function planningStoryRoutePrompt(input: {
     'volumeRoadmap每项包含order,title,direction,protagonistChange,mainPressure,readerPayoff,targetWords,handoff；目标字数合计应与全书接近。',
     `正式资料快照：${JSON.stringify(input.sourceSnapshot)}`,
     `本路线精简设计依据：${JSON.stringify(input.planningBrief)}`,
-    `本路线引用到的方法卡：${JSON.stringify(compactPlanningMethodCards(input.selectedMethods))}`
+    `本轮资产菜单（候选参考，可不用）：\n${input.assetMenuText}`
   ].join('\n\n');
 }
 
@@ -231,14 +230,14 @@ export function planningDirectStoryRoutePrompt(input: {
   seatKey: V7ProgressivePlanningBrief['seatKey'];
   routeLabel: string;
   explorationOpening: string;
-  candidates: readonly V7PlanningMethodCandidate[];
+  assetMenuText: string;
 }): string {
   return [
     '你是文秘写作V7的一名全案规划主编。只返回一个JSON对象，不要Markdown，不要思维过程。',
     `你独立负责${input.routeLabel}。${input.explorationOpening}`,
-    '你必须在一次工作中同时完成：从少量候选方法中选4—6项适合本书的工具、加入至少1项本书原创策略、设计完整的全书粗路线和各卷责任，并写清自己的设计理由。',
+    '你必须在一次工作中同时完成：参考本轮资产菜单选4—6项适合本书的工具、加入至少1项本书原创策略、设计完整的全书粗路线和各卷责任，并写清自己的设计理由。',
     '你必须兼顾作者原意、人物主动选择、因果可信、长篇容量、跨卷递进、商业追读、阶段回报、首卷抓人能力、创意辨识度和中后期续航，不能只负责其中一项。',
-    '候选方法只是工具箱，不是答案；可以少用，但library方法只能引用候选methodKey。agent_original不得填写methodKey，也不得写回公共方法库。不要把方法名写进故事路线。',
+    '菜单里的方法只是工具箱，不是答案；可以少用或完全不用，但library方法只能引用菜单中的methodKey。agent_original不得填写methodKey，也不得写回公共方法库。不要把方法名写进故事路线。',
     '这一步只规划全书方向和每卷责任，不展开卷内单元链、具体事件或章纲。未来规划不能冒充已经发生；作者确认资料、人物、时代、禁用项和预计总字数不得改写。',
     'route.targetWords必须与正式资料中的预计总字数完全一致；各卷targetWords合计也必须一致。卷数、商业受众和追读定位由你根据本方案内容独立规划。',
     '默认按番茄长篇连载场景考虑阅读门槛、卖点展示、阶段回报与持续追读，但不得套常见题材路线后只替换人名。',
@@ -247,13 +246,13 @@ export function planningDirectStoryRoutePrompt(input: {
     '完整JSON控制在6000个汉字以内。每个说明字段只写一段必要内容；分卷每个字段用一到两句交代清楚，不重复同一卖点，不用长篇论证挤占完整JSON。',
     `brief必须完整遵守v7-progressive-planning-brief-v2，seatKey固定为${input.seatKey}，selectedStrategies总数4—6且至少1项为agent_original。`,
     'brief必须包含publicSummary,centralPromise,causalSpine,protagonistArc,longFormCapacity,pressureRhythm,payoffCadence,informationRhythm,distinctiveness,selectedStrategies,creativeOpenings,strengths,risks,authorDecisions。',
-    'selectedStrategies每项只允许source("library"或"agent_original"),title,layer("book_backbone"或"volume_distribution"),applicationNote,caution；只有library项填写本轮候选methodKey，agent_original不得填写methodKey。',
+    'selectedStrategies每项只允许source("library"或"agent_original"),title,layer("book_backbone"或"volume_distribution"),applicationNote,caution；只有library项填写本轮菜单中的methodKey，agent_original不得填写methodKey。',
     'route必须完整遵守v7-planning-story-route-v1，并在route内部填写schema="v7-planning-story-route-v1"；包含routeTitle,oneLinePromise,publicSummary,readingExperience,protagonistJourney,targetWords,targetVolumes,commercialAudience,retentionPositioning,volumeRoadmap,firstVolumeFocus,sellingPoints,risks,openQuestions。',
     'route.firstVolumeFocus必须是2—8条字符串组成的JSON数组，不能写成一整段字符串。sellingPoints、risks、openQuestions也必须是字符串数组。',
     'volumeRoadmap每项包含order,title,direction,protagonistChange,mainPressure,readerPayoff,targetWords,handoff。',
     `正式资料快照：${JSON.stringify(input.sourceSnapshot)}`,
     `资料策划签发的本任务身份、责任与创意空间：${JSON.stringify(input.contextPlan)}`,
-    `本轮精简候选方法卡：${JSON.stringify(compactPlanningMethodCards(input.candidates))}`
+    `本轮资产菜单（候选参考，可少用、组合、忽略或完全原创）：\n${input.assetMenuText}`
   ].join('\n\n');
 }
 
@@ -261,7 +260,7 @@ export function planningDirectStoryRouteRepairPrompt(input: {
   sourceSnapshot: unknown;
   contextPlan: Pick<V7PlanningMethodSearchRequest, 'publicGoal' | 'taskPersona' | 'taskResponsibilities' | 'creativeSpace'>;
   seatKey: V7ProgressivePlanningBrief['seatKey'];
-  candidates: readonly V7PlanningMethodCandidate[];
+  assetMenuText: string;
   invalidOutput: string;
   validationMessage: string;
 }): string {
@@ -276,7 +275,7 @@ export function planningDirectStoryRouteRepairPrompt(input: {
     'route.targetWords和各卷targetWords合计必须继续等于正式资料的预计总字数。adoptedParts保持[]。',
     `正式资料快照：${JSON.stringify(input.sourceSnapshot)}`,
     `资料策划签发的本任务身份、责任与创意空间：${JSON.stringify(input.contextPlan)}`,
-    `本轮允许引用的方法卡：${JSON.stringify(compactPlanningMethodCards(input.candidates))}`,
+    `本轮允许引用的资产菜单：\n${input.assetMenuText}`,
     `需要修正格式的原方案：${input.invalidOutput}`
   ].join('\n\n');
 }
@@ -301,7 +300,7 @@ export function planningRouteFusionPrompt(input: {
   sourceSnapshot: unknown;
   selected: ReadonlyArray<{ routeId: string; route: V7PlanningStoryRoute; brief: V7ProgressivePlanningBrief }>;
   authorNote: string;
-  candidateMethods: readonly V7PlanningMethodCandidate[];
+  assetMenuText: string;
 }): string {
   return [
     '你是长篇小说规划主编。作者要求调整或融合已选路线。只返回一个JSON对象，不要Markdown，不要思维过程。',
@@ -313,7 +312,7 @@ export function planningRouteFusionPrompt(input: {
     `正式资料快照：${JSON.stringify(input.sourceSnapshot)}`,
     `作者意见：${input.authorNote}`,
     `作者选中的路线：${JSON.stringify(input.selected)}`,
-    `本次允许引用的精简方法卡：${JSON.stringify(compactPlanningMethodCards(input.candidateMethods))}`
+    `本轮允许引用的资产菜单：\n${input.assetMenuText}`
   ].join('\n\n');
 }
 

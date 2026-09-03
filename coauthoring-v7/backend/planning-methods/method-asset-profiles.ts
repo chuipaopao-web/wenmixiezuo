@@ -132,6 +132,14 @@ export function validateMethodExecutionProfiles(): string[] {
   if (V7_METHOD_EXECUTION_PROFILES.length !== V7_NARRATIVE_METHODS.length) {
     errors.push('方法执行档案数量与叙事方法库不一致');
   }
+  // 第86批：宏观节奏框架组必须在章层保持自相似覆盖，防止再次断链。
+  const macroFrameworkAtChapter = V7_METHOD_EXECUTION_PROFILES.filter((profile) => {
+    const method = V7_NARRATIVE_METHODS.find((item) => item.key === profile.methodKey);
+    return method?.exclusiveGroup === 'macro-framework' && profile.planningLayers.includes('chapter_execution');
+  });
+  if (macroFrameworkAtChapter.length < 3) {
+    errors.push(`宏观节奏框架组在章层覆盖不足（${macroFrameworkAtChapter.length} 条），自相似链条断裂`);
+  }
   return errors;
 }
 

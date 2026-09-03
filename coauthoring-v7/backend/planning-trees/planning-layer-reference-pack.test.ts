@@ -1,20 +1,50 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildPlanningLayerReferencePack, type V7PlanningLayerReferencePack } from './planning-layer-reference-pack.js';
 import { parsePlanningTreeOutput } from './planning-tree-agent-runtime.js';
 import { projectPlanningTreeForChild } from './planning-tree-context-projection.js';
+import type { LayerAssetEntry } from '../planning-methods/layer-asset-menu.js';
 
 describe('V7分层候选工具包', () => {
-  it('全书不重复灌入剧情资产，卷和链只收到少量候选', () => {
+  beforeAll(() => {
+    process.env.WENMI_V7_ASSET_MENU = '1';
+  });
+  afterAll(() => {
+    delete process.env.WENMI_V7_ASSET_MENU;
+  });
+
+  it('每层只收到本层菜单：全书无配方和模式名册，卷有配方卡，链有模式名册', () => {
     const book = buildPlanningLayerReferencePack('book');
     const volume = buildPlanningLayerReferencePack('volume');
     const chain = buildPlanningLayerReferencePack('chain');
-    expect(book.narrativeMethods).toHaveLength(0);
-    expect(book.plotRecipes).toHaveLength(0);
-    expect(volume.narrativeMethods.length).toBeLessThanOrEqual(10);
-    expect(volume.plotRecipes.length).toBeLessThanOrEqual(6);
-    expect(volume.plotPatterns).toHaveLength(0);
-    expect(chain.plotPatterns.length).toBeLessThanOrEqual(12);
+    expect(book.menuText).toContain('主节奏框架提名卡');
+    expect(book.menuText).toContain('全书形态提名卡');
+    expect(book.menuText).not.toContain('剧情配方提名卡');
+    expect(book.allowedAssets.every((asset) => asset.assetType === 'narrative_method')).toBe(true);
+    expect(volume.menuText).toContain('剧情配方提名卡');
+    expect(volume.allowedAssets.some((asset) => asset.assetType === 'plot_recipe')).toBe(true);
+    expect(chain.menuText).toContain('剧情模式名册');
+    expect(chain.allowedAssets.some((asset) => asset.assetType === 'plot_pattern')).toBe(true);
+    expect(book.policy.libraryUseLimit).toBe(3);
+    expect(volume.policy.libraryUseLimit).toBe(4);
+    expect(chain.policy.libraryUseLimit).toBe(5);
     expect(chain.policy.originalStrategyRequired).toBe(true);
+  });
+
+  it('灰度开关关闭时不注入菜单文本、名册置空，引用被静默丢弃', () => {
+    process.env.WENMI_V7_ASSET_MENU = '0';
+    try {
+      const pack = buildPlanningLayerReferencePack('chain');
+      expect(pack.menuText).toContain('不注入后台资产菜单');
+      expect(pack.allowedAssets).toEqual([]);
+      const document = treeDocument();
+      document.designStrategy!.libraryRefs = [{
+        assetType: 'plot_pattern', key: 'whatever', applicationNote: '对照组引用'
+      }];
+      expect(parsePlanningTreeOutput(JSON.stringify(document), 'chain', 'chain-1', pack)
+        .designStrategy?.libraryRefs).toEqual([]);
+    } finally {
+      process.env.WENMI_V7_ASSET_MENU = '1';
+    }
   });
 
   it('候选包之外的引用被确定性丢弃，剧情与原创策略不受影响', () => {
@@ -44,8 +74,8 @@ describe('V7分层候选工具包', () => {
   });
 
   it('按复合键归一引用，类型名漂移但 key 唯一时仍能匹配', () => {
-    const pack = packWithCards([
-      { assetType: 'narrative_method', key: 'ledger-pressure', title: '账本压力法', explanation: '以账目细节持续施压。', caution: '只在适合时使用。' }
+    const pack = packWithAssets([
+      { assetType: 'narrative_method', key: 'ledger-pressure', title: '账本压力法', planningLayers: ['chain'] }
     ]);
     const document = treeDocument();
     document.designStrategy!.libraryRefs = [
@@ -58,13 +88,13 @@ describe('V7分层候选工具包', () => {
   });
 
   it('重复引用去重、超出 libraryUseLimit 保留前 N 项、缺使用说明的引用丢弃', () => {
-    const pack = packWithCards([
-      { assetType: 'narrative_method', key: 'method-1', title: '方法一', explanation: 'e1', caution: 'c1' },
-      { assetType: 'narrative_method', key: 'method-2', title: '方法二', explanation: 'e2', caution: 'c2' },
-      { assetType: 'plot_recipe', key: 'recipe-1', title: '配方一', explanation: 'e3', caution: 'c3' },
-      { assetType: 'plot_pattern', key: 'pattern-1', title: '模式一', explanation: 'e4', caution: 'c4' },
-      { assetType: 'plot_pattern', key: 'pattern-2', title: '模式二', explanation: 'e5', caution: 'c5' },
-      { assetType: 'plot_pattern', key: 'pattern-3', title: '模式三', explanation: 'e6', caution: 'c6' }
+    const pack = packWithAssets([
+      { assetType: 'narrative_method', key: 'method-1', title: '方法一', planningLayers: ['chain'] },
+      { assetType: 'narrative_method', key: 'method-2', title: '方法二', planningLayers: ['chain'] },
+      { assetType: 'plot_recipe', key: 'recipe-1', title: '配方一', planningLayers: ['chain'] },
+      { assetType: 'plot_pattern', key: 'pattern-1', title: '模式一', planningLayers: ['chain'] },
+      { assetType: 'plot_pattern', key: 'pattern-2', title: '模式二', planningLayers: ['chain'] },
+      { assetType: 'plot_pattern', key: 'pattern-3', title: '模式三', planningLayers: ['chain'] }
     ]);
     const document = treeDocument();
     document.designStrategy!.libraryRefs = [
@@ -178,12 +208,9 @@ describe('V7分层候选工具包', () => {
   });
 });
 
-function packWithCards(cards: Array<{
-  assetType: 'narrative_method' | 'plot_recipe' | 'plot_pattern';
-  key: string; title: string; explanation: string; caution: string;
-}>): V7PlanningLayerReferencePack {
+function packWithAssets(assets: LayerAssetEntry[]): V7PlanningLayerReferencePack {
   return {
-    schema: 'v7-planning-layer-reference-pack-v1',
+    schema: 'v7-planning-layer-reference-pack-v2',
     treeKind: 'chain',
     policy: {
       candidateOnly: true,
@@ -191,9 +218,8 @@ function packWithCards(cards: Array<{
       originalStrategyRequired: true,
       instruction: '测试候选包。'
     },
-    narrativeMethods: cards.filter((card) => card.assetType === 'narrative_method'),
-    plotRecipes: cards.filter((card) => card.assetType === 'plot_recipe'),
-    plotPatterns: cards.filter((card) => card.assetType === 'plot_pattern')
+    menuText: '测试菜单',
+    allowedAssets: assets
   };
 }
 

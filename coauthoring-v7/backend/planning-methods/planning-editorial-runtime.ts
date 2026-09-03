@@ -6,7 +6,6 @@ import {
   type PlanningEditorialSeat
 } from './layered-planning-engine.js';
 import type { V7MemberModelBinding } from '../agents/agent-roster.js';
-import type { V7PlanningMethodCandidate } from './planning-method-retrieval.js';
 import { validateRecipeMethods } from './planning-story-routes.js';
 
 /**
@@ -211,7 +210,7 @@ export function planningRecipePrompt(input: {
   seatKey: PlanningEditorialSeat['seatKey'];
   sourceSnapshot: unknown;
   recipeId: string;
-  candidates?: readonly V7PlanningMethodCandidate[];
+  assetMenuText?: string;
 }): string {
   const seat = planningSeat(input.seatKey);
   return [
@@ -223,12 +222,12 @@ export function planningRecipePrompt(input: {
     '资料中formal和actual不得改写；goal只指导候选；未来规划不能冒充正文实际。',
     `配方recipeId固定为${input.recipeId}，version固定为1，engineVersion固定为${V7_LAYERED_PLANNING_VERSION}，status固定为candidate。`,
     '配方根节点必须是book_backbone；可包含volume_distribution和volume。未来卷保持粗方向，不在这里展开所有chain和chapter_execution。',
-    '每个节点最多一个primary方法，所有方法strength只能是soft；每个节点最多使用六项方法，宁少勿杂。若引用库方法，methodKey必须来自本次候选且适用当前层。',
+    '每个节点最多一个primary方法，所有方法strength只能是soft；每个节点最多使用六项方法，宁少勿杂。若引用库方法，methodKey必须来自本轮菜单且适用当前层。',
     '输出字段必须是：schema,seatKey,publicSummary,selectionReason,recipe,strengths,risks,authorDecisions。',
     'recipe每个节点必须完整包含nodeId,layer,title,responsibility,status,budget,hardRequirements,methodGuidance,readerExperience,creativeSpace,expectedChanges,children。',
     'readerExperience必须完整包含publicSummary,pressureRhythm,payoffCadence,informationRhythm,contrastWithPrevious,designReason。',
     `正式资料快照：${JSON.stringify(input.sourceSnapshot)}`,
-    `本次检索到的少量候选方法：${JSON.stringify(input.candidates ?? [])}`
+    `本轮资产菜单（候选参考，可不用）：\n${input.assetMenuText ?? '（本轮不注入后台资产菜单）'}`
   ].join('\n\n');
 }
 

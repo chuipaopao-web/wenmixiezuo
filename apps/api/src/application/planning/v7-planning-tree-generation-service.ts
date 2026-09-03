@@ -8,20 +8,18 @@ import {
   compileLayeredPlanningTask,
   compilePlanningTreeGenerationTask,
   extractPlanningCriticalInputs,
+  inferGenreFamilies,
   parsePlanningMethodSearchRequest,
   parsePlanningTreeOutput,
   planningMethodSearchPrompt,
   planningTreeGenerationPrompt,
   planningTreeRepairPrompt,
-  retrievePlanningMethodCandidates,
   type LayeredPlanningRecipe,
   type LayeredRecipeNode,
   type PlanningSourceItem,
-  type PlanningLayerKey,
   type PlanningTreeKind,
   type PlanningTreeSourceRef,
   type V7CreationMemberDefinition,
-  type V7PlanningMethodCandidate,
   type V7PlanningMethodSearchRequest,
   V7_PLANNING_MEMBERS,
   validatePlanningEditorialRoster,
@@ -79,7 +77,6 @@ type StoredGenerationRoster = {
   contextMember?: V7CreationMemberDefinition;
   contextPlan?: {
     request: V7PlanningMethodSearchRequest;
-    candidates: V7PlanningMethodCandidate[];
   };
   stage?: 'context_planning' | 'tree_design';
 };
@@ -438,7 +435,7 @@ export class V7PlanningTreeGenerationService {
       treeKind: run.tree_kind, scopeId: run.scope_id, sourceRefs,
       parentDirection: parentDirection(focusedSnapshot)
     });
-    const referencePack = buildPlanningLayerReferencePack(run.tree_kind, contextPlan.candidates);
+    const referencePack = buildPlanningLayerReferencePack(run.tree_kind, planningTreeGenreFamilies(snapshot));
     const prompt = planningTreeGenerationPrompt({
       treeKind: run.tree_kind, scopeId: run.scope_id,
       sourceSnapshot: {
@@ -555,14 +552,13 @@ export class V7PlanningTreeGenerationService {
           sourceTraces: planningSnapshotSourceTraces(snapshot),
           prompt: planningMethodSearchPrompt({
             seatName: `${planningTreeName(run.tree_kind)}资料策划`,
-            seatResponsibility: `只为本次${planningTreeName(run.tree_kind)}选择最小充分资料、准确方法范围、临时题材身份和创意边界。`,
+            seatResponsibility: `只为本次${planningTreeName(run.tree_kind)}选择最小充分资料、临时题材身份和创意边界。`,
             independentFocus: [
               '岗位没有固定专业人设，只按本书融合题材和当前任务形成临时工作身份',
               '只选择会改变当前层设计的正式设定，已确认上层方向和正文实际必须保留',
-              '方法可以复用到不同层级，但本轮只能按当前层责任检索，不能把整库方法塞给执行成员',
-              '保留成员组合、忽略候选方法和原创设计的空间'
+              '后台方法、配方和模式由系统按当前层确定性提供给设计成员，不在本任务检索或指定',
+              '保留成员组合、忽略菜单资产和原创设计的空间'
             ],
-            allowedPlanningLayers: allowedTreePlanningLayers(run.tree_kind),
             sourceSnapshot: planningMethodSearchSnapshot(snapshot)
           }),
           maxOutputTokens: 2_500,
@@ -575,10 +571,8 @@ export class V7PlanningTreeGenerationService {
           snapshot,
           parsePlanningMethodSearchRequest(result.output, { requireTaskProfile: true })
         );
-        validateTreePlanningLayers(run.tree_kind, request);
         focusedPlanningTreeSnapshot(snapshot, request);
-        const retrieval = retrievePlanningMethodCandidates(request);
-        const contextPlan = { request, candidates: retrieval.candidates };
+        const contextPlan = { request };
         roster = { ...roster, contextMember: member, contextPlan, stage: 'tree_design' };
         this.runtime.markGeneration({
           ownerId: run.owner_id, bookId: run.book_id, generationRunId: run.generation_run_id,
@@ -742,22 +736,14 @@ function planningTreeName(treeKind: PlanningTreeKind): string {
   return '单元链树';
 }
 
-function allowedTreePlanningLayers(treeKind: PlanningTreeKind): readonly PlanningLayerKey[] {
-  if (treeKind === 'book') return ['book_backbone', 'volume_distribution'];
-  return [treeKind];
-}
-
 function planningWorkstation(treeKind: PlanningTreeKind): 'full_book_route' | 'volume' | 'chain' {
   return treeKind === 'book' ? 'full_book_route' : treeKind;
 }
 
-function validateTreePlanningLayers(treeKind: PlanningTreeKind, request: V7PlanningMethodSearchRequest): void {
-  const allowed = new Set<PlanningLayerKey>(allowedTreePlanningLayers(treeKind));
-  if (request.planningLayers.some((layer) => !allowed.has(layer))) {
-    throw new Error(`资料策划检索了不属于${planningTreeName(treeKind)}的方法层级`);
-  }
-  const required = treeKind === 'book' ? 'book_backbone' : treeKind;
-  if (!request.planningLayers.includes(required)) throw new Error(`资料策划遗漏了${planningTreeName(treeKind)}的核心方法层级`);
+/** 从冻结快照的正式开书资料推断题材族，用于本层资产菜单的确定性过滤。 */
+function planningTreeGenreFamilies(snapshot: V7PlanningCompiledSnapshot): ReturnType<typeof inferGenreFamilies> {
+  const opening = snapshot.sources.find((source) => source.sourceKind === 'opening');
+  return opening === undefined ? [] : inferGenreFamilies(stableJson(opening.content));
 }
 
 function focusedPlanningTreeSnapshot(

@@ -2,17 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
   extractPlanningCriticalInputs,
   parsePlanningMethodSearchRequest,
-  planningMethodSearchPrompt,
-  retrievePlanningMethodCandidates
+  planningMethodSearchPrompt
 } from '../../coauthoring-v7/backend/planning-methods/planning-method-retrieval.js';
 import {
   V7_PLANNING_MEMBERS,
   buildPlanningFallbackChain,
   validatePlanningEditorialRoster
 } from '../../coauthoring-v7/backend/planning-methods/planning-editorial-runtime.js';
-import { V7_NARRATIVE_METHODS } from '../../coauthoring-v7/backend/narrative-methods/narrative-method-library.js';
 
-describe('V7规划方法最小检索', () => {
+describe('V7规划资料策划合同', () => {
   it('同一轮默认方法检查和路线设计不会重复安排同一成员', () => {
     expect(validatePlanningEditorialRoster()).toEqual([]);
     expect(new Set(V7_PLANNING_MEMBERS.map((member) => member.memberKey)).size).toBe(V7_PLANNING_MEMBERS.length);
@@ -33,7 +31,7 @@ describe('V7规划方法最小检索', () => {
     expect(new Set(assignedNames).size).toBe(assignedNames.length);
   });
 
-  it('搜索提示只给层级和维度，不把完整方法目录注入成员上下文', () => {
+  it('搜索提示只签发事实筛选与任务身份，不把方法目录注入成员上下文', () => {
     const prompt = planningMethodSearchPrompt({
       seatName: '全案主编二席',
       seatResponsibility: '检查长篇容量和跨卷递进',
@@ -41,7 +39,8 @@ describe('V7规划方法最小检索', () => {
       sourceSnapshot: { book: { title: '北宋小卒' }, hardRules: ['主角必须是张三'] }
     });
 
-    expect(prompt).toContain('可检索的层级和维度');
+    expect(prompt).toContain('只决定“本次设计需要哪些本书事实与设定”');
+    expect(prompt).toContain('后台方法、配方和模式由系统按当前层确定性提供给设计成员');
     expect(prompt).toContain('正式资料快照');
     expect(prompt).not.toContain('三幕式结构');
     expect(prompt).not.toContain('拯救猫咪节拍表');
@@ -49,7 +48,7 @@ describe('V7规划方法最小检索', () => {
     expect(prompt.length).toBeLessThan(12_000);
   });
 
-  it('系统只召回少量候选，最终选择仍留给成员', () => {
+  it('对上一版的方法检索意图字段容忍读取：老字段出现不报错也不进结果', () => {
     const request = parsePlanningMethodSearchRequest(JSON.stringify({
       schema: 'v7-planning-method-search-v1',
       publicGoal: '为三百万字历史争霸长篇寻找可持续的跨卷推进方式。',
@@ -62,46 +61,18 @@ describe('V7规划方法最小检索', () => {
       relevantSettingSourceIds: ['setting-world-stage'],
       missingCriticalInputs: []
     }));
-    const result = retrievePlanningMethodCandidates(request);
 
-    expect(result.candidates).toHaveLength(6);
-    expect(result.candidates.length).toBeLessThan(V7_NARRATIVE_METHODS.length);
-    expect(new Set(result.candidates.map((candidate) => candidate.methodKey)).size).toBe(6);
-    expect(result.candidates.every((candidate) => candidate.planningLayers.some(
-      (layer) => request.planningLayers.includes(layer)
-    ))).toBe(true);
-    expect(result.candidates.every((candidate) => candidate.recommendedScale.length > 0)).toBe(true);
-  });
-
-  it('检索数量超过当前最少充分上限时直接拒绝，不再全量塞入通用方法', () => {
-    expect(() => parsePlanningMethodSearchRequest(JSON.stringify({
-      schema: 'v7-planning-method-search-v1',
-      publicGoal: '只为当前卷寻找合适的推进方法。',
-      searchQueries: ['卷内矛盾升级', '阶段回报'],
-      planningLayers: ['volume_distribution'],
-      dimensions: ['causal_dynamics', 'serial_rhythm'],
-      desiredCount: 12,
-      scaleHint: '当前卷',
-      avoidNotes: [],
-      relevantSettingSourceIds: ['setting-world-stage'],
-      missingCriticalInputs: []
-    }))).toThrow(/候选方法数量无效/u);
-  });
-
-  it('重复层级或维度不能冒充满足最小数量', () => {
-    expect(() => parsePlanningMethodSearchRequest(JSON.stringify({
-      schema: 'v7-planning-method-search-v1', publicGoal: '测试', searchQueries: ['长篇递进', '因果推进'],
-      planningLayers: ['book_backbone'], dimensions: ['macro_architecture', 'macro_architecture'],
-      desiredCount: 8, scaleHint: '长篇', avoidNotes: [],
-      relevantSettingSourceIds: ['setting-world-stage'], missingCriticalInputs: []
-    }))).toThrow(/方法维度数量无效/u);
+    expect(request.publicGoal).toBe('为三百万字历史争霸长篇寻找可持续的跨卷推进方式。');
+    expect(request.relevantSettingSourceIds).toEqual(['setting-world-stage']);
+    expect(request).not.toHaveProperty('searchQueries');
+    expect(request).not.toHaveProperty('planningLayers');
+    expect(request).not.toHaveProperty('dimensions');
+    expect(request).not.toHaveProperty('desiredCount');
   });
 
   it('主编用问题、影响和待确认内容说明资料冲突时仍能被正常暂停处理', () => {
     const request = parsePlanningMethodSearchRequest(JSON.stringify({
       schema: 'v7-planning-method-search-v1', publicGoal: '检查全书规划资料。',
-      searchQueries: ['长篇规划资料一致性', '跨卷时间线'], planningLayers: ['book_backbone'],
-      dimensions: ['macro_architecture', 'causal_dynamics'], desiredCount: 8,
       scaleHint: '一百二十万字', avoidNotes: [], relevantSettingSourceIds: ['setting-world-stage'],
       missingCriticalInputs: [{
         issue: '边城人口分别写成两万和四万。',

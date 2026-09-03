@@ -2,28 +2,33 @@ import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import {
   V7_CREATION_MEMBERS,
+  V7_LAYER_ASSET_MENU_VERSION,
   V7_PLANNING_MEMBERS,
   buildPlanningFallbackChain,
+  buildStoredLayerAssetMenu,
   creationFallbackChain,
   fullCasePlanningSeat,
   extractPlanningCriticalInputs,
+  inferGenreFamilies,
+  layerAssetEntries,
   materializePlanningRecipe,
   parsePlanningMethodSearchRequest,
   parsePlanningRouteFusion,
   parsePlanningRouteReview,
+  parseStoredLayerAssetMenu,
   parseStoredProgressivePlanningBrief,
   planningMethodSearchPrompt,
   planningRouteFusionPrompt,
   planningRouteReviewPrompt,
   planningDirectStoryRoutePrompt,
   planningDirectStoryRouteRepairPrompt,
-  retrievePlanningMethodCandidates,
+  v7AssetMenuEnabled,
   validateProgressivePlanningBriefCandidates,
   validatePlanningEditorialRoster,
   type LayeredPlanningRecipe,
+  type StoredLayerAssetMenu,
   type V7CreationMemberDefinition,
   type V7PlanningMemberDefinition,
-  type V7PlanningMethodCandidate,
   type V7PlanningMethodSearchRequest,
   type V7ProgressivePlanningBrief,
   type V7PlanningRouteReview,
@@ -406,7 +411,7 @@ export class V7PlanningRouteService {
       snapshot: this.sources.require(ownerId, bookId, run.snapshot_id),
       methodSearches: searches.map((row) => ({
         ...row, memberSnapshot: JSON.parse(row.member_snapshot_json),
-        request: JSON.parse(row.search_request_json), candidates: JSON.parse(row.candidate_methods_json)
+        request: JSON.parse(row.search_request_json), assetMenu: JSON.parse(row.candidate_methods_json)
       })),
       methodProposals: proposals.map((row) => ({ ...row, proposal: JSON.parse(row.proposal_json) })),
       storyRoutes: routes.map((row) => ({ ...row, memberSnapshot: JSON.parse(row.member_snapshot_json), route: JSON.parse(row.route_json) })),
@@ -552,7 +557,8 @@ export class V7PlanningRouteService {
         const search = sharedContextSearch;
         const request = storedMethodSearchRequest(search);
         const focusedSnapshot = focusedPlanningSnapshot(snapshot, request);
-        const candidates = JSON.parse(search.candidate_methods_json) as V7PlanningMethodCandidate[];
+        const storedMenu = parseStoredLayerAssetMenu(search.candidate_methods_json);
+        const assetMenuText = routeAssetMenuText(storedMenu);
         const logicalTaskId = `planning-route:${run.run_id}:direct:${seatKey}:${member.memberKey}`;
         const attempt = this.modelAttempt(run, logicalTaskId);
         const result = await this.models.generate({
@@ -567,7 +573,7 @@ export class V7PlanningRouteService {
             seatKey,
             routeLabel: seat.routeLabel,
             explorationOpening: seat.explorationOpening,
-            candidates
+            assetMenuText
           }),
           maxOutputTokens: member.model.modelId.startsWith('glm-5.3') ? 14_000 : 10_000,
           temperature: 0.68 + index * 0.03
@@ -581,10 +587,10 @@ export class V7PlanningRouteService {
           direct = parsePlanningRouteFusion(
             result.output,
             [],
-            candidates.map((candidate) => candidate.methodKey),
+            storedMenu.allowedKeys,
             seatKey
           );
-          validateProgressivePlanningBriefCandidates(direct.brief, candidates);
+          validateRouteBriefAssets(direct.brief, storedMenu);
           validatePlanningRouteScale(direct.route, requirePlanningScaleProfile(snapshot));
         } catch (contractError) {
           const repairLogicalTaskId = `${logicalTaskId}:repair`;
@@ -599,7 +605,7 @@ export class V7PlanningRouteService {
               sourceSnapshot: focusedSnapshot,
               contextPlan: planningTaskContextPlan(request),
               seatKey,
-              candidates,
+              assetMenuText,
               invalidOutput: result.output,
               validationMessage: message(contractError)
             }),
@@ -610,10 +616,10 @@ export class V7PlanningRouteService {
           direct = parsePlanningRouteFusion(
             repaired.output,
             [],
-            candidates.map((candidate) => candidate.methodKey),
+            storedMenu.allowedKeys,
             seatKey
           );
-          validateProgressivePlanningBriefCandidates(direct.brief, candidates);
+          validateRouteBriefAssets(direct.brief, storedMenu);
           validatePlanningRouteScale(direct.route, requirePlanningScaleProfile(snapshot));
           acceptedRequestId = repaired.requestId;
         }
@@ -661,13 +667,12 @@ export class V7PlanningRouteService {
           sourceTraces: planningSnapshotSourceTraces(snapshot),
           prompt: planningMethodSearchPrompt({
             seatName: '全书路线资料策划',
-            seatResponsibility: '为本书全书路线选择最小充分设定、准确的方法检索范围、任务期题材身份和可自由创新的边界。',
+            seatResponsibility: '为本书全书路线选择最小充分设定、任务期题材身份和可自由创新的边界。',
             independentFocus: [
               '只保留会改变全书方向的正式资料和作者原话',
-              '通用方法按全书与跨卷层级召回，不预先替主编选答案',
+              '后台方法、配方和模式由系统按当前层确定性提供给设计成员，不在本任务检索或指定',
               '把融合题材身份翻译成当前任务的大白话责任并保留原创空间'
             ],
-            allowedPlanningLayers: ['book_backbone', 'volume_distribution'],
             sourceSnapshot: snapshot
           }),
           maxOutputTokens: 2_500,
@@ -678,12 +683,14 @@ export class V7PlanningRouteService {
         if (sourceIssues.length > 0) throw new PlanningSourceIssuesError(sourceIssues);
         const request = parsePlanningMethodSearchRequest(result.output, { requireTaskProfile: true });
         focusedPlanningSnapshot(snapshot, request);
-        const retrieval = retrievePlanningMethodCandidates(request);
+        // 第86批：资产菜单由系统按层确定性生成并存档，替代资料策划的语义检索召回。
+        // 全书路线涉及主骨架与分卷两层，菜单取两层并集所在的 volume_distribution 供给层。
+        const storedMenu = buildStoredLayerAssetMenu('volume_distribution', planningGenreFamilies(snapshot));
         return this.repository.saveMethodSearch({
           searchId: this.ids.next(), ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
           seatKey: 'chief_editor', memberKey: member.memberKey, memberSnapshot: memberSnapshot(member),
-          sourceSnapshotId: run.snapshot_id, searchRequest: request, candidateMethods: retrieval.candidates,
-          searchHash: sha256(stableJson(retrieval)), retrievalVersion: retrieval.retrievalVersion,
+          sourceSnapshotId: run.snapshot_id, searchRequest: request, candidateMethods: storedMenu,
+          searchHash: sha256(stableJson({ request, assetMenu: storedMenu })), retrievalVersion: V7_LAYER_ASSET_MENU_VERSION,
           requestId: result.requestId, now: this.clock.now().toISOString()
         });
       } catch (error) {
@@ -755,9 +762,11 @@ export class V7PlanningRouteService {
         requireProposal(proposals, row.recipe_proposal_id).seat_key as MethodSeat
       )
     }));
-    const allCandidates = uniqueCandidates(this.repository.methodSearches(run.owner_id, run.book_id, run.run_id)
-      .flatMap((row) => JSON.parse(row.candidate_methods_json) as V7PlanningMethodCandidate[]));
-    const candidates = uniqueCandidates(selected.flatMap((item) => methodsUsedByBrief(item.brief, allCandidates)));
+    const storedMenus = this.repository.methodSearches(run.owner_id, run.book_id, run.run_id)
+      .map((row) => parseStoredLayerAssetMenu(row.candidate_methods_json));
+    const storedMenu: StoredLayerAssetMenu | undefined = storedMenus[0];
+    const allowedKeys = [...new Set(storedMenus.flatMap((menu) => menu.allowedKeys))];
+    const assetMenuText = storedMenu === undefined ? NO_ASSET_MENU_TEXT : routeAssetMenuText(storedMenu);
     const failures: string[] = [];
     for (const member of frozenFusionEditors) {
       const requestId = `planning-route:${run.run_id}:fusion:${idempotencyKey}:${member.memberKey}`;
@@ -770,16 +779,16 @@ export class V7PlanningRouteService {
           basedOnTaskId: mode === 'adjust' ? rows[0]!.request_id : null,
           authorInstructionVersion: null,
           sourceTraces: planningSnapshotSourceTraces(focusedSnapshot),
-          prompt: planningRouteFusionPrompt({ sourceSnapshot: focusedSnapshot, selected, authorNote, candidateMethods: candidates }),
+          prompt: planningRouteFusionPrompt({ sourceSnapshot: focusedSnapshot, selected, authorNote, assetMenuText }),
           maxOutputTokens: 8_000, temperature: 0.56
         });
         const fusion = parsePlanningRouteFusion(
           result.output,
           rows.map((row) => row.route_id),
-          candidates.map((candidate) => candidate.methodKey),
+          allowedKeys,
           selected[0]!.brief.seatKey
         );
-        validateProgressivePlanningBriefCandidates(fusion.brief, candidates);
+        if (storedMenu !== undefined) validateRouteBriefAssets(fusion.brief, storedMenu);
         validatePlanningRouteScale(fusion.route, requirePlanningScaleProfile(snapshot));
         return { route: fusion.route, brief: fusion.brief, memberKey: member.memberKey };
       } catch (error) {
@@ -1389,11 +1398,23 @@ function requireProposal(rows: V7PlanningRecipeProposalRow[], proposalId: string
   if (row === undefined) throw new Error('故事路线对应的方法方案不存在');
   return row;
 }
-function uniqueCandidates(values: V7PlanningMethodCandidate[]): V7PlanningMethodCandidate[] { return [...new Map(values.map((value) => [value.methodKey, value])).values()]; }
-function methodsUsedByBrief(brief: V7ProgressivePlanningBrief, candidates: readonly V7PlanningMethodCandidate[]): V7PlanningMethodCandidate[] {
-  const keys = new Set(brief.selectedStrategies.flatMap((strategy) => strategy.source === 'library' && strategy.methodKey !== undefined
-    ? [strategy.methodKey] : []));
-  return candidates.filter((candidate) => keys.has(candidate.methodKey));
+const NO_ASSET_MENU_TEXT = '（本轮不注入后台资产菜单；请完全依靠本书人物与处境原创设计。）';
+
+/** 灰度开关关闭时不向成员注入菜单文本，行为等同"本轮无后台资产"，供对照组使用。 */
+function routeAssetMenuText(menu: StoredLayerAssetMenu): string {
+  return v7AssetMenuEnabled() ? menu.menuText : NO_ASSET_MENU_TEXT;
+}
+
+/** 菜单开启时按名册校验引用：key 存在且本层已标注；关闭时跳过（对照组不限制）。 */
+function validateRouteBriefAssets(brief: V7ProgressivePlanningBrief, menu: StoredLayerAssetMenu): void {
+  if (!v7AssetMenuEnabled()) return;
+  validateProgressivePlanningBriefCandidates(brief, layerAssetEntries(menu.layer, menu.genreFamilies));
+}
+
+/** 从冻结快照的正式开书资料推断题材族，用于配方菜单的确定性过滤。 */
+function planningGenreFamilies(snapshot: V7PlanningCompiledSnapshot): ReturnType<typeof inferGenreFamilies> {
+  const opening = snapshot.sources.find((source) => source.sourceKind === 'opening');
+  return opening === undefined ? [] : inferGenreFamilies(stableJson(opening.content));
 }
 function decisionKind(value: unknown): RouteDecisionKind {
   if (value === 'select' || value === 'adjust' || value === 'merge') return value;

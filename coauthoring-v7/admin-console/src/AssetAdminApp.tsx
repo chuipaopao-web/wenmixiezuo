@@ -356,7 +356,7 @@ function PlanningPage(): React.JSX.Element {
       {auditError !== null && <p className="planning-audit-error">{auditError}</p>}
       {audit !== null && <div className="planning-runtime-result">
         <article><span>任务状态</span><strong>{audit.run.status}</strong><small>{audit.run.current_phase}</small></article>
-        <article><span>检索席位</span><strong>{audit.methodSearches.length}</strong><small>{audit.methodSearches.map((item) => `${item.seat_key} ${item.candidates.length}项`).join(' · ')}</small></article>
+        <article><span>检索席位</span><strong>{audit.methodSearches.length}</strong><small>{audit.methodSearches.map((item) => `${item.seat_key} 菜单${item.assetMenu?.allowedKeys?.length ?? 0}项`).join(' · ')}</small></article>
         <article><span>方法组合</span><strong>{audit.methodProposals.length}</strong><small>{audit.methodProposals.length} 套独立保存</small></article>
         <article><span>故事路线</span><strong>{audit.storyRoutes.length}</strong><small>三名编剧独立保存</small></article>
         <article><span>主编点评</span><strong>{audit.routeReview === null ? '未完成' : '已完成'}</strong><small>不代替作者选择</small></article>

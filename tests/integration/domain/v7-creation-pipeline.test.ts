@@ -80,7 +80,11 @@ describe('V7全链路创作总线', () => {
         taskResponsibilities: expect.arrayContaining([expect.any(String)]),
         creativeSpace: expect.arrayContaining([expect.any(String)]),
         methodPlan: expect.objectContaining({
-          mode: 'combined', candidates: expect.arrayContaining([expect.objectContaining({ methodKey: expect.any(String) })])
+          mode: 'combined',
+          searchRequest: expect.objectContaining({ schema: 'v7-planning-method-search-v1' }),
+          policy: expect.objectContaining({
+            candidateOnly: true, executorMayCombine: true, executorMayIgnore: true, originalDesignAllowed: true
+          })
         })
       });
       expect(firstVolumePack.characterCount).toBeLessThanOrEqual(firstVolumePack.budgetChars);

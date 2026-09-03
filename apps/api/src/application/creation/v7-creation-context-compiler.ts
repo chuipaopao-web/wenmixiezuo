@@ -3,13 +3,17 @@ import type { DatabaseSync } from 'node:sqlite';
 import {
   V7_CREATION_CONTEXT_CHAR_BUDGETS,
   V7_CREATION_CONTEXT_PLANNER_CHAR_BUDGETS,
+  buildLayerAssetMenu,
   creationPromptContext,
   contextSelectionPrompt,
   creationFallbackChain,
+  inferGenreFamilies,
   parseContextSelection,
   projectPlanningTreeForChild,
-  retrievePlanningMethodCandidates,
+  renderLayerAssetMenuText,
+  v7AssetMenuEnabled,
   V7_CREATION_CONTEXT_SCHEMA,
+  type PlanningLayerKey,
   type V7ContextSourceTrace,
   type V7CreationContextPack,
   type V7CreationMethodPlan,
@@ -674,7 +678,7 @@ function compilePack(
     reason: reasons.get(item.sourceKey) ?? '本次任务不需要这项资料。'
   }));
   const budgetChars = V7_CREATION_CONTEXT_CHAR_BUDGETS[input.taskKind];
-  const methodPlan = compileMethodPlan(selection);
+  const methodPlan = compileMethodPlan(selection, input.taskKind, creationGenreFamilies(candidates));
   let characterCount = packedCharacterCount(input, selected, selection, methodPlan);
   // A context editor chooses semantic sources from compact indexes.  Some
   // exact upstream documents (especially the book-wide setting ledger and a
@@ -777,22 +781,22 @@ function packedCharacterCount(
   }))).length;
 }
 
-function compileMethodPlan(selection: V7CreationContextSelection): V7CreationMethodPlan {
-  const request = selection.methodStrategy.searchRequest;
-  const retrieval = request === null ? null : retrievePlanningMethodCandidates(request);
+/**
+ * 第86批：资产菜单由系统按当前任务层确定性生成（提名卡 + 名册），
+ * 替代资料策划的语义检索召回。灰度开关关闭或本任务声明不需要方法资产时为 null。
+ */
+function compileMethodPlan(
+  selection: V7CreationContextSelection,
+  taskKind: V7CreationContextCompileInput['taskKind'],
+  genreFamilies: ReturnType<typeof inferGenreFamilies>
+): V7CreationMethodPlan {
+  const menu = v7AssetMenuEnabled() && selection.methodStrategy.mode !== 'none'
+    ? buildLayerAssetMenu(creationMenuLayer(taskKind), genreFamilies)
+    : null;
   return {
     ...selection.methodStrategy,
-    candidates: (retrieval?.candidates ?? []).map((candidate) => ({
-      methodKey: candidate.methodKey,
-      publicExplanation: candidate.publicExplanation,
-      dimension: candidate.dimension,
-      kind: candidate.kind,
-      planningLayers: candidate.planningLayers,
-      responsibilities: candidate.responsibilities.slice(0, 3),
-      combinationGuidance: candidate.combinationGuidance,
-      caution: candidate.cautionSignals.slice(0, 2)
-    })),
-    retrievalVersion: retrieval?.retrievalVersion ?? null,
+    assetMenu: menu === null ? null : renderLayerAssetMenuText(menu),
+    assetMenuVersion: menu === null ? null : 'v7-layer-asset-menu-v1',
     policy: {
       candidateOnly: true,
       executorMayCombine: true,
@@ -800,6 +804,21 @@ function compileMethodPlan(selection: V7CreationContextSelection): V7CreationMet
       originalDesignAllowed: true
     }
   };
+}
+
+/** 创作任务 → 菜单供给层：卷/链各归本层，章纲、正文、审校、结算都落在章执行层。 */
+function creationMenuLayer(taskKind: V7CreationContextCompileInput['taskKind']): PlanningLayerKey {
+  if (taskKind === 'volume') return 'volume';
+  if (taskKind === 'chain') return 'chain';
+  return 'chapter_execution';
+}
+
+/** 从正式开书资料候选源推断题材族，用于配方菜单的确定性过滤。 */
+function creationGenreFamilies(
+  candidates: readonly V7CreationSourceCandidate[]
+): ReturnType<typeof inferGenreFamilies> {
+  const opening = candidates.find((candidate) => candidate.sourceKind === 'opening');
+  return opening === undefined ? [] : inferGenreFamilies(stableJson(opening.content));
 }
 
 function estimateV7Tokens(value: string): number {

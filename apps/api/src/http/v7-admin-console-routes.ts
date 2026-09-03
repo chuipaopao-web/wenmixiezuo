@@ -32,7 +32,7 @@ export async function registerV7AdminConsoleRoutes(app: FastifyInstance, databas
         WHERE owner_id=? AND book_id=? AND run_id=? ORDER BY created_at,search_id`, ownerId, bookId, runId)
         .map((row) => {
           const expanded = expandJsonColumns(row, ['member_snapshot_json', 'search_request_json', 'candidate_methods_json']);
-          return { ...expanded, request: expanded.search_request_json, candidates: expanded.candidate_methods_json };
+          return { ...expanded, request: expanded.search_request_json, assetMenu: expanded.candidate_methods_json };
         });
       const methodProposals = auditRows(database, `SELECT * FROM v7_planning_recipe_proposals
         WHERE owner_id=? AND book_id=? AND run_id=? ORDER BY created_at,proposal_id`, ownerId, bookId, runId)
@@ -60,7 +60,7 @@ export async function registerV7AdminConsoleRoutes(app: FastifyInstance, databas
         methodSearches,
         contextPlan: methodSearches[0] === undefined ? null : {
           request: methodSearches[0].request,
-          candidates: methodSearches[0].candidates
+          assetMenu: methodSearches[0].assetMenu
         },
         storyRoutes,
         routeReviews,

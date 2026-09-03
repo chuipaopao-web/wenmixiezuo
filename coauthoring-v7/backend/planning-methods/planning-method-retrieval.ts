@@ -1,23 +1,13 @@
-import {
-  NARRATIVE_DIMENSIONS,
-  V7_NARRATIVE_METHODS,
-  type NarrativeDimension,
-  type NarrativeMethodDefinition
-} from '../narrative-methods/narrative-method-library.js';
-import {
-  PLANNING_LAYERS,
-  getMethodExecutionProfile,
-  type MethodExecutionProfile,
-  type PlanningLayerKey
-} from './method-asset-profiles.js';
-
+/**
+ * 第86批：资料策划合同——只做本书事实/设定筛选与任务身份签发。
+ * 旧的"方法检索意图"（planningLayers/dimensions/searchQueries/desiredCount）
+ * 及其语义子串打分（retrievePlanningMethodCandidates）已退役：
+ * 资产由系统按层确定性生成菜单（layer-asset-menu.ts），成员在单次调用内自选，
+ * 资料策划不再替设计成员猜方法。解析器对老字段容忍一个版本周期（读取即弃）。
+ */
 export interface V7PlanningMethodSearchRequest {
   schema: 'v7-planning-method-search-v1';
   publicGoal: string;
-  searchQueries: string[];
-  planningLayers: PlanningLayerKey[];
-  dimensions: NarrativeDimension[];
-  desiredCount: number;
   scaleHint: string;
   avoidNotes: string[];
   relevantSettingSourceIds: string[];
@@ -35,54 +25,12 @@ export interface V7PlanningTaskPersona {
   avoidPatterns: string[];
 }
 
-export interface V7PlanningMethodCandidate {
-  methodKey: string;
-  professionalName: string;
-  publicExplanation: string;
-  dimension: NarrativeDimension;
-  kind: NarrativeMethodDefinition['kind'];
-  recommendationTier: NarrativeMethodDefinition['recommendationTier'];
-  exclusiveGroup: string | null;
-  planningLayers: readonly PlanningLayerKey[];
-  recommendedScale: readonly string[];
-  fitSignals: readonly string[];
-  cautionSignals: readonly string[];
-  responsibilities: readonly string[];
-  combinationGuidance: string;
-}
-
-export interface V7PlanningMethodRetrievalResult {
-  request: V7PlanningMethodSearchRequest;
-  candidates: V7PlanningMethodCandidate[];
-  retrievalVersion: 'v7-method-retrieval-1';
-}
-
-export function planningMethodSearchContext(): unknown {
-  return {
-    planningLayers: PLANNING_LAYERS.map((layer) => ({
-      key: layer.key,
-      publicName: layer.publicName,
-      responsibility: layer.responsibility,
-      recommendedScale: layer.recommendedScale,
-      defers: layer.defers
-    })),
-    dimensions: NARRATIVE_DIMENSIONS.map((dimension) => ({
-      key: dimension.key,
-      responsibility: dimension.responsibility,
-      authorQuestion: dimension.authorQuestion
-    }))
-  };
-}
-
 export function parsePlanningMethodSearchRequest(
   output: string,
   options: { minimumSettingSources?: 0 | 1; requireTaskProfile?: boolean } = {}
 ): V7PlanningMethodSearchRequest {
   const value = parseJsonObject(output);
-  if (value.schema !== 'v7-planning-method-search-v1') throw new Error('方法检索请求格式不完整');
-  const planningLayers = enumList(value.planningLayers, PLANNING_LAYERS.map((item) => item.key), '规划层级', 1, 3);
-  const dimensions = enumList(value.dimensions, NARRATIVE_DIMENSIONS.map((item) => item.key), '方法维度', 2, 8);
-  const desiredCount = integer(value.desiredCount, '候选方法数量', 3, 8);
+  if (value.schema !== 'v7-planning-method-search-v1') throw new Error('资料策划请求格式不完整');
   const taskPersona = value.taskPersona === undefined ? undefined : parseTaskPersona(value.taskPersona);
   const taskResponsibilities = value.taskResponsibilities === undefined
     ? undefined
@@ -96,11 +44,7 @@ export function parsePlanningMethodSearchRequest(
   }
   return {
     schema: 'v7-planning-method-search-v1',
-    publicGoal: requiredText(value.publicGoal, '检索目标'),
-    searchQueries: textList(value.searchQueries, '检索词', 2, 5),
-    planningLayers,
-    dimensions,
-    desiredCount,
+    publicGoal: requiredText(value.publicGoal, '任务目标'),
     scaleHint: requiredText(value.scaleHint, '篇幅提示'),
     // Avoid notes are soft guidance. Normalize an omitted value, one string,
     // or an over-complete list deterministically instead of paying for a
@@ -131,94 +75,25 @@ export function extractPlanningCriticalInputs(output: string): string[] {
   }
 }
 
-export function retrievePlanningMethodCandidates(request: V7PlanningMethodSearchRequest): V7PlanningMethodRetrievalResult {
-  const queryTokens = request.searchQueries.flatMap(tokens);
-  const scored = V7_NARRATIVE_METHODS
-    .map((method) => {
-      const profile = getMethodExecutionProfile(method.key);
-      if (profile === null || !profile.planningLayers.some((layer) => request.planningLayers.includes(layer))) return null;
-      const searchable = normalize([
-        method.professionalName,
-        method.publicExplanation,
-        ...method.fitSignals,
-        ...method.responsibilities,
-        ...profile.recommendedScale
-      ].join(' '));
-      const queryScore = queryTokens.reduce((sum, token) => sum + (searchable.includes(token) ? 3 : 0), 0);
-      const score = (request.dimensions.includes(method.dimension) ? 12 : 0)
-        + queryScore
-        + (method.recommendationTier === 'default' ? 3 : method.recommendationTier === 'recommended' ? 2 : 0)
-        + (method.kind === 'foundation' ? 1 : 0);
-      return { method, profile, score };
-    })
-    .filter((item): item is { method: NarrativeMethodDefinition; profile: MethodExecutionProfile; score: number } => item !== null)
-    .toSorted((left, right) => right.score - left.score || left.method.key.localeCompare(right.method.key));
-
-  const selected: typeof scored = [];
-  const selectedKeys = new Set<string>();
-  const add = (entry: (typeof scored)[number] | undefined): void => {
-    if (entry === undefined || selectedKeys.has(entry.method.key) || selected.length >= request.desiredCount) return;
-    selected.push(entry);
-    selectedKeys.add(entry.method.key);
-  };
-  for (const dimension of request.dimensions) add(scored.find((entry) => entry.method.dimension === dimension));
-  for (const entry of scored) add(entry);
-
-  return {
-    request,
-    candidates: selected.map(({ method, profile }) => candidate(method, profile)),
-    retrievalVersion: 'v7-method-retrieval-1'
-  };
-}
-
 export function planningMethodSearchPrompt(input: {
   seatName: string;
   seatResponsibility: string;
   independentFocus: readonly string[];
   sourceSnapshot: unknown;
-  allowedPlanningLayers?: readonly PlanningLayerKey[];
 }): string {
   return [
-    '你正在为一部长篇小说准备方法检索。只返回一个JSON对象，不要Markdown，不要思维过程。',
+    '你正在为一部长篇小说的设计任务做资料策划。只返回一个JSON对象，不要Markdown，不要思维过程。',
     `本次身份：${input.seatName}。责任：${input.seatResponsibility}`,
     `重点检查：${input.independentFocus.join('；')}`,
-    '现在只决定“需要检索哪类方法”并筛选本席真正需要的设定资料，不要直接设计故事，也不要猜方法库里有哪些具体方法。',
-    input.allowedPlanningLayers === undefined
-      ? '检索必须覆盖全书顶层与跨卷分配；只选与本书真正相关的维度，避免把所有维度都要一遍。'
-      : `planningLayers只允许使用${JSON.stringify(input.allowedPlanningLayers)}，不得增加其他层级；只选与本任务真正相关的维度，避免把所有维度都要一遍。`,
+    '你只决定“本次设计需要哪些本书事实与设定”，并把本书题材融合档案转成只属于当前任务的临时执行身份。不要直接设计故事，也不要猜测或罗列任何方法资产：后台方法、配方和模式由系统按当前层确定性提供给设计成员，成员凭自身方法论知识自选、组合或完全原创，不需要你代为检索。',
     '正式开书资料、作者本次目标、上级确认内容和正文实际必须保留；设定总账只负责导航，不要把总账sourceId填入relevantSettingSourceIds。已确认设定必须从schema="v7-setting-fact-source-v1"的逐项事实源中挑选本席确实需要的资料；relevantSettingSourceIds只能填写这些逐项事实源的sourceId，不得编造。',
-    '如果缺少会导致商业全书路线无法可靠设计的硬信息，写入missingCriticalInputs。预计总字数是开书阶段唯一必须提前确定的规划尺度，默认按番茄连载场景工作，不要重复报缺。建议卷数、商业受众和追读定位是每席全书路线自己必须产出的结果，不是上游缺口。普通创作留白不是缺口，能在方案中合理创作的内容不要上报；信息齐全时返回空数组。不得自行脑补作者已经明确但本次资料中缺失的硬事实。',
-    '输出字段：schema="v7-planning-method-search-v1",publicGoal,searchQueries,planningLayers,dimensions,desiredCount,scaleHint,avoidNotes,relevantSettingSourceIds,missingCriticalInputs,taskPersona,taskResponsibilities,creativeSpace。missingCriticalInputs每项优先写成一句可直接给作者看的大白话；如需说明影响和待确认内容，也可写成{issue,impact,needed}，系统会合并展示。',
+    '如果缺少会导致设计无法可靠进行的硬信息，写入missingCriticalInputs。预计总字数是开书阶段唯一必须提前确定的规划尺度，默认按番茄连载场景工作，不要重复报缺。建议卷数、商业受众和追读定位是每席全书路线自己必须产出的结果，不是上游缺口。普通创作留白不是缺口，能在方案中合理创作的内容不要上报；信息齐全时返回空数组。不得自行脑补作者已经明确但本次资料中缺失的硬事实。',
+    '输出字段：schema="v7-planning-method-search-v1",publicGoal,scaleHint,avoidNotes,relevantSettingSourceIds,missingCriticalInputs,taskPersona,taskResponsibilities,creativeSpace。missingCriticalInputs每项优先写成一句可直接给作者看的大白话；如需说明影响和待确认内容，也可写成{issue,impact,needed}，系统会合并展示。',
     'taskPersona必须把本书题材融合档案转成只属于当前任务的临时执行身份，字段为publicLabel,workingIdentity,priorities,authenticityChecks,avoidPatterns；不得绑定成员姓名或岗位专业人设。taskResponsibilities写2—6条大白话责任，creativeSpace写1—5条可组合、放弃资产或自主设计的空间。',
-    '所有复数字段必须是JSON数组，不能写成单个字符串、编号对象或逗号拼接文本：searchQueries为2—5条，planningLayers为1—3项，dimensions为2—8项，avoidNotes为0—8条，relevantSettingSourceIds为1—24项，missingCriticalInputs为0—8项，taskResponsibilities为2—6条，creativeSpace为1—5条；taskPersona中的priorities、authenticityChecks、avoidPatterns也都必须是1—8条字符串数组。desiredCount为3—8的整数，按本任务实际需要取最少充分数量。',
-    `可检索的层级和维度：${JSON.stringify(planningMethodSearchContext())}`,
+    '所有复数字段必须是JSON数组，不能写成单个字符串、编号对象或逗号拼接文本：avoidNotes为0—8条，relevantSettingSourceIds为1—24项，missingCriticalInputs为0—8项，taskResponsibilities为2—6条，creativeSpace为1—5条；taskPersona中的priorities、authenticityChecks、avoidPatterns也都必须是1—8条字符串数组。',
     `正式资料快照：${JSON.stringify(input.sourceSnapshot)}`
   ].join('\n\n');
 }
-
-function candidate(method: NarrativeMethodDefinition, profile: MethodExecutionProfile): V7PlanningMethodCandidate {
-  return {
-    methodKey: method.key,
-    professionalName: method.professionalName,
-    publicExplanation: method.publicExplanation,
-    dimension: method.dimension,
-    kind: method.kind,
-    recommendationTier: method.recommendationTier,
-    exclusiveGroup: method.exclusiveGroup,
-    planningLayers: profile.planningLayers,
-    recommendedScale: profile.recommendedScale,
-    fitSignals: method.fitSignals,
-    cautionSignals: method.cautionSignals,
-    responsibilities: method.responsibilities,
-    combinationGuidance: profile.combinationGuidance
-  };
-}
-
-function tokens(value: string): string[] {
-  return normalize(value).split(/[\s,，。；、:：/]+/u).filter((item) => item.length >= 2);
-}
-
-function normalize(value: string): string { return value.trim().toLocaleLowerCase('zh-CN'); }
 
 function parseJsonObject(output: string): Record<string, unknown> {
   const trimmed = output.trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '');
@@ -286,20 +161,4 @@ function parseTaskPersona(value: unknown): V7PlanningTaskPersona {
     authenticityChecks: uniqueTextList(record.authenticityChecks, '任务身份真实性检查', 1, 6),
     avoidPatterns: uniqueTextList(record.avoidPatterns, '任务身份避坑', 1, 6)
   };
-}
-
-function integer(value: unknown, label: string, min: number, max: number): number {
-  if (!Number.isInteger(value) || Number(value) < min || Number(value) > max) throw new Error(`${label}无效`);
-  return Number(value);
-}
-
-function enumList<T extends string>(value: unknown, allowed: readonly T[], label: string, min: number, max: number): T[] {
-  const values = textList(value, label, min, max);
-  const result = values.map((item) => {
-    if (!allowed.includes(item as T)) throw new Error(`${label}包含未知值：${item}`);
-    return item as T;
-  });
-  const unique = [...new Set(result)];
-  if (unique.length < min || unique.length > max) throw new Error(`${label}数量无效`);
-  return unique;
 }

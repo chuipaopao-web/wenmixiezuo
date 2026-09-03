@@ -1,7 +1,4 @@
-import {
-  V7_LAYERED_PLANNING_VERSION,
-  type PlanningLayerKey
-} from './method-asset-profiles.js';
+import { V7_LAYERED_PLANNING_VERSION } from './method-asset-profiles.js';
 import {
   validateLayeredPlanningRecipe,
   type LayeredMethodGuidance,
@@ -10,7 +7,7 @@ import {
   type PlanningEditorialSeat,
   type ReaderExperienceTarget
 } from './layered-planning-engine.js';
-import type { V7PlanningMethodCandidate } from './planning-method-retrieval.js';
+import type { LayerAssetEntry } from './layer-asset-menu.js';
 import type { V7PlanningStoryRoute } from './planning-story-routes.js';
 
 export type V7PlanningBriefSeatKey = PlanningEditorialSeat['seatKey'];
@@ -49,15 +46,6 @@ export interface V7ProgressivePlanningBrief {
   authorDecisions: string[];
 }
 
-export interface V7CompactPlanningMethodCard {
-  methodKey: string;
-  title: string;
-  explanation: string;
-  layers: readonly PlanningLayerKey[];
-  responsibilities: readonly string[];
-  caution: readonly string[];
-}
-
 export interface V7FullCasePlanningSeat {
   seatKey: V7PlanningBriefSeatKey;
   publicName: '全案规划主编';
@@ -90,23 +78,10 @@ export function fullCasePlanningSeat(seatKey: V7PlanningBriefSeatKey): V7FullCas
   return FULL_CASE_SEATS[seatKey];
 }
 
-export function compactPlanningMethodCards(
-  candidates: readonly V7PlanningMethodCandidate[]
-): V7CompactPlanningMethodCard[] {
-  return candidates.map((candidate) => ({
-    methodKey: candidate.methodKey,
-    title: candidate.professionalName,
-    explanation: candidate.publicExplanation,
-    layers: candidate.planningLayers,
-    responsibilities: candidate.responsibilities.slice(0, 2),
-    caution: candidate.cautionSignals.slice(0, 2)
-  }));
-}
-
 export function progressivePlanningBriefPrompt(input: {
   seatKey: V7PlanningBriefSeatKey;
   sourceSnapshot: unknown;
-  candidates: readonly V7PlanningMethodCandidate[];
+  assetMenuText: string;
 }): string {
   const seat = fullCasePlanningSeat(input.seatKey);
   return [
@@ -114,14 +89,14 @@ export function progressivePlanningBriefPrompt(input: {
     `你独立负责${seat.routeLabel}。${seat.explorationOpening}`,
     '你必须同时检查：作者原意、人物主动选择、因果可信、长篇容量、跨卷递进、商业追读、阶段回报、创意辨识度和中后期续航。不能只负责其中一项。',
     '你看不到另外两名主编的答案。不要先套常见题材路线，再替换人名；必须从本书人物、时代、限制和核心冲突推出方向。',
-    '候选方法只是工具箱，不是答案。可以少用、组合或全部不用；不得为了用完资产而改变人物合理选择。',
+    '菜单里的方法只是候选工具箱，不是答案。可以少用、组合或全部不用；不得为了用完资产而改变人物合理选择。',
     'selectedStrategies总数4—6项，其中至少1项必须是agent_original：这是你为本书提出的原创推进策略，不得伪装成公共方法，也不要写回方法库。',
-    'library项的methodKey必须来自本轮候选；agent_original项不得填写methodKey。每项只写一句“本书怎么用”和一句主要风险。',
+    'library项的methodKey必须来自本轮资产菜单；agent_original项不得填写methodKey。每项只写一句“本书怎么用”和一句主要风险。',
     '本轮只形成全书方向的精简设计依据，不生成分卷、单元链、事件或章纲。正式资料和正文实际不能改写，未来规划不能冒充已经发生。',
     '输出字段必须完整：schema="v7-progressive-planning-brief-v2",seatKey,publicSummary,centralPromise,causalSpine,protagonistArc,longFormCapacity,pressureRhythm,payoffCadence,informationRhythm,distinctiveness,selectedStrategies,creativeOpenings,strengths,risks,authorDecisions。',
     'selectedStrategies每项字段：source,methodKey(仅library),title,layer,applicationNote,caution。creativeOpenings写2—4条仍可自由发挥的空间，不是预设剧情。',
     `正式资料快照：${JSON.stringify(input.sourceSnapshot)}`,
-    `本轮精简方法卡：${JSON.stringify(compactPlanningMethodCards(input.candidates))}`
+    `本轮资产菜单：\n${input.assetMenuText}`
   ].join('\n\n');
 }
 
@@ -181,22 +156,20 @@ export function parseStoredProgressivePlanningBrief(
 }
 
 /**
- * Candidate retrieval only narrows the toolbox. This guard prevents a model
- * from taking a real method card and silently applying it at a layer where the
- * library says it does not belong. Agent-original strategies remain free to
- * choose either currently supported full-book layer.
+ * 第86批：引用校验改按名册。菜单只收窄工具箱；这道闸防止成员把真实存在的
+ * 资产用到资产库未标注的层。agent_original 策略仍可自由选择两个全书层级。
  */
 export function validateProgressivePlanningBriefCandidates(
   brief: V7ProgressivePlanningBrief,
-  candidates: readonly V7PlanningMethodCandidate[]
+  allowedAssets: readonly LayerAssetEntry[]
 ): void {
-  const candidateByKey = new Map(candidates.map((candidate) => [candidate.methodKey, candidate]));
+  const assetByKey = new Map(allowedAssets.map((asset) => [asset.key, asset]));
   for (const strategy of brief.selectedStrategies) {
     if (strategy.source !== 'library') continue;
-    const candidate = strategy.methodKey === undefined ? undefined : candidateByKey.get(strategy.methodKey);
-    if (candidate === undefined) throw new Error('全案主编引用了本轮没有召回的方法');
-    if (!candidate.planningLayers.includes(strategy.layer)) {
-      throw new Error(`方法“${candidate.professionalName}”不能用于${strategy.layer === 'book_backbone' ? '全书主骨架' : '分卷递进'}层`);
+    const asset = strategy.methodKey === undefined ? undefined : assetByKey.get(strategy.methodKey);
+    if (asset === undefined) throw new Error('全案主编引用了本轮资产菜单之外的方法');
+    if (!asset.planningLayers.includes(strategy.layer)) {
+      throw new Error(`方法“${asset.title}”不能用于${strategy.layer === 'book_backbone' ? '全书主骨架' : '分卷递进'}层`);
     }
   }
 }
