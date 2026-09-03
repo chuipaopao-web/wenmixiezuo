@@ -866,6 +866,48 @@ describe('V7全链路创作总线', () => {
     }
   });
 
+  it('创作任务思考烧穿时用加大额度升级重试一次，重试仍烧穿则明确失败', async () => {
+    context = createTestContext('wenmi-v7-creation-thinking-burn-');
+    const app = await createServer(context.config, context.database);
+    try {
+      const cookie = await register(app, 'creation-burn@example.com', '思考烧穿作者');
+      const bookId = await createBook(app, cookie, '思考烧穿测试书', 'creation-book-burn-0001');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string }).owner_id);
+      const workflowId = 'creation-workflow-burn-0001';
+      new V7CreationRuntimeRepository(context.database).createWorkflow({
+        workflowId, ownerId, bookId, volumeScopeId: 'volume-1', firstVolume: true, authorGoal: null,
+        idempotencyKey: 'creation-burn-idempotency', requestHash: 'b'.repeat(64), now: new FixedClock().now().toISOString()
+      });
+      const requestInput = {
+        requestId: 'creation-burn-request-0001', ownerId, bookId, workflowId,
+        runKind: 'option' as const, nodeKey: 'chain-1', workstationKey: 'volume' as const,
+        member: creationFallbackChain('planning_writer')[0]!,
+        purpose: 'structured_planning' as const, operationMode: 'fresh' as const,
+        basedOnTaskId: null, authorInstructionVersion: null, sourceTraces: [],
+        prompt: '设计本卷方向。', maxOutputTokens: 1_000, temperature: 0.2
+      };
+
+      const recovering = new ThinkingBurnResolver(1);
+      const gateway = new V7CreationModelGateway(context.database, recovering, new FixedClock());
+      const result = await gateway.generate(requestInput);
+      expect(result.output).toBe('thinking-burn-recovered');
+      expect(recovering.budgets).toEqual([1_000, 17_000]);
+      expect(context.database.prepare('SELECT state FROM v7_creation_model_calls WHERE request_id=?')
+        .get(requestInput.requestId)).toEqual({ state: 'succeeded' });
+
+      const alwaysBurn = new ThinkingBurnResolver(99);
+      const secondGateway = new V7CreationModelGateway(context.database, alwaysBurn, new FixedClock());
+      await expect(secondGateway.generate({
+        ...requestInput, requestId: 'creation-burn-request-0002'
+      })).rejects.toMatchObject({ message: expect.stringContaining('已用加大额度重试一次') });
+      expect(alwaysBurn.budgets).toEqual([1_000, 17_000]);
+      expect(context.database.prepare('SELECT state FROM v7_creation_model_calls WHERE request_id=?')
+        .get('creation-burn-request-0002')).toEqual({ state: 'failed' });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('节点名称不能改写显式操作模式或工位，修复血缘只接受真实模型任务', async () => {
     context = createTestContext('wenmi-v7-creation-explicit-lineage-');
     const app = await createServer(context.config, context.database);
@@ -1420,6 +1462,28 @@ class UnknownResolver implements V7OpeningModelAdapterResolver {
       if (genreProfile !== null) return genreProfile;
       this.calls += 1;
       throw new ModelAdapterError('连接中断，结果还不能确认', 'technical_failure', true, undefined, true);
+    } };
+  }
+}
+
+class ThinkingBurnResolver implements V7OpeningModelAdapterResolver {
+  public readonly budgets: number[] = [];
+
+  public constructor(private burnCallsRemaining = 1) {}
+
+  public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
+    return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
+      this.budgets.push(request.maxOutputTokens);
+      if (this.burnCallsRemaining > 0) {
+        this.burnCallsRemaining -= 1;
+        throw new ModelAdapterError('模型输出因 max_tokens 被截断，没有形成可提交文字', 'technical_failure', true);
+      }
+      return {
+        provider, modelId, output: 'thinking-burn-recovered', inputTokens: 90, outputTokens: 40,
+        cashCostCny: 0, state: 'succeeded'
+      };
     } };
   }
 }

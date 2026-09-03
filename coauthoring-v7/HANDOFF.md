@@ -10,7 +10,7 @@
 - 生产 API、Worker、Caddy 均运行第85批 V7 `wm-v7-20260902-224500-f77079b`、Worker ready，静态版本保持第80批 `363e8b5c7989d05e8fba`
 - 静态发布本批未切换（`static_switch_required=0`），manifest SHA-256 为 `7d5e34a71de63bd9ff90606571368b890f91dc359ebeafad29019e1ac72a971d`；第84批服务 `wm-v7-20260902-203200-84a1f2c6` 保留为立即回滚点，静态 previous 指针为 `37fde3ad807a5b4c87c6`
 - 当前分支：`codex/light-coauthoring-v7`
-- 当前最新工单：`docs/worklists/V7-EVIDENCE-CARD-LAYER-DESIGN-20260902-86.md`（86a 已实现并全部测试通过，待部署；86b/86c 未实施；实施记录见工单「十三、86a 实施记录」）
+- 当前最新工单：`docs/worklists/V7-PRODUCTION-FAILURE-RECOVERY-20260903-87.md`（第87批生产故障热修：创作网关 GLM 思考烧穿 +16k 重试、规划树结果未知任务可停止重建、开书 interrupted 意外失败落档；已实现并全量测试通过，待部署）。上一工单：`docs/worklists/V7-EVIDENCE-CARD-LAYER-DESIGN-20260902-86.md`（86a 已实现并全部测试通过，待部署；86b/86c 未实施；实施记录见工单「十三、86a 实施记录」）
 
 ## 已上线能力
 

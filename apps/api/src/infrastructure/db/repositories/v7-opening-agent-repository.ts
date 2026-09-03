@@ -247,10 +247,12 @@ export class V7OpeningAgentRepository implements OpeningAgentToolGateway {
   }
 
   public markUnexpectedFailure(ownerId: string, taskId: string, message: string, now: string): void {
+    // interrupted 也纳入：恢复执行（claim 接受 interrupted）途中若遇到非预期
+    // 错误，任务必须落到明确的 failed，而不是永远停在“连接中断”。
     this.database.prepare(`
       UPDATE v7_opening_agent_tasks
       SET status = 'failed', error_code = 'internal_failure', error_message = ?, updated_at = ?
-      WHERE owner_id = ? AND task_id = ? AND status IN ('queued', 'working')
+      WHERE owner_id = ? AND task_id = ? AND status IN ('queued', 'working', 'interrupted')
     `).run(message.slice(0, 1_000), now, ownerId, taskId);
   }
 

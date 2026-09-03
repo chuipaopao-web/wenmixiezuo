@@ -829,7 +829,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     }
     return <section className="novel-create-surface" aria-label="开书任务恢复"><div className="failure-card compact-failure-card">
       <WarningCircleIcon /><p className="eyebrow">{task.status === 'interrupted' ? '本轮连接结果未知' : '本轮未完成'}</p><h2 id="novel-create-title">已有结果和开书思路都已保留</h2><p>{publicFailureCopy(task.errorMessage)}</p>
-    </div><WorkflowActionDock title="选择恢复方式" detail="重试只会创建新一轮任务，不会覆盖旧结果。" primary={<button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '重新交给创作团队'}</button>} secondary={<><button className="secondary-action" type="button" disabled={busy} onClick={startManual}>{openingPackage === null ? '自己填写开书资料' : '保留现有资料，自己完成'}</button><button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
+    </div><WorkflowActionDock title="选择恢复方式" detail="重试只会创建新一轮任务，不会覆盖旧结果。" primary={<button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '重新交给创作团队'}</button>} secondary={<>{task.status === 'interrupted' && <button className="secondary-action" type="button" disabled={busy} onClick={() => setRecoveryAttempt((current) => current + 1)}>重新连接这次任务</button>}<button className="secondary-action" type="button" disabled={busy} onClick={startManual}>{openingPackage === null ? '自己填写开书资料' : '保留现有资料，自己完成'}</button><button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
   }
 
   if (mode === 'idea') {

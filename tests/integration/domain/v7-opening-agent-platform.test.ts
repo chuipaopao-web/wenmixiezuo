@@ -875,6 +875,46 @@ describe('V7开书Agent平台接入', () => {
     }
   });
 
+  it('恢复执行遇到非预期错误时，interrupted 任务也落到明确失败而不是永远悬挂', async () => {
+    context = createTestContext('wenmi-v7-opening-unexpected-interrupted-');
+    const app = await createServer(context.config, context.database);
+    try {
+      const cookie = await register(app, 'v7-unexpected-interrupted@example.com', '意外失败作者', 'strong-pass-321');
+      const owner = context.database.prepare(`
+        SELECT owner_id FROM user_accounts WHERE email_normalized = 'v7-unexpected-interrupted@example.com'
+      `).get() as { owner_id: string };
+      const repository = new V7OpeningAgentRepository(context.database);
+      const now = '2026-09-03T08:00:00.000Z';
+      const ownerId = owner.owner_id;
+      const taskId = 'opening-unexpected-interrupted-task';
+      repository.createShell({
+        taskId,
+        ownerId,
+        idempotencyKey: 'opening-unexpected-interrupted-key',
+        requestHash: 'c'.repeat(64),
+        ideaText: '张三穿越到乱世，从边城小吏开始求生。',
+        ideaHash: 'd'.repeat(64),
+        publishingPlatform: 'fanqie',
+        selectedChiefMemberKey: null,
+        selectedScreenwriterMemberKey: null,
+        memberRoster: V7_OPENING_MEMBERS,
+        now
+      });
+      context.database.prepare(`UPDATE v7_opening_agent_tasks SET status='interrupted' WHERE task_id=?`).run(taskId);
+
+      repository.markUnexpectedFailure(ownerId, taskId, '模拟恢复执行途中的意外错误', now);
+      expect(context.database.prepare(`
+        SELECT status, error_code, error_message FROM v7_opening_agent_tasks WHERE task_id = ?
+      `).get(taskId)).toEqual({
+        status: 'failed',
+        error_code: 'internal_failure',
+        error_message: '模拟恢复执行途中的意外错误'
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it.each([
     {
       label: '未开通会员',

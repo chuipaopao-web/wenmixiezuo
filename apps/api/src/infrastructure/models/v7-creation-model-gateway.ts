@@ -10,6 +10,8 @@ import { V7CreationRuntimeRepository } from '../db/repositories/v7-creation-runt
 import { assertMembershipAllowsGeneration } from '../security/membership-service.js';
 import type { ModelAdapter } from './model-adapter.js';
 import { ModelAdapterError } from './model-adapter.js';
+import type { ModelResult } from './model-adapter.js';
+
 import type { ModelPurpose } from './model-runtime-config.js';
 import { thinkingTokenAllowance } from './model-runtime-config.js';
 import { resolveV7TaskPolicy } from '../../application/agents/v7-agent-runtime-policy.js';
@@ -60,6 +62,12 @@ export interface V7CreationModelResult {
 export class V7CreationModelError extends Error {
   public constructor(message: string, public readonly outcomeUnknown = false) { super(message); }
 }
+
+// GLM-5.3 隐式思考失控（2026-08-31 端点行为变化）会把冻结预算全部烧进 thinking
+// 并以 max_tokens 结束、零可见文字。识别到该特征时用更大额度升级重试一次；
+// 与规划网关（第85批）同源，创作管线此前漏配，导致西施（deputy-glm-5-3）
+// 在卷方案资料席位反复失败。
+const THINKING_BURN_RETRY_EXTRA_TOKENS = 16_000;
 
 export class V7CreationModelGateway {
   private readonly repository: V7CreationRuntimeRepository;
@@ -195,16 +203,42 @@ export class V7CreationModelGateway {
       const workflowCalls = this.activeCalls.get(request.workflowId) ?? new Map<string, AbortController>();
       workflowCalls.set(request.requestId, controller);
       this.activeCalls.set(request.workflowId, workflowCalls);
-      const result = await adapter.generate({
+      const callAdapter = (maxOutputTokens: number): Promise<ModelResult> => adapter.generate({
         requestId: request.requestId,
         taskId: request.workflowId,
         ownerId: request.ownerId,
         bookId: request.bookId,
         agentId: request.member.memberKey,
         prompt: compiled.manifest.compiledPrompt,
-        maxOutputTokens: request.maxOutputTokens,
+        maxOutputTokens,
         temperature: runtimePolicy.temperature
       }, controller.signal);
+      let result: ModelResult;
+      try {
+        result = await callAdapter(request.maxOutputTokens);
+      } catch (error) {
+        if (!isThinkingBurnFailure(error)) throw error;
+        // 升级重试前重新核对会员额度；额度不足时保留原始失败，不静默透支。
+        try {
+          assertMembershipAllowsGeneration(
+            this.database, request.ownerId,
+            this.clock.now().toISOString(),
+            reservedTokens + THINKING_BURN_RETRY_EXTRA_TOKENS
+          );
+        } catch {
+          throw error;
+        }
+        try {
+          result = await callAdapter(request.maxOutputTokens + THINKING_BURN_RETRY_EXTRA_TOKENS);
+        } catch (retryError) {
+          throw retryError instanceof ModelAdapterError
+            ? new ModelAdapterError(
+                `${retryError.message}（已用加大额度重试一次，仍未形成可提交文字）`,
+                retryError.failureClass, retryError.retryable, retryError.statusCode, retryError.outcomeUnknown
+              )
+            : retryError;
+        }
+      }
       if (result.output.trim().length === 0) throw new V7CreationModelError('成员没有交回可用内容。');
       const completedAt = this.clock.now().toISOString();
       this.repository.completeModelCall({
@@ -282,4 +316,15 @@ function normalizeFailure(error: unknown): { message: string; outcomeUnknown: bo
   if (error instanceof V7CreationModelError) return { message, outcomeUnknown: error.outcomeUnknown };
   if (error instanceof ModelAdapterError) return { message, outcomeUnknown: error.outcomeUnknown };
   return { message, outcomeUnknown: false };
+}
+
+/**
+ * GLM-5.3 思考烧穿特征：适配层已拿到 2xx 响应（结果已知、可安全重试），
+ * 停止原因是 max_tokens 且没有形成可提交文字。这与请求中断/超时（结果未知）
+ * 不同，升级重试不会造成供应商侧重复扣费的不确定性。
+ */
+function isThinkingBurnFailure(error: unknown): boolean {
+  return error instanceof ModelAdapterError && error.retryable
+    && error.message.includes('max_tokens')
+    && error.message.includes('没有形成可提交文字');
 }

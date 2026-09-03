@@ -425,6 +425,7 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
         onRetry={reconcileGeneration}
         action="核对这次结果"
         onReturnDirection={returnToBookDirection}
+        onStop={stopGeneration}
         {...(onOpenSettings === undefined ? {} : { onOpenSettings })}
       />;
     }
@@ -660,13 +661,14 @@ function PlanningRouteComplete(): React.JSX.Element {
     <div><strong>全书方向已经完成</strong><p>这轮方向已经接续或不再允许重复生成正式框架，现有结果会继续保留。</p></div>
   </section>;
 }
-function PlanningRecovery({ message, busy, onRetry, onReturnDirection, onOpenSettings, action = '重新开始' }: {
+function PlanningRecovery({ message, busy, onRetry, onReturnDirection, onOpenSettings, action = '重新开始', onStop }: {
   message: string;
   busy: boolean;
   onRetry: () => void;
   onReturnDirection: () => void;
   onOpenSettings?: () => void;
   action?: string;
+  onStop?: () => void;
 }): React.JSX.Element {
   return <section className="planning-recovery-card">
     <p>{publicFailureCopy(message)}</p>
@@ -674,7 +676,7 @@ function PlanningRecovery({ message, busy, onRetry, onReturnDirection, onOpenSet
       mode="card"
       title="已经完成的内容会保留"
       detail="可以继续当前步骤，也可以返回上游调整后重新开始。"
-      secondary={<><button type="button" className="planning-secondary" disabled={busy} onClick={onReturnDirection}>返回全书方向</button>{onOpenSettings !== undefined && <button type="button" className="planning-secondary" disabled={busy} onClick={onOpenSettings}>返回设定修改</button>}</>}
+      secondary={<><button type="button" className="planning-secondary" disabled={busy} onClick={onReturnDirection}>返回全书方向</button>{onOpenSettings !== undefined && <button type="button" className="planning-secondary" disabled={busy} onClick={onOpenSettings}>返回设定修改</button>}{onStop !== undefined && <button type="button" className="planning-secondary" disabled={busy} onClick={onStop}>停止这次任务，重新开始</button>}</>}
       primary={<button type="button" className="planning-primary" disabled={busy} onClick={onRetry}>{busy ? '正在处理…' : action}</button>}
     />
   </section>;

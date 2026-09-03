@@ -1203,6 +1203,65 @@ describe('V7规划编辑部三席协作', () => {
     }
   });
 
+  it('结果未知的规划树任务可由作者停止，再续接成全新替代任务', async () => {
+    context = createTestContext('wenmi-v7-planning-unknown-stop-');
+    const resolver = new PlanningTreeRetryResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'planning-unknown-stop@example.com', '未知停止作者');
+      const bookId = await createBook(app, cookie, '未知停止测试书');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      confirmSetting(ownerId, bookId);
+      const started = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-routes/runs`, {
+          authorGoal: '设计一条可以长期推进的稳健路线。', candidateCount: 1,
+          idempotencyKey: 'planning-unknown-stop-route-0001'
+        });
+      const routeRunId = started.json().data.runId as string;
+      const ready = await pollRouteRun(app, cookie, bookId, routeRunId);
+      const decision = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-routes/runs/${routeRunId}/decision`, {
+          mode: 'select', routeIds: [ready.routes[0].routeId], authorNote: '',
+          idempotencyKey: 'planning-unknown-stop-decision-0001'
+        });
+      expect(decision.statusCode).toBe(200);
+
+      resolver.treeMode = 'unknown';
+      const continued = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-routes/runs/${routeRunId}/continue-to-tree`, {});
+      expect(continued.statusCode).toBe(200);
+      const stuckRunId = continued.json().data.runId as string;
+      expect(await pollTreeRun(app, cookie, bookId, stuckRunId))
+        .toMatchObject({ runId: stuckRunId, status: 'result_unknown' });
+      const stuckCalls = Number((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_model_calls
+        WHERE owner_id=? AND book_id=? AND run_id=?`).get(ownerId, bookId, stuckRunId) as { count: number }).count);
+      expect(stuckCalls).toBeGreaterThan(0);
+
+      const stopped = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-tree-generation-runs/${stuckRunId}/cancel`, {});
+      expect(stopped.statusCode).toBe(200);
+      // 停止在作者视图里按既有约定呈现为失败（由重试/续接重建替代任务），
+      // 数据库状态必须是明确的 cancelled。
+      expect(stopped.json().data).toMatchObject({ runId: stuckRunId, status: 'failed' });
+
+      resolver.treeMode = 'success';
+      const recovered = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-routes/runs/${routeRunId}/continue-to-tree`, {});
+      expect(recovered.statusCode).toBe(200);
+      const replacementRunId = recovered.json().data.runId as string;
+      expect(replacementRunId).not.toBe(stuckRunId);
+      expect((await pollTreeRun(app, cookie, bookId, replacementRunId)).status).toBe('ready');
+      expect((context.database.prepare('SELECT status FROM v7_planning_generation_runs WHERE generation_run_id=?')
+        .get(stuckRunId) as { status: string }).status).toBe('cancelled');
+      expect(Number((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_model_calls
+        WHERE owner_id=? AND book_id=? AND run_id=?`).get(ownerId, bookId, stuckRunId) as { count: number }).count))
+        .toBe(stuckCalls);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('两个数据库连接都先读到请求不存在时仍只有一个原子claim赢家', async () => {
     context = createTestContext('wenmi-v7-planning-model-call-claim-');
     const resolver = new CrossInstancePlanningResolver();

@@ -885,10 +885,13 @@ export class V7PlanningRuntimeRepository {
   public cancelGeneration(ownerId: string, bookId: string, generationRunId: string, now: string): V7PlanningGenerationRunRow {
     const current = this.generation(ownerId, bookId, generationRunId);
     if (current === undefined) throw new Error('规划树任务不存在');
-    if (['queued', 'working'].includes(current.status)) {
+    // unknown 也允许停止：结果未知且长时间无人认领时，这是作者唯一的
+    // 逃生口（停止后可重新续接，创建当前形状的替代任务）；迟到成功只会
+    // 被丢弃，不会产生新的模型消耗。
+    if (['queued', 'working', 'unknown'].includes(current.status)) {
       this.database.prepare(`UPDATE v7_planning_generation_runs
         SET status='cancelled',error_message=?,updated_at=?
-        WHERE owner_id=? AND book_id=? AND generation_run_id=? AND status IN ('queued','working')`)
+        WHERE owner_id=? AND book_id=? AND generation_run_id=? AND status IN ('queued','working','unknown')`)
         .run('任务已停止，已经完成的内容仍然保留。', now, ownerId, bookId, generationRunId);
     }
     return this.generation(ownerId, bookId, generationRunId) ?? current;
