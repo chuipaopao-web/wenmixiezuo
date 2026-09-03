@@ -43,7 +43,8 @@ const OPERATIONAL_ENTRY_DEFINITIONS = [
   { path: 'scripts/release/assemble-v7-static.mjs', invokedBy: 'package.json#scripts.build:v7:static-release' },
   { path: 'scripts/release/serve-v7-static.mjs', invokedBy: 'scripts/start.mjs' },
   { path: 'scripts/release/verify-v7-static.mjs', invokedBy: 'package.json#scripts.verify:v7:static-release' },
-  { path: 'scripts/release/verify-v7-release-module-resolution.ts', invokedBy: 'production preflight/postdeploy' }
+  { path: 'scripts/release/verify-v7-release-module-resolution.ts', invokedBy: 'production preflight/postdeploy' },
+  { path: 'scripts/ops/wipe-production-books.ts', invokedBy: 'batch 86a production book wipe predeploy' }
 ] as const;
 
 const PRODUCT_ROLE_ENTRIES = {
