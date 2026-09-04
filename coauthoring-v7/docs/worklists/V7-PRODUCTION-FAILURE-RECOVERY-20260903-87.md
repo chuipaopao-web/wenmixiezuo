@@ -63,3 +63,13 @@ sudo -u wenmi /usr/bin/node node_modules/tsx/dist/cli.mjs scripts/ops/diagnose-a
 
 - 三个目标集成文件全绿：`v7-planning-editorial-runtime.test.ts` 17 项（含新增）、`v7-creation-pipeline.test.ts`（含新增）、`v7-opening-agent-platform.test.ts` 19 项（含新增）。
 - 六工作区类型检查 0 错误；全量门禁（根 vitest 全套 + backend + author-app + admin-console）见提交记录。
+
+## 五、生产部署与诊断证据（2026-09-04）
+
+- 发布：`DEPLOYMENT_PASSED`；发布号 `wm-v7-20260904-001500-19346609`，故障热修实现提交 `40c8fc1e`，冻结源码提交 `19346609`，源码包 SHA-256 `39ead104ba348003ee1819e296a12c3e98c4fe212c52d99c46f42b8a0afd7f1f`。
+- 备份与门禁：完整备份 `20260903T163250Z-467609`；106 个迁移，两次迁移均 no-op；隔离 API 通过；模型调用增量 0；连续30秒在途任务为 0 后切换。
+- 运行：API、Worker、Caddy 均为 active；公网 `/health` 返回 `status=ok`、`worker=ready`、`canStartModelTasks=true`、`releaseId=wm-v7-20260904-001500-19346609`。新静态 `c7402f64fd0a9818ef4f`，previous `363e8b5c7989d05e8fba`，第85批应用保留为回滚点。
+- 部署恢复：前两次续跑均在 `SWITCH_STARTED=0` 时被门禁拦下，分别为暂存静态哈希错误限定16位、切换前 previous 指针错误按切换后值校验；生产始终保持第85批。修正为20位静态哈希并增加与本次备份、预检结果逐字段绑定的 `resume_cutover` 后完成切换。
+- 本次未执行生产书籍清空，未因部署删除作者数据。
+- 只读诊断 `1746495718@qq.com`：账号 active；《景阳长歌》最新路线 `completed/route_confirmed`，最新全书树 `succeeded`。最近卷资料工作流在上线前失败，GLM-5.3 于 11,000 输出 Token 门槛内产生 41,426 字符思考但没有可提交文字；与修复①命中条件一致。上线后尚无该账号新的真实创作尝试，因此“重试路径已部署”已验证，“模型真实重试成功率”需由下一次作者操作形成证据。
+- 只读诊断 `2521623943@qq.com`：账号 active；《七位绝巅养大的道胎》最新路线 `completed/route_confirmed`，最新全书树 `succeeded`；当前无失败资料包、无创作工作流残留。修复②已上线，用于后续任何 `unknown` 任务的停止与幂等重建。
