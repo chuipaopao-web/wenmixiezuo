@@ -1153,6 +1153,42 @@ describe('V7开书Agent平台接入', () => {
     }
   });
 
+  it('候选把空作者说明存为数组时，原样确认不会被误判为未复审修改', async () => {
+    context = createTestContext('wenmi-v7-opening-empty-instructions-confirm-');
+    const resolver = new ScriptedResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'v7-empty-instructions@example.com', '开书确认作者', 'strong-pass-559');
+      const started = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-agent/tasks', headers: { ...BROWSER_HEADERS, cookie },
+        payload: { idea: '张三穿越到三国乱世，从流民开始求生并建立同伴。', idempotencyKey: 'v7-empty-instructions-task-0001' }
+      });
+      const taskId = started.json().data.taskId as string;
+      const waiting = await poll(app, cookie, taskId, ['awaiting_author_confirmation']);
+      const activePackage = latestCandidate(waiting, 'opening_package');
+      const storedContent = { ...activePackage.content, authorInstructions: [] };
+      context.database.prepare(`
+        UPDATE v7_opening_agent_candidates
+        SET content_json = ?
+        WHERE candidate_id = ?
+      `).run(JSON.stringify(storedContent), activePackage.candidateId);
+
+      const confirmed = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-books', headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          taskId,
+          candidateId: activePackage.candidateId,
+          openingPackage: storedContent,
+          idempotencyKey: 'v7-empty-instructions-confirm-0001'
+        }
+      });
+      expect(confirmed.statusCode).toBe(200);
+      expect(confirmed.json().data).toMatchObject({ status: 'active', nextView: 'information' });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('作者决定卡只更新白名单开书候选，并在复审通过后恢复创建资格', async () => {
     context = createTestContext('wenmi-v7-opening-decisions-');
     const resolver = new ScriptedResolver('decision');

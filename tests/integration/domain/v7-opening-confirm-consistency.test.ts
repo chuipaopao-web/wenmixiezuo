@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { OpeningPackage } from '@wenmi/v7-backend';
-import { openingPackageUnchanged } from '../../../apps/api/src/application/books/v7-opening-package-contract.js';
+import {
+  openingPackageUnchanged,
+  validateV7OpeningConfirmationPackage
+} from '../../../apps/api/src/application/books/v7-opening-package-contract.js';
 
 /**
  * 生产死锁回归（第84批）：作者在审查面板"采纳全部建议"后，revise() 把作者
@@ -15,9 +18,9 @@ describe('开书确认内容一致性', () => {
     positioning: {
       publishingPlatform: 'fanqie',
       channel: 'male',
-      category: '东方玄幻',
-      genres: ['宫廷', '权谋'],
-      tags: ['朝堂', ' system流'],
+      category: '历史脑洞',
+      genres: ['历史脑洞', '秦汉三国', '穿越'],
+      tags: ['成长', '权谋', '智商在线'],
       coreAppeal: '小太监逆权而上，把皇帝宝座变成自己的账本。',
       expectedTotalWords: 1_500_000
     },
@@ -27,6 +30,9 @@ describe('开书确认内容一致性', () => {
       age: '十九',
       identity: '洒扫太监',
       background: '乡下孤儿入宫。',
+      familyBackground: '边地贫户出身，入宫后再无家人可依。',
+      careerBackground: '入宫前识字不多，只会洒扫和记账。',
+      goldenFinger: '没有系统，只能靠谨慎观察和记忆求生。',
       goal: '活着，然后往上爬。',
       dilemma: '夹在两派太监之间。',
       boundary: '不害无辜。',
@@ -45,6 +51,12 @@ describe('开书确认内容一致性', () => {
   it('作者原样确认修订稿（含内部字段与空 authorInstructions）判定为未修改', () => {
     const submitted = publicViewCopy(revisionCandidate);
     expect(openingPackageUnchanged(revisionCandidate, submitted)).toBe(true);
+  });
+
+  it('确认接口严格校验后仍用原始作者可见投影比对，避免丢失补充字段造成死锁', () => {
+    const submitted = validateV7OpeningConfirmationPackage(publicViewCopy(revisionCandidate));
+    expect(submitted.openingPackage.authorInstructions).toBeUndefined();
+    expect(openingPackageUnchanged(revisionCandidate, submitted.comparisonPackage)).toBe(true);
   });
 
   it('候选与提交键顺序不同仍判定为未修改', () => {

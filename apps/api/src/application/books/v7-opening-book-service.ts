@@ -11,8 +11,8 @@ import { isCurrentV7OpeningTask } from './v7-opening-agent-service.js';
 import {
   openingPackageUnchanged,
   toV7OpeningBlueprint,
-  validateV7ManualOpeningPackage,
-  validateV7OpeningPackage
+  validateV7OpeningConfirmationPackage,
+  validateV7ManualOpeningPackage
 } from './v7-opening-package-contract.js';
 
 export interface ConfirmV7OpeningBookInput {
@@ -52,10 +52,11 @@ export class V7OpeningBookService {
   public async confirm(ownerId: string, input: ConfirmV7OpeningBookInput): Promise<ConfirmV7OpeningBookResult> {
     const idempotencyKey = normalizeActionKey(input.idempotencyKey);
     const taskId = optionalIdentifier(input.taskId, '开书任务');
-    const openingPackage = validateSubmittedOpeningPackage(input.openingPackage, taskId === null);
+    const packages = validateSubmittedOpeningPackage(input.openingPackage, taskId === null);
+    const openingPackage = packages.openingPackage;
     const source = taskId === null
       ? { sourceKey: `manual-${idempotencyKey}`, idea: normalizeOptionalIdea(input.openingIdea) }
-      : await this.authorizedAgentSource(ownerId, taskId, input.candidateId, openingPackage);
+      : await this.authorizedAgentSource(ownerId, taskId, input.candidateId, packages.comparisonPackage!);
     const stableHash = createHash('sha256').update(`${ownerId}\n${source.sourceKey}`).digest('hex').slice(0, 32);
     const draftId = `v7-opening-draft-${stableHash}`;
     const bookId = `v7-book-${stableHash}`;
@@ -138,9 +139,13 @@ function normalizeActionKey(value: unknown): string {
   return key;
 }
 
-function validateSubmittedOpeningPackage(value: unknown, manual: boolean): OpeningPackage {
+function validateSubmittedOpeningPackage(value: unknown, manual: boolean): {
+  openingPackage: OpeningPackage;
+  comparisonPackage: OpeningPackage | null;
+} {
   try {
-    return manual ? validateV7ManualOpeningPackage(value) : validateV7OpeningPackage(value);
+    if (manual) return { openingPackage: validateV7ManualOpeningPackage(value), comparisonPackage: null };
+    return validateV7OpeningConfirmationPackage(value);
   } catch (error) {
     if (error instanceof DomainError) throw error;
     throw new DomainError(

@@ -44,6 +44,21 @@ export function validateV7OpeningPackage(value: unknown): OpeningPackage {
 }
 
 /**
+ * 正式建书同时需要两份同源结果：严格规范后的资料用于建书；作者实际提交的
+ * 作者可见投影用于核对其是否改过已审候选。`parseOpeningPackage` 会刻意丢弃
+ * 不进入蓝图的可见补充项（例如作者检查项、人物目标），因此不能拿它反向判断
+ * 作者是否编辑过页面；那会把原样确认误判为需要复审。
+ */
+export function validateV7OpeningConfirmationPackage(value: unknown): {
+  openingPackage: OpeningPackage;
+  comparisonPackage: OpeningPackage;
+} {
+  const openingPackage = validateV7OpeningPackage(value);
+  const comparisonPackage = structuredClone(manualRecord(value, '开书资料')) as unknown as OpeningPackage;
+  return { openingPackage, comparisonPackage };
+}
+
+/**
  * 模型偶尔会把同一份目录中的“融合题材”放进“内容标签”。这只是已知键的
  * 字段归位，不涉及题材判断；能在目录和容量约束内无损移动时直接修正，避免
  * 为纯JSON结构问题再次调用模型。无法无损归位时仍交给严格校验报错。
@@ -265,6 +280,10 @@ function stableJson(value: unknown): string {
 export function publicV7OpeningPackage(value: OpeningPackage): OpeningPackage {
   const content = structuredClone(value);
   delete content.revisionDirective;
+  // `validateV7OpeningPackage` 将没有实际文字的可选调整说明规范为缺键。
+  // 候选（尤其是作者返修后重新设计的候选）仍可能把同一语义存成空数组；
+  // 两种表示都没有作者可见的内容差异，不能把原样确认错误拦成“已修改”。
+  if ((content.authorInstructions?.length ?? 0) === 0) delete content.authorInstructions;
   return content;
 }
 
