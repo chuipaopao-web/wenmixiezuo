@@ -10,7 +10,7 @@
 - 生产 API、Worker、Caddy 均运行第87批 V7 `wm-v7-20260904-001500-19346609`、Worker ready；静态版本为 `c7402f64fd0a9818ef4f`，previous 为 `363e8b5c7989d05e8fba`
 - 静态发布本批已切换（`static_switch_required=1`）到 `c7402f64fd0a9818ef4f`；静态 previous 指针为 `363e8b5c7989d05e8fba`，第85批服务 `wm-v7-20260902-224500-f77079b` 保留为立即回滚点
 - 当前分支：`codex/light-coauthoring-v7`
-- 当前最新工单：`docs/worklists/V7-PRODUCTION-FAILURE-RECOVERY-20260903-87.md`（第87批生产故障热修：创作网关 GLM 思考烧穿 +16k 重试、规划树结果未知任务可停止重建、开书 interrupted 意外失败落档；已于 2026-09-04 14:08 CST 部署并完成两账号只读诊断）。上一工单：`docs/worklists/V7-EVIDENCE-CARD-LAYER-DESIGN-20260902-86.md`（86a 代码已随第87批源码进入生产但 `WENMI_V7_ASSET_MENU` 保持关闭；86b/86c 未实施；实施记录见工单「十三、86a 实施记录」）
+- 当前最新工单：`docs/worklists/V7-PRODUCTION-FAILURE-RECOVERY-20260903-87.md`（第87批生产故障热修：创作网关 GLM 思考烧穿 +16k 重试、规划树结果未知任务可停止重建、开书 interrupted 意外失败落档；已于 2026-09-04 14:08 CST 部署并完成两账号只读诊断）。上一工单：`docs/worklists/V7-EVIDENCE-CARD-LAYER-DESIGN-20260902-86.md`（86a 代码已随第87批源码进入生产，`WENMI_V7_ASSET_MENU=1` 已于 2026-09-04 14:48:29 CST 安全启用；86b/86c 未实施；实施/启用记录见工单「十三、86a 实施记录」）
 
 ## 已上线能力
 
