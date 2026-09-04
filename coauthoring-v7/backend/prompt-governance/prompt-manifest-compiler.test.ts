@@ -98,6 +98,23 @@ describe('V7 prompt governance', () => {
     expect(first.compiledPrompt).not.toContain('genre.history@1');
   });
 
+  it('allows no supporting function only when there is no supporting genre', () => {
+    const standalone: V7BookGenreProfile = {
+      profileId: 'genre-profile-single', ownerId: 'owner-1', bookId: 'book-1', version: 1, status: 'active',
+      primaryGenreKey: 'history', supportingGenreKeys: [], sourceAssetVersionIds: ['genre.history@1'], sourceBookVersion: 3,
+      publicLabel: '历史成长', workingIdentity: '以真实历史条件约束人物选择，让小人物在代价中逐步改变自己的处境。',
+      primaryPromise: '在历史限制中兑现持续成长与选择后果。', supportingFunctions: [],
+      writingPriorities: ['人物行动先于知识炫技'], authenticityChecks: ['年代与制度一致'], avoidPatterns: ['现代知识无成本碾压'],
+      conflictResolutions: [], compiledByTaskId: 'genre-task-single', createdAt: now
+    };
+    expect(validateBookGenreProfile(standalone, matchGenreAssets(['历史脑洞']))).toEqual([]);
+    expect(validateBookGenreProfile({
+      ...standalone,
+      supportingGenreKeys: ['suspense'],
+      sourceAssetVersionIds: ['genre.history@1', 'genre.suspense@1']
+    }, matchGenreAssets(['历史脑洞', '悬疑推理']))).toContain('辅助功能需要1至8项');
+  });
+
   it('rejects cross-book context and secret-like content', () => {
     const role = V7_ROLE_PROMPT_ASSETS.find((item) => item.assetKey === 'role.planning_writer')!;
     const workstation = V7_WORKSTATION_PROMPT_ASSETS.find((item) => item.assetKey === 'workstation.full_book_route')!;

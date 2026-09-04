@@ -107,6 +107,31 @@ describe('V7书级题材档案共享Ensurer', () => {
     }
   });
 
+  it('单题材书籍允许模型交回空的融合题材辅助功能', async () => {
+    context = createTestContext('wenmi-v7-genre-profile-single-genre-');
+    const resolver = new GenreProfileResolver('none', true);
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'genre-profile-single@example.com', '单题材作者', 'strong-pass-123');
+      const bookId = await createBook(app, cookie, '汉末单题材录', 'genre-profile-book-single');
+      const ownerId = bookOwner(context.database, bookId);
+      const profile = await new V7BookGenreProfileEnsureService(
+        context.database,
+        resolver,
+        new SequenceIds(),
+        new FixedClock()
+      ).ensure(ownerId, bookId);
+
+      expect(profile).toMatchObject({ primaryGenreKey: 'history', supportingGenreKeys: [], supportingFunctions: [] });
+      expect(resolver.attempts).toBe(1);
+      expect(context.database.prepare(`SELECT state FROM v7_setting_model_calls
+        WHERE owner_id=? AND book_id=? AND node_key='genre_profile'`)
+        .get(ownerId, bookId)).toEqual({ state: 'succeeded' });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('模型明确失败后只按原冻结资料技术重试，并保留两次独立调用证据', async () => {
     context = createTestContext('wenmi-v7-genre-profile-retry-');
     const resolver = new GenreProfileResolver('known');
@@ -143,7 +168,10 @@ describe('V7书级题材档案共享Ensurer', () => {
 class GenreProfileResolver implements V7OpeningModelAdapterResolver {
   public attempts = 0;
 
-  public constructor(public failure: 'none' | 'known' | 'unknown' = 'none') {}
+  public constructor(
+    public failure: 'none' | 'known' | 'unknown' = 'none',
+    private readonly emptySupportingFunctions = false
+  ) {}
 
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return {
@@ -167,7 +195,7 @@ class GenreProfileResolver implements V7OpeningModelAdapterResolver {
             publicLabel: '历史成长',
             workingIdentity: '以汉末真实社会条件为边界，让小人物靠连续选择和代价逐步改变处境。',
             primaryPromise: '在可信的历史限制内兑现持续成长。',
-            supportingFunctions: ['历史：约束时代制度、交通、军政和资源条件。'],
+            supportingFunctions: this.emptySupportingFunctions ? [] : ['历史：约束时代制度、交通、军政和资源条件。'],
             writingPriorities: ['人物行动服从时代条件', '每次成长都产生真实代价'],
             authenticityChecks: ['年代、交通、军政与物资互相一致'],
             avoidPatterns: ['现代知识无成本碾压', '历史人物集体降智'],

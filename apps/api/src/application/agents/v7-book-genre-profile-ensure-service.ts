@@ -488,7 +488,7 @@ export class V7BookGenreProfileEnsureService {
       publicLabel: profileText(parsed.publicLabel, '题材组合名', 100),
       workingIdentity: profileText(parsed.workingIdentity, '题材工作身份', 500),
       primaryPromise: profileText(parsed.primaryPromise, '主要阅读承诺', 300),
-      supportingFunctions: profileSupportingFunctions(parsed.supportingFunctions),
+      supportingFunctions: profileSupportingFunctions(parsed.supportingFunctions, supportingKeys.length === 0),
       writingPriorities: profileList(parsed.writingPriorities, '写作重点'),
       authenticityChecks: profileList(parsed.authenticityChecks, '真实性检查'),
       avoidPatterns: profileList(parsed.avoidPatterns, '避免项'),
@@ -688,7 +688,7 @@ function compileGenreProfileResolutionPrompt(input: {
       publicLabel: '作者看得懂的题材组合名',
       workingIdentity: '这本书在实际创作中是什么作品',
       primaryPromise: '主体题材给读者的主要体验',
-      supportingFunctions: ['每一项必须是完整字符串，例如“权谋：负责势力博弈与信息差”；不要返回对象'],
+      supportingFunctions: ['有融合题材时，每项必须是完整字符串，例如“权谋：负责势力博弈与信息差”；没有融合题材时返回空数组；不要返回对象'],
       writingPriorities: ['后续创作最该抓住的重点'],
       authenticityChecks: ['需要持续核对的真实性边界'],
       avoidPatterns: ['本书最容易写偏的套路'],
@@ -786,7 +786,7 @@ function profileList(value: unknown, label: string, allowEmpty = false): string[
   return [...new Set(items)];
 }
 
-function profileSupportingFunctions(value: unknown): string[] {
+function profileSupportingFunctions(value: unknown, allowEmpty: boolean): string[] {
   if (!Array.isArray(value)) throw new Error('辅助功能没有按要求返回');
   const normalized = value.flatMap((item): string[] => {
     if (typeof item === 'string') return [item];
@@ -800,7 +800,7 @@ function profileSupportingFunctions(value: unknown): string[] {
       return label.length > 0 ? `${label}：${entry.trim()}` : entry.trim();
     });
   });
-  return profileList(normalized, '辅助功能');
+  return profileList(normalized, '辅助功能', allowEmpty);
 }
 
 function runtimeSourcePrompt(content: Readonly<Record<string, unknown>>): string {

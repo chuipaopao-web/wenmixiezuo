@@ -134,7 +134,7 @@ export function compileGenreFusionPrompt(input: V7GenreFusionTaskInput): string 
       publicLabel: '作者端可展示的简短题材组合名',
       workingIdentity: '统一题材身份与写作重点',
       primaryPromise: '最重要的阅读承诺',
-      supportingFunctions: ['每个融合题材在本书只承担什么功能'],
+      supportingFunctions: ['每个融合题材在本书只承担什么功能；没有融合题材时返回空数组'],
       writingPriorities: ['创作时优先保证什么'],
       authenticityChecks: ['该题材不可写错的真实性检查'],
       avoidPatterns: ['最容易写坏或套路化的方式'],
@@ -164,11 +164,11 @@ export function validateBookGenreProfile(input: V7BookGenreProfile, sourceAssets
   }
   if (input.workingIdentity.trim().length < 10 || input.workingIdentity.length > 500) errors.push('统一题材身份长度无效');
   if (input.primaryPromise.trim().length < 4) errors.push('主要阅读承诺不能为空');
-  for (const [label, values] of [
-    ['辅助功能', input.supportingFunctions], ['写作重点', input.writingPriorities],
-    ['真实性检查', input.authenticityChecks], ['避免项', input.avoidPatterns]
+  for (const [label, values, allowEmpty] of [
+    ['辅助功能', input.supportingFunctions, input.supportingGenreKeys.length === 0], ['写作重点', input.writingPriorities, false],
+    ['真实性检查', input.authenticityChecks, false], ['避免项', input.avoidPatterns, false]
   ] as const) {
-    if (values.length === 0 || values.length > 8) errors.push(`${label}需要1至8项`);
+    if ((!allowEmpty && values.length === 0) || values.length > 8) errors.push(`${label}需要${allowEmpty ? '0至8' : '1至8'}项`);
     if (values.some((value) => value.trim().length === 0 || value.length > 300)) errors.push(`${label}存在空项或过长内容`);
   }
   return errors;
