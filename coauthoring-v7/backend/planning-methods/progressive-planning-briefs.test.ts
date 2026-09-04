@@ -55,6 +55,16 @@ describe('V7渐进式规划依据', () => {
       .toThrow('不能用于全书主骨架层');
   });
 
+  it('将菜单中逐字返回的专业方法名规范为已存档的资产键，不把它误判为未召回资产', () => {
+    const value = brief();
+    value.selectedStrategies[0] = {
+      ...value.selectedStrategies[0]!,
+      methodKey: '因果链'
+    };
+    const parsed = parseProgressivePlanningBrief(JSON.stringify(value), 'chief_editor', [assetEntry('causal-chain')]);
+    expect(parsed.selectedStrategies[0]).toMatchObject({ source: 'library', methodKey: 'causal-chain' });
+  });
+
   it('兼容主编把首卷重点写成分号分隔文本或漏写嵌套路由schema，不再整案换人重做', () => {
     const nestedRoute = { ...route(), firstVolumeFocus: '开篇刑场求生；雪灾中证明救援价值；卷末拿到第一条冤案实证' } as unknown as Record<string, unknown>;
     delete nestedRoute.schema;

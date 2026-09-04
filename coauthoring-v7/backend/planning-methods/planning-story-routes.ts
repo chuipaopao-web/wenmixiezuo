@@ -2,6 +2,7 @@ import type { LayeredPlanningRecipe } from './layered-planning-engine.js';
 import type { V7PlanningMethodSearchRequest } from './planning-method-retrieval.js';
 import {
   parseProgressivePlanningBrief,
+  type V7PlanningMethodReference,
   type V7ProgressivePlanningBrief
 } from './progressive-planning-briefs.js';
 
@@ -131,7 +132,7 @@ export function parsePlanningRouteReview(output: string, routeIds: readonly stri
 export function parsePlanningRouteFusion(
   output: string,
   routeIds: readonly string[],
-  candidateMethodKeys: readonly string[],
+  candidateMethods: readonly V7PlanningMethodReference[],
   seatKey: V7ProgressivePlanningBrief['seatKey']
 ): V7PlanningRouteFusion {
   const value = parseJsonObject(output) as Partial<V7PlanningRouteFusion>;
@@ -161,7 +162,7 @@ export function parsePlanningRouteFusion(
     strengths: normalizeDelimitedList(briefValue.strengths, 1, 6, /[；。]\s*/u),
     risks: normalizeDelimitedList(briefValue.risks, 1, 6, /[；。]\s*/u),
     authorDecisions: normalizeDelimitedList(briefValue.authorDecisions, 0, 6, /[；。]\s*/u)
-  }), seatKey, candidateMethodKeys);
+  }), seatKey, candidateMethods);
   if (!Array.isArray(value.adoptedParts)) throw new Error('路线整理结果缺少采用说明');
   const adoptedParts = value.adoptedParts.map((item) => {
     if (typeof item !== 'object' || item === null || Array.isArray(item)) throw new Error('采用说明格式无效');
@@ -237,7 +238,7 @@ export function planningDirectStoryRoutePrompt(input: {
     `你独立负责${input.routeLabel}。${input.explorationOpening}`,
     '你必须在一次工作中同时完成：参考本轮资产菜单选4—6项适合本书的工具、加入至少1项本书原创策略、设计完整的全书粗路线和各卷责任，并写清自己的设计理由。',
     '你必须兼顾作者原意、人物主动选择、因果可信、长篇容量、跨卷递进、商业追读、阶段回报、首卷抓人能力、创意辨识度和中后期续航，不能只负责其中一项。',
-    '菜单里的方法只是工具箱，不是答案；可以少用或完全不用，但library方法只能引用菜单中的methodKey。agent_original不得填写methodKey，也不得写回公共方法库。不要把方法名写进故事路线。',
+    '菜单里的方法只是工具箱，不是答案；可以少用或完全不用。library项的methodKey必须逐字填写菜单中显示的专业方法名；agent_original不得填写methodKey，也不得写回公共方法库。不要把方法名写进故事路线。',
     '这一步只规划全书方向和每卷责任，不展开卷内单元链、具体事件或章纲。未来规划不能冒充已经发生；作者确认资料、人物、时代、禁用项和预计总字数不得改写。',
     'route.targetWords必须与正式资料中的预计总字数完全一致；各卷targetWords合计也必须一致。卷数、商业受众和追读定位由你根据本方案内容独立规划。',
     '默认按番茄长篇连载场景考虑阅读门槛、卖点展示、阶段回报与持续追读，但不得套常见题材路线后只替换人名。',

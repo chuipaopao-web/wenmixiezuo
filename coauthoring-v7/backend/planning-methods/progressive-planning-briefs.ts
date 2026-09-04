@@ -13,6 +13,14 @@ import type { V7PlanningStoryRoute } from './planning-story-routes.js';
 export type V7PlanningBriefSeatKey = PlanningEditorialSeat['seatKey'];
 export type V7PlanningStrategySource = 'library' | 'agent_original';
 
+/**
+ * Agent outputs normally carry an asset key.  The menu itself, however,
+ * deliberately shows writers the professional method name rather than an
+ * internal identifier.  An exact name match is therefore a safe, mechanical
+ * alias for that menu entry; it is not a semantic guess or a new retrieval.
+ */
+export type V7PlanningMethodReference = string | Pick<LayerAssetEntry, 'key' | 'title'>;
+
 export interface V7PlanningStrategyChoice {
   source: V7PlanningStrategySource;
   methodKey?: string;
@@ -103,13 +111,13 @@ export function progressivePlanningBriefPrompt(input: {
 export function parseProgressivePlanningBrief(
   output: string,
   seatKey: V7PlanningBriefSeatKey,
-  allowedMethodKeys: readonly string[]
+  allowedMethods: readonly V7PlanningMethodReference[]
 ): V7ProgressivePlanningBrief {
   const value = parseJsonObject(output);
   if (value.schema !== 'v7-progressive-planning-brief-v2' || value.seatKey !== seatKey) {
     throw new Error('全案主编返回的方向依据格式不完整');
   }
-  const selectedStrategies = strategyList(value.selectedStrategies, allowedMethodKeys);
+  const selectedStrategies = strategyList(value.selectedStrategies, allowedMethods);
   if (!selectedStrategies.some((strategy) => strategy.source === 'agent_original')) {
     throw new Error('全案主编没有提出本书原创策略');
   }
@@ -334,9 +342,19 @@ function legacyRecipeToBrief(
   };
 }
 
-function strategyList(value: unknown, allowedMethodKeys: readonly string[]): V7PlanningStrategyChoice[] {
+function strategyList(value: unknown, allowedMethods: readonly V7PlanningMethodReference[]): V7PlanningStrategyChoice[] {
   if (!Array.isArray(value) || value.length < 4 || value.length > 6) throw new Error('全书策略必须为4至6项');
-  const allowed = new Set(allowedMethodKeys);
+  const allowed = new Set<string>();
+  const aliases = new Map<string, string | null>();
+  for (const method of allowedMethods) {
+    if (typeof method === 'string') {
+      allowed.add(method);
+      continue;
+    }
+    allowed.add(method.key);
+    const current = aliases.get(method.title);
+    aliases.set(method.title, current === undefined || current === method.key ? method.key : null);
+  }
   return value.map((item) => {
     if (typeof item !== 'object' || item === null || Array.isArray(item)) throw new Error('全书策略格式无效');
     const record = item as Record<string, unknown>;
@@ -344,8 +362,13 @@ function strategyList(value: unknown, allowedMethodKeys: readonly string[]): V7P
     if (source !== 'library' && source !== 'agent_original') throw new Error('全书策略来源无效');
     const layer = record.layer;
     if (layer !== 'book_backbone' && layer !== 'volume_distribution') throw new Error('全书策略层级无效');
-    const methodKey = source === 'library' ? requiredText(record.methodKey, '方法编号') : undefined;
+    const rawMethodKey = source === 'library' ? requiredText(record.methodKey, '方法编号') : undefined;
+    const alias = rawMethodKey === undefined ? undefined : aliases.get(rawMethodKey);
+    const methodKey = rawMethodKey === undefined
+      ? undefined
+      : allowed.has(rawMethodKey) ? rawMethodKey : typeof alias === 'string' ? alias : undefined;
     if (methodKey !== undefined && !allowed.has(methodKey)) throw new Error('全案主编引用了本轮没有召回的方法');
+    if (rawMethodKey !== undefined && methodKey === undefined) throw new Error('全案主编引用了本轮没有召回的方法');
     if (source === 'agent_original' && typeof record.methodKey === 'string' && record.methodKey.trim().length > 0) {
       throw new Error('本书原创策略不能伪装成公共方法');
     }
