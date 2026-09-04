@@ -18,6 +18,7 @@ import {
   parseStoredLayerAssetMenu,
   parseStoredProgressivePlanningBrief,
   planningMethodSearchPrompt,
+  planningMethodSearchRepairPrompt,
   planningRouteFusionPrompt,
   planningRouteReviewPrompt,
   planningDirectStoryRoutePrompt,
@@ -659,30 +660,54 @@ export class V7PlanningRouteService {
       const attempt = this.modelAttempt(run, logicalTaskId);
       try {
         this.ensureActive(run);
+        const prompt = planningMethodSearchPrompt({
+          seatName: '全书路线资料策划',
+          seatResponsibility: '为本书全书路线选择最小充分设定、任务期题材身份和可自由创新的边界。',
+          independentFocus: [
+            '只保留会改变全书方向的正式资料和作者原话',
+            '后台方法、配方和模式由系统按当前层确定性提供给设计成员，不在本任务检索或指定',
+            '把融合题材身份翻译成当前任务的大白话责任并保留原创空间'
+          ],
+          sourceSnapshot: snapshot
+        });
         const result = await this.models.generate({
           ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
           runKind: 'recipe', nodeKey: 'shared_context_plan', member,
           taskKind: 'planning_context', workstationKey: 'full_book_route',
           operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
           sourceTraces: planningSnapshotSourceTraces(snapshot),
-          prompt: planningMethodSearchPrompt({
-            seatName: '全书路线资料策划',
-            seatResponsibility: '为本书全书路线选择最小充分设定、任务期题材身份和可自由创新的边界。',
-            independentFocus: [
-              '只保留会改变全书方向的正式资料和作者原话',
-              '后台方法、配方和模式由系统按当前层确定性提供给设计成员，不在本任务检索或指定',
-              '把融合题材身份翻译成当前任务的大白话责任并保留原创空间'
-            ],
-            sourceSnapshot: snapshot
-          }),
+          prompt,
           maxOutputTokens: 2_500,
           temperature: 0.28
         });
         this.ensureActive(run);
         const sourceIssues = extractPlanningCriticalInputs(result.output);
         if (sourceIssues.length > 0) throw new PlanningSourceIssuesError(sourceIssues);
-        const request = parsePlanningMethodSearchRequest(result.output, { requireTaskProfile: true });
-        focusedPlanningSnapshot(snapshot, request);
+        let acceptedRequestId = result.requestId;
+        let request: V7PlanningMethodSearchRequest;
+        try {
+          request = parsePlanningMethodSearchRequest(result.output, { requireTaskProfile: true });
+          focusedPlanningSnapshot(snapshot, request);
+        } catch (contractError) {
+          const repairLogicalTaskId = `${logicalTaskId}:repair`;
+          const repairAttempt = this.modelAttempt(run, repairLogicalTaskId);
+          const repaired = await this.models.generate({
+            ...repairAttempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
+            runKind: 'recipe', nodeKey: 'shared_context_plan_repair', member,
+            taskKind: 'planning_context', workstationKey: 'full_book_route',
+            operationMode: 'repair', basedOnTaskId: result.requestId, authorInstructionVersion: null,
+            sourceTraces: planningSnapshotSourceTraces(snapshot),
+            prompt: planningMethodSearchRepairPrompt({ originalPrompt: prompt, invalidOutput: result.output }),
+            maxOutputTokens: 2_500,
+            temperature: 0.14
+          });
+          this.ensureActive(run);
+          const repairedSourceIssues = extractPlanningCriticalInputs(repaired.output);
+          if (repairedSourceIssues.length > 0) throw new PlanningSourceIssuesError(repairedSourceIssues);
+          request = parsePlanningMethodSearchRequest(repaired.output, { requireTaskProfile: true });
+          focusedPlanningSnapshot(snapshot, request);
+          acceptedRequestId = repaired.requestId;
+        }
         // 第86批：资产菜单由系统按层确定性生成并存档，替代资料策划的语义检索召回。
         // 全书路线涉及主骨架与分卷两层，菜单取两层并集所在的 volume_distribution 供给层。
         const storedMenu = buildStoredLayerAssetMenu('volume_distribution', planningGenreFamilies(snapshot));
@@ -691,7 +716,7 @@ export class V7PlanningRouteService {
           seatKey: 'chief_editor', memberKey: member.memberKey, memberSnapshot: memberSnapshot(member),
           sourceSnapshotId: run.snapshot_id, searchRequest: request, candidateMethods: storedMenu,
           searchHash: sha256(stableJson({ request, assetMenu: storedMenu })), retrievalVersion: V7_LAYER_ASSET_MENU_VERSION,
-          requestId: result.requestId, now: this.clock.now().toISOString()
+          requestId: acceptedRequestId, now: this.clock.now().toISOString()
         });
       } catch (error) {
         if (error instanceof PlanningSourceIssuesError) throw error;

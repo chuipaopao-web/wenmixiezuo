@@ -12,6 +12,7 @@ import {
   parsePlanningMethodSearchRequest,
   parsePlanningTreeOutput,
   planningMethodSearchPrompt,
+  planningMethodSearchRepairPrompt,
   planningTreeGenerationPrompt,
   planningTreeRepairPrompt,
   type LayeredPlanningRecipe,
@@ -543,6 +544,17 @@ export class V7PlanningTreeGenerationService {
       this.markWorking(run, member.memberKey, roster);
       try {
         this.ensureActive(run);
+        const prompt = planningMethodSearchPrompt({
+          seatName: `${planningTreeName(run.tree_kind)}资料策划`,
+          seatResponsibility: `只为本次${planningTreeName(run.tree_kind)}选择最小充分资料、临时题材身份和创意边界。`,
+          independentFocus: [
+            '岗位没有固定专业人设，只按本书融合题材和当前任务形成临时工作身份',
+            '只选择会改变当前层设计的正式设定，已确认上层方向和正文实际必须保留',
+            '后台方法、配方和模式由系统按当前层确定性提供给设计成员，不在本任务检索或指定',
+            '保留成员组合、忽略菜单资产和原创设计的空间'
+          ],
+          sourceSnapshot: planningMethodSearchSnapshot(snapshot)
+        });
         const result = await this.models.generate({
           ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.generation_run_id,
           runKind: 'tree', nodeKey: 'context_plan', member,
@@ -550,28 +562,43 @@ export class V7PlanningTreeGenerationService {
           failFastOnGenreProfileLease: true,
           operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
           sourceTraces: planningSnapshotSourceTraces(snapshot),
-          prompt: planningMethodSearchPrompt({
-            seatName: `${planningTreeName(run.tree_kind)}资料策划`,
-            seatResponsibility: `只为本次${planningTreeName(run.tree_kind)}选择最小充分资料、临时题材身份和创意边界。`,
-            independentFocus: [
-              '岗位没有固定专业人设，只按本书融合题材和当前任务形成临时工作身份',
-              '只选择会改变当前层设计的正式设定，已确认上层方向和正文实际必须保留',
-              '后台方法、配方和模式由系统按当前层确定性提供给设计成员，不在本任务检索或指定',
-              '保留成员组合、忽略菜单资产和原创设计的空间'
-            ],
-            sourceSnapshot: planningMethodSearchSnapshot(snapshot)
-          }),
+          prompt,
           maxOutputTokens: 2_500,
           temperature: 0.28
         });
         this.ensureActive(run);
         const missing = extractPlanningCriticalInputs(result.output);
         if (missing.length > 0) throw new Error(`资料仍有关键缺口：${missing.join('；')}`);
-        const request = normalizePlanningSettingSourceIds(
-          snapshot,
-          parsePlanningMethodSearchRequest(result.output, { requireTaskProfile: true })
-        );
-        focusedPlanningTreeSnapshot(snapshot, request);
+        let request: V7PlanningMethodSearchRequest;
+        try {
+          request = normalizePlanningSettingSourceIds(
+            snapshot,
+            parsePlanningMethodSearchRequest(result.output, { requireTaskProfile: true })
+          );
+          focusedPlanningTreeSnapshot(snapshot, request);
+        } catch {
+          const repairLogicalTaskId = `${logicalTaskId}:repair`;
+          const repairAttempt = this.modelAttempt(run, repairLogicalTaskId);
+          const repaired = await this.models.generate({
+            ...repairAttempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.generation_run_id,
+            runKind: 'tree', nodeKey: 'context_plan_repair', member,
+            taskKind: 'planning_context', workstationKey: planningWorkstation(run.tree_kind),
+            failFastOnGenreProfileLease: true,
+            operationMode: 'repair', basedOnTaskId: result.requestId, authorInstructionVersion: null,
+            sourceTraces: planningSnapshotSourceTraces(snapshot),
+            prompt: planningMethodSearchRepairPrompt({ originalPrompt: prompt, invalidOutput: result.output }),
+            maxOutputTokens: 2_500,
+            temperature: 0.14
+          });
+          this.ensureActive(run);
+          const repairedMissing = extractPlanningCriticalInputs(repaired.output);
+          if (repairedMissing.length > 0) throw new Error(`资料仍有关键缺口：${repairedMissing.join('；')}`);
+          request = normalizePlanningSettingSourceIds(
+            snapshot,
+            parsePlanningMethodSearchRequest(repaired.output, { requireTaskProfile: true })
+          );
+          focusedPlanningTreeSnapshot(snapshot, request);
+        }
         const contextPlan = { request };
         roster = { ...roster, contextMember: member, contextPlan, stage: 'tree_design' };
         this.runtime.markGeneration({
@@ -952,7 +979,15 @@ function conflict(message: string): DomainError {
 }
 
 function publicFailure(error: unknown): string {
-  return `对不起，这次没有完成。${errorMessage(error).slice(0, 300)}`;
+  const value = errorMessage(error).trim();
+  // Keep parser/provider details in the protected call audit.  An author only
+  // needs the real outcome and the recovery route, never a model stack trace.
+  if (/\b(?:json|syntax|typeerror|referenceerror|expected|unexpected|undefined|provider|model|token|position|column|stack|parse)\b|[A-Za-z_$][A-Za-z0-9_$]*\.[A-Za-z_$][A-Za-z0-9_$]*/iu.test(value)) {
+    return '对不起，这次没有完成。成员交回的方案不完整，已经保留完成内容，您可以继续未完成步骤。';
+  }
+  return value.startsWith('对不起') || value.startsWith('抱歉')
+    ? value.slice(0, 500)
+    : `对不起，这次没有完成。${value.slice(0, 400)}`;
 }
 
 function errorMessage(error: unknown): string {

@@ -669,6 +669,85 @@ describe('V7规划编辑部三席协作', () => {
     }
   });
 
+  it('资料策划JSON输出不完整时只让同一成员低温修复，并继续完成全书框架', async () => {
+    context = createTestContext('wenmi-v7-planning-context-repair-');
+    const resolver = new PlanningResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'planning-context-repair@example.com', '资料策划修复作者');
+      const bookId = await createBook(app, cookie, '资料策划修复测试书');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string }).owner_id);
+      confirmSetting(ownerId, bookId);
+      const routeStarted = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs`, {
+        authorGoal: '设计一条能够长期推进的历史成长路线。', candidateCount: 1,
+        idempotencyKey: 'planning-context-repair-route-0001'
+      });
+      const routeRunId = routeStarted.json().data.runId as string;
+      const route = await pollRouteRun(app, cookie, bookId, routeRunId);
+      expect(route).toMatchObject({ status: 'waiting_for_you', canDecide: true });
+      const decided = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs/${routeRunId}/decision`, {
+        mode: 'select', routeIds: [route.routes[0]!.routeId], authorNote: '',
+        idempotencyKey: 'planning-context-repair-decision-0001'
+      });
+      expect(decided.statusCode).toBe(200);
+
+      resolver.malformedContextPlan = true;
+      const treeStarted = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-trees/book/${bookId}/generation-runs`, {
+          idempotencyKey: 'planning-context-repair-tree-0001'
+        });
+      const treeRunId = treeStarted.json().data.runId as string;
+      const tree = await pollTreeRun(app, cookie, bookId, treeRunId);
+      expect(tree).toMatchObject({ status: 'ready', canOpenCandidate: true, errorMessage: null });
+      const contextCalls = context.database.prepare(`SELECT node_key,member_key,state FROM v7_planning_model_calls
+        WHERE owner_id=? AND book_id=? AND run_id=? AND node_key IN ('context_plan','context_plan_repair')
+        ORDER BY started_at,request_id`).all(ownerId, bookId, treeRunId) as Array<{
+          node_key: string; member_key: string; state: string;
+        }>;
+      expect(contextCalls).toHaveLength(2);
+      expect(contextCalls.map((call) => call.node_key)).toEqual(['context_plan', 'context_plan_repair']);
+      expect(contextCalls.every((call) => call.state === 'succeeded')).toBe(true);
+      expect(contextCalls[0]!.member_key).toBe(contextCalls[1]!.member_key);
+      expect(resolver.prompts.some((prompt) => prompt.includes('请只修复输出格式'))).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('规划树失败时不把资料策划的JSON解析细节透露给作者', async () => {
+    context = createTestContext('wenmi-v7-planning-context-public-error-');
+    const resolver = new PlanningResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'planning-context-public-error@example.com', '规划树错误作者');
+      const bookId = await createBook(app, cookie, '规划树错误测试书');
+      confirmSetting(String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string }).owner_id), bookId);
+      const routeStarted = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs`, {
+        authorGoal: '设计一条有长期变化的历史成长路线。', candidateCount: 1,
+        idempotencyKey: 'planning-context-public-error-route-0001'
+      });
+      const route = await pollRouteRun(app, cookie, bookId, routeStarted.json().data.runId as string);
+      expect(route).toMatchObject({ status: 'waiting_for_you', canDecide: true });
+      const decided = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs/${route.runId}/decision`, {
+        mode: 'select', routeIds: [route.routes[0]!.routeId], authorNote: '',
+        idempotencyKey: 'planning-context-public-error-decision-0001'
+      });
+      expect(decided.statusCode).toBe(200);
+
+      resolver.failContextWithParserError = true;
+      const treeStarted = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-trees/book/${bookId}/generation-runs`, {
+          idempotencyKey: 'planning-context-public-error-tree-0001'
+        });
+      const failed = await pollTreeRun(app, cookie, bookId, treeStarted.json().data.runId as string);
+      expect(failed).toMatchObject({ status: 'failed' });
+      expect(failed.errorMessage).toBe('对不起，这次没有完成。成员交回的方案不完整，已经保留完成内容，您可以继续未完成步骤。');
+      expect(failed.errorMessage).not.toMatch(/JSON|Expected|position|column|SyntaxError/iu);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('三套路线独立出案，作者确认后形成不可变路线与规划方法版本', async () => {
     context = createTestContext('wenmi-v7-planning-editorial-');
     const resolver = new PlanningResolver();
@@ -1723,7 +1802,10 @@ class RepairingDirectPlanningResolver implements V7OpeningModelAdapterResolver {
 
 class PlanningResolver implements V7OpeningModelAdapterResolver {
   public readonly prompts: string[] = [];
+  public malformedContextPlan = false;
+  public failContextWithParserError = false;
   private returnedMalformedBookTree = false;
+  private returnedMalformedContextPlan = false;
   private failedVolumeWriter = false;
   private failedMaintainer = false;
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
@@ -1732,6 +1814,9 @@ class PlanningResolver implements V7OpeningModelAdapterResolver {
       if (genreProfile !== null) return genreProfile;
       const stagePrompt = stageTaskPrompt(request.prompt);
       this.prompts.push(request.prompt);
+      if (this.failContextWithParserError && request.requestId.includes(':context:')) {
+        throw new SyntaxError("Expected ',' or '}' after property value in JSON at position 2141");
+      }
       if (request.agentId === 'planner-deepseek-v4-pro'
         && stagePrompt.includes('PlanningTreeDocument')
         && stagePrompt.includes('treeKind固定为volume')
@@ -1746,6 +1831,8 @@ class PlanningResolver implements V7OpeningModelAdapterResolver {
       }
       let output = stagePrompt.includes('v7-planning-maintenance-v1')
         ? planningMaintenanceOutput()
+        : stagePrompt.includes('你刚才交回的资料策划结果不能被系统读取')
+          ? methodSearchOutput(stagePrompt)
         : stagePrompt.includes('v7-planning-method-search-v1')
           ? methodSearchOutput(stagePrompt)
         : stagePrompt.includes('v7-planning-route-fusion-v2')
@@ -1761,6 +1848,14 @@ class PlanningResolver implements V7OpeningModelAdapterResolver {
           : stagePrompt.includes('三份已经独立保存的方案比较')
           ? comparisonOutput(stagePrompt)
           : proposalOutput(stagePrompt);
+      if (this.malformedContextPlan
+        && stagePrompt.includes('v7-planning-method-search-v1')
+        && request.requestId.includes(':context:')
+        && !request.requestId.endsWith(':repair')
+        && !this.returnedMalformedContextPlan) {
+        this.returnedMalformedContextPlan = true;
+        output = output.slice(0, -24);
+      }
       if (request.agentId === 'planner-deepseek-v4-pro'
         && stagePrompt.includes('PlanningTreeDocument')
         && stagePrompt.includes('treeKind固定为book')
