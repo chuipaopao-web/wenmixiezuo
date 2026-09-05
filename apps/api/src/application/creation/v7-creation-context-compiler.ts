@@ -72,6 +72,7 @@ interface ConfirmedTreeRow {
 }
 
 export interface V7CreationContextCompileInput {
+  recoveryKey?: string;
   ownerId: string;
   bookId: string;
   workflowId: string;
@@ -182,8 +183,10 @@ export class V7CreationContextCompiler {
       && call.state === 'succeeded'
       && call.output_text !== null);
     for (const recovered of recoverableCalls) {
+      let selectionRecovered = false;
       try {
         const selection = parseContextSelection(recovered.output_text!, candidates, maximumSources, input.taskKind);
+        selectionRecovered = true;
         const recoveredMember = creationFallbackChain('context_editor', undefined, this.members())
           .find((member) => member.memberKey === recovered.member_key) ?? firstMember;
         const content = await this.compileSelectedPack(input, pack, candidates, selection, recoveredMember);
@@ -211,6 +214,11 @@ export class V7CreationContextCompiler {
         if (error instanceof V7CreationModelError && error.outcomeUnknown) {
           this.creation.failContext({ ownerId: input.ownerId, bookId: input.bookId,
             contextPackId: pack.context_pack_id, status: 'unknown', message: publicFailure(error), now: this.now() });
+          throw error;
+        }
+        if (selectionRecovered) {
+          this.creation.failContext({ ownerId: input.ownerId, bookId: input.bookId,
+            contextPackId: pack.context_pack_id, status: 'failed', message: publicFailure(error), now: this.now() });
           throw error;
         }
         // A later malformed answer must not hide an earlier usable result
@@ -325,7 +333,7 @@ export class V7CreationContextCompiler {
             message: publicFailure(error),
             now: this.now()
           });
-          throw new DomainError(errorCodes.validation, publicFailure(error), {}, true, 503);
+          throw error;
         }
         if (error instanceof DomainError) {
           this.creation.failContext({
@@ -760,17 +768,23 @@ export async function compilePack(
   }
   let evidenceUsed = false;
   if (characterCount > budgetChars) {
-    const overhead = packedCharacterCount(input, selected.map((source) => ({ ...source, content: null })), selection, methodPlan);
+    const withEvidence = (contents: unknown[]): V7CreationSourceCandidate[] => selected.map((source, index) => ({
+      ...source, content: contents[index],
+      includedReason: `${source.includedReason} 本轮为Agent选择的原文节选，来源版本和完整原文保留在冻结存档。`
+    }));
+    const overhead = packedCharacterCount(input, withEvidence(selected.map(() => null)), selection, methodPlan);
     const evidenceBudget = budgetChars - overhead - 100;
     if (evidenceBudget < 800) throw gate('资料说明尚未整理完成，已保留原文，可以继续未完成步骤。');
     const contents = await readBudgetedEvidence({
+      ...(input.recoveryKey ? { recoveryKey: input.recoveryKey } : {}),
       task: `${input.taskKind} ${input.taskId}：${taskBrief(input.taskBrief)}\n作者本次要求：${input.authorInput ?? '无补充'}`,
       sources: selected.map((source) => ({ key: source.sourceKey, label: source.label,
         authority: source.authority, content: source.content, required: source.required })),
-      budget: evidenceBudget, generate
+      budget: budgetChars,
+      measure: (contents) => packedCharacterCount(input, withEvidence(contents), selection, methodPlan),
+      generate
     });
-    selected = selected.map((source, index) => ({ ...source, content: contents[index],
-      includedReason: `${source.includedReason} 本轮为Agent选择的原文节选，来源版本和完整原文保留在冻结存档。` }));
+    selected = withEvidence(contents);
     evidenceUsed = true;
     characterCount = packedCharacterCount(input, selected, selection, methodPlan);
   }

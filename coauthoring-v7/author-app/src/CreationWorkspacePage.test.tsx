@@ -308,15 +308,29 @@ describe('V7卷链章创作工作台', () => {
     expect(screen.getByRole('button', { name: '正在完成本章整理…' })).toBeDisabled();
   });
 
-  it('资料整理失败后在原页保留失败说明并允许重新开始本卷', async () => {
+  it('资料整理失败后继续同一任务，不要求重新开卷或丢弃已有进度', async () => {
     mockedCreation.fetchLatestCreationWorkflow.mockResolvedValue(workflow({
-      stage: 'context_selection', status: 'failed', options: [], completedOptions: 0,
+      stage: 'context_selection', status: 'failed', canRetryContext: true, options: [], completedOptions: 0,
       message: '对不起，这次资料没有整理完成。', errorMessage: '对不起，这次资料没有整理完成。'
     }));
     render(<CreationWorkspacePage bookId="book-1" focus="volume" onNavigate={vi.fn()} />);
     expect(await screen.findByText('这次没有完成')).toBeVisible();
-    expect(screen.getByText('选择要开始的卷')).toBeVisible();
-    expect(screen.getByRole('button', { name: '请编辑部设计本卷' })).toBeEnabled();
+    expect(screen.queryByText('选择要开始的卷')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '继续整理资料' }));
+    await waitFor(() => expect(mockedCreation.retryCreationOptions).toHaveBeenCalledWith('book-1', 'workflow-1'));
+    expect(mockedCreation.createCreationWorkflow).not.toHaveBeenCalled();
+    expect(mockedCreation.cancelCreationWorkflow).not.toHaveBeenCalled();
+  });
+
+  it('资料结果未核实时只核对状态，不重新发送生成请求', async () => {
+    mockedCreation.fetchLatestCreationWorkflow.mockResolvedValue(workflow({
+      stage: 'context_selection', status: 'failed', canRetryContext: false, options: [], completedOptions: 0
+    }));
+    render(<CreationWorkspacePage bookId="book-1" focus="volume" onNavigate={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '核对任务状态' }));
+    await waitFor(() => expect(mockedCreation.fetchLatestCreationWorkflow).toHaveBeenCalledTimes(2));
+    expect(mockedCreation.retryCreationOptions).not.toHaveBeenCalled();
+    expect(mockedCreation.createCreationWorkflow).not.toHaveBeenCalled();
   });
 
   it('成员失败时先道歉并保留重新托管和换成员入口', async () => {

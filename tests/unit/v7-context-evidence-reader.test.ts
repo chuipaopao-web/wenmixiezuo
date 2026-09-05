@@ -7,7 +7,7 @@ import { type V7CreationContextSelection, type V7CreationTaskKind } from '@wenmi
 
 const hard = '主人公必须在开场坦白此前已知的真相，不得拖到卷末。';
 const source = { key: 'opening-v1', label: '作者正式要求', authority: 'formal', required: true,
-  content: { introduction: '背景介绍。'.repeat(2400), mustFollow: [hard], endingBoundary: '不得提前开启远期封印。' } };
+  content: { introduction: '背景介绍。'.repeat(4000), mustFollow: [hard], endingBoundary: '不得提前开启远期封印。' } };
 const selection: V7CreationContextSelection = {
   schema: 'v7-creation-context-v1', publicSummary: '承接当前正式资料。', selectedSourceKeys: [source.key],
   selectionReasons: [{ sourceKey: source.key, reason: '作者正式要求' }], excludedSourceKeys: [], openQuestions: [],
@@ -40,7 +40,7 @@ describe('分批原文证据与预算', () => {
     let calls = 0;
     await expect(readBudgetedEvidence({ task: '设计', sources: [source], budget: 2500,
       generate: async () => { calls++; return '{"keepIds":[999999],"essentialIds":[]}'; } })).rejects.toThrow('无需删除');
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
     calls = 0;
     await expect(readBudgetedEvidence({ task: '设计', sources: [source], budget: 2500,
       generate: async () => { calls++; throw new Error('结果未知'); } })).rejects.toThrow('结果未知');
@@ -60,6 +60,59 @@ describe('分批原文证据与预算', () => {
       expect(pack.selectedSources[0]).toMatchObject({ sourceId: 'formal-v1', sourceVersion: '1', contentHash: 'immutable-hash' });
       expect(pack.contextPolicyVersion).toBe('layered-context-v5-evidence');
     });
+
+  it.each(['approved', 'denied', 'unknown'] as const)('旧硬标签纠正需要覆盖核对：%s，原文仍不可改写', async (mode) => {
+    let reviews = 0;
+    const repeated = { ...source, content: '这道门必须等到成年才能开启，不得提前。'.repeat(1600) };
+    const original = JSON.stringify(repeated);
+    const run = readBudgetedEvidence({ task: '设计开场', sources: [repeated], budget: 1200,
+      generate: async ({ prompt }) => {
+        if (prompt.includes('本轮执行资料约束覆盖核对')) {
+          reviews++;
+          if (mode === 'unknown') throw new Error('覆盖核对结果未知');
+          const removed = JSON.parse(prompt.split('拟移除旧标记：')[1]!.split('。')[0]!) as number[];
+          return JSON.stringify({ approvedRemovalIds: mode === 'approved' ? removed : [] });
+        }
+        const entries = JSON.parse(prompt.split('可选原文：')[1]!.split('\n')[0]!) as Array<{ id: number; text: string }>;
+        const prior = JSON.parse(prompt.split('此前必须保留编号：')[1]!.split('\n')[0]!) as number[];
+        const replacement = entries.find((entry) => !prior.includes(entry.id))!;
+        return JSON.stringify({ keepIds: [replacement.id], essentialIds: [replacement.id], reconsiderIds: prior });
+      } });
+    if (mode === 'approved') {
+      const result = await run;
+      expect(JSON.stringify(result)).toContain('必须等到成年才能开启，不得提前');
+      expect(Array.from(JSON.stringify(result)).length).toBeLessThanOrEqual(1200);
+      expect(reviews).toBeGreaterThan(0);
+    } else {
+      await expect(run).rejects.toThrow(mode === 'unknown' ? '结果未知' : '无需删除');
+      expect(reviews).toBe(mode === 'unknown' ? 1 : 3);
+    }
+    expect(JSON.stringify(repeated)).toBe(original);
+  });
+
+  it('恢复只给失败页新批次，前面已通过的页复用，最终完整包装不超限', async () => {
+    const cache = new Map<string, string>();
+    const freshPages: string[] = [];
+    const generate = async ({ key, prompt }: { key: string; prompt: string }): Promise<string> => {
+      if (!cache.has(key)) {
+        const page = /第(\d+)\//u.exec(prompt)![1]!;
+        freshPages.push(page);
+        cache.set(key, page === '1' || prompt.includes('恢复批次：') ? evidenceFixtureAnswer(prompt)
+          : '{"keepIds":[999999],"essentialIds":[]}');
+      }
+      return cache.get(key)!;
+    };
+    const input = { task: '设计', sources: [source], budget: 3000,
+      measure: (contents: unknown[]) => Array.from(JSON.stringify({ metadata: '完整包装'.repeat(50), contents })).length, generate };
+    await expect(readBudgetedEvidence(input)).rejects.toThrow('无需删除');
+    const recovered = await readBudgetedEvidence({ ...input, recoveryKey: 'retry-1' });
+    expect(freshPages.filter((page) => page === '1')).toHaveLength(1);
+    expect(input.measure(recovered)).toBeLessThanOrEqual(input.budget);
+    expect(JSON.stringify(recovered)).toContain(hard);
+    const before = freshPages.length;
+    expect(await readBudgetedEvidence({ ...input, recoveryKey: 'retry-1' })).toEqual(recovered);
+    expect(freshPages).toHaveLength(before);
+  });
 
   it.each(['book', 'volume', 'chain'] as const)('%s规划投影保留身份、规模和原文，完整快照不被覆盖', async (treeKind) => {
     const snapshot = { snapshotId: 'snapshot-v1', ownerId: 'owner', bookId: 'book', treeKind, scopeId: 'scope',

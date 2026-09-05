@@ -30,6 +30,44 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7全链路创作总线', () => {
+  it('资料整理明确失败可在原任务恢复，未知结果不能重复下单', async () => {
+    context = createTestContext('wenmi-context-resume-');
+    const resolver = new ContextRepairResolver('repair-failed');
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'context-resume@example.com', '恢复作者');
+      const bookId = await createBook(app, cookie, '恢复测试书', 'context-resume-book-0001');
+      const ownerId = String(context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId)!.owner_id);
+      confirmSetting(ownerId, bookId);
+      seedConfirmedBookTree(new V7PlanningTreeService(context.database, new SequenceIds(), new FixedClock()), ownerId, bookId);
+      const created = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/creation-workflows`, {
+        volumeScopeId: 'volume-1', candidateCount: 1, idempotencyKey: 'context-resume-workflow-0001'
+      });
+      expect(created.statusCode).toBe(200);
+      const workflowId = created.json().data.workflowId as string;
+      const repository = new V7CreationRuntimeRepository(context.database);
+      await expect.poll(() => repository.workflow(ownerId, bookId, workflowId)?.status).toBe('failed');
+      const url = `/api/v1/v7/books/${bookId}/creation-workflows/${workflowId}`;
+      expect((await request(app, cookie, 'GET', url)).json().data.canRetryContext).toBe(true);
+      const before = resolver.calls.length;
+      const run = repository.workflow(ownerId, bookId, workflowId)!;
+      repository.updateWorkflow({ ownerId, bookId, workflowId, stage: 'context_selection', status: 'unknown',
+        checkpoint: JSON.parse(run.checkpoint_json), errorMessage: '等待核对', now: new FixedClock().now().toISOString() });
+      expect((await request(app, cookie, 'GET', url)).json().data.canRetryContext).toBe(false);
+      expect((await request(app, cookie, 'POST', `${url}/options/retry`, {})).statusCode).toBe(409);
+      expect(resolver.calls).toHaveLength(before);
+      repository.updateWorkflow({ ownerId, bookId, workflowId, stage: 'context_selection', status: 'failed',
+        checkpoint: JSON.parse(run.checkpoint_json), errorMessage: '明确失败', now: new FixedClock().now().toISOString() });
+      resolver.mode = 'repair-success';
+      const resumed = await request(app, cookie, 'POST', `${url}/options/retry`, {});
+      expect(resumed.statusCode).toBe(200);
+      expect(resumed.json().data.workflowId).toBe(workflowId);
+      const ready = await pollWorkflow(app, cookie, bookId, workflowId, 'volume_decision');
+      expect(ready.completedOptions).toBe(1);
+      expect(repository.modelCallsForWorkflow(ownerId, bookId, workflowId).slice(0, before)).toHaveLength(before);
+      expect(context.database.prepare('SELECT COUNT(*) AS count FROM v7_creation_workflows WHERE owner_id=? AND book_id=?').get(ownerId, bookId)?.count).toBe(1);
+    } finally { await app.close(); }
+  });
   it.each(['repair-success', 'repair-failed', 'repair-unknown'] as const)(
     '资料结果损坏时%s：同成员有限补交、血缘记账、未知停止与安全反馈',
     async (mode) => {
@@ -155,7 +193,7 @@ describe('V7全链路创作总线', () => {
         sourceRefs: Array<{ sourceKind: string; sourceId: string; version: string }>;
       };
       expect(['layered-context-v2', 'layered-context-v3', 'layered-context-v4']).toContain(firstVolumePack.contextPolicyVersion);
-      expect(firstVolumePack.budgetChars).toBe(12_000);
+      expect(firstVolumePack.budgetChars).toBe(15_000);
       expect(firstVolumePack).toMatchObject({
         taskPersona: expect.objectContaining({ workingIdentity: expect.any(String) }),
         taskResponsibilities: expect.arrayContaining([expect.any(String)]),
@@ -1538,7 +1576,7 @@ function stageTaskPrompt(compiledPrompt: string): string {
 class ContextRepairResolver implements V7OpeningModelAdapterResolver {
   public readonly calls: ModelRequest[] = [];
   private readonly base = new CreationResolver();
-  public constructor(private readonly mode: 'repair-success' | 'repair-failed' | 'repair-unknown') {}
+  public constructor(public mode: 'repair-success' | 'repair-failed' | 'repair-unknown') {}
   public resolve(provider: string, modelId: string, purpose: ModelPurpose): ModelAdapter {
     const adapter = this.base.resolve(provider, modelId, purpose);
     return { provider, modelId, generate: async (request, signal) => {

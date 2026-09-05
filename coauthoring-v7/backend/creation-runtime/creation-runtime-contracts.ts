@@ -45,7 +45,7 @@ export type V7CreationTaskKind = 'volume' | 'chain' | 'outline' | 'manuscript' |
  * the provider-specific token budget as a second independent guard.
  */
 export const V7_CREATION_CONTEXT_CHAR_BUDGETS: Readonly<Record<V7CreationTaskKind, number>> = {
-  volume: 12_000,
+  volume: 15_000,
   chain: 8_000,
   outline: 6_000,
   manuscript: 6_000,

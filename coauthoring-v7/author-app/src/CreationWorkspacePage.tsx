@@ -261,7 +261,6 @@ export function CreationWorkspacePage({ bookId, focus, onNavigate }: {
 
   const canStartVolume = workflow === null || (workflow.status === 'cancelled' && workflow.remainingChains.length === 0
     && !['manuscript', 'manuscript_confirmation', 'settlement'].includes(workflow.stage))
-    || (workflow.status === 'failed' && workflow.stage === 'context_selection')
     || (workflow.status === 'completed' && workflow.remainingChains.length === 0);
   const canContinueChain = workflow !== null && (workflow.status === 'completed' || workflow.status === 'cancelled')
     && workflow.remainingChains.length > 0;
@@ -278,7 +277,8 @@ export function CreationWorkspacePage({ bookId, focus, onNavigate }: {
     {error !== null && <div className="creation-error" role="alert">{error}</div>}
     {workflow !== null && <EditorialPresence workflow={workflow} members={members} writeBack={writeBack} busy={busy} onStop={() => {
       void action(() => cancelCreationWorkflow(bookId, workflow.workflowId));
-    }} />}
+    }} onRetryContext={() => { void action(async () => setWorkflow(await retryCreationOptions(bookId, workflow.workflowId))); }}
+      onRefresh={() => { void action(() => load()); }} />}
 
     {focus === 'volume' && <section className="creation-layer-stack">
       <CreationLayerIdentity kind="volume" title="分卷规划"
@@ -327,7 +327,9 @@ export function CreationWorkspacePage({ bookId, focus, onNavigate }: {
                 : <LayerGate title="本卷详细骨架已确认" copy="卷页保留本卷骨架；全部单元事件和章纲在链页继续展开。" action="进入链页" onAction={() => onNavigate('chain')}/>
               : null}
           />
-          : <LayerGate title="本卷骨架正在准备" copy="编辑部会先完成本卷方向，再把单元链交给您查看。" action="查看任务进度" onAction={() => onNavigate('volume')}/>
+          : workflow.stage === 'context_selection' && workflow.status === 'failed'
+            ? <p className="creation-muted">本卷设计尚未完成，资料整理的进度和恢复操作见上方。</p>
+            : <LayerGate title="本卷骨架正在准备" copy="编辑部会先完成本卷方向，再把单元链交给您查看。" action="查看任务进度" onAction={() => onNavigate('volume')}/>
       }
     </section>}
 
@@ -640,8 +642,9 @@ function VolumeChainOverview({ tree, workflow, libraryVolume, selected, onSelect
   </details>;
 }
 
-function EditorialPresence({ workflow, members, writeBack, busy, onStop }: {
+function EditorialPresence({ workflow, members, writeBack, busy, onStop, onRetryContext, onRefresh }: {
   workflow: CreationWorkflowView; members: CreationMember[]; writeBack: CreationWriteBack | null; busy: boolean; onStop: () => void;
+  onRetryContext: () => void; onRefresh: () => void;
 }): React.JSX.Element {
   const [confirmingStop, setConfirmingStop] = useState(false);
   const workflowFailed = workflow.status === 'failed' || workflow.status === 'partially_failed';
@@ -679,12 +682,16 @@ function EditorialPresence({ workflow, members, writeBack, busy, onStop }: {
       ? '正在处理这项工作。'
       : effectiveStatus(actor) === 'waiting' ? '已经接单，正在排队。'
         : effectiveStatus(actor) === 'handed_over' ? '当前工作已交给下一位成员。' : '本轮工作已经完成。');
-  return <section className="creation-editorial-strip" aria-live="polite">
+  return <section className={`creation-editorial-strip${workflowFailed && workflow.stage === 'context_selection' ? ' context-recovery' : ''}`} aria-live="polite">
     {active !== undefined && <div className="creation-chief-presence"><span className="creation-avatar large" style={{ backgroundPosition: memberAvatarPosition(active.memberKey) }} aria-hidden="true"/><span><strong>{memberDisplayName(active.memberKey, active.memberName)} · {publicRoleLabel(active.role)}</strong><small>{active.emoji} {actorCopy(active)}</small></span></div>}
     {active === undefined && <div className="creation-chief-presence"><span><strong>{pendingWriteBack ? '编辑部正在完成本章整理' : workflowFailed ? '这次没有完成' : workflow.status === 'waiting' ? '任务正在排队' : '编辑部当前空闲'}</strong><small>{pendingWriteBack ? stoppedWriteBack ? '已经停止继续写作，本章已开始的资料更新仍会安全完成。' : '正文已经安全定稿，正在更新后续创作资料。' : workflowFailed ? publicFailureCopy(workflow.message) : publicStatusCopy(workflow.message, workflow.status === 'waiting' ? '任务已经保存，正在等待成员接单。' : '当前没有成员在执行任务。')}</small></span></div>}
     <div className="creation-progress-line" aria-label={`已完成${Math.max(0, Math.min(100, progress))}%`}><span style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} /></div>
     {timingCopy !== null && <small className={`creation-task-timing state-${timingState}`}>{timingCopy}</small>}
     {actors.length > 0 && <details><summary><span className="creation-avatar-row">{actors.slice(0, 6).map((actor) => <i key={actor.memberKey} className={`creation-avatar small state-${effectiveStatus(actor)}`} style={{ backgroundPosition: memberAvatarPosition(actor.memberKey) }} title={`${memberDisplayName(actor.memberKey, actor.memberName)}：${actorCopy(actor)}`} />)}</span><span>查看编辑部状态</span><CaretDownIcon /></summary><div className="creation-actor-list">{actors.map((actor) => <article key={actor.memberKey}><span className="creation-avatar" style={{ backgroundPosition: memberAvatarPosition(actor.memberKey) }}/><span><strong>{memberDisplayName(actor.memberKey, actor.memberName)} · {publicRoleLabel(actor.role)}</strong><small>{actor.emoji} {actorCopy(actor)}</small></span></article>)}</div></details>}
+    {workflowFailed && workflow.stage === 'context_selection' && <button className="creation-primary" type="button" disabled={busy}
+      onClick={workflow.canRetryContext ? onRetryContext : onRefresh}>
+      {busy ? '正在处理…' : workflow.canRetryContext ? '继续整理资料' : '核对任务状态'}
+    </button>}
     {canStop && (confirmingStop
       ? <div className="creation-stop-confirm" role="group" aria-label="确认停止任务">
           <span>已完成的内容会保留。</span>

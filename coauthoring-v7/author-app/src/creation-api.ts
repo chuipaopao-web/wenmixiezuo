@@ -15,6 +15,7 @@ export interface CreationMember {
 }
 
 export interface CreationWorkflowView {
+  canRetryContext?: boolean;
   workflowId: string;
   bookId: string;
   stage: 'context_selection' | 'volume_options' | 'volume_decision' | 'volume_tree_confirmation'

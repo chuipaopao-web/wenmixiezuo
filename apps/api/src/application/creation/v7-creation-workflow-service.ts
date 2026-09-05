@@ -78,6 +78,7 @@ interface V7CreationRuntimeBindingSnapshot {
 
 export interface V7CreationWorkflowView {
   workflowId: string;
+  canRetryContext?: boolean;
   bookId: string;
   stage: V7CreationWorkflowRow['stage'];
   status: 'waiting' | 'working' | 'waiting_for_you' | 'completed' | 'failed' | 'partially_failed' | 'cancelled';
@@ -516,6 +517,20 @@ export class V7CreationWorkflowService {
   public retryOptions(ownerId: string, bookId: string, workflowId: string): V7CreationWorkflowView {
     const run = this.requireWorkflow(ownerId, bookId, workflowId);
     this.requireCurrentStoredBindings(run);
+    if (run.stage === 'context_selection') {
+      if (this.repository.latestWorkflow(ownerId, bookId)?.workflow_id !== workflowId) throw conflict('请在当前任务中继续整理资料。');
+      if (['queued', 'working'].includes(run.status)) return this.view(run);
+      const calls = this.repository.modelCallsForWorkflow(ownerId, bookId, workflowId);
+      if (run.status !== 'failed' || calls.some((call) => ['working', 'unknown'].includes(call.state))) {
+        throw conflict('资料整理结果还没有确认，请先核对任务状态，暂不重复下单。');
+      }
+      this.repository.updateWorkflow({ ownerId, bookId, workflowId, stage: run.stage, status: 'queued',
+        checkpoint: { ...json(run.checkpoint_json) as Record<string, unknown>, contextRetryRequestedAt: this.now() },
+        errorMessage: null, now: this.now() });
+      const updated = this.requireWorkflow(ownerId, bookId, workflowId);
+      this.start(updated);
+      return this.view(updated);
+    }
     if (!['volume_options', 'chain_options', 'volume_decision', 'chain_decision'].includes(run.stage)) throw conflict('当前没有需要恢复的方案。');
     const kind: OptionKind = run.stage.startsWith('chain_') ? 'chain' : 'volume';
     const options = this.repository.options(ownerId, bookId, workflowId, kind);
@@ -1237,7 +1252,7 @@ export class V7CreationWorkflowService {
     const kind: OptionKind = run.stage === 'chain_options' ? 'chain' : 'volume';
     const scopeId = kind === 'volume' ? run.volume_scope_id : run.chain_scope_id;
     if (scopeId === null) throw new Error('单元链范围不存在');
-    const runCheckpoint = json(run.checkpoint_json) as { optionRevision?: unknown };
+    const runCheckpoint = json(run.checkpoint_json) as { optionRevision?: unknown; contextRetryRequestedAt?: string };
     const expectedOptions = requestedCandidateCount(run);
     const revisionFeedback = optionRevisionFeedback(runCheckpoint.optionRevision);
     const taskBrief = kind === 'volume'
@@ -1246,6 +1261,7 @@ export class V7CreationWorkflowService {
         : '设计下一卷：承接上一卷正文实际，推进全书方向，并提供不同于上一卷的阅读体验。'
       : '设计当前单元链：在有限章节内形成触发、阻力升级、人物选择、变化和明确回报。';
     const context = await this.contexts.compile({
+      ...(runCheckpoint.contextRetryRequestedAt ? { recoveryKey: runCheckpoint.contextRetryRequestedAt } : {}),
       ownerId: run.owner_id, bookId: run.book_id, workflowId: run.workflow_id,
       taskKind: kind, taskId: scopeId, taskBrief, firstVolume: run.first_volume === 1,
       authorInput: [run.author_goal, revisionFeedback === null ? null : [
@@ -1567,6 +1583,10 @@ export class V7CreationWorkflowService {
     const timing = workflowTiming(run, this.clock.now(), calls);
     return {
       workflowId: run.workflow_id,
+      canRetryContext: run.stage === 'context_selection' && run.status === 'failed'
+        && !calls.some((call) => ['working', 'unknown'].includes(call.state))
+        && this.repository.latestWorkflow(run.owner_id, run.book_id)?.workflow_id === run.workflow_id
+        && this.hasCurrentStoredBindings(run),
       bookId: run.book_id,
       stage: run.stage,
       status: publicStatus(run.status),
@@ -2022,7 +2042,9 @@ function actorViews(calls: V7CreationActorCallRow[], run: V7CreationWorkflowRow,
           ? '这部分已经完成，我把结果交给下一位同事啦。'
           : status === 'handed_over'
             ? '对不起，我这次没能完成，工作已经交给同事继续。'
-            : '对不起，这次没有完成，您可以换一位成员继续。',
+            : unfinishedContext
+              ? '对不起，资料还没整理完成，已完成的步骤已保存，请按上方提示继续。'
+              : '对不起，这次没有完成，您可以换一位成员继续。',
       emoji: status === 'working' ? '✍️' : status === 'completed' ? '✅' : status === 'handed_over' ? '🤝' : '🙇'
     };
   });

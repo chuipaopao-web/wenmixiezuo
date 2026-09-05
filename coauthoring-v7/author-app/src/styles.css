@@ -151,6 +151,10 @@
 .creation-primary { min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 13px; padding: 0 20px; color: #fff; font-size: 16px; font-weight: 750; cursor: pointer; background: var(--accent); box-shadow: 0 8px 20px rgb(32 82 65 / .18); }
 .creation-primary.compact { min-height: 41px; }
 .creation-primary:disabled, .creation-stop-button:disabled { opacity: .55; cursor: wait; }
+.creation-editorial-strip.context-recovery > .creation-chief-presence,
+.creation-editorial-strip.context-recovery > details { grid-column: 1 / -1; }
+.creation-editorial-strip.context-recovery > .creation-primary { grid-column: 1; min-width: 0; }
+.creation-editorial-strip.context-recovery > .creation-stop-button { grid-column: 2; grid-row: auto; }
 
 .creation-chief-review { display: flex; align-items: center; gap: 12px; border: 1px solid #ead6af; border-radius: 16px; padding: 13px 15px; background: #fffaf0; }
 .creation-chief-review > span:last-child { display: grid; gap: 4px; }
