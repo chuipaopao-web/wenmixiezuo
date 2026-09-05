@@ -9,7 +9,7 @@
 - 实现：复用已有头像素材和准确身份；首屏头像群配AI编辑部说明，下方成员介绍用头像替代抽象图标，选择有当前身份依据的代表角色。无需增加公开团队接口、图片生成或新依赖。
 - 验收：首屏头像可见、协作区至少四位头像与职责清晰；图片加载/裁切正确；390/800/1440无横向溢出，手机文字可读、登录注册及锚点仍可达；使用现有组件测试、作者端类型检查及构建，不跑全产品测试。
 - 部署：GPT-5.5本地编码及验证，Astra审查、浏览器验收后自动静态发布；复用线上后台、保留旧资源，原子切换和失败回退，不重启API/Worker。
-- 状态：GPT-5.5交付、Astra本地审查通过，待静态发布。基线9626a5ff，生产静态9bb21ac6eee9a9e80d13，API仍为R104。
+- 状态：GPT-5.5交付、Astra审查、生产发布及线上验收通过。基线9626a5ff，产品提交cf282bba，API仍为R104。
 
 ## 交付证据
 
@@ -18,4 +18,5 @@
 - GPT-5.5：现有PublicAuthorEntry组件9项测试、作者端tsc及Vite构建通过；最终产物index-B_NhOJtc.js、index-ajcpzu5Y.css。既有大chunk提示保留，不因局部UI改动跑全产品测试。
 - Astra：逐文件审查；真实Edge浏览器390/800/1440前后对照，头像源加载200、裁切位置各异，协作头像手机52px/桌面68px，首屏五张可见，无横向溢出及页面异常；登录/注册tab、刷新、页尾锚点通过。本地API为匿名模拟，未使用作者账号或作品。
 - 证据：artifacts/diagnostics/r106-browser/before-*.png、local-*.png、local-result.json；验证脚本.tmp/r106-browser.mjs。图片复用原有资源，没有新依赖或模型调用。
-- 部署记录：待发布后填写。
+- 部署记录：北京时间2026-09-06 02:08:57发布静态`e37239512b0e6f314e72`，上一静态`9bb21ac6eee9a9e80d13`保留。包`artifacts/deploy/r106-homepage-cf282bba.tar.gz`，SHA256 `8642832f0f5e033b271175dce49d9f7433972a5429a8b88cf9a132eec76317da`；服务器记录`/opt/wenmi-releases/r106-homepage-cf282bba/deployment-passed.txt`及`public-checks.json`。
+- 线上验收：18项公网资源哈希及健康检查通过；API PID 532179、Worker PID 532198不变，API/Worker/Caddy均active。后台文件与前版相同，作者数据和任务未动。真实Edge手机/平板/桌面头像加载、裁切、入口/刷新/锚点均通过，无页面异常和横向溢出，证据`artifacts/diagnostics/r106-browser/production-result.json`及`production-*.png`。未登录或提交真实作者表单。

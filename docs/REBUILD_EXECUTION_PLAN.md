@@ -124,7 +124,7 @@
 | ID | 页面/功能单元 | 关键依赖 | 设计 | 前端 | 后端 | 验收 | 上线 | 合同/证据 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | [RB-00.1](#rb-00-1) | 后台功能地图与配置中心 | — | 已定 | 已实现 | 已实现 | 通过 | 未发布 | [第96批](../coauthoring-v7/docs/worklists/REBUILD-CONTROL-CENTER-20260905-96.md) |
-| [RB-00.2](#rb-00-2) | 官网首页与公开入口 | 当前账号与作者入口兼容 | 已定 | 已实现 | 不适用 | 通过 | 已发布 | [第105批](../coauthoring-v7/docs/worklists/PUBLIC-HOMEPAGE-20260906-105.md) |
+| [RB-00.2](#rb-00-2) | 官网首页与公开入口 | 当前账号与作者入口兼容 | 已定 | 已实现 | 不适用 | 通过 | 已发布 | [第105批](../coauthoring-v7/docs/worklists/PUBLIC-HOMEPAGE-20260906-105.md)、[第106批头像展示](../coauthoring-v7/docs/worklists/HOMEPAGE-EDITORIAL-AVATARS-20260906-106.md) |
 
 ### 5.1 注册登录与最早可用的手写路径
 
