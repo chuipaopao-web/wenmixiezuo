@@ -1,7 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AuthorApp } from './AuthorApp';
-import { AuthorAccountBoundary } from './AuthorAccountBoundary';
+import { PublicAuthorEntry } from './PublicAuthorEntry';
 import './styles.css';
 
 const root = document.getElementById('root');
@@ -12,8 +11,6 @@ if (root === null) {
 
 createRoot(root).render(
   <StrictMode>
-    <AuthorAccountBoundary>
-      <AuthorApp />
-    </AuthorAccountBoundary>
+    <PublicAuthorEntry />
   </StrictMode>
 );

@@ -68,7 +68,6 @@ export function searchForInformationSection(
 }
 
 export function searchForAuthorView(view: AuthorView, bookId?: string | null, taskId?: string | null): string {
-  if (view === 'home') return '/';
   const params = new URLSearchParams({ view });
   if (bookId !== undefined && bookId !== null) params.set('bookId', bookId);
   if (taskId !== undefined && taskId !== null) params.set('taskId', taskId);

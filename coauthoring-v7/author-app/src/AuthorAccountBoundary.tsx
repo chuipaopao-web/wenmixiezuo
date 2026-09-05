@@ -59,10 +59,12 @@ export function AuthorAccountSessionProvider({
 
 export function AuthorAccountBoundary({
   children,
-  initialMode = 'login'
+  initialMode = 'login',
+  onAuthenticationModeChange
 }: {
   children: ReactNode | ((session: AuthorAccountSession) => ReactNode);
   initialMode?: 'login' | 'register';
+  onAuthenticationModeChange?: (mode: 'login' | 'register') => void;
 }): React.JSX.Element {
   const [phase, setPhase] = useState<'checking' | 'guest' | 'authenticated' | 'unavailable'>('checking');
   const [account, setAccount] = useState<AuthorAccount | null>(null);
@@ -182,7 +184,11 @@ export function AuthorAccountBoundary({
     return <AuthorSessionUnavailable message={startupError ?? '暂时无法打开您的创作空间，请稍后重试。'} onRetry={retryStartup} />;
   }
   if (phase === 'guest' || account === null) {
-    return <AuthorAuthenticationPage initialMode={initialMode} onAuthenticated={authenticated} />;
+    return <AuthorAuthenticationPage
+      initialMode={initialMode}
+      onAuthenticated={authenticated}
+      {...(onAuthenticationModeChange === undefined ? {} : { onModeChange: onAuthenticationModeChange })}
+    />;
   }
 
   const session: AuthorAccountSession = {
@@ -225,10 +231,12 @@ function AuthorSessionUnavailable({ message, onRetry }: { message: string; onRet
 
 export function AuthorAuthenticationPage({
   initialMode = 'login',
-  onAuthenticated
+  onAuthenticated,
+  onModeChange
 }: {
   initialMode?: 'login' | 'register';
   onAuthenticated: (account: AuthorAccount) => void;
+  onModeChange?: (mode: 'login' | 'register') => void;
 }): React.JSX.Element {
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [displayName, setDisplayName] = useState('');
@@ -241,6 +249,7 @@ export function AuthorAuthenticationPage({
   const changeMode = (next: 'login' | 'register'): void => {
     setMode(next);
     setError(null);
+    onModeChange?.(next);
   };
 
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {

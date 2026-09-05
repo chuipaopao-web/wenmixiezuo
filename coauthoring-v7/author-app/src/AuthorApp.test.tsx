@@ -380,7 +380,7 @@ describe('V7 author opening flow', () => {
 
     expect(await screen.findByRole('heading', { name: '今天，想创作什么？' })).toBeVisible();
     expect(window.location.pathname).toBe('/');
-    expect(window.location.search).toBe('');
+    expect(window.location.search).toBe('?view=home');
     expect(screen.getByRole('button', { name: '信息' })).toBeDisabled();
   });
 
@@ -1467,7 +1467,7 @@ describe('V7 author opening flow', () => {
       '?view=account&bookId=book-1&volumeId=volume-2&chainId=chain-5&chapter=17',
       '?view=chapter&bookId=book-1'
     )).toBe('?view=chapter&bookId=book-1&volumeId=volume-2&chainId=chain-5&chapter=17');
-    expect(searchForAuthorView('home')).toBe('/');
+    expect(searchForAuthorView('home')).toBe('?view=home');
   });
 
   it('链页打开历史章节时由父级一次写入章节范围再切到章页', async () => {
