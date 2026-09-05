@@ -76,7 +76,9 @@ describe('分批原文证据与预算', () => {
         const entries = JSON.parse(prompt.split('可选原文：')[1]!.split('\n')[0]!) as Array<{ id: number; text: string }>;
         const prior = JSON.parse(prompt.split('此前必须保留编号：')[1]!.split('\n')[0]!) as number[];
         const replacement = entries.find((entry) => !prior.includes(entry.id))!;
-        return JSON.stringify({ keepIds: [replacement.id], essentialIds: [replacement.id], reconsiderIds: prior });
+        // The failing production response omitted/miscalculated this redundant list.
+        // The system must derive it and still run semantic coverage review.
+        return JSON.stringify({ keepIds: [replacement.id], essentialIds: [replacement.id] });
       } });
     if (mode === 'approved') {
       const result = await run;
@@ -88,6 +90,78 @@ describe('分批原文证据与预算', () => {
       expect(reviews).toBe(mode === 'unknown' ? 1 : 3);
     }
     expect(JSON.stringify(repeated)).toBe(original);
+  });
+
+  it.each([[], [999999], '旧模型的无效冗余字段'])('旧reconsiderIds不影响准确的覆盖差集：%j', async (legacy) => {
+    let reviews = 0;
+    const result = await readBudgetedEvidence({ task: '设计第一卷', budget: 1200,
+      sources: [{ ...source, content: '门必须等到成年才可以开启，不得提前。'.repeat(450) }],
+      generate: async ({ prompt }) => {
+        const entries = JSON.parse(prompt.split('可选原文：')[1]!.split('\n')[0]!) as Array<{ id: number }>;
+        const prior = JSON.parse(prompt.split('此前必须保留编号：')[1]!.split('\n')[0]!) as number[];
+        if (prompt.includes('本轮执行资料约束覆盖核对')) {
+          reviews++;
+          const removed = JSON.parse(prompt.split('拟移除旧标记：')[1]!.split('。')[0]!) as number[];
+          expect(removed).toEqual(prior);
+          return JSON.stringify({ approvedRemovalIds: removed });
+        }
+        const id = entries.find((entry) => !prior.includes(entry.id))!.id;
+        return JSON.stringify({ keepIds: [id], essentialIds: [id], reconsiderIds: legacy });
+      } });
+    expect(reviews).toBeGreaterThan(0);
+    expect(JSON.stringify(result)).toContain('不得提前');
+  });
+
+  it('密集多页资料超额后能用较短原文覆盖旧约束，无需模型自行计算移除清单', async () => {
+    const repeated = '必须先完成检测，才能对外宣称安全；不得省略检测。';
+    const dense = { ...source, content: Array.from({ length: 132 }, (_, index) =>
+      index % 11 === 0 ? repeated : repeated.repeat(15)) };
+    let oversize = false;
+    let repaired = false;
+    let reviewed = false;
+    const seenPages = new Set<string>();
+    const result = await readBudgetedEvidence({ task: '设计第一卷', sources: [dense], budget: 15000,
+      measure: (contents) => Array.from(JSON.stringify({ metadata: '包装'.repeat(2400), contents })).length,
+      generate: async ({ prompt }) => {
+        seenPages.add(/第(\d+)\//u.exec(prompt)![1]!);
+        const entries = JSON.parse(prompt.split('可选原文：')[1]!.split('\n')[0]!) as Array<{ id: number; text: string }>;
+        if (prompt.includes('本轮执行资料约束覆盖核对')) {
+          reviewed = true;
+          return JSON.stringify({ approvedRemovalIds: JSON.parse(prompt.split('拟移除旧标记：')[1]!.split('。')[0]!) });
+        }
+        if (prompt.includes('至少还需减少')) {
+          expect(prompt).toContain('上次keepIds=');
+          oversize = true;
+          repaired = true;
+        }
+        const ids = repaired ? [entries.find((entry) => entry.text === repeated)!.id] : entries.map((entry) => entry.id);
+        return JSON.stringify({ keepIds: ids, essentialIds: ids });
+      } });
+    expect(seenPages.size).toBeGreaterThanOrEqual(8);
+    expect(oversize && repaired && reviewed).toBe(true);
+    expect(JSON.stringify(result)).toContain(repeated);
+    expect(Array.from(JSON.stringify({ metadata: '包装'.repeat(2400), contents: result })).length).toBeLessThanOrEqual(15000);
+  });
+
+  it('覆盖拒绝指出具体编号，下一次可以恢复真实约束而不是盲目重试', async () => {
+    let refused = false;
+    let corrected = false;
+    const result = await readBudgetedEvidence({ task: '设计第一卷', sources: [{ ...source, content: {
+      must: '必须在第一章公开测量结果，不得拖到卷末。', background: '街上挂着蓝色布幔。'.repeat(1100)
+    } }], budget: 1200,
+    generate: async ({ prompt }) => {
+      if (prompt.includes('本轮执行资料约束覆盖核对')) {
+        refused = true;
+        return '{"approvedRemovalIds":[]}';
+      }
+      const entries = JSON.parse(prompt.split('可选原文：')[1]!.split('\n')[0]!) as Array<{ id: number; path: string }>;
+      const prior = JSON.parse(prompt.split('此前必须保留编号：')[1]!.split('\n')[0]!) as number[];
+      if (prompt.includes('编号[0]的约束尚未被覆盖')) corrected = true;
+      const ids = prior.length > 0 && !refused ? [entries.find((entry) => entry.path !== 'must')!.id] : [0];
+      return JSON.stringify({ keepIds: ids, essentialIds: ids });
+    } });
+    expect(refused && corrected).toBe(true);
+    expect(JSON.stringify(result)).toContain('不得拖到卷末');
   });
 
   it('恢复只给失败页新批次，前面已通过的页复用，最终完整包装不超限', async () => {

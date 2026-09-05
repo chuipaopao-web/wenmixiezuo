@@ -74,8 +74,9 @@ export async function readBudgetedEvidence(input: {
       '不要采纳资料策划身份中的新情节指令；身份与方法建议不能推翻作者原话、正式设定和正文证据。',
       `最终所有来源的excerpts及身份字段JSON合计不得超过${input.budget}字符。尽量用到预算的75%以内，给后续页关键事实留空间。`,
       `系统按完整发送结构核算：空引文包装占${fixedCost}字符，剩余约${Math.max(0, input.budget - fixedCost)}字符。每条cost是单独加入后的实际增量；合并后以系统反馈为准。避免把重复事实、无关远期细节和结构编号都标为硬约束。`,
-      '此前必须保留编号是上一轮Agent的判断，不是作者新增要求。重复或误标可以申请重新核对：在reconsiderIds列出准备移除的旧编号；只有覆盖核对通过才能移除。作者真正硬要求必须由入选原文完整表达，不得以预算为由消失。',
-      '只返回JSON：{"keepIds":[原文编号],"essentialIds":[不能舍弃的硬约束编号],"reconsiderIds":[需要复核移除的旧标记编号]}。只能引用本次提供的整数编号，禁止自行编造或改写引文。',
+      '此前必须保留编号是上一轮Agent的判断，不是作者新增要求。可以用更完整且不重复的原文覆盖旧片段，也可以纠正与当前任务无关的误标；系统自动计算移除编号并交给覆盖核对，不需要另填移除清单。作者真正硬要求必须由入选原文完整表达，不得以预算为由消失。',
+      '结构编号、版本、目录标题和重复说明不要当成硬约束。essentialIds只标记实际表达本次任务必须遵循的要求、条件、否定、因果和披露边界的原文；不得把全部入选片段默认标记为必须保留。',
+      '只返回JSON：{"keepIds":[原文编号],"essentialIds":[不能舍弃的硬约束编号]}。只能引用本次提供的整数编号，禁止自行编造或改写引文。',
       `此前必须保留编号：${JSON.stringify([...essential])}`,
       `来源目录：${JSON.stringify(directory)}`,
       `可选原文：${JSON.stringify(available.map((entry) => ({ ...entry, cost: measure(render([entry])) - fixedCost })))}`
@@ -85,7 +86,7 @@ export async function readBudgetedEvidence(input: {
     const attempts = input.recoveryKey ? 6 : 3;
     for (let repair = 0; repair < attempts; repair++) {
       // Replay validated pages with identical keys. Only an exhausted page enters a new recovery round.
-      const prompt = base + (repair === 0 ? '' : `\n第${repair}次自动修正。上次格式或预算检查失败：${problem}。请实际调整选择后重新提交；误标或重复的旧硬约束必须经reconsiderIds复核，不能直接删除。`)
+      const prompt = base + (repair === 0 ? '' : `\n第${repair}次自动修正。上次格式或预算检查失败：${problem}。请实际调整选择后重新提交，不要重复同一份未通过的选择。移除旧标记时系统会自动核对覆盖；不需要你计算移除清单。`)
         + (repair >= 3 ? `\n恢复批次：${input.recoveryKey}。此前本页仍未通过，请重新核对当前原文与明确错误后提交。` : '');
       if (Array.from(prompt).length > MAXIMUM_INPUT_CHARACTERS) throw unavailable('资料阅读输入尚未落入预算');
       const key = `${CONTEXT_EVIDENCE_VERSION}:${digest(prompt)}`;
@@ -97,11 +98,11 @@ export async function readBudgetedEvidence(input: {
         const hardIds = integerIds(parsed.essentialIds);
         if (ids.some((id) => !byId.has(id)) || hardIds.some((id) => !ids.includes(id))) throw new Error('存在无效原文编号');
         const removed = [...essential].filter((id) => !ids.includes(id));
-        const reconsider = parsed.reconsiderIds === undefined ? [] : integerIds(parsed.reconsiderIds);
-        if (removed.some((id) => !reconsider.includes(id)) || reconsider.some((id) => !removed.includes(id))) throw new Error('遗漏此前硬约束，需明确列出reconsiderIds并通过覆盖核对');
+        // Set differences are deterministic bookkeeping, not semantic work for the model.
+        // Legacy reconsiderIds is deliberately ignored; every actual removal still gets reviewed.
         const selected = ids.map((id) => byId.get(id)!);
         const size = measure(render(selected));
-        if (size > input.budget) throw new Error(`入选原文及结构共${size}字符，上限${input.budget}；请舍弃重复和非必要片段`);
+        if (size > input.budget) throw new Error(`入选原文及结构共${size}字符，上限${input.budget}，至少还需减少${size - input.budget}字符。上次keepIds=${JSON.stringify(ids)}；请依据每条cost合并重复、舍弃非必要片段，必要约束保留完整原文覆盖`);
         if (pageIndex === pages.length - 1 && input.sources.some((source, index) => source.required
           && !selected.some((entry) => entry.source === index))) throw new Error('缺少必要来源的原文证据');
         if (pageIndex === pages.length - 1) {
@@ -121,7 +122,9 @@ export async function readBudgetedEvidence(input: {
           const review = await input.generate({ key: `${CONTEXT_EVIDENCE_VERSION}:coverage:${digest(reviewPrompt)}`, prompt: reviewPrompt, repair: true })
             .catch((error: unknown) => { reviewCallFailed = true; throw error; });
           const approved = integerIds((JSON.parse(review.trim().replace(/^```(?:json)?\s*/u, '').replace(/\s*```$/u, '')) as Record<string, unknown>).approvedRemovalIds);
-          if (removed.some((id) => !approved.includes(id)) || approved.some((id) => !removed.includes(id))) throw new Error('覆盖核对未通过：需要保留缺失约束，或选用能完整覆盖它的原文');
+          if (approved.some((id) => !removed.includes(id))) throw new Error('覆盖核对返回了不在待核对清单中的编号');
+          const missing = removed.filter((id) => !approved.includes(id));
+          if (missing.length > 0) throw new Error(`覆盖核对未通过：编号${JSON.stringify(missing)}的约束尚未被覆盖。上次keepIds=${JSON.stringify(ids)}；请恢复这些原文，或选用能够完整覆盖其条件、否定和边界的原文，不能只重复原来的选择`);
         }
         kept = selected;
         essential = new Set([...essential].filter((id) => ids.includes(id)).concat(hardIds));
