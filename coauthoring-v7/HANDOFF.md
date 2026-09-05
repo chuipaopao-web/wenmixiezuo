@@ -2,19 +2,19 @@
 
 > V7 已完成生产替换，是当前唯一产品。旧版页面、工作流、作者数据和接口不得恢复到当前入口。
 
-## 本地待发布修复（2026-09-05，第90批）
+## 当前生产发布（2026-09-05，第90批）
 
-详见唯一清单 `docs/worklists/V7-CREATION-CONTEXT-RECOVERY-20260905-90.md`。本批修复资料压缩目录编号丢失、精确来源键归一、同成员有限补交与较早可用结果复用。45 项相关测试、API/tests 类型检查及 backend/API 产品构建通过；backend 全包类型检查仍有已在原版复现的既有测试错误。修复后真实存档重放受源码传送/资料导出自动审批限制，尚未验证，正在等待精确授权。本批未部署、未修改生产数据，不能宣称两次生产任务已经恢复。
+详见唯一清单 `docs/worklists/V7-CREATION-CONTEXT-RECOVERY-20260905-90.md`。老板追加“部署上线”后，本批于北京时间 2026-09-05 09:09 切换至 `wm-v7-20260905-090100-cd7daedb`，产品提交 `cd7daedb`。修复资料压缩目录编号丢失、精确来源键归一、同成员有限补交与较早可用结果复用。本地及服务器各45项相关测试、API/Worker 产品构建、闭包/模块解析、迁移一致与两次 no-op、隔离启动、备份、零在途窗口和线上健康/日志/公网页面/静态资源/未登录保护检查通过。备份 `20260905T010341Z-508382`；回滚点 `wm-v7-20260904-200553-648b57f6`。未重跑两次作者任务、未导出作者样本，不能宣称历史任务已恢复。backend 全包类型检查仍有已在原版复现的既有测试错误；产品构建通过。
 
 ## 当前运行事实
 
 - 生产作者端：`https://wenmixiezuo.com/`
 - 生产独立后台：`https://admin.wenmixiezuo.com/`
 - 本地组合入口：`http://127.0.0.1:43110/`，后台位于 `/v7/`
-- 生产 API、Worker、Caddy 均运行第87批 V7 `wm-v7-20260904-001500-19346609`、Worker ready；静态版本为 `c7402f64fd0a9818ef4f`，previous 为 `363e8b5c7989d05e8fba`
-- 静态发布本批已切换（`static_switch_required=1`）到 `c7402f64fd0a9818ef4f`；静态 previous 指针为 `363e8b5c7989d05e8fba`，第85批服务 `wm-v7-20260902-224500-f77079b` 保留为立即回滚点
+- 生产 API/Worker 当前第90批 `wm-v7-20260905-090100-cd7daedb`，API/Worker/Caddy 均 active，Worker ready；静态版本为 `c7402f64fd0a9818ef4f`，previous 为 `363e8b5c7989d05e8fba`
+- 本批不切换静态资源（`static_switch_required=0`），静态文件完整性检查通过；第89批 `wm-v7-20260904-200553-648b57f6` 保留为立即回滚点
 - 当前分支：`codex/light-coauthoring-v7`
-- 当前最新工单：`docs/worklists/V7-PRODUCTION-FAILURE-RECOVERY-20260903-87.md`（第87批生产故障热修：创作网关 GLM 思考烧穿 +16k 重试、规划树结果未知任务可停止重建、开书 interrupted 意外失败落档；已于 2026-09-04 14:08 CST 部署并完成两账号只读诊断）。上一工单：`docs/worklists/V7-EVIDENCE-CARD-LAYER-DESIGN-20260902-86.md`（86a 代码已随第87批源码进入生产，`WENMI_V7_ASSET_MENU=1` 已于 2026-09-04 14:48:29 CST 安全启用；86b/86c 未实施；实施/启用记录见工单「十三、86a 实施记录」）
+- 当前最新工单：`docs/worklists/V7-CREATION-CONTEXT-RECOVERY-20260905-90.md`（已于 2026-09-05 09:09 CST 上线，证据见上方及清单 EVD-06）。第87批及86a的历史事实见对应历史工单与 Git 记录。
 
 ## 已上线能力
 
