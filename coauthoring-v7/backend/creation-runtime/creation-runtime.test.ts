@@ -265,6 +265,14 @@ describe('V7 creation runtime contracts', () => {
       }
     };
     expect(parseVolumeOption(JSON.stringify(option), 'volume-1').tree.root.children).toHaveLength(8);
+    const numericIntensity = JSON.parse(JSON.stringify(option));
+    numericIntensity.tree.root.emotion.intensity = 7;
+    numericIntensity.tree.root.children[0].emotion.intensity = 0;
+    const normalized = parseVolumeOption(JSON.stringify(numericIntensity), 'volume-1');
+    expect(normalized.tree.root.emotion.intensity).toBe('7');
+    expect(normalized.tree.root.children[0]!.emotion.intensity).toBe('0');
+    delete numericIntensity.tree.root.emotion.intensity;
+    expect(() => parseVolumeOption(JSON.stringify(numericIntensity), 'volume-1')).toThrow('情绪');
     option.tree.root.children = [
       node(1, 1, 16, 45_000), node(2, 17, 32, 45_000), node(3, 33, 48, 45_000), node(4, 49, 64, 45_000)
     ];

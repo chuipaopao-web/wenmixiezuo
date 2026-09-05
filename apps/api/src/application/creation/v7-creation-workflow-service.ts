@@ -1400,7 +1400,7 @@ export class V7CreationWorkflowService {
           ownerId: run.owner_id, bookId: run.book_id, workflowId: run.workflow_id, role,
           runKind: 'option', nodeKey: `${kind}:${scopeId}:${seat}`, workstationKey: kind,
           purpose: 'structured_planning',
-          maxOutputTokens: kind === 'volume' ? 12_000 : 5_000,
+          maxOutputTokens: 12_000,
           temperature: seat === 'option_2' ? 0.68 : 0.58,
           operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
           sourceTraces: context.sourceTraces,
@@ -1424,7 +1424,7 @@ export class V7CreationWorkflowService {
             runKind: 'option', nodeKey: `${kind}:${scopeId}:${seat}:repair`, workstationKey: kind,
             // 这是封闭的 JSON 合同修复，不是第二次策划。关闭发散思考，
             // 只补结构；不得为几个技术字段再消耗一轮完整规划预算。
-            purpose: 'novel_reviewer', maxOutputTokens: kind === 'volume' ? 12_000 : 5_000, temperature: 0.12,
+            purpose: 'novel_reviewer', maxOutputTokens: 12_000, temperature: 0.12,
             operationMode: 'repair', basedOnTaskId: result.requestId, authorInstructionVersion: null,
             sourceTraces: context.sourceTraces,
             requestPrefix: `creation-option-repair:${run.workflow_id}:${kind}:${scopeId}:${seat}:${sha256(result.output)}`,

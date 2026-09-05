@@ -701,6 +701,7 @@ function parsePlanningOption(output: string, kind: 'volume' | 'chain', scopeId: 
   const value = jsonObject(output);
   const schema = kind === 'volume' ? V7_VOLUME_OPTION_SCHEMA : V7_CHAIN_OPTION_SCHEMA;
   if (value.schema !== schema || value.optionKind !== kind) throw new Error('规划方案格式无效');
+  normalizeOptionIntensity(value.tree);
   const tree = parsePlanningTreeOutput(JSON.stringify(value.tree), kind, scopeId);
   if (kind === 'volume') assertVolumeChainCadence(tree);
   return {
@@ -712,6 +713,23 @@ function parsePlanningOption(output: string, kind: 'volume' | 'chain', scopeId: 
     protagonistChoice: requiredText(value.protagonistChoice, '主角选择'), priceAndChange: requiredText(value.priceAndChange, '代价与变化'),
     payoff: requiredText(value.payoff, '阶段回报'), strengths: textListOrSingleText(value.strengths, '方案优势', false), risks: textListOrSingleText(value.risks, '方案风险', true), tree
   } as V7VolumeOption | V7ChainOption;
+}
+
+function normalizeOptionIntensity(tree: unknown): void {
+  if (typeof tree !== 'object' || tree === null || Array.isArray(tree)) return;
+  const pending: unknown[] = [(tree as Record<string, unknown>).root];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (typeof node !== 'object' || node === null || Array.isArray(node)) continue;
+    const fields = node as Record<string, unknown>;
+    const emotion = fields.emotion;
+    if (typeof emotion === 'object' && emotion !== null && !Array.isArray(emotion)) {
+      const values = emotion as Record<string, unknown>;
+      // 只保留模型原有数字的文字表示，不推断强弱、不补缺失字段、不改正式来源。
+      if (typeof values.intensity === 'number' && Number.isFinite(values.intensity)) values.intensity = String(values.intensity);
+    }
+    if (Array.isArray(fields.children)) pending.push(...fields.children);
+  }
 }
 
 /**
