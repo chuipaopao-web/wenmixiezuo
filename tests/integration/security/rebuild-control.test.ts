@@ -7,9 +7,9 @@ import type { V7TaskAuditRow } from '../../../apps/api/src/infrastructure/db/rep
 
 const source = readFileSync(REBUILD_PLAN_PATH, 'utf8');
 describe('重构管理后台文档与运行证据', () => {
-  it('完整展示原66单元、新增管理单元与85来源功能，顺序和说明来自同一文档', () => {
+  it('完整展示79个重构单元与85来源功能，顺序和说明来自同一文档', () => {
     const plan = parseRebuildPlan(source);
-    expect(plan.units).toHaveLength(67);
+    expect(plan.units).toHaveLength(79);
     expect(plan.sourceFeatures).toHaveLength(85);
     expect(plan.units[0]?.id).toBe('RB-00.1');
     expect(plan.units.slice(1, 4).map((unit) => unit.id)).toEqual(['RB-00', 'RB-01', 'RB-02']);
@@ -65,7 +65,7 @@ describe('重构管理后台文档与运行证据', () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers['cache-control']).toBe('no-store');
       const data = response.json().data;
-      expect(data.units).toHaveLength(67);
+      expect(data.units).toHaveLength(79);
       expect(data.runtime).toMatchObject({ taskCount: 0, sampledCount: 0, worker: 'stale_or_missing', taskSignals: [] });
       expect(JSON.stringify(data)).not.toMatch(/fixture-pass|owner-local-boss|session_token/u);
       context.config.projectRoot = context.root;
