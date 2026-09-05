@@ -15,8 +15,14 @@ export {
   type CreateInternalAccountInput,
   type LoginInput,
   type PasswordChangeInput,
-  type ProfileUpdateInput
+  type ProfileUpdateInput,
+  type AuthenticatedAccountSession
 } from "./application/accounts/index.js";
+export {
+  BookShelfService,
+  createBookShelfService,
+  type CreateBookFromSessionInput
+} from "./application/bookshelf/index.js";
 export {
   hashNewPassword,
   hashVerifiedPassword,
@@ -34,6 +40,15 @@ export {
   type IssuedSession,
   type PasswordRecord
 } from "./domain/accounts/index.js";
+export type {
+  BookListCursor,
+  BookListInput,
+  BookListResult,
+  BookListStatusFilter,
+  BookRecord,
+  BookStatus,
+  PublicBookRecord
+} from "./domain/bookshelf/index.js";
 export { hashSyntheticTaskPayload, normalizeSyntheticJson } from "./domain/synthetic-tasks/index.js";
 export { createSyntheticTaskService, type SyntheticTaskRepository, type SyntheticTaskService } from "./application/synthetic-tasks/index.js";
 export type {
@@ -46,7 +61,8 @@ export type {
   SyntheticTaskScope,
   SyntheticTaskStatus
 } from "./domain/synthetic-tasks/index.js";
-export { createPostgresPool, withTransaction, type PgPool } from "./infrastructure/postgres/client.js";
+export { createPostgresPool, withTransaction, type PgClient, type PgPool } from "./infrastructure/postgres/client.js";
 export { runMigrations, verifyRuntimeDatabase, type MigrationResult } from "./infrastructure/postgres/migrations.js";
 export { PostgresSyntheticTaskRepository } from "./infrastructure/postgres/repositories/synthetic-task-repository.js";
 export { PostgresAccountRepository } from "./infrastructure/postgres/repositories/account-repository.js";
+export { PostgresBookshelfRepository } from "./infrastructure/postgres/repositories/bookshelf-repository.js";

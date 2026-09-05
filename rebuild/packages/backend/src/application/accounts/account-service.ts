@@ -64,6 +64,11 @@ export interface ProfileUpdateInput {
   readonly expectedVersion: number;
 }
 
+export interface AuthenticatedAccountSession {
+  readonly sessionId: string;
+  readonly account: AccountRecord;
+}
+
 export class AccountCoreService {
   private readonly repository: PostgresAccountRepository;
   private readonly secureCookies: boolean;
@@ -304,6 +309,13 @@ export class AccountCoreService {
     return result.profile;
   }
 
+  public async withAuthenticatedSessionTransaction<T>(
+    sessionToken: string,
+    work: (client: PgClient, session: AuthenticatedAccountSession) => Promise<T>
+  ): Promise<T> {
+    return this.repository.withTransaction(async (client) => work(client, await this.lockAndValidateSession(client, sessionToken)));
+  }
+
   public cookieFromToken(token: string): string {
     return `${REBUILD_SESSION_COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=${this.cookiePath}; Max-Age=${Math.floor(SESSION_TTL_MS / 1_000)}${this.secureCookies ? "; Secure" : ""}`;
   }
@@ -395,7 +407,7 @@ export class AccountCoreService {
     };
   }
 
-  private async lockAndValidateSession(client: PgClient, sessionToken: string) {
+  private async lockAndValidateSession(client: PgClient, sessionToken: string): Promise<AuthenticatedAccountSession> {
     const located = await this.repository.findSessionByTokenHash(client, hashToken(sessionToken), false);
     if (located === null) throw new DomainError("AUTHENTICATION_REQUIRED", "请先登录。");
     const account = await this.repository.findByUserId(client, located.account.userId, true);

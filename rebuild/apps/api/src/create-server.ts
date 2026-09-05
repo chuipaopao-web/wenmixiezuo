@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import {
   createAccountCoreService,
+  createBookShelfService,
   createFoundationStatus,
   createLogger,
   createPostgresPool,
@@ -9,13 +10,16 @@ import {
   toSafeErrorResponse,
   verifyRuntimeDatabase,
   type AccountCoreService,
+  type BookShelfService,
   type PgPool
 } from "@wenmi-rebuild/backend";
 import { foundationStatusSchema } from "@wenmi-rebuild/contracts";
 import { registerAccountRoutes } from "./account-routes.js";
+import { registerBookshelfRoutes } from "./bookshelf-routes.js";
 
 export interface ApiServerOptions {
   readonly accountService?: AccountCoreService;
+  readonly bookShelfService?: BookShelfService;
   readonly accountPool?: PgPool;
 }
 
@@ -25,6 +29,7 @@ export async function createApiServer(options: ApiServerOptions = {}) {
   await verifyRuntimeDatabase(config);
   const accountPool = options.accountPool ?? createPostgresPool(config);
   const accountService = options.accountService ?? createAccountCoreService(accountPool, { secureCookies: false });
+  const bookShelfService = options.bookShelfService ?? createBookShelfService(accountPool, accountService);
   const server = Fastify({
     logger: false,
     bodyLimit: 16 * 1024
@@ -49,6 +54,7 @@ export async function createApiServer(options: ApiServerOptions = {}) {
   });
 
   await registerAccountRoutes(server, accountService);
+  await registerBookshelfRoutes(server, bookShelfService);
 
   server.get("/health", async (_request, reply) => {
     try {
@@ -83,6 +89,9 @@ function statusForSafeCode(code: string): number {
   if (code === "REQUEST_CONTENT_TYPE_REJECTED") return 415;
   if (code === "ACCOUNT_RATE_LIMITED") return 429;
   if (code === "ACCOUNT_PROFILE_CONFLICT") return 409;
+  if (code === "BOOK_VERSION_CONFLICT" || code === "BOOK_IDEMPOTENCY_CONFLICT") return 409;
+  if (code === "BOOK_NOT_FOUND") return 404;
+  if (code === "BOOK_INPUT_INVALID") return 400;
   if (code === "ACCOUNT_INPUT_INVALID" || code === "ACCOUNT_TOKEN_INVALID") return 400;
   return 500;
 }
