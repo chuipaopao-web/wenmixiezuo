@@ -4,6 +4,8 @@ Batch 108 creates the independent rebuild foundation only. It does not implement
 
 Batch 109 adds only the isolated synthetic task recovery foundation. It verifies scoped enqueueing, leases, fencing tokens, checkpoints, cancellation, unknown external-call handling, retry bounds, transactional events, and cursor replay with synthetic owner/book IDs. It still does not expose unauthenticated product HTTP APIs, call real models, use real accounts, charge users, migrate production data, or deploy production services.
 
+Batch 111 adds the isolated account core for local rebuild development. It provides PostgreSQL-backed login sessions, password verification and internal one-time email verification/password reset token services for tests and future mail integration. It does not expose public registration, public email verification, public password reset, real mail delivery, old account migration, admin self-registration, or production deployment.
+
 Batch 110 migrates the protected author-side page UI into `apps/author-web`. The page source and public assets were copied from `coauthoring-v7/author-app/src` and `coauthoring-v7/author-app/public`, then adapted inside the rebuild app so runtime code does not import from the old workspace. The new shell keeps the public entry, signed-in home page, manual creation, information and setting pages, time machine, planning workspace, library content UI, and author task/team status content while replacing the outer navigation with two top buttons: the left button opens the bookshelf and the right button opens the five primary functions. Time-machine/library and volume/chain/chapter remain visible as second-level switches in the page shell.
 
 The migrated author UI still talks only to the rebuild local API boundary. Author API paths are fixed to same-origin `/api`; the Vite development server proxies `/api` to the local rebuild API on port 43282. The copied legacy clients are intentionally not allowed to use arbitrary `VITE_API_ORIGIN` values, old production origins, or old workspace imports. Full account-backed author APIs are not implemented in this batch, so real unavailable operations must fail honestly until the later API work lands. Browser previews and visual checks can use the local Playwright fixture `.local/rebuild/ui-fixture110.mjs` by calling `installFixture(page)`; the fixture intercepts author API requests for explicit local validation and returns 503 for unknown API calls.
@@ -16,6 +18,8 @@ The migrated author UI still talks only to the rebuild local API boundary. Autho
 - Author web: http://127.0.0.1:43280
 - Admin web: http://127.0.0.1:43281
 - API: http://127.0.0.1:43282
+
+The account HTTP surface is local-only in this batch. It accepts auth routes only for explicit loopback Host values and write Origins from the local author/admin dev ports. It does not trust forwarded IP headers; rate limits use the direct socket address in this local setup, so this is not a production proxy configuration.
 
 The project does not read the repository root `.env` and does not contain fallback database targets. All database settings must be explicit environment variables.
 
@@ -89,6 +93,27 @@ Synthetic fault-injection flags used by tests:
 - `WENMI_REBUILD_SYNTHETIC_LEASE_MS=<milliseconds>`
 
 For real PostgreSQL tests, provide a random `wenmi_rebuild_test_<suffix>` database. The migrator URL stays in `WENMI_REBUILD_DATABASE_URL`; the app-role URL is read from `WENMI_REBUILD_TEST_APP_DATABASE_URL`.
+
+## Account Core
+
+The backend package exports the batch 111 account API:
+
+```ts
+import {
+  createAccountCoreService,
+  REBUILD_SESSION_COOKIE
+} from "@wenmi-rebuild/backend";
+```
+
+The public HTTP routes are limited to:
+
+- `POST /v1/auth/login`
+- `GET /v1/auth/me`
+- `POST /v1/auth/logout`
+- `POST /v1/auth/password/change`
+- `POST /v1/auth/sessions/revoke-others`
+
+Successful auth responses use `{ data, meta: { requestId } }`, set `Cache-Control: no-store`, and store only a SHA-256 digest of the 256-bit session token in PostgreSQL. The cookie name is `wenmi_rebuild_session`, with `HttpOnly`, `SameSite=Lax`, `Path=/`, and a 24-hour absolute expiry. Email verification and password reset tokens are internal service results only in this batch; the raw token is returned to the in-process caller for tests or future mail adapters and is never persisted.
 
 ## PostgreSQL Guard
 

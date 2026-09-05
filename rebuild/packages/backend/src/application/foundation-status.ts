@@ -12,7 +12,7 @@ export function createFoundationStatus(service: ServiceName, configured: boolean
       marker: ENVIRONMENT_MARKER
     },
     capabilities: {
-      login: "not-implemented",
+      login: "implemented",
       registration: "not-implemented",
       taskExecution: "not-implemented",
       migrations: "implemented"
