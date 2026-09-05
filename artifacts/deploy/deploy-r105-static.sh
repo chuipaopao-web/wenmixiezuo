@@ -80,7 +80,7 @@ for f in manifest['files']:
   body=r.read(); assert hashlib.sha256(body).hexdigest()==f['sha256'],f['path']
  checks.append(f['path'])
 with urllib.request.urlopen('https://wenmixiezuo.com/health',timeout=30) as r:
- health=json.load(r); assert health['releaseId']=='wm-v7-20260906-003247-ce17325'; assert health['status']=='ok'
+ health=json.load(r)['data']; assert health['releaseId']=='wm-v7-20260906-003247-ce17325'; assert health['status']=='ok'; assert health['worker']=='ready'; assert health['canStartModelTasks'] is True
 print(json.dumps({'passed':True,'static':manifest['releaseId'],'checkedFiles':checks,'apiRelease':health['releaseId']}))
 PY
 [[ $(systemctl show -p MainPID --value wenmi-api) == "$API_PID" ]]
