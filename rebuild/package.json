@@ -18,11 +18,13 @@
     "dev:worker": "tsc -b packages/contracts packages/backend apps/worker && node apps/worker/dist/main.js",
     "migrate": "tsc -b packages/contracts packages/backend && node packages/backend/dist/infrastructure/postgres/migrate-cli.js",
     "test": "vitest run tests/unit",
+    "test:author": "vitest run --config apps/author-web/vite.config.ts apps/author-web/src",
     "test:pg": "tsc -b packages/contracts packages/backend apps/worker && vitest run tests/postgres",
-    "verify": "node scripts/check-boundaries.mjs && tsc -b --pretty false && vitest run tests/unit && vite build --config apps/author-web/vite.config.ts && vite build --config apps/admin-web/vite.config.ts"
+    "verify": "node scripts/check-boundaries.mjs && tsc -b --pretty false && vitest run tests/unit && vitest run --config apps/author-web/vite.config.ts apps/author-web/src && vite build --config apps/author-web/vite.config.ts && vite build --config apps/admin-web/vite.config.ts"
   },
   "dependencies": {
     "@fastify/cors": "11.1.0",
+    "@phosphor-icons/react": "2.1.10",
     "@vitejs/plugin-react": "5.1.1",
     "fastify": "5.12.3",
     "pg": "8.16.3",
@@ -31,10 +33,13 @@
     "zod": "4.1.13"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
     "@types/node": "24.10.2",
     "@types/pg": "8.15.6",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
+    "jsdom": "27.3.0",
     "typescript": "5.9.3",
     "vite": "7.3.6",
     "vitest": "4.1.11"

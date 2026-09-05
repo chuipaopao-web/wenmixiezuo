@@ -1,10 +1,16 @@
-import React from "react";
-import { createRoot } from "react-dom/client";
-import { App } from "./App.js";
-import "./styles.css";
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { PublicAuthorEntry } from './PublicAuthorEntry';
+import './styles.css';
 
-createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
+const root = document.getElementById('root');
+
+if (root === null) {
+  throw new Error('V7 author app root is missing.');
+}
+
+createRoot(root).render(
+  <StrictMode>
+    <PublicAuthorEntry />
+  </StrictMode>
 );

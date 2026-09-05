@@ -4,6 +4,10 @@ Batch 108 creates the independent rebuild foundation only. It does not implement
 
 Batch 109 adds only the isolated synthetic task recovery foundation. It verifies scoped enqueueing, leases, fencing tokens, checkpoints, cancellation, unknown external-call handling, retry bounds, transactional events, and cursor replay with synthetic owner/book IDs. It still does not expose unauthenticated product HTTP APIs, call real models, use real accounts, charge users, migrate production data, or deploy production services.
 
+Batch 110 migrates the protected author-side page UI into `apps/author-web`. The page source and public assets were copied from `coauthoring-v7/author-app/src` and `coauthoring-v7/author-app/public`, then adapted inside the rebuild app so runtime code does not import from the old workspace. The new shell keeps the public entry, signed-in home page, manual creation, information and setting pages, time machine, planning workspace, library content UI, and author task/team status content while replacing the outer navigation with two top buttons: the left button opens the bookshelf and the right button opens the five primary functions. Time-machine/library and volume/chain/chapter remain visible as second-level switches in the page shell.
+
+The migrated author UI still talks only to the rebuild local API boundary. Author API paths are fixed to same-origin `/api`; the Vite development server proxies `/api` to the local rebuild API on port 43282. The copied legacy clients are intentionally not allowed to use arbitrary `VITE_API_ORIGIN` values, old production origins, or old workspace imports. Full account-backed author APIs are not implemented in this batch, so real unavailable operations must fail honestly until the later API work lands. Browser previews and visual checks can use the local Playwright fixture `.local/rebuild/ui-fixture110.mjs` by calling `installFixture(page)`; the fixture intercepts author API requests for explicit local validation and returns 503 for unknown API calls.
+
 ## Runtime
 
 - Node.js: 24.19.0 verified in this batch
@@ -42,7 +46,9 @@ node D:\wenmixiezuo\.local\rebuild\runtime\npm\bin\npm-cli.js ci --cache D:\wenm
 node D:\wenmixiezuo\.local\rebuild\runtime\npm\bin\npm-cli.js run check:boundary --cache D:\wenmixiezuo\rebuild\.tools\npm-cache
 node D:\wenmixiezuo\.local\rebuild\runtime\npm\bin\npm-cli.js run typecheck --cache D:\wenmixiezuo\rebuild\.tools\npm-cache
 node D:\wenmixiezuo\.local\rebuild\runtime\npm\bin\npm-cli.js test --cache D:\wenmixiezuo\rebuild\.tools\npm-cache
+node D:\wenmixiezuo\.local\rebuild\runtime\npm\bin\npm-cli.js run test:author --cache D:\wenmixiezuo\rebuild\.tools\npm-cache
 node D:\wenmixiezuo\.local\rebuild\runtime\npm\bin\npm-cli.js run build --cache D:\wenmixiezuo\rebuild\.tools\npm-cache
+node D:\wenmixiezuo\.local\rebuild\runtime\npm\bin\npm-cli.js run verify --cache D:\wenmixiezuo\rebuild\.tools\npm-cache
 ```
 
 If a normal npm executable is available in PATH, the same scripts can be run with `npm`. Use `npm ci` for reproducible installation from `package-lock.json`.

@@ -1,0 +1,479 @@
+.v7-account-shell,
+.v7-account-center {
+  --account-ink: #17372f;
+  --account-muted: #667d75;
+  --account-line: #d9e5df;
+  --account-soft: #f2f7f4;
+  --account-brand: #24584a;
+  --account-danger: #a64332;
+  box-sizing: border-box;
+  color: var(--account-ink);
+  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+
+.v7-account-page {
+  min-height: calc(100vh - 84px);
+  min-height: calc(100dvh - 84px);
+  display: grid;
+  place-items: start center;
+  padding: clamp(24px, 5vw, 64px) clamp(16px, 4vw, 48px);
+  background: linear-gradient(180deg, #fbfdfc 0%, #f4f8f6 100%);
+}
+
+.sidebar-account-profile[aria-current="page"] {
+  background: #e9f2ed;
+  box-shadow: inset 0 0 0 1px #cddfd6;
+}
+
+.v7-account-shell *,
+.v7-account-center * {
+  box-sizing: border-box;
+}
+
+.v7-account-shell {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background:
+    radial-gradient(circle at 16% 5%, rgba(172, 207, 190, 0.24), transparent 34%),
+    linear-gradient(180deg, #fbfdfc 0%, #f1f6f3 100%);
+}
+
+.v7-account-card {
+  width: min(100%, 460px);
+  padding: clamp(24px, 6vw, 40px);
+  border: 1px solid var(--account-line);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 22px 58px rgba(23, 55, 47, 0.09);
+}
+
+.v7-account-brand {
+  width: 52px;
+  height: 52px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 16px;
+  color: #fff;
+  background: var(--account-brand);
+  font: 600 27px/1 "STKaiti", "KaiTi", serif;
+}
+
+.v7-account-eyebrow {
+  margin: 20px 0 4px;
+  color: var(--account-brand);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.v7-account-card h1 {
+  margin: 12px 0 8px;
+  font: 500 clamp(30px, 8vw, 40px)/1.15 "STSong", "Songti SC", serif;
+  letter-spacing: -0.03em;
+}
+
+.v7-account-intro,
+.v7-account-status-card p {
+  margin: 0;
+  color: var(--account-muted);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.v7-account-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 28px 0 22px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--account-soft);
+}
+
+.v7-account-mode button,
+.v7-account-primary,
+.v7-account-secondary,
+.v7-account-quiet {
+  min-height: 44px;
+  border: 0;
+  border-radius: 11px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.v7-account-mode button {
+  color: var(--account-muted);
+  background: transparent;
+  font-weight: 700;
+}
+
+.v7-account-mode button[aria-selected="true"] {
+  color: var(--account-ink);
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(23, 55, 47, 0.08);
+}
+
+.v7-account-auth-card form {
+  display: grid;
+  gap: 16px;
+}
+
+.v7-account-auth-card label {
+  display: grid;
+  gap: 8px;
+  color: var(--account-ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.v7-account-auth-card input {
+  width: 100%;
+  min-height: 50px;
+  padding: 0 15px;
+  border: 1px solid #cbd9d2;
+  border-radius: 13px;
+  outline: none;
+  color: var(--account-ink);
+  background: #fff;
+  font: 400 16px/1.4 inherit;
+}
+
+.v7-account-auth-card input:focus {
+  border-color: var(--account-brand);
+  box-shadow: 0 0 0 3px rgba(36, 88, 74, 0.12);
+}
+
+.v7-account-primary {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 4px;
+  padding: 0 18px;
+  color: #fff;
+  background: var(--account-brand);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.v7-account-primary:hover:not(:disabled) {
+  background: #1c493d;
+}
+
+.v7-account-primary:disabled,
+.v7-account-secondary:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.v7-account-error {
+  max-width: 100%;
+  margin: 0;
+  padding: 11px 13px;
+  border-radius: 11px;
+  color: var(--account-danger);
+  background: #fff3f0;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.v7-account-status-card {
+  text-align: center;
+}
+
+.v7-account-status-card .v7-account-primary {
+  margin-top: 22px;
+}
+
+.v7-account-center {
+  width: min(100%, 520px);
+  padding: clamp(18px, 4vw, 28px);
+  border: 1px solid var(--account-line);
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 18px 50px rgba(23, 55, 47, 0.08);
+}
+
+.v7-account-center-head {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+}
+
+.v7-account-avatar {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--account-brand);
+  font: 600 22px/1 "STKaiti", "KaiTi", serif;
+}
+
+.v7-account-center-head h2,
+.v7-account-center-head p {
+  margin: 0;
+}
+
+.v7-account-center-head h2 {
+  overflow: hidden;
+  font-size: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v7-account-center-head p {
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--account-muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v7-account-quiet {
+  min-height: 44px;
+  padding: 0 12px;
+  color: var(--account-muted);
+  background: transparent;
+}
+
+.v7-account-facts,
+.v7-account-compute {
+  display: grid;
+  margin: 20px 0 0;
+}
+
+.v7-account-facts {
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.v7-account-facts div,
+.v7-account-compute div {
+  min-width: 0;
+}
+
+.v7-account-facts div {
+  padding: 13px 14px;
+  border-radius: 13px;
+  background: var(--account-soft);
+}
+
+.v7-account-facts dt,
+.v7-account-compute dt {
+  color: var(--account-muted);
+  font-size: 12px;
+}
+
+.v7-account-facts dd,
+.v7-account-compute dd {
+  margin: 5px 0 0;
+  font-weight: 800;
+}
+
+.v7-account-membership {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--account-line);
+  border-radius: 17px;
+  background: #fbfdfc;
+}
+
+.v7-account-tier {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.v7-account-tier strong {
+  font-size: 17px;
+}
+
+.v7-account-tier span,
+.v7-account-expiry,
+.v7-account-muted {
+  color: var(--account-muted);
+  font-size: 13px;
+}
+
+.v7-account-compute {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.v7-account-compute div {
+  padding: 12px 8px;
+  border-radius: 12px;
+  text-align: center;
+  background: var(--account-soft);
+}
+
+.v7-account-compute dd {
+  font-size: 15px;
+}
+
+.v7-account-progress {
+  height: 7px;
+  margin-top: 15px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dfe9e4;
+}
+
+.v7-account-progress span {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: #5f9b87;
+}
+
+.v7-account-expiry {
+  margin: 10px 0 0;
+}
+
+.v7-account-support {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  margin-top: 14px;
+  border: 1px solid var(--account-line);
+  border-radius: 17px;
+  padding: 16px 18px;
+  background: var(--account-soft);
+}
+
+.v7-account-support > div { display: grid; gap: 4px; }
+.v7-account-support strong { color: var(--account-ink); font-size: 14px; }
+.v7-account-support span { color: var(--account-muted); font-size: 12px; line-height: 1.55; }
+
+.v7-account-feedback {
+  margin-top: 14px;
+  border: 1px solid var(--account-line);
+  border-radius: 17px;
+  padding: 0 18px;
+  background: #fff;
+}
+
+.v7-account-feedback > summary {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--account-ink);
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.v7-account-feedback form { display: grid; gap: 12px; border-top: 1px solid var(--account-line); padding: 16px 0; }
+.v7-account-feedback label { display: grid; gap: 7px; color: var(--account-ink); font-size: 12px; font-weight: 700; }
+.v7-account-feedback select,
+.v7-account-feedback textarea { width: 100%; border: 1px solid var(--account-line); border-radius: 12px; padding: 11px 12px; color: var(--account-ink); background: #fff; font: inherit; }
+.v7-account-feedback textarea { min-height: 120px; resize: vertical; line-height: 1.65; }
+.v7-account-feedback .v7-account-primary { justify-self: end; min-width: 128px; }
+.v7-account-feedback-notice { margin: 0; color: var(--account-muted); font-size: 12px; }
+
+.v7-account-membership-error {
+  display: grid;
+  gap: 12px;
+}
+
+.v7-account-membership-error p {
+  margin: 0;
+  color: var(--account-danger);
+  line-height: 1.6;
+}
+
+.v7-account-secondary {
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid #c6d6ce;
+  color: var(--account-ink);
+  background: #fff;
+  font-weight: 700;
+}
+
+.v7-account-center-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.v7-account-center-actions .v7-account-secondary {
+  color: #7a3c31;
+}
+
+.v7-account-mode button:focus-visible,
+.v7-account-primary:focus-visible,
+.v7-account-secondary:focus-visible,
+.v7-account-quiet:focus-visible {
+  outline: 3px solid rgba(36, 88, 74, 0.24);
+  outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .v7-account-shell {
+    align-items: start;
+    padding-top: max(28px, env(safe-area-inset-top));
+  }
+
+  .v7-account-card,
+  .v7-account-center {
+    border-radius: 20px;
+  }
+
+  .v7-account-card {
+    padding: 24px 20px;
+  }
+
+  .v7-account-page {
+    min-height: calc(100vh - 70px);
+    min-height: calc(100dvh - 70px);
+    padding: 18px 12px 96px;
+  }
+
+  .v7-account-center-head {
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+  }
+
+  .v7-account-avatar {
+    width: 48px;
+    height: 48px;
+  }
+
+  .v7-account-tier {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .v7-account-compute {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .v7-account-compute div:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .v7-account-support { grid-template-columns: 1fr; }
+  .v7-account-support .v7-account-secondary,
+  .v7-account-feedback .v7-account-primary { width: 100%; justify-self: stretch; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v7-account-shell *,
+  .v7-account-center * {
+    scroll-behavior: auto !important;
+  }
+}
