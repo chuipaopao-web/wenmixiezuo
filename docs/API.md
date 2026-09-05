@@ -136,6 +136,8 @@
 - `GET /api/v1/v7/books/:bookId/creation-library`
 - `GET /api/v1/v7/books/:bookId/manuscripts/:manuscriptVersionId`
 - `POST /api/v1/v7/books/:bookId/creation-workflows/:workflowId/{cancel|member|options/retry|options/redesign|options/choose|continue-to-chain|continue-to-next-chain|outlines|outlines/confirm|manuscripts|managed/activate|manuscripts/finalize}`
+
+`options/retry`也支持最新创作任务的`context_selection`明确失败：返回并恢复同一workflow，沿用合法的资料选择和分页结果；视图中的`canRetryContext`说明是否可恢复。工作中重复请求只返回当前状态；已取消/被新任务替代、旧成员绑定或任何工作中/未知模型调用不能重新下单。页面“核对任务状态”只读取，不调用恢复接口。卷资料包包含包装后最多15000字符，超限由资料Agent最多3次提交修正；显式恢复只为仍失败的页开启最多3次新补交，不能以重试覆盖作者原文。
 - `GET /api/v1/v7/books/:bookId/creation-workflows/:workflowId/write-back`
 - `GET /api/v1/v7/books/:bookId/story-state`
 - `GET /api/v1/v7/books/:bookId/time-machine-progress`

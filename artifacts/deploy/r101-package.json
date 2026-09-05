@@ -1,0 +1,54 @@
+{
+  "release": "wm-v7-20260905-223221-1f9e475",
+  "baseRelease": "wm-v7-20260905-203723-1eefc5c",
+  "fix": "1f9e4756e889cd537c0fbd397c3e86b63747f32c",
+  "files": [
+    {
+      "path": "apps/api/src/application/creation/v7-context-evidence-reader.ts",
+      "sha256": "326f6641c49ae821b24c8725ceb7eae7ef7321ee8d3bb7505ef2c4f73407695f"
+    },
+    {
+      "path": "apps/api/src/application/creation/v7-creation-context-compiler.ts",
+      "sha256": "11cf163bbc30fc05726f17e47fe588612f41fde1ac92a0f4815890a748ae821d"
+    },
+    {
+      "path": "apps/api/src/application/creation/v7-creation-workflow-service.ts",
+      "sha256": "5b1d6a18fb6d62a616dcab96070b6271576d81f382ba3dd9bb68f3d27928900e"
+    },
+    {
+      "path": "coauthoring-v7/author-app/src/CreationWorkspacePage.test.tsx",
+      "sha256": "735789ac99153fde6ef9cca6fc2db3d92789513ba2c445e019cc9080884ee04c"
+    },
+    {
+      "path": "coauthoring-v7/author-app/src/CreationWorkspacePage.tsx",
+      "sha256": "e019bf428205b0ae3eb2ab526b94a775a379e44b04187768ecb6f70d618d48a5"
+    },
+    {
+      "path": "coauthoring-v7/author-app/src/creation-api.ts",
+      "sha256": "beb2c26ed9e9ecd8f037fa8b09e550cb81d03a913099d3957d1cee2e3f8776ac"
+    },
+    {
+      "path": "coauthoring-v7/author-app/src/styles.css",
+      "sha256": "e80c530e2bfc762e7639eb04c90ace4c4dfac351f037411e5fdd000301ca1630"
+    },
+    {
+      "path": "coauthoring-v7/backend/creation-runtime/creation-runtime-contracts.ts",
+      "sha256": "c4228aa51fee6b1936a859ca65b18ea212e2e3047f4b3a588e56fe7cf82265db"
+    },
+    {
+      "path": "coauthoring-v7/docs/worklists/VOLUME-CONTEXT-RECOVERY-20260905-101.md",
+      "sha256": "fb6ff2d7c7e1f05ed1075bbefae450e2498cb7ff3fbf0ce6e0b9e5bb49273d0f"
+    },
+    {
+      "path": "tests/integration/domain/v7-creation-pipeline.test.ts",
+      "sha256": "2bcc7dbebd5d13d8e7be03f3b23037fafea757ab14ae8ece990b1deba27f627c"
+    },
+    {
+      "path": "tests/unit/v7-context-evidence-reader.test.ts",
+      "sha256": "51ea4ddfc0035d6d8c3ea5f2332496f29bf7a1bc6d873992f64497b622b2c39f"
+    }
+  ],
+  "archive": "r101-1f9e475-built.tar.gz",
+  "sha256": "4b5b599f6bd51d93077df61efee8dda2c68cb7fd03dade2c7b1c4c9f20fa79d7",
+  "fileCount": 1074
+}
