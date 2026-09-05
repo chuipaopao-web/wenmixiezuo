@@ -1,0 +1,45 @@
+{
+  "name": "wenmi-rebuild",
+  "private": true,
+  "version": "0.0.0-foundation.108",
+  "type": "module",
+  "packageManager": "npm@12.0.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "check:boundary": "node scripts/check-boundaries.mjs",
+    "typecheck": "tsc -b --pretty false",
+    "build": "node scripts/check-boundaries.mjs && tsc -b --pretty false && vite build --config apps/author-web/vite.config.ts && vite build --config apps/admin-web/vite.config.ts",
+    "dev:author": "vite --config apps/author-web/vite.config.ts --host 127.0.0.1 --port 43280 --strictPort",
+    "dev:admin": "vite --config apps/admin-web/vite.config.ts --host 127.0.0.1 --port 43281 --strictPort",
+    "dev:api": "tsc -b packages/contracts packages/backend apps/api && node apps/api/dist/main.js",
+    "dev:worker": "tsc -b packages/contracts packages/backend apps/worker && node apps/worker/dist/main.js",
+    "migrate": "tsc -b packages/contracts packages/backend && node packages/backend/dist/infrastructure/postgres/migrate-cli.js",
+    "test": "vitest run tests/unit",
+    "test:pg": "vitest run tests/postgres",
+    "verify": "node scripts/check-boundaries.mjs && tsc -b --pretty false && vitest run tests/unit && vite build --config apps/author-web/vite.config.ts && vite build --config apps/admin-web/vite.config.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "11.1.0",
+    "@vitejs/plugin-react": "5.1.1",
+    "fastify": "5.12.3",
+    "pg": "8.16.3",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "zod": "4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.2",
+    "@types/pg": "8.15.6",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3",
+    "vite": "7.3.6",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=24.0.0 <25"
+  }
+}

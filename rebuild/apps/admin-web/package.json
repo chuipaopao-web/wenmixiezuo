@@ -1,0 +1,16 @@
+{
+  "name": "@wenmi-rebuild/admin-web",
+  "private": true,
+  "version": "0.0.0-foundation.108",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "preview": "vite preview --host 127.0.0.1 --port 43281 --strictPort",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@wenmi-rebuild/contracts": "0.0.0-foundation.108"
+  },
+  "devDependencies": {}
+}

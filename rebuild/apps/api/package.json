@@ -1,0 +1,17 @@
+{
+  "name": "@wenmi-rebuild/api",
+  "private": true,
+  "version": "0.0.0-foundation.108",
+  "type": "module",
+  "main": "./dist/main.js",
+  "types": "./dist/main.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsx src/main.ts",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@wenmi-rebuild/backend": "0.0.0-foundation.108",
+    "@wenmi-rebuild/contracts": "0.0.0-foundation.108"
+  }
+}

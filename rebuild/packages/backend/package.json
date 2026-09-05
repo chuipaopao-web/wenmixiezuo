@@ -1,0 +1,33 @@
+{
+  "name": "@wenmi-rebuild/backend",
+  "private": true,
+  "version": "0.0.0-foundation.108",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./domain/errors": {
+      "types": "./dist/domain/errors.d.ts",
+      "default": "./dist/domain/errors.js"
+    },
+    "./infrastructure/postgres/client": {
+      "types": "./dist/infrastructure/postgres/client.d.ts",
+      "default": "./dist/infrastructure/postgres/client.js"
+    },
+    "./infrastructure/postgres/migrations": {
+      "types": "./dist/infrastructure/postgres/migrations.d.ts",
+      "default": "./dist/infrastructure/postgres/migrations.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@wenmi-rebuild/contracts": "0.0.0-foundation.108"
+  }
+}
