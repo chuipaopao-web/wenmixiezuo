@@ -1,0 +1,6 @@
+--- a/apps/api/src/infrastructure/db/repositories/v7-agent-governance-repository.ts
++++ b/apps/api/src/infrastructure/db/repositories/v7-agent-governance-repository.ts
+@@ -106,2 +106,2 @@
+     const unknownRows = rows.filter((row) => !V7_GLOBAL_MEMBERS.some((candidate) => candidate.memberKey === row.member_key)
+-      && !RETIRED_MEMBER_KEYS.has(row.member_key));
++      && !RETIRED_MEMBER_KEYS.has(row.member_key) && row.member_key !== 'planner-doubao-turbo');
