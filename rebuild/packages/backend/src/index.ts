@@ -7,5 +7,18 @@ export {
 export { createLogger, redactLogValue, type Logger } from "./infrastructure/logger.js";
 export { toSafeErrorResponse } from "./infrastructure/safe-error.js";
 export { DomainError, type DomainErrorCode } from "./domain/errors.js";
+export { hashSyntheticTaskPayload, normalizeSyntheticJson } from "./domain/synthetic-tasks/index.js";
+export { createSyntheticTaskService, type SyntheticTaskRepository, type SyntheticTaskService } from "./application/synthetic-tasks/index.js";
+export type {
+  ClaimedSyntheticTask,
+  ExternalResolution,
+  SyntheticTaskEvent,
+  SyntheticTaskLease,
+  SyntheticTaskRecord,
+  SyntheticTaskRequest,
+  SyntheticTaskScope,
+  SyntheticTaskStatus
+} from "./domain/synthetic-tasks/index.js";
 export { createPostgresPool, withTransaction, type PgPool } from "./infrastructure/postgres/client.js";
 export { runMigrations, verifyRuntimeDatabase, type MigrationResult } from "./infrastructure/postgres/migrations.js";
+export { PostgresSyntheticTaskRepository } from "./infrastructure/postgres/repositories/synthetic-task-repository.js";

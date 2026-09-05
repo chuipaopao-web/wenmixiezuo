@@ -18,7 +18,7 @@
     "dev:worker": "tsc -b packages/contracts packages/backend apps/worker && node apps/worker/dist/main.js",
     "migrate": "tsc -b packages/contracts packages/backend && node packages/backend/dist/infrastructure/postgres/migrate-cli.js",
     "test": "vitest run tests/unit",
-    "test:pg": "vitest run tests/postgres",
+    "test:pg": "tsc -b packages/contracts packages/backend apps/worker && vitest run tests/postgres",
     "verify": "node scripts/check-boundaries.mjs && tsc -b --pretty false && vitest run tests/unit && vite build --config apps/author-web/vite.config.ts && vite build --config apps/admin-web/vite.config.ts"
   },
   "dependencies": {

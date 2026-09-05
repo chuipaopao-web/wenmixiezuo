@@ -2,6 +2,8 @@
 
 Batch 108 creates the independent rebuild foundation only. It does not implement registration, login, paid member handling, author books, task execution, model calls, migration from the current production system, or production deployment.
 
+Batch 109 adds only the isolated synthetic task recovery foundation. It verifies scoped enqueueing, leases, fencing tokens, checkpoints, cancellation, unknown external-call handling, retry bounds, transactional events, and cursor replay with synthetic owner/book IDs. It still does not expose unauthenticated product HTTP APIs, call real models, use real accounts, charge users, migrate production data, or deploy production services.
+
 ## Runtime
 
 - Node.js: 24.19.0 verified in this batch
@@ -44,6 +46,43 @@ node D:\wenmixiezuo\.local\rebuild\runtime\npm\bin\npm-cli.js run build --cache 
 ```
 
 If a normal npm executable is available in PATH, the same scripts can be run with `npm`. Use `npm ci` for reproducible installation from `package-lock.json`.
+
+## Synthetic Task Recovery
+
+The backend package exports the batch 109 synthetic task API:
+
+```ts
+import {
+  PostgresSyntheticTaskRepository,
+  createPostgresPool,
+  createSyntheticTaskService
+} from "@wenmi-rebuild/backend";
+```
+
+Create the service with an app-role PostgreSQL pool. Public operations require an explicit `{ ownerId, bookId }` scope and JSON-only payloads:
+
+- `enqueue` stores a scoped idempotent request. The idempotency hash includes the request payload and execution contract such as `maxAttempts`.
+- `claimNext` uses PostgreSQL row locks with `SKIP LOCKED`, DB-time leases, and monotonic fencing tokens.
+- `renewLease`, `saveCheckpoint`, `recordExternalCallStarted`, `completeTask`, and `failTask` require the current fencing token.
+- `cancelTask` serializes with completion on the same task row.
+- `resolveUnknownExternalCall` is the only recovery path after an external call becomes unknown; it can confirm an existing result or confirm that the call did not start and schedule a bounded retry.
+- `listEvents` replays events for one scoped task by its own monotonic revision cursor.
+
+The Worker remains inert by default. It runs the synthetic executor only when explicitly enabled:
+
+```powershell
+$env:WENMI_REBUILD_WORKER_SYNTHETIC = "1"
+$env:WENMI_REBUILD_WORKER_ONCE = "1"
+node D:\wenmixiezuo\.local\rebuild\runtime\npm\bin\npm-cli.js run dev:worker --cache D:\wenmixiezuo\rebuild\.tools\npm-cache
+```
+
+Synthetic fault-injection flags used by tests:
+
+- `WENMI_REBUILD_SYNTHETIC_CRASH_AFTER_CHECKPOINT=1`
+- `WENMI_REBUILD_SYNTHETIC_CRASH_AFTER_EXTERNAL_START=1`
+- `WENMI_REBUILD_SYNTHETIC_LEASE_MS=<milliseconds>`
+
+For real PostgreSQL tests, provide a random `wenmi_rebuild_test_<suffix>` database. The migrator URL stays in `WENMI_REBUILD_DATABASE_URL`; the app-role URL is read from `WENMI_REBUILD_TEST_APP_DATABASE_URL`.
 
 ## PostgreSQL Guard
 
