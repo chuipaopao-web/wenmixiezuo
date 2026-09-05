@@ -879,6 +879,8 @@ export interface PlanningRouteView {
 }
 
 export interface PlanningRouteRunView {
+  decision?: { jobId: string; status: 'queued' | 'working' | 'succeeded' | 'failed' | 'unknown' | 'cancelled';
+    mode: 'adjust' | 'merge'; authorNote: string; routeIds: string[]; canRetry: boolean };
   runId: string;
   status: 'waiting' | 'working' | 'waiting_for_you' | 'completed' | 'failed';
   phase: 'preparing' | 'choosing_methods' | 'designing_routes' | 'chief_review' | 'waiting_for_you' | 'completed' | 'failed';
@@ -1077,7 +1079,8 @@ export function decidePlanningRoute(bookId: string, runId: string, input: {
   mode: 'select' | 'adjust' | 'merge';
   routeIds: string[];
   authorNote: string;
-}): Promise<{ routeVersionId: string; recipeVersionId: string; status: 'confirmed'; nextStep: 'book_tree' }> {
+}): Promise<{ routeVersionId: string; recipeVersionId: string; status: 'confirmed'; nextStep: 'book_tree' }
+  | { status: 'accepted'; runId: string; jobId: string }> {
   return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/planning-routes/runs/${encodeURIComponent(runId)}/decision`, {
     method: 'POST', body: JSON.stringify({ ...input, idempotencyKey: newActionKey('planning-route-decision') })
   });

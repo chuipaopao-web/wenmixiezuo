@@ -10,6 +10,7 @@ import {
 } from '../../../apps/api/src/application/agents/v7-book-genre-profile-ensure-service.js';
 import { V7PlanningTreeGenerationService } from '../../../apps/api/src/application/planning/v7-planning-tree-generation-service.js';
 import { V7PlanningTreeService } from '../../../apps/api/src/application/planning/v7-planning-tree-service.js';
+import { V7PlanningRouteService } from '../../../apps/api/src/application/planning/v7-planning-route-service.js';
 import { SystemClock, UuidGenerator } from '../../../apps/api/src/domain/ids.js';
 import { openDatabase } from '../../../apps/api/src/infrastructure/db/database.js';
 import { V7PlanningRuntimeRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-planning-runtime-repository.js';
@@ -26,6 +27,88 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7规划编辑部三席协作', () => {
+  it('路线调整立即返回、换请求键与跨实例仍复用同一任务，停止后晚到结果不能确认', async () => {
+    context = createTestContext('wenmi-route-decision-async-');
+    const resolver = new DecisionGateResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const { cookie, ownerId, bookId, runId, input } = await prepareDecisionCase(app);
+      const url = `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}/decision`;
+      const response = await request(app, cookie, 'POST', url, input);
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data).toMatchObject({ status: 'accepted', runId });
+      await resolver.entered;
+      const projected = await app.inject({ method: 'GET', url: url.replace(/\/decision$/u, ''),
+        headers: { ...HEADERS, cookie, 'x-wenmi-author-projection': 'clean-v1' } });
+      expect(projected.json().data).toMatchObject({ status: 'working', decision: { status: 'working', authorNote: input.authorNote } });
+      const duplicate = await request(app, cookie, 'POST', url, { ...input, idempotencyKey: 'another-random-click-key' });
+      expect(duplicate.json().data.jobId).toBe(response.json().data.jobId);
+      const secondService = new V7PlanningRouteService(context.database, resolver, new UuidGenerator(), new SystemClock());
+      expect(secondService.get(ownerId, bookId, runId)).toMatchObject({ status: 'working', canDecide: false,
+        decision: { authorNote: input.authorNote, status: 'working' } });
+      expect(resolver.calls).toBe(1);
+      expect((await request(app, cookie, 'POST', url, { ...input, authorNote: '另一个方向', idempotencyKey: 'another-direction-key' })).statusCode).toBe(409);
+      const stranger = await register(app, 'decision-stranger@example.com', '其他作者');
+      expect((await request(app, stranger, 'POST', url, input)).statusCode).toBe(404);
+      secondService.cancel(ownerId, bookId, runId);
+      resolver.release();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(secondService.get(ownerId, bookId, runId)).toMatchObject({ status: 'failed', decision: { status: 'cancelled' } });
+      expect(context.database.prepare('SELECT count(*) AS n FROM v7_planning_route_decisions WHERE run_id=?').get(runId)).toEqual({ n: 0 });
+    } finally { resolver.release(); await app.close(); }
+  });
+
+  it('路线调整租约丢失时等待原调用，重新接续复用返回而不重复计量', async () => {
+    context = createTestContext('wenmi-route-decision-resume-');
+    const resolver = new DecisionGateResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const { cookie, ownerId, bookId, runId, input } = await prepareDecisionCase(app);
+      const response = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}/decision`, input);
+      await resolver.entered;
+      context.database.prepare('UPDATE v7_route_decision_jobs SET lease_token=NULL,lease_expires_at=NULL WHERE job_id=?').run(response.json().data.jobId);
+      const successor = new V7PlanningRouteService(context.database, resolver, new UuidGenerator(), new SystemClock());
+      successor.get(ownerId, bookId, runId);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(context.database.prepare('SELECT status FROM v7_route_decision_jobs WHERE job_id=?').get(response.json().data.jobId)).toEqual({ status: 'queued' });
+      expect(resolver.calls).toBe(1);
+      resolver.release();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const final = await pollRouteRun(app, cookie, bookId, runId);
+      expect(final).toMatchObject({ status: 'completed', decision: { status: 'succeeded' }, canContinueTree: true });
+      expect(resolver.calls).toBe(1);
+      expect(context.database.prepare('SELECT count(*) AS n FROM v7_planning_route_decisions WHERE run_id=?').get(runId)).toEqual({ n: 1 });
+      expect((await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}/decision`, { ...input, idempotencyKey: 'after-refresh-key-1' })).json().data.status).toBe('accepted');
+      expect(resolver.calls).toBe(1);
+    } finally { resolver.release(); await app.close(); }
+  });
+
+  it.each(['failed', 'unknown', 'invalid'] as const)('路线调整%s能如实显示，刷新不重发，未知禁止重试', async (failure) => {
+    context = createTestContext(`wenmi-route-decision-${failure}-`);
+    const resolver = new DecisionGateResolver(); resolver.failure = failure; resolver.release();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const { cookie, ownerId, bookId, runId, input } = await prepareDecisionCase(app);
+      await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}/decision`, input);
+      const failed = await pollRouteRun(app, cookie, bookId, runId);
+      expect(failed).toMatchObject({ status: 'failed', decision: { status: failure === 'invalid' ? 'failed' : failure, canRetry: failure !== 'unknown' } });
+      expect(failed.message).toMatch(/对不起|抱歉/u);
+      const calls = resolver.calls;
+      const service = new V7PlanningRouteService(context.database, resolver, new UuidGenerator(), new SystemClock());
+      service.get(ownerId, bookId, runId); service.resumeDecisions();
+      expect(resolver.calls).toBe(calls);
+      if (failure === 'unknown') {
+        expect(() => service.retryMissing(ownerId, bookId, runId)).toThrow(/没有确认/u);
+        expect((await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}/decision`, { ...input, authorNote: '换个要求', idempotencyKey: 'different-unknown-key' })).statusCode).toBe(409);
+      } else {
+        resolver.failure = null;
+        service.retryMissing(ownerId, bookId, runId);
+        expect((await pollRouteRun(app, cookie, bookId, runId)).status).toBe('completed');
+        expect(resolver.calls).toBe(calls + 1);
+      }
+    } finally { resolver.release(); await app.close(); }
+  });
+
   it('规划维护技术重试沿用首次冻结快照，只更换执行尝试编号', async () => {
     context = createTestContext('wenmi-v7-planning-maintenance-retry-');
     const resolver = new RetryPlanningMaintenanceResolver();
@@ -1140,7 +1223,9 @@ describe('V7规划编辑部三席协作', () => {
           idempotencyKey: 'planning-route-merge-0001'
         });
       expect(merged.statusCode).toBe(200);
-      expect(merged.json().data).toMatchObject({ status: 'confirmed', nextStep: 'book_tree' });
+      expect(merged.json().data).toMatchObject({ status: 'accepted', runId: fusionRunId });
+      const completedMerge = await pollRouteRun(app, cookie, bookId, fusionRunId);
+      expect(completedMerge.status).toBe('completed');
       const mergedAgain = await request(app, cookie, 'POST',
         `/api/v1/v7/books/${bookId}/planning-routes/runs/${fusionRunId}/decision`, {
           mode: 'merge', routeIds: fusionRouteIds,
@@ -1148,7 +1233,7 @@ describe('V7规划编辑部三席协作', () => {
           idempotencyKey: 'planning-route-merge-0001'
         });
       expect(mergedAgain.statusCode).toBe(200);
-      expect(mergedAgain.json().data).toEqual(merged.json().data);
+      expect(mergedAgain.json().data).toMatchObject({ status: 'confirmed', nextStep: 'book_tree' });
       expect(context.database.prepare(`SELECT decision_kind,author_note,source_route_ids_json
         FROM v7_planning_route_decisions WHERE owner_id=? AND book_id=? AND run_id=?`)
         .get(ownerId, bookId, fusionRunId)).toEqual({
@@ -1800,6 +1885,29 @@ class RepairingDirectPlanningResolver implements V7OpeningModelAdapterResolver {
   }
 }
 
+class DecisionGateResolver implements V7OpeningModelAdapterResolver {
+  private readonly delegate = new PlanningResolver();
+  public calls = 0;
+  public failure: 'failed' | 'unknown' | 'invalid' | null = null;
+  private enter!: () => void;
+  public readonly entered = new Promise<void>((resolve) => { this.enter = resolve; });
+  private unblock!: () => void;
+  private readonly gate = new Promise<void>((resolve) => { this.unblock = resolve; });
+  public release(): void { this.unblock(); }
+  public resolve(provider: string, modelId: string, purpose: ModelPurpose): ModelAdapter {
+    const delegate = this.delegate.resolve(provider, modelId, purpose);
+    return { provider, modelId, generate: async (request) => {
+      if (request.requestId.includes(':fusion:')) {
+        this.calls++; this.enter(); await this.gate;
+        expect(request.prompt).not.toContain('synthetic-invalid-result-do-not-resend');
+        if (this.failure === 'invalid') return { ...(await delegate.generate(request)), output: 'synthetic-invalid-result-do-not-resend' };
+        if (this.failure !== null) throw new ModelAdapterError('模拟路线成员未完成', 'technical_failure', false, 503, this.failure === 'unknown');
+      }
+      return delegate.generate(request);
+    } };
+  }
+}
+
 class PlanningResolver implements V7OpeningModelAdapterResolver {
   public readonly prompts: string[] = [];
   public malformedContextPlan = false;
@@ -2242,6 +2350,22 @@ async function register(app: Awaited<ReturnType<typeof createServer>>, email: st
     payload: { email, password: 'strong-pass-123', displayName } });
   expect(response.statusCode).toBe(200);
   const raw = response.headers['set-cookie']; return String(Array.isArray(raw) ? raw[0] : raw).split(';', 1)[0]!;
+}
+
+async function prepareDecisionCase(app: Awaited<ReturnType<typeof createServer>>) {
+  const cookie = await register(app, 'async-decision@example.com', '路线调整作者');
+  const bookId = await createBook(app, cookie, '路线异步测试');
+  const ownerId = String((context!.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string }).owner_id);
+  confirmSetting(ownerId, bookId);
+  const started = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs`, {
+    authorGoal: '请设计一条清晰路线', candidateCount: 1, idempotencyKey: 'async-route-case-start-1'
+  });
+  expect(started.statusCode).toBe(200);
+  const runId = started.json().data.runId as string;
+  const run = await pollRouteRun(app, cookie, bookId, runId);
+  expect(run.canDecide).toBe(true);
+  return { cookie, ownerId, bookId, runId, input: { mode: 'adjust', routeIds: [run.routes[0].routeId],
+    authorNote: '保留原有目标，让首卷人物选择更清晰。', idempotencyKey: 'async-route-case-decision-1' } };
 }
 
 async function createBook(app: Awaited<ReturnType<typeof createServer>>, cookie: string, title: string): Promise<string> {

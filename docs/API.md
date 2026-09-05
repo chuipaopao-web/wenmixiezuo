@@ -101,6 +101,9 @@
 - `POST /api/v1/v7/books/:bookId/planning-routes/runs`
 - `GET /api/v1/v7/books/:bookId/planning-routes/runs/:runId`
 - `POST /api/v1/v7/books/:bookId/planning-routes/runs/:runId/{decision|retry-missing|cancel}`
+
+路线决定的 `select` 保持立即确认返回；`adjust/merge` 返回 `{status:"accepted",runId,jobId}`，模型在持久化任务内运行。客户端随后读取同一路线任务，`decision` 包含状态、已保存意见与是否可以重试；成功后沿用 `canContinueTree/nextStepPending` 接续。相同意见及所选路线即使换随机请求键也复用同一任务；工作中或结果未知不能另发冲突调整。`retry-missing` 对明确失败的调整仅恢复该任务，`cancel` 保留原路线且阻止晚到结果确认；未知结果只核对不重复发送。
+
 - `POST /api/v1/v7/books/:bookId/planning-routes/runs/:runId/continue-to-tree`：只允许当前仍为正式版本的已完成全书方向；若该方向已有全书树任务则返回原任务，否则以服务端稳定操作编号创建一次，重复请求不重复调用模型
 - `GET /api/v1/v7/books/:bookId/planning-routes/latest`
 - `GET /api/v1/v7/books/:bookId/planning-adjustment-suggestions`

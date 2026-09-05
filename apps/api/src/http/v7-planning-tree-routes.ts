@@ -30,6 +30,13 @@ export async function registerV7PlanningTreeRoutes(
   const generation = new V7PlanningTreeGenerationService(database, adapters, ids, clock, planningRoster, contextRoster);
   const maintenance = new V7PlanningMaintenanceService(database, adapters, ids, clock, planningRoster);
   const routes = new V7PlanningRouteService(database, adapters, ids, clock, planningRoster, contextRoster);
+  let decisionTimer: ReturnType<typeof setInterval> | undefined;
+  app.addHook('onReady', async () => {
+    routes.resumeDecisions();
+    decisionTimer = setInterval(() => routes.resumeDecisions(), 5_000);
+    decisionTimer.unref();
+  });
+  app.addHook('onClose', async () => { if (decisionTimer !== undefined) clearInterval(decisionTimer); });
   const books = new V7OpeningBookService(database, ids, clock);
   const scope = (request: Parameters<typeof requireAuthenticatedOwner>[0], bookId: string): string => {
     const owner = requireAuthenticatedOwner(request);

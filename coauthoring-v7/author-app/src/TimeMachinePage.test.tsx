@@ -287,6 +287,47 @@ describe('V7时光机真实规划闭环', () => {
     expect(mocked.createPlanningTreeGeneration).not.toHaveBeenCalled();
   });
 
+  it('调整提交后立即展示后台任务，刷新可找回工作状态，不提前生成正式框架', async () => {
+    const run = routeRun();
+    const working: api.PlanningRouteRunView = { ...run, status: 'working', phase: 'chief_review', canDecide: false,
+      message: '主编正在按您的意见整理路线，您可以离开页面，稍后回来查看。',
+      decision: { jobId: 'decision-job-1', status: 'working', mode: 'adjust', authorNote: '让人物选择更清楚', routeIds: ['route-1'], canRetry: false } };
+    mocked.fetchLatestPlanningRouteRun.mockResolvedValue(run);
+    mocked.decidePlanningRoute.mockResolvedValue({ status: 'accepted', runId: run.runId, jobId: 'decision-job-1' });
+    mocked.fetchPlanningRouteRun.mockResolvedValue(working);
+    const first = render(<TimeMachinePage bookId="book-1" />);
+    fireEvent.click(await screen.findByRole('button', { name: '按想法调整' }));
+    fireEvent.change(screen.getByLabelText('告诉主编，您想怎么改'), { target: { value: '让人物选择更清楚' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /选这套|已选择/u })[0]!);
+    fireEvent.click(screen.getByRole('button', { name: '按我的想法整理' }));
+    expect(await screen.findByText(working.message)).toBeVisible();
+    expect(mocked.continuePlanningRouteToTree).not.toHaveBeenCalled();
+    expect(screen.queryByText(/暂时连接不上/u)).not.toBeInTheDocument();
+    first.unmount();
+    mocked.fetchLatestPlanningRouteRun.mockResolvedValue(working);
+    render(<TimeMachinePage bookId="book-1" />);
+    expect(await screen.findByText(working.message)).toBeVisible();
+    expect(mocked.decidePlanningRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it('刷新后调整已完成会幂等接续，未知结果只提供核对不重复提交', async () => {
+    const run = routeRun();
+    const decision = { jobId: 'decision-job-2', status: 'succeeded' as const, mode: 'adjust' as const,
+      authorNote: '保留原要求', routeIds: ['route-1'], canRetry: false };
+    mocked.fetchLatestPlanningRouteRun.mockResolvedValue({ ...run, status: 'completed', phase: 'completed', canDecide: false,
+      canContinueTree: true, nextStepPending: true, decision });
+    mocked.continuePlanningRouteToTree.mockResolvedValue(generation());
+    const first = render(<StrictMode><TimeMachinePage bookId="book-1" /></StrictMode>);
+    await waitFor(() => expect(mocked.continuePlanningRouteToTree).toHaveBeenCalledTimes(1));
+    expect(mocked.decidePlanningRoute).not.toHaveBeenCalled();
+    first.unmount();
+    mocked.fetchLatestPlanningRouteRun.mockResolvedValue({ ...run, status: 'failed', phase: 'failed', canDecide: false,
+      errorMessage: '对不起，这次调整的结果还没有确认。', decision: { ...decision, status: 'unknown' } });
+    render(<TimeMachinePage bookId="book-1" />);
+    expect(await screen.findByRole('button', { name: '核对这次结果' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '继续未完成步骤' })).not.toBeInTheDocument();
+  });
+
   it('刷新时已完成路线仍有待接续步骤，会在已有正式框架的编辑部内继续同一run', async () => {
     mocked.fetchConfirmedPlanningTree.mockResolvedValue({ ...treeView(), status: 'confirmed' });
     mocked.fetchLatestPlanningRouteRun.mockResolvedValue({

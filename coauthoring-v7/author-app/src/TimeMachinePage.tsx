@@ -79,6 +79,7 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
   const [selectedRouteIds, setSelectedRouteIds] = useState<string[]>([]);
   const [authorNote, setAuthorNote] = useState('');
   const [editingDirection, setEditingDirection] = useState(false);
+  const decisionContinuation = useRef<string | null>(null);
   const generationSupersededByRoute = routeSupersedesGeneration(routeRun, generation);
   const visibleGeneration = generationSupersededByRoute ? null : generation;
 
@@ -253,7 +254,7 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
     if (routeRun === null || !['waiting', 'working'].includes(routeRun.status)) return;
     const timer = window.setInterval(() => {
       void fetchPlanningRouteRun(bookId, routeRun.runId)
-        .then(setRouteRun)
+        .then((next) => { setRouteRun(next); setError(null); })
         .catch((reason: unknown) => setError(publicError(reason)));
     }, 1_800);
     return () => window.clearInterval(timer);
@@ -276,6 +277,14 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
       throw reason;
     }
   }, [bookId, tree]);
+
+  useEffect(() => {
+    if (routeRun?.decision?.status !== 'succeeded' || !routeRun.nextStepPending || !routeRun.canContinueTree
+      || decisionContinuation.current === routeRun.runId) return;
+    decisionContinuation.current = routeRun.runId;
+    void continuePlanningRouteToTree(bookId, routeRun.runId, treeMemberKey || undefined)
+      .then(applyGeneration).catch((reason: unknown) => setError(publicError(reason)));
+  }, [applyGeneration, bookId, routeRun, treeMemberKey]);
 
   useEffect(() => {
     if (visibleGeneration === null || !['waiting', 'working'].includes(visibleGeneration.status)) return;
@@ -351,9 +360,10 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
     if (mode !== 'select' && authorNote.trim().length === 0) { setError('请写下您想怎么调整。'); return; }
     setBusy(true); setError(null);
     try {
-      await decidePlanningRoute(bookId, routeRun.runId, { mode, routeIds: selectedRouteIds, authorNote });
+      const result = await decidePlanningRoute(bookId, routeRun.runId, { mode, routeIds: selectedRouteIds, authorNote });
       const decidedRun = await fetchPlanningRouteRun(bookId, routeRun.runId);
       setRouteRun(decidedRun);
+      if (result.status === 'accepted') return;
       if (decidedRun.canContinueTree !== true) {
         setTreeReadState('failed');
         setError('全书方向已经确认，但正式框架的接续状态还没有准备好，请重新读取核心规划。');
@@ -448,8 +458,8 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
       return <PlanningRecovery
         message={routeRun.errorMessage ?? routeRun.message}
         busy={busy}
-        onRetry={retryMissingRoutes}
-        action="继续未完成步骤"
+        onRetry={routeRun.decision !== undefined && !routeRun.decision.canRetry ? retryCorePlanning : retryMissingRoutes}
+        action={routeRun.decision !== undefined && !routeRun.decision.canRetry ? '核对这次结果' : '继续未完成步骤'}
         onReturnDirection={returnToBookDirection}
         {...(onOpenSettings === undefined ? {} : { onOpenSettings })}
       />;

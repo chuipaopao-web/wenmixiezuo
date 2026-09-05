@@ -37,6 +37,7 @@ import {
 } from '@wenmi/v7-backend';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
+import { V7RouteDecisionJobRepository, type RouteDecisionJob, type RouteDecisionInput } from '../../infrastructure/db/repositories/v7-route-decision-job-repository.js';
 import {
   V7PlanningRuntimeRepository,
   type V7PlanningMethodSearchRow,
@@ -46,6 +47,7 @@ import {
 } from '../../infrastructure/db/repositories/v7-planning-runtime-repository.js';
 import {
   V7PlanningModelError,
+  V7PlanningModelCallInProgressError,
   V7PlanningModelGateway,
   type V7PlanningModelAdapterResolver
 } from '../../infrastructure/models/v7-planning-model-gateway.js';
@@ -67,6 +69,7 @@ type MethodSeat = 'chief_editor' | 'structure_deputy' | 'commercial_deputy';
 type RouteDecisionKind = 'select' | 'adjust' | 'merge';
 
 export interface V7PlanningRouteRunView {
+  decision?: { jobId: string; status: RouteDecisionJob['status']; mode: 'adjust' | 'merge'; authorNote: string; routeIds: string[]; canRetry: boolean };
   runId: string;
   status: 'waiting' | 'working' | 'waiting_for_you' | 'completed' | 'failed';
   phase: 'preparing' | 'choosing_methods' | 'designing_routes' | 'chief_review' | 'waiting_for_you' | 'completed' | 'failed';
@@ -177,6 +180,8 @@ type ExecutableRouteRoster = {
 const READ_ONLY_ROUTE_MESSAGE = '对不起，这项全书路线不能继续执行。已有结果保留，请按当前流程重新设计。';
 
 export class V7PlanningRouteService {
+  private readonly decisionJobs: V7RouteDecisionJobRepository;
+  private readonly activeDecisions = new Set<string>();
   private readonly repository: V7PlanningRuntimeRepository;
   private readonly sources: V7PlanningSourceCompiler;
   private readonly models: V7PlanningModelGateway;
@@ -191,6 +196,7 @@ export class V7PlanningRouteService {
     private readonly contextMemberSource: ContextMemberSource = V7_CREATION_MEMBERS
   ) {
     this.repository = new V7PlanningRuntimeRepository(database);
+    this.decisionJobs = new V7RouteDecisionJobRepository(database);
     this.sources = new V7PlanningSourceCompiler(database, ids, clock);
     this.models = new V7PlanningModelGateway(database, adapters, clock);
     this.members();
@@ -242,6 +248,8 @@ export class V7PlanningRouteService {
 
   public get(ownerId: string, bookId: string, runId: string): V7PlanningRouteRunView {
     const run = this.requireRun(ownerId, bookId, runId);
+    const job = this.decisionJobs.latest(ownerId, bookId, runId);
+    if (job !== undefined) this.startDecision(job);
     this.start(run);
     return this.view(this.requireRun(ownerId, bookId, runId));
   }
@@ -249,6 +257,8 @@ export class V7PlanningRouteService {
   public latest(ownerId: string, bookId: string): V7PlanningRouteRunView | null {
     const run = this.repository.latestPlanningRouteRun(ownerId, bookId);
     if (run === undefined) return null;
+    const job = this.decisionJobs.latest(ownerId, bookId, run.run_id);
+    if (job !== undefined) this.startDecision(job);
     this.start(run);
     return this.view(this.requireRun(ownerId, bookId, run.run_id));
   }
@@ -295,7 +305,7 @@ export class V7PlanningRouteService {
         memberKey: active?.memberKey ?? null, memberName: active?.memberName ?? null,
         treeKind: null, scopeId: null, modelCalls: run.model_calls,
         actionable,
-        canStop: actionable && (view.status === 'waiting' || view.status === 'working'), updatedAt: run.updated_at
+        canStop: actionable && (view.status === 'waiting' || view.status === 'working'), updatedAt: view.timing.lastActivityAt
       };
     });
   }
@@ -303,6 +313,11 @@ export class V7PlanningRouteService {
   public cancel(ownerId: string, bookId: string, runId: string): V7PlanningRouteRunView {
     const run = this.requireRun(ownerId, bookId, runId);
     this.requireExecutableRoster(run);
+    const job = this.decisionJobs.latest(ownerId, bookId, runId);
+    if (job !== undefined && job.status !== 'succeeded') {
+      this.decisionJobs.cancel(job, this.clock.now().toISOString());
+      return this.view(run);
+    }
     const cancelled = this.repository.cancelRecipeRun(ownerId, bookId, run.run_id, this.clock.now().toISOString());
     return this.view(cancelled);
   }
@@ -310,6 +325,15 @@ export class V7PlanningRouteService {
   public retryMissing(ownerId: string, bookId: string, runId: string): V7PlanningRouteRunView {
     const run = this.requireRun(ownerId, bookId, runId);
     const frozenRoster = this.requireExecutableRoster(run);
+    const job = this.decisionJobs.latest(ownerId, bookId, runId);
+    if (job !== undefined && job.status !== 'succeeded') {
+      if (!['failed', 'cancelled'].includes(job.status) || this.hasUnresolvedDecisionCalls(run)) {
+        throw conflict('这次调整的结果还没有确认，请先核对结果，不要重复提交。');
+      }
+      this.decisionJobs.retry(job, this.clock.now().toISOString());
+      this.startDecision(this.decisionJobs.get(ownerId, bookId, job.job_id)!);
+      return this.view(run);
+    }
     if (checkpointSourceIssues(run.checkpoint_json).length > 0) {
       throw conflict('请先统一主编指出的正式资料，再重新设计全书路线。');
     }
@@ -330,7 +354,78 @@ export class V7PlanningRouteService {
 
   public async decide(ownerId: string, bookId: string, runId: string, input: {
     mode?: unknown; routeIds?: unknown; authorNote?: unknown; idempotencyKey?: unknown;
-  }): Promise<{ routeVersionId: string; recipeVersionId: string; status: 'confirmed'; nextStep: 'book_tree' }> {
+  }): Promise<
+    { routeVersionId: string; recipeVersionId: string; status: 'confirmed'; nextStep: 'book_tree' }
+    | { status: 'accepted'; runId: string; jobId: string }
+  > {
+    const mode = decisionKind(input.mode);
+    const run = this.requireRun(ownerId, bookId, runId);
+    this.requireExecutableRoster(run);
+    const currentJob = this.decisionJobs.latest(ownerId, bookId, runId);
+    if (mode === 'select') {
+      if ((currentJob !== undefined && ['queued', 'working', 'unknown'].includes(currentJob.status)) || this.hasUnresolvedDecisionCalls(run)) {
+        throw conflict('路线调整还在处理中，请先等待或核对这次结果。');
+      }
+      return this.executeDecision(ownerId, bookId, runId, input);
+    }
+    const routeIds = routeIdList(input.routeIds, mode);
+    const authorNote = optionalText(input.authorNote, '作者调整意见', 2_000) ?? '';
+    if (!authorNote) throw validation('请先写下需要调整或融合的方向。');
+    const idempotencyKey = actionKey(input.idempotencyKey);
+    const prior = this.repository.routeDecisionByKey(ownerId, bookId, idempotencyKey);
+    if (prior !== undefined) return this.executeDecision(ownerId, bookId, runId, input);
+    const hash = sha256(stableJson({ mode, routeIds, authorNote }));
+    if (currentJob?.request_hash === hash) {
+      this.startDecision(currentJob);
+      return { status: 'accepted', runId, jobId: currentJob.job_id };
+    }
+    if (run.status !== 'awaiting_author') throw conflict('故事路线还没有准备好。');
+    if (this.hasUnresolvedDecisionCalls(run)) throw conflict('已有调整尚未结束，请先核对结果，不要重复提交。');
+    const candidates = this.repository.routeCandidates(ownerId, bookId, runId);
+    if (routeIds.some((id) => !candidates.some((row) => row.route_id === id))) throw validation('所选故事路线不存在或不属于本次任务。');
+    const job = this.decisionJobs.enqueue(this.ids.next(), ownerId, bookId, runId, hash, { mode, routeIds, authorNote, idempotencyKey }, this.clock.now().toISOString());
+    if (job.request_hash !== hash) throw conflict('已有另一项路线调整正在处理中，请先查看这次任务。');
+    this.startDecision(job);
+    return { status: 'accepted', runId, jobId: job.job_id };
+  }
+
+  public resumeDecisions(): void {
+    for (const job of this.decisionJobs.resumable(this.clock.now().toISOString())) this.startDecision(job);
+  }
+
+  private hasUnresolvedDecisionCalls(run: V7PlanningRecipeRunRow): boolean {
+    return this.repository.modelCallsForRun(run.owner_id, run.book_id, run.run_id)
+      .some((call) => (call.state === 'working' || call.state === 'unknown'));
+  }
+
+  private startDecision(job: RouteDecisionJob): void {
+    if (!['queued', 'working'].includes(job.status) || this.activeDecisions.has(job.job_id)) return;
+    const token = this.ids.next();
+    const until = (): string => new Date(this.clock.now().getTime() + 60_000).toISOString();
+    if (!this.decisionJobs.claim(job, token, this.clock.now().toISOString(), until())) return;
+    this.activeDecisions.add(job.job_id);
+    const heartbeat = setInterval(() => this.decisionJobs.renew(job, token, until()), 15_000);
+    heartbeat.unref();
+    const guard = (): void => {
+      const latest = this.decisionJobs.get(job.owner_id, job.book_id, job.job_id);
+      if (latest?.status !== 'working' || latest.lease_token !== token) throw conflict('这次调整已停止，原路线和您的意见都已保留。');
+      if (this.repository.latestPlanningRouteRun(job.owner_id, job.book_id)?.run_id !== job.run_id) throw conflict('已有新的路线任务，本次结果不会覆盖新方向。');
+    };
+    void Promise.resolve().then(async () => {
+      guard();
+      await this.executeDecision(job.owner_id, job.book_id, job.run_id, JSON.parse(job.input_json) as RouteDecisionInput, guard, job.attempt);
+      this.decisionJobs.finish(job, token, 'succeeded', null, this.clock.now().toISOString());
+    }).catch((error: unknown) => {
+      // A second process must wait for the original model call; do not turn it into a new invocation or a false failure.
+      const state = error instanceof V7PlanningModelCallInProgressError ? 'queued'
+        : error instanceof V7PlanningModelError && error.outcomeUnknown ? 'unknown' : 'failed';
+      this.decisionJobs.finish(job, token, state, state === 'queued' ? null : publicFailure(error), this.clock.now().toISOString());
+    }).finally(() => { clearInterval(heartbeat); this.activeDecisions.delete(job.job_id); });
+  }
+
+  private async executeDecision(ownerId: string, bookId: string, runId: string, input: {
+    mode?: unknown; routeIds?: unknown; authorNote?: unknown; idempotencyKey?: unknown;
+  }, guard: () => void = () => {}, attempt = 0): Promise<{ routeVersionId: string; recipeVersionId: string; status: 'confirmed'; nextStep: 'book_tree' }> {
     const mode = decisionKind(input.mode);
     const routeIds = routeIdList(input.routeIds, mode);
     const authorNote = optionalText(input.authorNote, '作者调整意见', 2_000) ?? '';
@@ -377,7 +472,7 @@ export class V7PlanningRouteService {
         mode,
         authorNote,
         idempotencyKey,
-        frozenRoster.routeFusionEditors
+        frozenRoster.routeFusionEditors, guard, attempt
       );
       finalRoute = fused.route;
       finalRecipe = materializePlanningRecipe({
@@ -388,6 +483,7 @@ export class V7PlanningRouteService {
       });
       createdBy = fused.memberKey;
     }
+    guard();
     const result = this.repository.confirmPlanningRoute({
       decisionId: this.ids.next(), routeVersionId: this.ids.next(), recipeVersionId: this.ids.next(),
       ownerId, bookId, runId, idempotencyKey, decisionKind: mode, authorNote,
@@ -800,7 +896,8 @@ export class V7PlanningRouteService {
     mode: Exclude<RouteDecisionKind, 'select'>,
     authorNote: string,
     idempotencyKey: string,
-    frozenFusionEditors: readonly V7PlanningMemberDefinition[]
+    frozenFusionEditors: readonly V7PlanningMemberDefinition[],
+    guard: () => void = () => {}, attempt = 0
   ): Promise<{ route: V7PlanningStoryRoute; brief: V7ProgressivePlanningBrief; memberKey: string }> {
     const snapshot = this.sources.require(run.owner_id, run.book_id, run.snapshot_id);
     const roster = executableRouteRoster(storedRouteRoster(run), this.members(), this.contextMembers());
@@ -819,12 +916,35 @@ export class V7PlanningRouteService {
     const storedMenu: StoredLayerAssetMenu | undefined = storedMenus[0];
     const allowedMethods = storedMenus.flatMap((menu) => layerAssetEntries(menu.layer, menu.genreFamilies));
     const assetMenuText = storedMenu === undefined ? NO_ASSET_MENU_TEXT : routeAssetMenuText(storedMenu);
+    const validateFusion = (output: string) => {
+      const fusion = parsePlanningRouteFusion(output, rows.map((row) => row.route_id), allowedMethods, selected[0]!.brief.seatKey);
+      if (storedMenu !== undefined) validateRouteBriefAssets(fusion.brief, storedMenu);
+      validatePlanningRouteScale(fusion.route, requirePlanningScaleProfile(snapshot));
+      return fusion;
+    };
     const failures: string[] = [];
     for (const member of frozenFusionEditors) {
-      const requestId = `planning-route:${run.run_id}:fusion:${idempotencyKey}:${member.memberKey}`;
+      guard();
+      const logicalTaskId = `planning-route:${run.run_id}:fusion:${idempotencyKey}:${member.memberKey}`;
+      let requestId = logicalTaskId;
+      for (let priorAttempt = 0; priorAttempt <= attempt; priorAttempt++) {
+        const key = priorAttempt === 0 ? logicalTaskId : `${logicalTaskId}:retry:${priorAttempt}`;
+        const prior = this.repository.modelCall(key);
+        if (prior !== undefined) requestId = key;
+      }
+      const prior = this.repository.modelCall(requestId);
+      const retryKey = `${logicalTaskId}:retry:${attempt}`;
+      let invalidCachedResult = false;
+      if (attempt > 0 && prior?.state === 'succeeded') {
+        try { validateFusion(prior.output_text ?? ''); } catch { invalidCachedResult = true; }
+      }
+      // Only explicit author retries replace invalid completed results; failed output is never sent back.
+      const callAttempt = (prior?.state === 'failed' || invalidCachedResult) && attempt > 0 && requestId !== retryKey
+        ? { requestId: retryKey, logicalTaskId, technicalRetry: true as const }
+        : { requestId };
       try {
         const result = await this.models.generate({
-          requestId, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
+          ...callAttempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
           runKind: 'recipe', nodeKey: 'route_fusion', member,
           taskKind: 'planning_review', workstationKey: 'full_book_route',
           operationMode: mode === 'merge' ? 'fusion' : 'revise',
@@ -834,18 +954,13 @@ export class V7PlanningRouteService {
           prompt: planningRouteFusionPrompt({ sourceSnapshot: planningPromptSnapshot(focusedSnapshot), selected, authorNote, assetMenuText }),
           maxOutputTokens: 8_000, temperature: 0.56
         });
-        const fusion = parsePlanningRouteFusion(
-          result.output,
-          rows.map((row) => row.route_id),
-          allowedMethods,
-          selected[0]!.brief.seatKey
-        );
-        if (storedMenu !== undefined) validateRouteBriefAssets(fusion.brief, storedMenu);
-        validatePlanningRouteScale(fusion.route, requirePlanningScaleProfile(snapshot));
+        guard();
+        const fusion = validateFusion(result.output);
         return { route: fusion.route, brief: fusion.brief, memberKey: member.memberKey };
       } catch (error) {
+        guard();
+        if (error instanceof V7PlanningModelError && (error.outcomeUnknown || error instanceof V7PlanningModelCallInProgressError)) throw error;
         failures.push(`${member.displayName}：${message(error)}`);
-        if (error instanceof V7PlanningModelError && error.outcomeUnknown) break;
       }
     }
     throw new Error(`对不起，主编这次没有完成路线整理。${failures.join('；')}`);
@@ -959,7 +1074,7 @@ export class V7PlanningRouteService {
     const existingTreeRun = currentDecision === undefined
       ? undefined
       : this.repository.latestBookTreeGenerationForRoute(run.owner_id, run.book_id, currentDecision.route_version_id);
-    return {
+    const view: V7PlanningRouteRunView = {
       runId: run.run_id,
       status: showReadOnlyFailure ? 'failed' : publicStatus(run.status),
       phase: showReadOnlyFailure ? 'failed' : publicPhase(run),
@@ -998,6 +1113,33 @@ export class V7PlanningRouteService {
         this.clock.now()
       )
     };
+    const job = this.decisionJobs.latest(run.owner_id, run.book_id, run.run_id);
+    if (job !== undefined) {
+      const input = JSON.parse(job.input_json) as RouteDecisionInput;
+      const unresolved = this.hasUnresolvedDecisionCalls(run);
+      view.decision = { jobId: job.job_id, status: job.status, mode: input.mode, authorNote: input.authorNote,
+        routeIds: input.routeIds, canRetry: ['failed', 'cancelled'].includes(job.status) && !unresolved };
+      if (job.status !== 'succeeded' && run.status !== 'completed') {
+        const active = ['queued', 'working'].includes(job.status);
+        view.status = active ? (job.status === 'queued' ? 'waiting' : 'working') : 'failed';
+        view.phase = active ? 'chief_review' : 'failed';
+        view.canDecide = false;
+        view.message = active ? '主编正在按您的意见整理路线，您可以离开页面，稍后回来查看。'
+          : job.status === 'unknown' || unresolved ? '对不起，这次调整的结果还没有确认。意见和原路线已保留，请核对结果，暂时不要重复提交。'
+            : job.error_message ?? '对不起，这次路线调整没有完成。原路线和意见已保留，可以继续未完成步骤。';
+        view.errorMessage = active ? null : view.message;
+        view.progress = { completed: 0, total: 1, percent: 0 };
+        view.timing = planningTaskTiming(job.created_at, job.updated_at, active, this.clock.now());
+        const calls = this.repository.modelCallsForRun(run.owner_id, run.book_id, run.run_id);
+        const current = [...calls].reverse().find((call) => call.nodeKey === 'route_fusion');
+        const member = frozenRoster.routeFusionEditors.find((candidate) => candidate.memberKey === current?.memberKey)
+          ?? frozenRoster.routeFusionEditors[0];
+        view.actors = member === undefined ? [] : [{ memberKey: member.memberKey, memberName: member.displayName, role: '主编',
+          status: active ? 'working' : 'failed', message: active ? '我正在按您的意见整理，整理好会保存在这里。' : view.message,
+          emoji: active ? '✍️' : '🙇' }];
+      }
+    }
+    return view;
   }
 
   private members(): readonly V7PlanningMemberDefinition[] {

@@ -111,7 +111,7 @@ describe('向前迁移器', () => {
         '0103_membership_action_idempotency.sql',
         '0104_v7_opening_idea_capacity.sql',
         '0105_v7_planning_generation_retries.sql',
-        '0106_v7_setting_failure_recovery.sql'
+        '0106_v7_setting_failure_recovery.sql', '0107_v7_route_decision_jobs.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(database.prepare(`SELECT name,"notnull" AS required,dflt_value AS defaultValue
