@@ -33,6 +33,7 @@ export const V7_CREATION_MEMBERS: readonly V7CreationMemberDefinition[] = [
   member('planner-deepseek-v4-pro', '红玉', 'planning_writer', 1, true, coding('deepseek-v4-pro')),
   member('planner-glm-5-3', '幼薇', 'planning_writer', 2, false, coding('glm-5.3')),
   member('planner-kimi-k3', '苏映棠', 'planning_writer', 3, false, agent('kimi-k3')),
+  member('planner-doubao-turbo', '陆青禾', 'planning_writer', 4, false, coding('doubao-seed-2.1-turbo')),
   member('writer-deepseek-v4-pro', '司马相如', 'lead_writer', 1, true, coding('deepseek-v4-pro')),
   member('writer-kimi-k3', '清照', 'lead_writer', 2, false, agent('kimi-k3')),
   member('writer-glm-5-3', '曹雪芹', 'lead_writer', 3, false, coding('glm-5.3')),
@@ -252,6 +253,10 @@ export function planningOptionPrompt(input: {
     '树是未来规划，不能冒充已经发生；正式资料不可改写。方法只作软参考，必须保留人物合理选择和创意空间。',
     `输出字段：schema="${schema}",optionKind="${input.kind}",publicName,publicSummary,designRationale,readerExperience,coreConflict,protagonistChoice,priceAndChange,payoff,strengths,risks,tree。strengths和risks必须是字符串数组，不能写成一段字符串。`,
     `tree顶层必须完整包含schema="v7-planning-tree-v1",treeKind="${treeKind}",scopeId="${input.scopeId}",title,root；根节点kind="${treeKind}"，直接子节点只能是${childKind}。`,
+    '每个节点包括key（唯一字符串）、kind、sequence（从1开始的整数）、title（简短中文标题）。budget必须为对象：wordTarget是正整数或null（例如22500，不得写成“2.25万字”），chapterRange是两个整数的数组或null（例如[1,8]，不得写成“1-8章”）。',
+    input.kind === 'volume'
+      ? '每条链的章节数=end-start+1。先按总章数和总字数计算需要多少条链，再设计各链；例如64章18万字至少需要8条链，不能缩成4条16章长链。'
+      : '仅展开本链的事件，不扩写整卷，不扩大已确认的本链章节范围。',
     '每个树节点都必须包含对象字段：story={summary,majorEvents,protagonistChange,outcome,nextStep}；emotion={publicSummary,openingEmotion,pressureMovement,releaseEmotion,intensity}；experience={publicSummary,pressureRhythm,payoffCadence,informationRhythm,contrastWithPrevious,designReason}；causality={trigger,causes,coreConflict,turningPoint,consequences}；threads={foreshadowing,openQuestions}；budget={wordTarget,chapterRange}；以及linkedTree和children。majorEvents、causes、consequences、foreshadowing、openQuestions都只能是简短字符串数组，不要输出stableKey/state等对象。不得把其余对象缩写成字符串或数组。每个说明只写一两句，不要在多个字段重复同一段话。',
     input.kind === 'volume'
       ? '单卷树根节点linkedTree=null；每个直接子链节点linkedTree={treeKind:"chain",scopeId:"本方案内唯一且可复用的英文标识"}，children=[]。子链chapterRange使用连续的实际章节区间，从第1章起不能重叠或跳号；各子链wordTarget之和应覆盖根节点的本卷字数。'
@@ -273,6 +278,7 @@ export function planningOptionRepairPrompt(input: {
     '只返回一个完整JSON对象，不要Markdown，不要解释，不要思维过程。',
     `外层schema固定为"${schema}"，optionKind固定为"${input.kind}"。tree必须补齐schema="v7-planning-tree-v1",treeKind="${input.kind}",scopeId="${input.scopeId}",title,root。`,
     `根节点kind="${input.kind}"且linkedTree=null；直接子节点kind="${childKind}"。${input.kind === 'volume' ? '每个子链linkedTree必须指向唯一chain范围。' : '每个事件linkedTree必须为null。'}`,
+    '每个节点必须有key、kind、sequence、title和budget；budget={wordTarget:正整数或null,chapterRange:[起始章整数,结束章整数]或null}，不能用带单位的字符串。root本身也必须包含这些字段。',
     '把每个节点原有story、emotion、experience、causality和threads内容无损整理为合同对象：story={summary,majorEvents,protagonistChange,outcome,nextStep}；emotion={publicSummary,openingEmotion,pressureMovement,releaseEmotion,intensity}；experience={publicSummary,pressureRhythm,payoffCadence,informationRhythm,contrastWithPrevious,designReason}；causality={trigger,causes,coreConflict,turningPoint,consequences}；threads={foreshadowing,openQuestions}。majorEvents、causes、consequences、foreshadowing、openQuestions必须是字符串数组，不要输出对象。',
     'emotion.intensity必须保留原有非空强弱说明；budget.chapterRange只能是null或[start,end]数字数组；strengths和risks必须是字符串数组。不能删除原有实质内容来规避字段。',
     input.kind === 'volume'

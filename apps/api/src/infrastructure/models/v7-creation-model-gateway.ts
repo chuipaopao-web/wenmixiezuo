@@ -178,7 +178,9 @@ export class V7CreationModelGateway {
       createdAt: now
     });
     promptGovernance.saveRuntimeBundle(compiled);
-    const reasoningTokens = thinkingTokenAllowance(request.member.model.modelId, request.purpose, request.maxOutputTokens, compiled.manifest.compiledPrompt.length);
+    // 只切换卷/链方案及其结构补交，不影响资料、章纲和正文的思考策略。
+    const callPurpose = request.runKind === 'option' ? 'interactive_planning' : request.purpose;
+    const reasoningTokens = thinkingTokenAllowance(request.member.model.modelId, callPurpose, request.maxOutputTokens, compiled.manifest.compiledPrompt.length);
     // 额度单位是 Token，不能把中文字符数直接当 Token 冻结。真实链方案约
     // 2 个中文字符/Token；继续使用字符数会把 7.8k 输入误报成近 20k，
     // 既阻塞会员额度，也让后台看起来像收到了一份异常巨大的资料包。
@@ -198,7 +200,7 @@ export class V7CreationModelGateway {
     });
 
     try {
-      const adapter = this.adapters.resolve(request.member.model.provider, request.member.model.modelId, request.purpose);
+      const adapter = this.adapters.resolve(request.member.model.provider, request.member.model.modelId, callPurpose);
       const controller = new AbortController();
       const workflowCalls = this.activeCalls.get(request.workflowId) ?? new Map<string, AbortController>();
       workflowCalls.set(request.requestId, controller);
@@ -217,7 +219,7 @@ export class V7CreationModelGateway {
       try {
         result = await callAdapter(request.maxOutputTokens);
       } catch (error) {
-        if (!isThinkingBurnFailure(error)) throw error;
+        if (callPurpose === 'interactive_planning' || !isThinkingBurnFailure(error)) throw error;
         // 升级重试前重新核对会员额度；额度不足时保留原始失败，不静默透支。
         try {
           assertMembershipAllowsGeneration(

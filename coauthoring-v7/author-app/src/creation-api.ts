@@ -7,6 +7,8 @@ export type CreationRoleKey =
 export type CreationMemberSelectionKey = CreationRoleKey | 'option_1' | 'option_2' | 'option_3';
 
 export interface CreationMember {
+  availableForOptions?: boolean;
+  availableForOutlines?: boolean;
   memberKey: string;
   name: string;
   roleKey: CreationRoleKey;

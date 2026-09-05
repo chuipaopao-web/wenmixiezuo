@@ -13,6 +13,26 @@ const request = {
 };
 
 describe('火山方舟严格套餐适配器', () => {
+  it.each(['deepseek-v4-pro', 'doubao-seed-2.1-turbo'])('快速方案%s禁用额外思考并保留完整可见输出额度', async (modelId) => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        model: modelId, thinking: { type: 'disabled' }, max_tokens: 12000
+      });
+      return Response.json({ content: [{ type: 'text', text: '{}' }], usage: { output_tokens: 2 } });
+    });
+    const adapter = new ArkPlanModelAdapter({ plan: 'coding', provider: 'volcengine-ark-coding-plan', modelId,
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding', apiKey: 'test', purpose: 'interactive_planning' }, fetchImpl);
+    await adapter.generate({ ...request, maxOutputTokens: 12000 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it.each(['kimi-k3', 'glm-5.3', 'deepseek-v4-flash'])('快速方案拒绝未通过速度/交付验证的%s且不发请求', async (modelId) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const adapter = new ArkPlanModelAdapter({ plan: 'coding', provider: 'volcengine-ark-coding-plan', modelId,
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding', apiKey: 'test', purpose: 'interactive_planning' }, fetchImpl);
+    await expect(adapter.generate(request)).rejects.toThrow('未进入快速方案路线');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
   it('只调用Agent Plan Messages端点并将现金费用记为零', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
       expect(String(input)).toBe('https://ark.cn-beijing.volces.com/api/plan/v1/messages');

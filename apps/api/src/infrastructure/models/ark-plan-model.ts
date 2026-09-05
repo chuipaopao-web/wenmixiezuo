@@ -20,6 +20,7 @@ interface ArkMessagesResponse {
 }
 
 const SYSTEM_PROMPTS: Record<ModelPurpose, string> = {
+  interactive_planning: '你是文秘写作的策划编剧。依据当前资料独立设计完整方案，严格遵守输出合同，只输出一个完整JSON对象。保持人物因果、作者要求与容量责任，不输出思考过程，不缩减要求的篇幅。',
   discussion: '你是文秘写作中的小说创作成员。只按当前任务和当前书籍范围给出明确、可执行的中文意见，不冒充其他成员，不声称执行了未执行的操作。',
   structured_planning: '你是文秘写作中的正式规划成员。严格执行输入中的operation、instructions和outputContract，只输出一个可直接解析的JSON对象，不用Markdown，不写解释、确认请求或后续承诺。',
   novel_writer: '你是文秘写作的主笔。根据输入的章节信息或修改要求输出完整中文小说正文。正文优先达到2700至3200有效字符，且不得少于2350或超过3650，只输出正文，不使用Markdown代码围栏，不写TODO、占位符或解释。正文中禁止出现“前章、上一章、本章、下一章”、章纲、审查、生成或资料包等创作过程说明，承接前文必须直接进入故事。重写时必须返回修改后的完整章节，禁止只返回修改片段、摘要或省略未修改段落；必须逐项落实requiredActions，明确要求删除、后移、合并或避免的表达不得原样复现，也不得仅换近义词保留同一种问题。输出前在内部核对每一项修改要求，但不要输出核对过程。保持人物、时间线和因果连续。',
@@ -47,6 +48,10 @@ export class ArkPlanModelAdapter implements ModelAdapter {
   }
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
+    if (this.options.purpose === 'interactive_planning'
+      && !['doubao-seed-2.1-turbo', 'deepseek-v4-pro'].includes(this.modelId)) {
+      throw new ModelAdapterError('该模型未进入快速方案路线，请改用当前方案成员。', 'request_failure', false);
+    }
     if (signal?.aborted === true) throw signal.reason ?? new DOMException('模型调用已取消', 'AbortError');
     // Reasoning-capable plan models can legitimately need more than five minutes for
     // long-form planning and review. Aborting a paid-plan request leaves the remote
@@ -204,6 +209,7 @@ function thinkingField(
   purpose: ModelPurpose,
   maxOutputTokens: number
 ): { thinking?: { type: 'enabled' | 'disabled'; budget_tokens?: number } } {
+  if (purpose === 'interactive_planning') return { thinking: { type: 'disabled' } };
   // 火山方舟套餐端点：glm-5.3 与 kimi-k2.7-code 拒绝 disabled（400 InvalidParameter），
   // 统一启用有预算的思考。2026-08-18 实测。
   // 例外：MiniMax M3 的预算并不生效——生产实测 budget_tokens=16000 下它仍把

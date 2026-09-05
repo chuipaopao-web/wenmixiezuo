@@ -15,7 +15,7 @@ export const novelRoleKeys = [
 export type NovelRoleKey = RoleKey;
 export type ModelRuntimeMode = 'deterministic' | 'subscription-plan';
 export type ModelPlan = 'deterministic' | 'coding' | 'agent';
-export type ModelPurpose = 'discussion' | 'structured_planning' | 'novel_writer' | 'novel_reviewer' | 'review_synthesis';
+export type ModelPurpose = 'discussion' | 'structured_planning' | 'interactive_planning' | 'novel_writer' | 'novel_reviewer' | 'review_synthesis';
 
 export interface RoleModelProfile {
   provider: string;
@@ -170,6 +170,7 @@ export function thinkingTokenAllowance(
   maxOutputTokens?: number,
   promptChars?: number
 ): number {
+  if (purpose === 'interactive_planning') return 0;
   // 本地确定性夹具不经过真实模型，没有思考开销。
   if (modelId === 'wenmi-fixture-v1') return 0;
   // MiniMax M3 在任何用途下都关闭思考（预算对它不生效，会把全部额度烧进思考块），

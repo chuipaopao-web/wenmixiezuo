@@ -142,6 +142,7 @@
 .creation-member-selects { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 10px; }
 .creation-member-select { display: grid; gap: 5px; color: var(--ink-muted); font-size: 13px; }
 .creation-member-select > span { min-height: 34px; display: grid; grid-template-columns: 28px auto 1fr; align-items: center; gap: 7px; }
+.creation-member-select > span:not(:has(> i)) { grid-template-columns: auto minmax(0, 1fr); }
 .creation-member-select > span > i { width: 28px; height: 28px; border: 2px solid #fff; border-radius: 50%; background-image: var(--member-avatar-sprite); background-size: 700% 100%; box-shadow: 0 0 0 1px var(--line); }
 .creation-member-select > span > b { color: var(--ink); }
 .creation-member-select > span > small { justify-self: end; color: var(--ink-faint); font-size: 11px; font-weight: 560; }

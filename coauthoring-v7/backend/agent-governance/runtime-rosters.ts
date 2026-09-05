@@ -69,7 +69,7 @@ export function creationRosterFromGlobal(
 ): V7CreationMemberDefinition[] {
   const deputies = structuredOutputMembers(strongMembers(textMembers(members, 'deputy_editor')));
   const chiefs = structuredOutputMembers(textMembers(members, 'chief_editor'));
-  const planners = structuredOutputMembers(strongMembers(textMembers(members, 'planning_writer')));
+  const planners = structuredOutputMembers(textMembers(members, 'planning_writer'));
   const writers = textMembers(members, 'lead_writer');
   const reviewers = reviewOutputMembers(strongMembers(textMembers(members, 'independent_reviewer')));
   const continuity = structuredOutputMembers(strongMembers(textMembers(members, 'continuity_editor')));

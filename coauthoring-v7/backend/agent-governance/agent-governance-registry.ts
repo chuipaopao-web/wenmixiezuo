@@ -90,6 +90,7 @@ export const V7_GLOBAL_MEMBERS: readonly V7GlobalMemberDefinition[] = [
   member('planner-deepseek-v4-pro', '红玉', 'planning_writer', 'deepseek-v4-pro', 1, true),
   member('planner-glm-5-3', '幼薇', 'planning_writer', 'glm-5.3', 2),
   member('planner-kimi-k3', '苏映棠', 'planning_writer', 'kimi-k3', 3),
+  member('planner-doubao-turbo', '陆青禾', 'planning_writer', 'doubao-seed-2.1-turbo', 4),
 
   member('writer-deepseek-v4-pro', '司马相如', 'lead_writer', 'deepseek-v4-pro', 1, true),
   member('writer-kimi-k3', '清照', 'lead_writer', 'kimi-k3', 2),
@@ -122,6 +123,7 @@ export const V7_MODEL_PROFILE_LABELS: Readonly<Record<string, string>> = {
 export function allowedModelProfilesForRole(roleKey: V7FixedRoleKey): readonly string[] {
   if (roleKey === 'visual_renderer') return ['doubao-seedream'];
   if (roleKey === 'lead_writer') return V7_TEXT_MODEL_PROFILE_KEYS;
+  if (roleKey === 'planning_writer') return [...V7_STRONG_MODEL_PROFILE_KEYS, 'doubao-seed-2.1-turbo'];
   return V7_STRONG_MODEL_PROFILE_KEYS;
 }
 
@@ -190,8 +192,8 @@ export function validateGlobalAgentRegistry(members: readonly V7GlobalMemberDefi
     if (!['kimi-k3', 'doubao-seedream'].includes(candidate.modelProfileKey) && candidate.model.plan !== 'coding') {
       errors.push(`${candidate.displayName}的文本模型必须使用Coding Plan`);
     }
-    if (candidate.modelProfileKey === 'doubao-seed-2.1-turbo' && candidate.fixedRoleKey !== 'lead_writer') {
-      errors.push(`${candidate.displayName}的豆包模型只能担任主笔`);
+    if (candidate.modelProfileKey === 'doubao-seed-2.1-turbo' && !['lead_writer', 'planning_writer'].includes(candidate.fixedRoleKey)) {
+      errors.push(`${candidate.displayName}的豆包模型只能担任主笔或策划编剧`);
     }
   }
   const minimums: Record<V7FixedRoleKey, number> = {

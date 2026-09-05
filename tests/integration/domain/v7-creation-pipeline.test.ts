@@ -15,6 +15,7 @@ import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/m
 import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
 import { V7CreationModelGateway } from '../../../apps/api/src/infrastructure/models/v7-creation-model-gateway.js';
 import { V7CreationContextCompiler } from '../../../apps/api/src/application/creation/v7-creation-context-compiler.js';
+import { creationWorkflowBindingsAreCurrent } from '../../../apps/api/src/application/creation/v7-creation-workflow-service.js';
 import { V7CreationRuntimeRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-creation-runtime-repository.js';
 import { V7PlanningTreeService } from '../../../apps/api/src/application/planning/v7-planning-tree-service.js';
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
@@ -30,6 +31,41 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7全链路创作总线', () => {
+  it('未通过结构的成功响应如实交接；新增成员不阻断旧绑定，换模型仍失效', async () => {
+    context = createTestContext('wenmi-v7-option-handoff-');
+    const base = new CreationResolver();
+    const resolver: V7OpeningModelAdapterResolver = { resolve(provider, modelId, purpose) {
+      const adapter = base.resolve(provider, modelId, purpose);
+      return { ...adapter, generate: async (input, signal) => input.agentId === 'planner-deepseek-v4-pro' && purpose === 'interactive_planning'
+        ? { provider, modelId, output: '{}', inputTokens: 10, outputTokens: 2, cashCostCny: 0, state: 'succeeded' as const }
+        : adapter.generate(input, signal) };
+    } };
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'handoff-r104@example.com', '交接测试');
+      const bookId = await createBook(app, cookie, '交接测试书', 'handoff-r104-book');
+      const ownerId = String(context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId)!.owner_id);
+      confirmSetting(ownerId, bookId);
+      seedConfirmedBookTree(new V7PlanningTreeService(context.database, new SequenceIds(), new FixedClock()), ownerId, bookId);
+      const created = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/creation-workflows`, {
+        volumeScopeId: 'volume-1', candidateCount: 1, idempotencyKey: 'handoff-r104-workflow'
+      });
+      const id = created.json().data.workflowId;
+      const ready = await pollWorkflow(app, cookie, bookId, id, 'volume_decision');
+      expect(ready.actors).toEqual(expect.arrayContaining([
+        expect.objectContaining({ memberKey: 'planner-deepseek-v4-pro', status: 'handed_over' }),
+        expect.objectContaining({ memberKey: 'planner-doubao-turbo', status: 'completed', message: '我的方案已交付，您可以查看和选择。' })
+      ]));
+      const repository = new V7CreationRuntimeRepository(context.database);
+      const run = repository.workflow(ownerId, bookId, id)!;
+      const checkpoint = JSON.parse(run.checkpoint_json);
+      checkpoint.runtimeBindingRoster.members = checkpoint.runtimeBindingRoster.members.filter((m: { memberKey: string }) => m.memberKey !== 'planner-doubao-turbo');
+      const oldRun = { ...run, checkpoint_json: JSON.stringify(checkpoint) };
+      expect(creationWorkflowBindingsAreCurrent(repository, oldRun, creationRosterFromGlobal())).toBe(true);
+      const changed = creationRosterFromGlobal().map(m => m.memberKey === 'planner-deepseek-v4-pro' ? { ...m, model: { ...m.model, modelId: 'deepseek-v4-flash' } } : m);
+      expect(creationWorkflowBindingsAreCurrent(repository, oldRun, changed)).toBe(false);
+    } finally { await app.close(); }
+  });
   it('资料整理明确失败可在原任务恢复，未知结果不能重复下单', async () => {
     context = createTestContext('wenmi-context-resume-');
     const resolver = new ContextRepairResolver('repair-failed');
@@ -170,7 +206,7 @@ describe('V7全链路创作总线', () => {
       expect(volumeReady).toMatchObject({ status: 'waiting_for_you', completedOptions: 3, expectedOptions: 3, firstVolume: true });
       expect(volumeReady.options).toHaveLength(3);
       expect(new Set(volumeReady.options.map((item: { name: string }) => item.name)).size).toBe(3);
-      expect(new Set(volumeReady.options.map((item: { memberName: string }) => item.memberName)).size).toBe(3);
+      expect(new Set(volumeReady.options.map((item: { memberName: string }) => item.memberName)).size).toBe(2);
       expect(volumeReady.options.map((item: { seat: string }) => item.seat)).toEqual(['方案一', '方案二', '方案三']);
       for (const option of volumeReady.options) {
         expect(option).toMatchObject({
@@ -259,7 +295,7 @@ describe('V7全链路创作总线', () => {
       const chainReady = await pollWorkflow(app, cookie, bookId, workflowId, 'chain_decision');
       expect(chainReady).toMatchObject({ status: 'waiting_for_you', chainScopeId: 'chain-1', completedOptions: 3 });
       expect(chainReady.options).toHaveLength(3);
-      expect(new Set(chainReady.options.map((item: { memberName: string }) => item.memberName)).size).toBe(3);
+      expect(new Set(chainReady.options.map((item: { memberName: string }) => item.memberName)).size).toBe(2);
       for (const option of chainReady.options) expect(option.steps.length).toBeGreaterThan(0);
 
       const chosenChain = await request(app, cookie, 'POST',
@@ -669,7 +705,7 @@ describe('V7全链路创作总线', () => {
 
   it('一名编剧请假时保留另外两套方案，恢复后只补失败席再交由主编比较', async () => {
     context = createTestContext('wenmi-v7-creation-partial-options-');
-    const resolver = new CreationResolver('glm-5.3');
+    const resolver = new CreationResolver('本方案必须提供只适合本书');
     const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'creation-partial@example.com', '部分方案作者');
@@ -700,7 +736,7 @@ describe('V7全链路创作总线', () => {
       expect(ready.options.map((option: { optionId: string }) => option.optionId)).toEqual(
         expect.arrayContaining(preservedOptionIds)
       );
-      expect(new Set(ready.options.map((item: { memberName: string }) => item.memberName)).size).toBe(3);
+      expect(new Set(ready.options.map((item: { memberName: string }) => item.memberName)).size).toBeLessThanOrEqual(2);
       expect(context.database.prepare(`SELECT DISTINCT contract.operation_mode,contract.based_on_task_id
         FROM v7_task_contracts contract
         INNER JOIN v7_creation_model_calls call ON call.request_id=contract.task_id
@@ -729,7 +765,7 @@ describe('V7全链路创作总线', () => {
       const workflowId = created.json().data.workflowId as string;
       const ready = await pollWorkflow(app, cookie, bookId, workflowId, 'volume_decision');
       expect(ready.options).toHaveLength(3);
-      expect(new Set(ready.options.map((option: { memberName: string }) => option.memberName)).size).toBe(3);
+      expect(new Set(ready.options.map((option: { memberName: string }) => option.memberName)).size).toBe(2);
       const lineage = context.database.prepare(`SELECT call.request_id,call.node_key,call.member_key,
           contract.operation_mode,contract.based_on_task_id
         FROM v7_creation_model_calls call
@@ -839,7 +875,7 @@ describe('V7全链路创作总线', () => {
     }
   });
 
-  it('作者不能把同一位编剧同时安排到两套方案', async () => {
+  it('三套方案可由两位快速编剧独立完成，作者也可重复选同一编剧', async () => {
     context = createTestContext('wenmi-v7-creation-distinct-writers-');
     const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new CreationResolver() });
     try {
@@ -854,8 +890,8 @@ describe('V7全链路创作总线', () => {
       expect(roster.some((member) => ['structure_writer', 'commercial_writer', 'character_writer'].includes(member.roleKey))).toBe(false);
       expect(roster.some((member) => member.roleKey === 'outline_writer')).toBe(false);
       const planningMembers = roster.filter((member) => member.roleKey === 'planning_writer');
-      expect(planningMembers).toHaveLength(3);
-      expect(new Set(planningMembers.map((member) => member.memberKey)).size).toBe(3);
+      expect(planningMembers).toHaveLength(4);
+      expect(new Set(planningMembers.map((member) => member.memberKey)).size).toBe(4);
       const first = planningMembers[0]!;
 
       const rejected = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/creation-workflows`, {
@@ -866,8 +902,9 @@ describe('V7全链路创作总线', () => {
         },
         idempotencyKey: 'creation-workflow-distinct-0001'
       });
-      expect(rejected.statusCode).toBe(409);
-      expect(rejected.json().error.message).toContain('不同成员');
+      expect(rejected.statusCode).toBe(200);
+      const ready = await pollWorkflow(app, cookie, bookId, rejected.json().data.workflowId, 'volume_decision');
+      expect(ready.completedOptions).toBe(3);
     } finally {
       await app.close();
     }
@@ -882,7 +919,7 @@ describe('V7全链路创作总线', () => {
     expect(parsed.risks).toEqual([]);
   });
 
-  it('强模型技术失败时不让已成功成员伪装成第三套方案', async () => {
+  it('GLM不可用也不进入方案队列，三套分别保存且如实显示两名实际成员', async () => {
     context = createTestContext('wenmi-v7-creation-option-technical-cover-');
     const resolver = new GlmPlanningFailureResolver();
     const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
@@ -898,18 +935,18 @@ describe('V7全链路创作总线', () => {
       });
       expect(created.statusCode).toBe(200);
       const workflowId = created.json().data.workflowId as string;
-      const partial = await pollIncompleteOptions(app, cookie, bookId, workflowId, 2);
-      expect(partial).toMatchObject({ status: 'partially_failed', completedOptions: 2, expectedOptions: 3 });
-      expect(partial.options).toHaveLength(2);
+      const partial = await pollWorkflow(app, cookie, bookId, workflowId, 'volume_decision');
+      expect(partial).toMatchObject({ status: 'waiting_for_you', completedOptions: 3, expectedOptions: 3 });
+      expect(partial.options).toHaveLength(3);
       expect(new Set(partial.options.map((item: { memberKey: string }) => item.memberKey)).size).toBe(2);
-      expect(partial.chiefReview).toBeNull();
+      expect(partial.chiefReview).not.toBeNull();
       expect(context.database.prepare(`SELECT state FROM v7_creation_model_calls
         WHERE owner_id=? AND book_id=? AND workflow_id=? AND model_id='glm-5.3' AND run_kind='option'`)
-        .get(ownerId, bookId, workflowId)).toEqual({ state: 'failed' });
+        .get(ownerId, bookId, workflowId)).toBeUndefined();
       expect(context.database.prepare(`SELECT MAX(member_count) AS count FROM (
         SELECT COUNT(*) AS member_count FROM v7_creation_options
         WHERE owner_id=? AND book_id=? AND workflow_id=? GROUP BY member_key
-      )`).get(ownerId, bookId, workflowId)).toEqual({ count: 1 });
+      )`).get(ownerId, bookId, workflowId)).toEqual({ count: 2 });
     } finally {
       await app.close();
     }
@@ -986,7 +1023,7 @@ describe('V7全链路创作总线', () => {
     }
   });
 
-  it('创作任务思考烧穿时用加大额度升级重试一次，重试仍烧穿则明确失败', async () => {
+  it('资料任务保留有限思考补偿，快速方案不再加预算重跑', async () => {
     context = createTestContext('wenmi-v7-creation-thinking-burn-');
     const app = await createServer(context.config, context.database);
     try {
@@ -1000,8 +1037,8 @@ describe('V7全链路创作总线', () => {
       });
       const requestInput = {
         requestId: 'creation-burn-request-0001', ownerId, bookId, workflowId,
-        runKind: 'option' as const, nodeKey: 'chain-1', workstationKey: 'volume' as const,
-        member: creationFallbackChain('planning_writer')[0]!,
+        runKind: 'context' as const, nodeKey: 'chain-1', workstationKey: 'volume' as const,
+        member: creationFallbackChain('context_editor')[0]!,
         purpose: 'structured_planning' as const, operationMode: 'fresh' as const,
         basedOnTaskId: null, authorInstructionVersion: null, sourceTraces: [],
         prompt: '设计本卷方向。', maxOutputTokens: 1_000, temperature: 0.2
@@ -1021,6 +1058,11 @@ describe('V7全链路创作总线', () => {
         ...requestInput, requestId: 'creation-burn-request-0002'
       })).rejects.toMatchObject({ message: expect.stringContaining('已用加大额度重试一次') });
       expect(alwaysBurn.budgets).toEqual([1_000, 17_000]);
+      const optionBurn = new ThinkingBurnResolver(99);
+      await expect(new V7CreationModelGateway(context.database, optionBurn, new FixedClock()).generate({
+        ...requestInput, requestId: 'creation-burn-option-0003', runKind: 'option', member: creationFallbackChain('planning_writer')[0]!
+      })).rejects.toThrow('max_tokens');
+      expect(optionBurn.budgets).toEqual([1_000]);
       expect(context.database.prepare('SELECT state FROM v7_creation_model_calls WHERE request_id=?')
         .get('creation-burn-request-0002')).toEqual({ state: 'failed' });
     } finally {
@@ -1747,7 +1789,9 @@ function contextSelectionOutput(prompt: string, excludeOneOptionalSource: boolea
 function optionOutput(prompt: string): string {
   const kind = /treeKind="(volume|chain)"/u.exec(prompt)?.[1] as 'volume' | 'chain';
   const scopeId = /scopeId="([^"]+)"/u.exec(prompt)?.[1] ?? 'unknown';
-  const perspective = prompt.includes('局势递进') || prompt.includes('"publicName":"结构递进"') || prompt.includes('deepseek-v4-pro')
+  const perspective = prompt.includes('本方案必须提供只适合本书') ? '人物抉择'
+    : prompt.includes('本方案必须主动避开已有方案') ? '强回报'
+    : prompt.includes('局势递进') || prompt.includes('"publicName":"结构递进"') || prompt.includes('deepseek-v4-pro')
     ? '结构递进'
     : prompt.includes('追读兑现') || prompt.includes('"publicName":"强回报"') || prompt.includes('glm-5.3')
       ? '强回报'

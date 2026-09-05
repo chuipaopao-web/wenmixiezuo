@@ -28,6 +28,7 @@ const mockedOpening = vi.mocked(opening);
 describe('V7卷链章创作工作台', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     window.history.replaceState({}, '', '/?view=volume&bookId=book-1');
     mockedOpening.fetchPlanningTree.mockImplementation(async (_bookId, treeKind) =>
       treeKind === 'book' ? bookTree() : treeKind === 'volume' ? volumeTree() : chainTree()
@@ -52,6 +53,25 @@ describe('V7卷链章创作工作台', () => {
     mockedCreation.confirmCreationOutline.mockResolvedValue({});
   });
   afterEach(cleanup);
+
+  it('选择三套后重新打开仍提交三套，按书隔离数量且隐藏停用的方案模型', async () => {
+    mockedCreation.fetchLatestCreationWorkflow.mockResolvedValue(null);
+    mockedCreation.fetchCreationMembers.mockResolvedValue(members().map((member) => ({
+      ...member, availableForOptions: member.memberKey !== 'planner-kimi-k3' && member.memberKey !== 'planner-glm-5-3'
+    })));
+    const first = render(<CreationWorkspacePage bookId="book-1" focus="volume" onNavigate={vi.fn()} />);
+    fireEvent.click(await screen.findByText('需要多做几套对比？'));
+    fireEvent.click(screen.getByRole('button', { name: '3套' }));
+    expect(screen.getByRole('button', { name: '生成3套本卷方案' })).toBeVisible();
+    expect(screen.queryByRole('option', { name: '苏映棠' })).not.toBeInTheDocument();
+    first.unmount();
+    const second = render(<CreationWorkspacePage bookId="book-1" focus="volume" onNavigate={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '生成3套本卷方案' }));
+    await waitFor(() => expect(mockedCreation.createCreationWorkflow).toHaveBeenCalledWith('book-1', 'volume-1', '', 3, {}));
+    second.unmount();
+    render(<CreationWorkspacePage bookId="book-2" focus="volume" onNavigate={vi.fn()} />);
+    expect(await screen.findByRole('button', { name: '生成1套本卷方案' })).toBeVisible();
+  });
 
   it('默认说明剩余成本并允许作者选择托管或逐章确认', async () => {
     render(<CreationWorkspacePage bookId="book-1" focus="chapter" onNavigate={vi.fn()} />);
@@ -169,7 +189,7 @@ describe('V7卷链章创作工作台', () => {
     fireEvent.click(screen.getByRole('button', { name: '3套' }));
     expect(screen.getByText('方案二编剧')).toBeVisible();
     expect(screen.getByText('方案三编剧')).toBeVisible();
-    expect(screen.getAllByText('自动安排不同成员')).toHaveLength(3);
+    expect(document.querySelectorAll('.creation-member-select small')).toHaveLength(4);
     expect(screen.queryByText('结构编剧')).not.toBeInTheDocument();
     expect(screen.queryByText('追读编剧')).not.toBeInTheDocument();
     expect(screen.queryByText('人物编剧')).not.toBeInTheDocument();

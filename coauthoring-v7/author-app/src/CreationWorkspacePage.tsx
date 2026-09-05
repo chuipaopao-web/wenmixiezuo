@@ -56,6 +56,22 @@ type CreationLibraryChain = CreationLibraryVolume['chains'][number];
 type CreationLibraryChapter = NonNullable<CreationLibraryChain['outline']>['chapters'][number];
 type ChapterDirectoryEntry = CreationLibraryChapter & { chainScopeId: string };
 
+function usePlanningCandidateCount(scope: string): [1 | 2 | 3, (count: 1 | 2 | 3) => void] {
+  const key = `wenmi:planning-count:${scope}`;
+  const read = (): 1 | 2 | 3 => {
+    try {
+      const value = window.localStorage.getItem(key);
+      return value === '3' ? 3 : value === '2' ? 2 : 1;
+    } catch { return 1; }
+  };
+  const [selection, setSelection] = useState(() => ({ key, count: read() }));
+  const count = selection.key === key ? selection.count : read();
+  return [count, (next) => {
+    try { window.localStorage.setItem(key, String(next)); } catch { /* 禁用存储时仍支持本次选择。 */ }
+    setSelection({ key, count: next });
+  }];
+}
+
 export function CreationWorkspacePage({ bookId, focus, onNavigate }: {
   bookId: string;
   focus: Focus;
@@ -74,7 +90,7 @@ export function CreationWorkspacePage({ bookId, focus, onNavigate }: {
   const [goal, setGoal] = useState('');
   const [authorNote, setAuthorNote] = useState('');
   const [preferences, setPreferences] = useState<Record<string, string>>({});
-  const [candidateCount, setCandidateCount] = useState<1 | 2 | 3>(1);
+  const [candidateCount, setCandidateCount] = usePlanningCandidateCount(`volume:${bookId}`);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -320,7 +336,7 @@ export function CreationWorkspacePage({ bookId, focus, onNavigate }: {
             onConfirm={() => volumeTree === null ? undefined : action(() => confirmPlanningTree(bookId, 'volume', workflow.volumeScopeId, volumeTree.revision))}
             footer={volumeTree?.status === 'confirmed'
               ? workflow.stage === 'volume_tree_confirmation'
-                ? <ChainEntry tree={volumeTree} members={members} busy={busy} onStart={(scopeId, count, selectedMembers) => action(
+                ? <ChainEntry bookId={bookId} tree={volumeTree} members={members} busy={busy} onStart={(scopeId, count, selectedMembers) => action(
                     () => continueCreationToChain(bookId, workflow.workflowId, scopeId, count, selectedMembers),
                     () => onNavigate('chain')
                   )}/>
@@ -591,7 +607,7 @@ function ChainContinuation({ workflow, members, busy, onContinue }: {
   busy: boolean;
   onContinue: (scopeId: string, candidateCount: 1 | 2 | 3, preferences: Record<string, string>) => void;
 }): React.JSX.Element {
-  const [candidateCount, setCandidateCount] = useState<1 | 2 | 3>(1);
+  const [candidateCount, setCandidateCount] = usePlanningCandidateCount(`chain:${workflow.bookId}`);
   const [preferences, setPreferences] = useState<Record<string, string>>({});
   const stopped = workflow.status === 'cancelled';
   return <section className="creation-start-panel">
@@ -721,12 +737,12 @@ function VolumeStart({ nodes, selected, goal, members, preferences, candidateCou
   onPreference: (selection: CreationMemberSelectionKey, memberKey: string) => void; onStart: () => void;
 }): React.JSX.Element {
   return <section className="creation-start-panel">
-    <div className="creation-compact-heading"><span><strong>{completed ? '继续设计下一卷' : '选择要开始的卷'}</strong><small>默认由一位强模型成员设计；需要比较时再增加方案。</small></span></div>
+    <div className="creation-compact-heading"><span><strong>{completed ? '继续设计下一卷' : '选择要开始的卷'}</strong><small>按所选套数安排编剧，资料整理不计入方案数量。</small></span></div>
     <div className="creation-volume-list">{nodes.map((node) => <button key={node.key} type="button" aria-pressed={selected === node.linkedTree?.scopeId} onClick={() => onSelect(node.linkedTree?.scopeId ?? '')}><b>{node.title}</b><span>{node.story.summary}</span><small>{node.budget.wordTarget === null ? '篇幅由内容决定' : `${Math.round(node.budget.wordTarget / 10_000)}万字左右`}</small></button>)}</div>
     <PlanningCandidatePicker candidateCount={candidateCount} members={members} preferences={preferences}
       onCount={onCandidateCount} onPreference={onPreference}/>
     <label className="creation-author-note"><span>本卷还有特别想法（可不填）</span><textarea maxLength={2000} value={goal} onChange={(event) => onGoal(event.target.value)} placeholder="例如：这一卷先写小人物求生，卷末获得第一支真正听命于他的队伍。" /></label>
-    <button className="creation-primary" type="button" disabled={busy || selected.length === 0} onClick={onStart}><UsersThreeIcon />{busy ? '正在建立任务…' : '请编辑部设计本卷'}</button>
+    <button className="creation-primary" type="button" disabled={busy || selected.length === 0} onClick={onStart}><UsersThreeIcon />{busy ? '正在建立任务…' : `生成${candidateCount}套本卷方案`}</button>
   </section>;
 }
 
@@ -856,14 +872,15 @@ function planningBudgetCopy(node: PlanningTreeNodeView): string {
   return `${chapters} · ${words}`;
 }
 
-function ChainEntry({ tree, members, busy, onStart }: {
+function ChainEntry({ bookId, tree, members, busy, onStart }: {
+  bookId: string;
   tree: PlanningTreeView;
   members: CreationMember[];
   busy: boolean;
   onStart: (scopeId: string, candidateCount: 1 | 2 | 3, preferences: Record<string, string>) => void;
 }): React.JSX.Element {
   const chains = tree.root.children.filter((node) => node.linkedTree?.treeKind === 'chain');
-  const [candidateCount, setCandidateCount] = useState<1 | 2 | 3>(1);
+  const [candidateCount, setCandidateCount] = usePlanningCandidateCount(`chain:${bookId}`);
   const [preferences, setPreferences] = useState<Record<string, string>>({});
   return <section className="creation-chain-entry">
     <PlanningCandidatePicker candidateCount={candidateCount} members={members} preferences={preferences}
@@ -885,10 +902,10 @@ function PlanningCandidatePicker({ candidateCount, members, preferences, onCount
     <div className="creation-candidate-count" role="group" aria-label="方案数量">
       {([1, 2, 3] as const).map((count) => <button key={count} type="button" aria-pressed={candidateCount === count} onClick={() => onCount(count)}>{count}套</button>)}
     </div>
-    <p>{candidateCount === 1 ? '默认一位强模型成员直接设计，最省时间和额度。' : showComparisonChief ? '每套由不同成员独立完成，完成两套以上后主编再给一份比较建议。' : '每套由不同成员独立完成，并分别接受主编检查。'}</p>
+    <p>{showComparisonChief ? `本轮交付${candidateCount}套方案。使用快速方案成员独立生成，成员可承担多套；资料整理不算方案。${candidateCount > 1 ? '方案齐备后再给出比较建议。' : ''}` : '每套由不同成员独立完成，并分别接受主编检查。'}</p>
     <div className="creation-member-selects">
       {(['option_1', 'option_2', 'option_3'] as const).slice(0, candidateCount).map((seat, index) => <MemberSelect
-        key={seat} role="planning_writer" label={`方案${['一', '二', '三'][index]}编剧`} autoAssign members={members}
+        key={seat} role="planning_writer" label={`方案${['一', '二', '三'][index]}编剧`} autoAssign members={members.filter((member) => showComparisonChief ? member.availableForOptions !== false : member.availableForOutlines !== false)}
         value={preferences[seat] ?? ''} onChange={(value) => onPreference(seat, value)}
       />)}
       {showComparisonChief && candidateCount > 1 && <MemberSelect role="chief_editor" label="比较主编" members={members}
@@ -1010,7 +1027,7 @@ function ChapterOutlineReference({ workflow }: { workflow: CreationWorkflowView 
 function MemberSelect({ role, label, autoAssign = false, members, value, onChange }: { role: CreationRoleKey; label?: string; autoAssign?: boolean; members: CreationMember[]; value: string; onChange: (value: string) => void }): React.JSX.Element {
   const choices = uniqueByMemberKey(members.filter((member) => member.roleKey === role));
   const selected = findMemberByIdentity(choices, value) ?? (autoAssign ? undefined : choices.find((member) => member.defaultForRole) ?? choices[0]);
-  return <label className="creation-member-select"><span>{selected !== undefined && <i style={{ backgroundPosition: memberAvatarPosition(selected.memberKey) }} aria-hidden="true" />}<b>{label ?? publicRoleLabel(choices[0]?.role, choices[0]?.roleKey)}</b><small>{selected === undefined ? '自动安排不同成员' : value.length === 0 ? `默认由${memberDisplayName(selected.memberKey, selected.name)}优先接单` : `${memberDisplayName(selected.memberKey, selected.name)}负责本轮`}</small></span><select value={value} onChange={(event) => onChange(event.target.value)}><option value="">编辑部自动安排{autoAssign ? '（自动避重）' : ''}</option>{choices.map((member) => <option key={member.memberKey} value={member.memberKey}>{memberDisplayName(member.memberKey, member.name)}{member.defaultForRole && !autoAssign ? '（推荐）' : ''}</option>)}</select></label>;
+  return <label className="creation-member-select"><span>{selected !== undefined && <i style={{ backgroundPosition: memberAvatarPosition(selected.memberKey) }} aria-hidden="true" />}<b>{label ?? publicRoleLabel(choices[0]?.role, choices[0]?.roleKey)}</b><small>{selected === undefined ? '编辑部自动安排' : value.length === 0 ? `默认由${memberDisplayName(selected.memberKey, selected.name)}优先接单` : `${memberDisplayName(selected.memberKey, selected.name)}负责本轮`}</small></span><select value={value} onChange={(event) => onChange(event.target.value)}><option value="">编辑部自动安排</option>{choices.map((member) => <option key={member.memberKey} value={member.memberKey}>{memberDisplayName(member.memberKey, member.name)}{member.defaultForRole && !autoAssign ? '（推荐）' : ''}</option>)}</select></label>;
 }
 
 function creationChapterDirectory(

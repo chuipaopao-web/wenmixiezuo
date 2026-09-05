@@ -273,7 +273,7 @@ export class V7CreationWorkflowService {
     const authorGoal = optionalText(input.authorGoal, '本卷想法', 2_000);
     const candidateCount = planningCandidateCount(input.candidateCount);
     const idempotencyKey = actionKey(input.idempotencyKey);
-    this.assertDistinctPlanningPreferences(input.memberPreferences);
+    this.validatePlanningPreferences(input.memberPreferences);
     const bookTree = this.requireConfirmedTree(ownerId, bookId, 'book', bookId);
     assertLinkedTree(bookTree, 'volume', volumeScopeId, '这一本卷不在已确认全书树中。');
     const firstVolume = this.planning.confirmedTrees(ownerId, bookId, 'volume').length === 0;
@@ -463,13 +463,15 @@ export class V7CreationWorkflowService {
     }));
   }
 
-  public members(): Array<{ memberKey: string; name: string; roleKey: V7CreationMemberDefinition['roleKey']; role: string; defaultForRole: boolean }> {
+  public members(): Array<{ memberKey: string; name: string; roleKey: V7CreationMemberDefinition['roleKey']; role: string; defaultForRole: boolean; availableForOptions: boolean; availableForOutlines: boolean }> {
     return this.memberRoster().filter((member) => member.enabledByDefault).map((member) => ({
       memberKey: member.memberKey,
       name: member.displayName,
       roleKey: member.roleKey,
       role: roleName(member.roleKey),
-      defaultForRole: member.defaultForRole
+      defaultForRole: member.defaultForRole,
+      availableForOptions: member.roleKey !== 'planning_writer' || fastOptionMember(member),
+      availableForOutlines: member.memberKey !== 'planner-doubao-turbo'
     }));
   }
 
@@ -687,7 +689,7 @@ export class V7CreationWorkflowService {
     const volumeTree = this.requireConfirmedTree(ownerId, bookId, 'volume', run.volume_scope_id);
     const chainScopeId = key(input.chainScopeId, '单元链编号');
     const candidateCount = planningCandidateCount(input.candidateCount);
-    this.assertDistinctPlanningPreferences(input.memberPreferences);
+    this.validatePlanningPreferences(input.memberPreferences);
     assertLinkedTree(volumeTree, 'chain', chainScopeId, '这条单元链不在已确认本卷树中。');
     this.saveMemberPreferences(ownerId, bookId, workflowId, input.memberPreferences);
     this.repository.updateWorkflow({
@@ -747,7 +749,7 @@ export class V7CreationWorkflowService {
       : available.find((item) => item.scopeId === requested);
     if (next === undefined) return { volumeComplete: true, workflow: null };
     const candidateCount = planningCandidateCount(input.candidateCount);
-    this.assertDistinctPlanningPreferences(input.memberPreferences);
+    this.validatePlanningPreferences(input.memberPreferences);
     const idempotencyKey = actionKey(input.idempotencyKey);
     const requestHash = sha256(stableJson({
       action: 'continue_chain', parentWorkflowId: parent.workflow_id, chainScopeId: next.scopeId, candidateCount
@@ -830,7 +832,7 @@ export class V7CreationWorkflowService {
     for (const [index, seat] of workSeats.entries()) {
       const preferred = selectedMembers[index] ?? this.outlineCandidateMembers(undefined, requestedCount)
         .find((member) => !usedMembers.has(member.memberKey));
-      const memberCandidates = creationFallbackChain('planning_writer', preferred?.memberKey, this.memberRoster())
+      const memberCandidates = creationFallbackChain('planning_writer', preferred?.memberKey, this.outlineRoster())
         .filter((member) => member.memberKey === preferred?.memberKey || !usedMembers.has(member.memberKey));
       try {
         const nodeKey = `${run.chain_scope_id}:${seat}`;
@@ -1296,7 +1298,10 @@ export class V7CreationWorkflowService {
       await this.runOptionSeat(run, context, kind, scopeId, seat, [member], attemptMarker);
     }));
     this.ensureActive(run.owner_id, run.book_id, run.workflow_id);
-    for (const outcome of outcomes) if (outcome.status === 'rejected') failures.push(publicFailure(outcome.reason));
+    for (const outcome of outcomes) if (outcome.status === 'rejected') {
+      if (outcome.reason instanceof V7CreationModelError && outcome.reason.outcomeUnknown) throw outcome.reason;
+      failures.push(publicFailure(outcome.reason));
+    }
 
     for (const seat of seats) {
       let completed = this.repository.options(run.owner_id, run.book_id, run.workflow_id, kind);
@@ -1323,6 +1328,7 @@ export class V7CreationWorkflowService {
       try {
         await this.runOptionSeat(run, context, kind, scopeId, seat, fallback, attemptMarker);
       } catch (error) {
+        if (error instanceof V7CreationModelError && error.outcomeUnknown) throw error;
         failures.push(publicFailure(error));
       }
       completed = this.repository.options(run.owner_id, run.book_id, run.workflow_id, kind);
@@ -1394,7 +1400,7 @@ export class V7CreationWorkflowService {
           ownerId: run.owner_id, bookId: run.book_id, workflowId: run.workflow_id, role,
           runKind: 'option', nodeKey: `${kind}:${scopeId}:${seat}`, workstationKey: kind,
           purpose: 'structured_planning',
-          maxOutputTokens: kind === 'volume' ? 8_000 : 5_000,
+          maxOutputTokens: kind === 'volume' ? 12_000 : 5_000,
           temperature: seat === 'option_2' ? 0.68 : 0.58,
           operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
           sourceTraces: context.sourceTraces,
@@ -1418,7 +1424,7 @@ export class V7CreationWorkflowService {
             runKind: 'option', nodeKey: `${kind}:${scopeId}:${seat}:repair`, workstationKey: kind,
             // 这是封闭的 JSON 合同修复，不是第二次策划。关闭发散思考，
             // 只补结构；不得为几个技术字段再消耗一轮完整规划预算。
-            purpose: 'novel_reviewer', maxOutputTokens: kind === 'volume' ? 8_000 : 5_000, temperature: 0.12,
+            purpose: 'novel_reviewer', maxOutputTokens: kind === 'volume' ? 12_000 : 5_000, temperature: 0.12,
             operationMode: 'repair', basedOnTaskId: result.requestId, authorInstructionVersion: null,
             sourceTraces: context.sourceTraces,
             requestPrefix: `creation-option-repair:${run.workflow_id}:${kind}:${scopeId}:${seat}:${sha256(result.output)}`,
@@ -1518,8 +1524,9 @@ export class V7CreationWorkflowService {
     if (preferred !== undefined && !this.memberRoster().some((member) => member.memberKey === preferred)) {
       throw conflict(retiredCreationBindingMessage());
     }
-    const eligibleRoster = input.excludeModelSignature === undefined ? this.memberRoster()
-      : this.memberRoster().filter((member) => modelSignature(member) !== input.excludeModelSignature);
+    const nodeRoster = input.workstationKey === 'chapter_outline' ? this.outlineRoster() : this.memberRoster();
+    const eligibleRoster = input.excludeModelSignature === undefined ? nodeRoster
+      : nodeRoster.filter((member) => modelSignature(member) !== input.excludeModelSignature);
     const eligiblePreferred = eligibleRoster.some((member) => member.memberKey === preferred) ? preferred : undefined;
     const candidates = input.memberCandidates ?? creationFallbackChain(input.role, eligiblePreferred, eligibleRoster);
     for (const member of candidates) {
@@ -1560,7 +1567,7 @@ export class V7CreationWorkflowService {
       run.owner_id, run.book_id, run.workflow_id, run.chain_scope_id
     );
     const checkpoint = json(run.checkpoint_json) as {
-      manuscriptVersionId?: unknown; optionRevision?: unknown; expectedOutlineCount?: unknown;
+      manuscriptVersionId?: unknown; optionRevision?: unknown; expectedOutlineCount?: unknown; contextPackId?: unknown;
     };
     const currentOptionRevision = optionRevisionFeedback(checkpoint.optionRevision);
     const manuscriptId = typeof checkpoint.manuscriptVersionId === 'string' ? checkpoint.manuscriptVersionId : null;
@@ -1574,10 +1581,15 @@ export class V7CreationWorkflowService {
     const nextChapter = sequenceContent?.chapters.find((chapter) => !completedNumbers.has(chapter.chapterNumber))?.chapterNumber ?? null;
     const totalChapters = sequenceContent?.chapters.length ?? 0;
     const calls = this.repository.modelCallsForWorkflow(run.owner_id, run.book_id, run.workflow_id);
+    const contextRow = typeof checkpoint.contextPackId === 'string'
+      ? this.repository.contextPack(run.owner_id, run.book_id, checkpoint.contextPackId) : undefined;
+    const deliveredOptionNodes = new Set((['volume', 'chain'] as const).flatMap((kind) =>
+      this.repository.options(run.owner_id, run.book_id, run.workflow_id, kind).map((option) =>
+        `${option.member_key}:${kind}:${option.scope_id}:${persistedOptionSeat(option.seat_key)}`)));
     const actors = actorViews([
       ...calls,
       ...this.repository.maintenanceActorCalls(run.owner_id, run.book_id, run.workflow_id)
-    ], run, this.memberRoster());
+    ], run, this.memberRoster(), deliveredOptionNodes, contextRow?.status === 'active' ? contextRow.assigned_member_key : null);
     const remainingChains = this.remainingChains(run);
     const managed = this.repository.managedRun(run.owner_id, run.book_id, run.workflow_id);
     const timing = workflowTiming(run, this.clock.now(), calls);
@@ -1724,18 +1736,16 @@ export class V7CreationWorkflowService {
     }
   }
 
-  private assertDistinctPlanningPreferences(raw: unknown): void {
+  private validatePlanningPreferences(raw: unknown): void {
     if (raw === undefined || raw === null) return;
     if (typeof raw !== 'object' || Array.isArray(raw)) throw new DomainError(errorCodes.validation, '成员选择无效。');
-    const memberKeys: string[] = [];
     for (const [rawSelection, rawMember] of Object.entries(raw as Record<string, unknown>)) {
       if (!isOptionSeatKey(rawSelection) || rawMember === undefined || rawMember === null || rawMember === '') continue;
       const memberKey = key(rawMember, '成员编号');
       const member = this.memberRoster().find((item) => item.memberKey === memberKey && item.roleKey === 'planning_writer' && item.enabledByDefault);
       if (member === undefined) throw conflict('这位成员不负责当前岗位或正在请假。');
-      memberKeys.push(member.memberKey);
     }
-    if (new Set(memberKeys).size !== memberKeys.length) throw conflict('多套方案需要由不同成员完成，请不要重复选择同一位成员。');
+    // 方案独立按席位执行；成员人数不限制作者选择的方案套数。
   }
 
   private freezeCurrentRuntimeBindings(run: V7CreationWorkflowRow): V7CreationWorkflowRow {
@@ -1774,7 +1784,7 @@ export class V7CreationWorkflowService {
         : [key(raw, '章纲成员编号')];
     if (requestedKeys.length > count) throw conflict(`本轮只设计${count}套章纲，请不要多选成员。`);
     if (new Set(requestedKeys).size !== requestedKeys.length) throw conflict('多套章纲需要由不同成员完成。');
-    const available = creationFallbackChain('planning_writer', undefined, this.memberRoster());
+    const available = creationFallbackChain('planning_writer', undefined, this.outlineRoster());
     const selected = requestedKeys.map((memberKey) => {
       const member = available.find((candidate) => candidate.memberKey === memberKey);
       if (member === undefined) throw conflict('这位成员不负责章纲或正在请假。');
@@ -1788,9 +1798,16 @@ export class V7CreationWorkflowService {
     return selected;
   }
 
+  private outlineRoster(): readonly V7CreationMemberDefinition[] {
+    return this.memberRoster().filter((member) => member.memberKey !== 'planner-doubao-turbo');
+  }
+
   private optionMemberCandidates(run: V7CreationWorkflowRow, seat: OptionSeatKey): V7CreationMemberDefinition[] {
     const preferred = this.repository.optionMemberPreference(run.owner_id, run.book_id, run.workflow_id, seat)?.member_key;
-    return creationFallbackChain('planning_writer', preferred, this.memberRoster());
+    const available = this.memberRoster().filter((member) => member.roleKey === 'planning_writer' && fastOptionMember(member))
+      .toSorted((a, b) => fastOptionPriority(a) - fastOptionPriority(b))
+      .map((member, index) => ({ ...member, fallbackPriority: index + 1, defaultForRole: index === 0 }));
+    return creationFallbackChain('planning_writer', available.some((member) => member.memberKey === preferred) ? preferred : undefined, available);
   }
 
   private distinctInitialAssignments(
@@ -1802,12 +1819,14 @@ export class V7CreationWorkflowService {
     const usedMemberKeys = new Set(existing.map((item) => item.member_key));
     const usedModels = new Set(existing.map((item) => memberModelSignature(item.member_snapshot_json)).filter((value): value is string => value !== null));
     for (const seat of seats) {
-      const candidates = this.optionMemberCandidates(run, seat).filter((member) => !usedMemberKeys.has(member.memberKey));
-      const selected = candidates.find((member) => {
+      const available = this.optionMemberCandidates(run, seat);
+      const candidates = available.filter((member) => !usedMemberKeys.has(member.memberKey));
+      const preferred = this.repository.optionMemberPreference(run.owner_id, run.book_id, run.workflow_id, seat)?.member_key;
+      const selected = available.find((member) => member.memberKey === preferred) ?? candidates.find((member) => {
         const signature = modelSignature(member);
         return signature !== undefined && !usedModels.has(signature);
-      }) ?? candidates[0];
-      if (selected === undefined) throw conflict('当前没有足够的不同规划成员完成本轮，请减少方案数量或稍后重试。');
+      }) ?? candidates[0] ?? available[0];
+      if (selected === undefined) throw conflict('当前没有可用的方案成员，请稍后重试。');
       assignments.set(seat, selected);
       usedMemberKeys.add(selected.memberKey);
       const selectedSignature = modelSignature(selected);
@@ -2000,9 +2019,21 @@ function creationFailureMessage(message: string): string {
   return message.startsWith('对不起') || message.startsWith('抱歉') ? message : `对不起，这次没有完成。${message}`;
 }
 
-function actorViews(calls: V7CreationActorCallRow[], run: V7CreationWorkflowRow, roster: readonly V7CreationMemberDefinition[]): V7CreationWorkflowView['actors'] {
+function fastOptionPriority(member: V7CreationMemberDefinition): number {
+  return ['deepseek-v4-pro', 'doubao-seed-2.1-turbo'].indexOf(member.model.modelId);
+}
+
+function fastOptionMember(member: V7CreationMemberDefinition): boolean {
+  return fastOptionPriority(member) >= 0 || member.model.provider.startsWith('local-deterministic');
+}
+
+function actorViews(calls: V7CreationActorCallRow[], run: V7CreationWorkflowRow, roster: readonly V7CreationMemberDefinition[], deliveredOptionNodes: ReadonlySet<string>, contextMemberKey: string | null): V7CreationWorkflowView['actors'] {
   const latestByMember = new Map<string, V7CreationActorCallRow>();
-  for (const call of calls) latestByMember.set(call.member_key, call);
+  for (const call of calls) {
+    // 同一成员可并行承担多个方案，已有一份返回不能盖住仍在执行的另一份。
+    if (latestByMember.get(call.member_key)?.state === 'working' && call.state !== 'working') continue;
+    latestByMember.set(call.member_key, call);
+  }
   if (latestByMember.size === 0) {
     const chief = roster.find((member) => member.roleKey === 'chief_editor' && member.defaultForRole)!;
     return [{
@@ -2018,15 +2049,25 @@ function actorViews(calls: V7CreationActorCallRow[], run: V7CreationWorkflowRow,
   }
   return [...latestByMember.values()].map((call) => {
     const member = roster.find((item) => item.memberKey === call.member_key);
-    const handedOver = call.state === 'failed' && calls.some((other) => other.node_key === call.node_key && other.started_at > call.started_at);
+    const baseNode = call.node_key.replace(/:repair$/u, '');
+    const delivered = call.run_kind === 'option'
+      ? deliveredOptionNodes.has(`${call.member_key}:${baseNode}`)
+      : call.run_kind === 'context' && contextMemberKey !== null ? contextMemberKey === call.member_key : null;
+    const handedOver = delivered === false
+      ? calls.some((other) => other.member_key !== call.member_key && other.started_at >= call.started_at
+        && (call.run_kind === 'context' ? other.run_kind === 'context' : other.node_key.replace(/:repair$/u, '') === baseNode))
+      : call.state === 'failed' && calls.some((other) => other.node_key === call.node_key && other.started_at > call.started_at);
     const unfinishedContext = call.run_kind === 'context' && (run.stage === 'context_selection' || call === calls.at(-1));
-    const status = unfinishedContext && (run.status === 'failed' || run.status === 'unknown')
+    const status = delivered === true ? 'completed' : handedOver ? 'handed_over'
+      : delivered === false && !['working', 'queued'].includes(run.status) ? 'failed'
+      : unfinishedContext && (run.status === 'failed' || run.status === 'unknown')
       ? 'failed'
       : unfinishedContext && call.state === 'succeeded' && (run.status === 'working' || run.status === 'queued')
         ? 'working'
         : call.state === 'working'
       ? 'working'
-      : call.state === 'succeeded'
+        : delivered === false && call.state === 'succeeded' ? 'working'
+        : call.state === 'succeeded'
         ? 'completed'
         : handedOver
           ? 'handed_over'
@@ -2039,7 +2080,8 @@ function actorViews(calls: V7CreationActorCallRow[], run: V7CreationWorkflowRow,
       message: status === 'working'
         ? workingMessage(call.run_kind)
         : status === 'completed'
-          ? '这部分已经完成，我把结果交给下一位同事啦。'
+          ? call.run_kind === 'option' ? '我的方案已交付，您可以查看和选择。'
+            : call.run_kind === 'context' ? '资料已整理好，编剧可以开始设计了。' : '这部分已经完成，我把结果交给下一位同事啦。'
           : status === 'handed_over'
             ? '对不起，我这次没能完成，工作已经交给同事继续。'
             : unfinishedContext
@@ -2251,8 +2293,13 @@ export function creationWorkflowBindingsAreCurrent(
   members: readonly V7CreationMemberDefinition[]
 ): boolean {
   const current = currentCreationRuntimeBindingSnapshot(members);
-  const checkpoint = json(run.checkpoint_json) as { runtimeBindingRoster?: unknown };
-  if (stableJson(checkpoint.runtimeBindingRoster) !== stableJson(current)) return false;
+  const checkpoint = json(run.checkpoint_json) as { runtimeBindingRoster?: V7CreationRuntimeBindingSnapshot };
+  const stored = checkpoint.runtimeBindingRoster;
+  if (stored?.schema !== current.schema || !Array.isArray(stored.members)) return false;
+  // 新增成员或调整顺序不会改变既有结果的真实模型身份。旧成员删除、改岗或换模型仍失效。
+  if (!stored.members.every((previous) => current.members.some((member) =>
+    member.memberKey === previous.memberKey && member.roleKey === previous.roleKey
+      && member.provider === previous.provider && member.modelId === previous.modelId && member.plan === previous.plan))) return false;
   const currentByKey = new Map(members
     .filter((member) => member.enabledByDefault)
     .map((member) => [member.memberKey, member] as const));

@@ -19,15 +19,15 @@ import { buildPlanningFallbackChain } from '../planning-methods/planning-editori
 describe('V7统一成员与模型治理', () => {
   it('全局成员一人一岗且岗位数量完整', () => {
     expect(validateGlobalAgentRegistry()).toEqual([]);
-    expect(V7_GLOBAL_MEMBERS).toHaveLength(22);
-    expect(new Set(V7_GLOBAL_MEMBERS.map((member) => member.displayName)).size).toBe(22);
+    expect(V7_GLOBAL_MEMBERS).toHaveLength(23);
+    expect(new Set(V7_GLOBAL_MEMBERS.map((member) => member.displayName)).size).toBe(23);
     expect(membersForFixedRole('planning_writer').map((member) => member.modelProfileKey)).toEqual([
-      'deepseek-v4-pro', 'glm-5.3', 'kimi-k3'
+      'deepseek-v4-pro', 'glm-5.3', 'kimi-k3', 'doubao-seed-2.1-turbo'
     ]);
     expect(membersForFixedRole('lead_writer')).toHaveLength(6);
     expect(membersForFixedRole('independent_reviewer')).toHaveLength(3);
     expect(V7_GLOBAL_MEMBERS.filter((member) => member.modelProfileKey === 'doubao-seed-2.1-turbo')
-      .every((member) => member.fixedRoleKey === 'lead_writer')).toBe(true);
+      .every((member) => ['lead_writer', 'planning_writer'].includes(member.fixedRoleKey))).toBe(true);
     expect(V7_GLOBAL_MEMBERS.some((member) => member.modelProfileKey === 'minimax-m3')).toBe(false);
   });
 
