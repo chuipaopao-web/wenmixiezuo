@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { FastifyInstance } from 'fastify';
+import { readRebuildControl } from '../application/admin/rebuild-control-service.js';
+import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
 import { success } from '../contracts/api.js';
 import { DomainError, errorCodes } from '../domain/errors.js';
 import { requireAdministrator, requireAuthenticatedAccount } from '../infrastructure/security/auth-context.js';
@@ -15,8 +17,13 @@ import {
 const ISSUE_STATUSES = ['open', 'in_progress', 'resolved', 'ignored'] as const;
 const ISSUE_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
 
-export async function registerV7AdminConsoleRoutes(app: FastifyInstance, database: DatabaseSync): Promise<void> {
+export async function registerV7AdminConsoleRoutes(app: FastifyInstance, database: DatabaseSync, config: RuntimeConfig): Promise<void> {
   const taskAudit = new V7TaskAuditRepository(database);
+  app.get('/api/v1/admin/rebuild-control', async (request, reply) => {
+    requireAdministrator(request);
+    reply.header('Cache-Control', 'no-store');
+    return success(await readRebuildControl(config, database), request.id);
+  });
   app.get<{
     Params: { runKind: string; runId: string };
     Querystring: { ownerId?: string; bookId?: string };

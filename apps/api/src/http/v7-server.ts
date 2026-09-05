@@ -61,7 +61,7 @@ export async function createV7Server(
   const modelAdapters = new ModelAdapterFactory(config.modelRuntime);
   await registerAccountRoutes(app, accounts, new MembershipService(database, new SystemClock()));
   await registerV7AdminPlatformRoutes(app, database);
-  await registerV7AdminConsoleRoutes(app, database);
+  await registerV7AdminConsoleRoutes(app, database, config);
   await registerV7OpeningAgentRoutes(app, database, options.v7OpeningModelAdapters ?? modelAdapters, {
     codingPlan: config.modelRuntime.endpoints.coding.apiKey !== undefined,
     agentPlan: config.modelRuntime.endpoints.agent.apiKey !== undefined

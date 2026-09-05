@@ -183,6 +183,7 @@
 - `PATCH /api/v1/admin/issues/:sourceType/:sourceId`
 - `GET /api/v1/admin/membership-stats`
 - `GET /api/v1/admin/feature-capabilities`
+- `GET /api/v1/admin/rebuild-control`：第96批新增管理员只读功能地图；读取固定开发顺序表，返回逐项说明/顺序/状态/85项来源映射、现有配置入口及当前环境运行样本。响应禁止缓存；文档不可核对返回503。没有写进度、运行模型或改配置的副作用。
 - `GET /api/v1/admin/v7/planning-runtime/:runKind/:runId`
 - `GET /api/v1/v7/admin/planning-tasks`
 - `GET /api/v1/v7/admin/creation-workflows`

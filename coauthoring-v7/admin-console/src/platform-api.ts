@@ -1,3 +1,8 @@
+import type { RebuildControlData } from '../../backend/admin/rebuild-control-types.js';
+
+export const fetchRebuildControl = (signal?: AbortSignal): Promise<RebuildControlData> =>
+  platformRequest('/api/v1/admin/rebuild-control', signal === undefined ? {} : { signal });
+
 export interface AdminAccount {
   userId: string;
   email: string;

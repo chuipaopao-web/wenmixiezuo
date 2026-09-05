@@ -53,7 +53,7 @@ export function AdminRoot(): React.JSX.Element {
 
   if (account === undefined) return <main className="asset-auth-state" role="status" aria-live="polite">
     <span className="asset-spinner" />
-    <strong>正在核验 V7 后台身份</strong>
+    <strong>正在核验后台身份</strong>
     <p>生产数据只向平台管理员开放。</p>
   </main>;
 
@@ -104,19 +104,19 @@ function AdminLogin({ initialError, onAuthenticated, onRetry }: {
 
   return <main className="asset-login">
     <section>
-      <div className="asset-login-brand"><span className="asset-brand-mark">文</span><div><strong>文秘写作 V7</strong><small>独立管理后台</small></div></div>
+      <div className="asset-login-brand"><span className="asset-brand-mark">文</span><div><strong>文秘写作</strong><small>产品管理后台</small></div></div>
       <span className="asset-login-kicker">ADMIN CONSOLE</span>
       <h1>登录管理后台</h1>
-      <p>创作资产、运营数据和问题记录与作者创作台分开管理。</p>
+      <p>在这里查看功能地图、管理配置、跟进重构与运营问题。</p>
       <form onSubmit={(event) => void submit(event)}>
         <label>管理员邮箱<input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
         <label>密码<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
         {error !== null && <div className="asset-login-error" role="alert"><span>{error}</span>{initialError !== null && <button type="button" onClick={onRetry}>重新核验</button>}</div>}
-        <button className="asset-login-submit" type="submit" disabled={busy}>{busy ? '正在登录…' : '进入 V7 管理后台'}</button>
+        <button className="asset-login-submit" type="submit" disabled={busy}>{busy ? '正在登录…' : '进入管理后台'}</button>
       </form>
       <a href={AUTHOR_SITE_ORIGIN}><ArrowLeft aria-hidden="true" />返回作者创作台</a>
     </section>
-    <aside aria-hidden="true"><span>V7</span><strong>创作资产与平台运营<br />在独立后台统一管理。</strong><p>账号、会员和问题处理与作者创作台清楚分开。</p></aside>
+    <aside aria-hidden="true"><span>文</span><strong>看清每一项功能，<br />跟进每一步开发。</strong><p>功能地图、配置与运营，在独立后台统一管理。</p></aside>
   </main>;
 }
 

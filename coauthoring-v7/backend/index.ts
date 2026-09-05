@@ -1,4 +1,5 @@
 export * from './agents/agent-failure-policy.js';
+export type { RebuildConfiguration, RebuildControlData, RebuildSourceFeature, RebuildTaskSignal, RebuildUnit } from './admin/rebuild-control-types.js';
 export * from './agents/agent-roster.js';
 export * from './agents/agent-skills.js';
 export * from './agents/agent-tools.js';

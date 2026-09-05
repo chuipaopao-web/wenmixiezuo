@@ -73,6 +73,7 @@ const BUILD_RESOURCES: ReadonlyArray<{
   { path: '.gitattributes', productRole: 'shared-platform', evidence: { kind: 'deploy-allowlist', from: 'source archive normalization' } },
   { path: '.npmrc', productRole: 'shared-platform', evidence: { kind: 'package-entry', from: 'package.json' } },
   { path: 'RELEASE_ID', productRole: 'deployment-operations', evidence: { kind: 'deploy-allowlist', from: 'release identity' } },
+  { path: 'docs/REBUILD_EXECUTION_PLAN.md', productRole: 'v7-admin', evidence: { kind: 'deploy-allowlist', from: 'readRebuildControl fixed document source' } },
   { path: 'package.json', productRole: 'shared-platform', evidence: { kind: 'package-entry', from: 'workspace root' } },
   { path: 'package-lock.json', productRole: 'shared-platform', evidence: { kind: 'package-entry', from: 'package.json' } },
   { path: 'tsconfig.base.json', productRole: 'shared-platform', evidence: { kind: 'tsconfig-build', from: 'workspace tsconfig chain' } },

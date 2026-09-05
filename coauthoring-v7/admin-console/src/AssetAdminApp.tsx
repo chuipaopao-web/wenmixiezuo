@@ -41,8 +41,12 @@ import { AgentGovernancePage } from './AgentGovernancePage';
 import { CreationOperationsPage } from './CreationOperationsPage';
 import { PromptContextCenter } from './PromptContextCenter';
 import { FeatureCapabilitiesPage } from './FeatureCapabilitiesPage';
+import { RebuildControlCenter } from './RebuildControlCenter';
 
 const NAVIGATION = [
+  { key: 'rebuild', label: '功能地图', icon: GitBranch, group: '产品管理' },
+  { key: 'configuration', label: '配置中心', icon: ClipboardText, group: '产品管理' },
+  { key: 'features', label: '现有能力对照', icon: ClipboardText, group: '产品管理' },
   { key: 'overview', label: '资产总览', icon: House, group: '创作资产' },
   { key: 'methods', label: '叙事方法', icon: TextT, group: '创作资产' },
   { key: 'patterns', label: '剧情模式', icon: BookOpen, group: '创作资产' },
@@ -51,7 +55,6 @@ const NAVIGATION = [
   { key: 'agents', label: '创作成员', icon: Robot, group: '创作团队' },
   { key: 'prompt-context', label: '提示词与上下文', mobileLabel: '提示词', icon: TextT, group: '创作团队' },
   { key: 'creation-ops', label: '创作运行', icon: GitBranch, group: '创作团队' },
-  { key: 'features', label: '功能台账', icon: ClipboardText, group: '平台运营' },
   { key: 'operations', label: '运营总览', icon: ChartLineUp, group: '平台运营' },
   { key: 'users', label: '用户与书籍', icon: Users, group: '平台运营' },
   { key: 'usage', label: '算力与成本', icon: CurrencyCircleDollar, group: '平台运营' },
@@ -59,7 +62,7 @@ const NAVIGATION = [
   { key: 'memberships', label: '会员与收入', icon: Crown, group: '平台运营' }
 ] as const;
 
-type AdminSection = AssetSection | PlatformSection | 'agents' | 'prompt-context' | 'creation-ops' | 'features';
+type AdminSection = AssetSection | PlatformSection | 'agents' | 'prompt-context' | 'creation-ops' | 'features' | 'rebuild' | 'configuration';
 
 const DEFAULT_METHOD_FILTERS: MethodFilters = { query: '', dimension: 'all', scope: 'all' };
 const DEFAULT_PATTERN_FILTERS: PatternFilters = { query: '', category: 'all', genre: 'all' };
@@ -114,13 +117,19 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
   };
 
   useEffect(() => {
+    const restore = (): void => { setSection(sectionFromUrl()); setDetail(null); };
+    window.addEventListener('popstate', restore);
+    return () => window.removeEventListener('popstate', restore);
+  }, []);
+
+  useEffect(() => {
     const currentButton = mobileNavigationRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
     currentButton?.scrollIntoView({ block: 'nearest', inline: 'center' });
   }, [section]);
 
   return <div className="asset-admin-app">
     <aside className="asset-sidebar" aria-label="V7 管理后台导航">
-      <header><span className="asset-brand-mark">文</span><div><strong>V7 管理后台</strong><small>创作资产与平台运营</small></div></header>
+      <header><span className="asset-brand-mark">文</span><div><strong>文秘产品管理</strong><small>功能、配置与平台运营</small></div></header>
       <nav>{NAVIGATION.map(({ key, label, icon: Icon, group }, index) => <Fragment key={key}>
         {(index === 0 || NAVIGATION[index - 1]?.group !== group) && <span className="asset-nav-group">{group}</span>}
         <button
@@ -135,7 +144,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
 
     <div className="asset-stage">
       <header className="asset-topbar">
-        <div><small>V7 / {current.group}</small><h1>{current.label}</h1></div>
+        <div><small>文秘写作 / {current.group}</small><h1>{current.label}</h1></div>
         {(section === 'methods' || section === 'patterns' || section === 'recipes') && <label className="asset-global-search">
           <MagnifyingGlass aria-hidden="true" />
           <span className="sr-only">搜索当前资产</span>
@@ -145,6 +154,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
       </header>
 
       <main className="asset-content">
+        {(section === 'rebuild' || section === 'configuration') && <RebuildControlCenter mode={section === 'rebuild' ? 'map' : 'configuration'} onNavigate={navigate} />}
         {section === 'overview' && <OverviewPage onNavigate={(next) => navigate(next)} />}
         {section === 'methods' && <MethodsPage items={methods} filters={methodFilters} onFilters={setMethodFilters} onOpen={(value) => setDetail({ kind: 'method', value })} onClear={clearFilters} />}
         {section === 'patterns' && <PatternsPage items={patterns} filters={patternFilters} onFilters={setPatternFilters} onOpen={(value) => setDetail({ kind: 'pattern', value })} onClear={clearFilters} />}
@@ -553,14 +563,16 @@ function EmptyState({ onClear }: { onClear: () => void }): React.JSX.Element {
 
 function sectionFromUrl(): AdminSection {
   const value = new URL(window.location.href).searchParams.get('section');
-  return NAVIGATION.some((item) => item.key === value) ? value as AdminSection : 'overview';
+  return NAVIGATION.some((item) => item.key === value) ? value as AdminSection : 'rebuild';
 }
 
 function sectionCapabilityLabel(section: AdminSection): string {
+  if (section === 'rebuild') return '计划与运行分列';
+  if (section === 'configuration') return '统一管理入口';
   if (section === 'agents' || section === 'prompt-context' || section === 'users' || section === 'issues' || section === 'memberships') return '可管理';
   if (section === 'operations' || section === 'usage') return '实时数据';
   if (section === 'creation-ops') return '运行只读';
-  if (section === 'features') return '实时台账';
+  if (section === 'features') return '版本能力对照';
   return '资产只读';
 }
 
