@@ -1,4 +1,4 @@
 interface:
   display_name: "文秘写作开发闭环"
-  short_description: "先拆开发清单，再逐项实现、验收、测试和报备"
+  short_description: "区分小修与重构，按授权范围实施并相称验证"
   default_prompt: "Use $wenmi-development-workflow to turn this boss request into a checked, tested development batch."
