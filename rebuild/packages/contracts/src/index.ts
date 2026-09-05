@@ -63,8 +63,20 @@ export const revokeOtherSessionsSchema = z.object({
   revoked: z.number().int().min(0)
 });
 
+export const accountProfileSchema = z.object({
+  displayName: accountDisplayNameSchema,
+  profileVersion: z.number().int().positive().max(2_147_483_647)
+});
+
+export const accountProfileUpdateSchema = z.strictObject({
+  displayName: accountDisplayNameSchema,
+  expectedVersion: z.number().int().positive().max(2_147_483_647)
+});
+
 export type ServiceName = z.infer<typeof serviceNameSchema>;
 export type FoundationStatus = z.infer<typeof foundationStatusSchema>;
 export type SafeErrorResponse = z.infer<typeof safeErrorResponseSchema>;
 export type PublicAccount = z.infer<typeof publicAccountSchema>;
 export type AuthSessionResult = z.infer<typeof authSessionResultSchema>;
+export type AccountProfile = z.infer<typeof accountProfileSchema>;
+export type AccountProfileUpdate = z.infer<typeof accountProfileUpdateSchema>;

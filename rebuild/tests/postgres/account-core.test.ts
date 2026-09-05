@@ -285,6 +285,94 @@ describe("real PostgreSQL account core", () => {
     const row = await migratorPool.query("SELECT 1 FROM account_users WHERE user_id = $1", [userId]);
     expect(row.rowCount).toBe(0);
   });
+
+  it("reads and updates only the current user's profile with optimistic versions", async () => {
+    const created = await service.createInternalUser({ email: "profile@example.com", displayName: " 原昵称 ", password: "profile password value" });
+    await service.verifyEmailToken((await service.issueEmailVerificationToken(created.account.userId)).token);
+    const session = await service.login({ email: created.account.email, password: "profile password value", ipAddress: "127.0.0.1" });
+
+    await expect(service.getProfile(session.token)).resolves.toEqual({ displayName: "原昵称", profileVersion: 1 });
+    await expect(service.updateProfile({ sessionToken: session.token, displayName: " 原昵称 ", expectedVersion: 1 }))
+      .resolves.toEqual({ displayName: "原昵称", profileVersion: 1 });
+    await expect(service.updateProfile({ sessionToken: session.token, displayName: "新昵称", expectedVersion: 1 }))
+      .resolves.toEqual({ displayName: "新昵称", profileVersion: 2 });
+    await expect(service.updateProfile({ sessionToken: session.token, displayName: "旧请求覆盖", expectedVersion: 1 }))
+      .rejects.toMatchObject({ code: "ACCOUNT_PROFILE_CONFLICT" });
+
+    const audit = await migratorPool.query<{ event_type: string; result: string }>(
+      "SELECT event_type, result FROM account_security_audit_events WHERE event_type = 'profile_update' ORDER BY occurred_at"
+    );
+    expect(audit.rows).toEqual([
+      { event_type: "profile_update", result: "succeeded" },
+      { event_type: "profile_update", result: "rejected" }
+    ]);
+  });
+
+  it("allows only one concurrent profile update for the same version", async () => {
+    const created = await service.createInternalUser({ email: "profile-race@example.com", displayName: "并发作者", password: "profile race password" });
+    await service.verifyEmailToken((await service.issueEmailVerificationToken(created.account.userId)).token);
+    const session = await service.login({ email: created.account.email, password: "profile race password", ipAddress: "127.0.0.1" });
+
+    const results = await Promise.allSettled([
+      service.updateProfile({ sessionToken: session.token, displayName: "并发一", expectedVersion: 1 }),
+      service.updateProfile({ sessionToken: session.token, displayName: "并发二", expectedVersion: 1 })
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    await expect(service.getProfile(session.token)).resolves.toMatchObject({ profileVersion: 2 });
+  });
+
+  it("rejects profile writes from revoked, suspended, or credential-stale sessions", async () => {
+    const created = await service.createInternalUser({ email: "profile-auth@example.com", displayName: "认证作者", password: "profile auth password" });
+    await service.verifyEmailToken((await service.issueEmailVerificationToken(created.account.userId)).token);
+    const first = await service.login({ email: created.account.email, password: "profile auth password", ipAddress: "127.0.0.1" });
+    const second = await service.login({ email: created.account.email, password: "profile auth password", ipAddress: "127.0.0.1" });
+
+    await service.revokeOtherSessions(first.token);
+    await expect(service.updateProfile({ sessionToken: second.token, displayName: "撤销后", expectedVersion: 1 }))
+      .rejects.toMatchObject({ code: "AUTHENTICATION_REQUIRED" });
+
+    await service.changePassword({
+      sessionToken: first.token,
+      currentPassword: "profile auth password",
+      nextPassword: "profile auth changed",
+      ipAddress: "127.0.0.1"
+    });
+    await expect(service.updateProfile({ sessionToken: first.token, displayName: "改密后", expectedVersion: 1 }))
+      .rejects.toMatchObject({ code: "AUTHENTICATION_REQUIRED" });
+
+    const fresh = await service.login({ email: created.account.email, password: "profile auth changed", ipAddress: "127.0.0.1" });
+    await migratorPool.query("UPDATE account_users SET status = 'suspended' WHERE user_id = $1", [created.account.userId]);
+    await expect(service.updateProfile({ sessionToken: fresh.token, displayName: "停用后", expectedVersion: 1 }))
+      .rejects.toMatchObject({ code: "AUTHENTICATION_REQUIRED" });
+  });
+
+  it("rolls back profile changes when same-transaction audit fails", async () => {
+    const created = await service.createInternalUser({ email: "profile-rollback@example.com", displayName: "未修改", password: "profile rollback password" });
+    const repository = new PostgresAccountRepository(appPool);
+
+    await expect(repository.withTransaction(async (client) => {
+      const account = await repository.findByUserId(client, created.account.userId, true);
+      if (account === null) throw new Error("missing account");
+      const updated = await repository.updateProfileDisplayName(client, account.userId, "不应提交");
+      await repository.recordAudit(client, {
+        auditId: randomUUID(),
+        userId: updated.userId,
+        actorUserId: updated.userId,
+        eventType: "profile_update",
+        result: "succeeded",
+        email: updated.email,
+        detail: { token: "blocked" }
+      });
+    })).rejects.toBeTruthy();
+
+    const row = await migratorPool.query<{ display_name: string; profile_version: number }>(
+      "SELECT display_name, profile_version FROM account_users WHERE user_id = $1",
+      [created.account.userId]
+    );
+    expect(row.rows[0]).toMatchObject({ display_name: "未修改", profile_version: 1 });
+  });
 });
 
 async function truncateAccounts(pool: PgPool): Promise<void> {

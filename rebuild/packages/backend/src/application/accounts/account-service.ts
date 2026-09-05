@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { accountDisplayNameSchema, accountEmailSchema, publicAccountSchema, type PublicAccount } from "@wenmi-rebuild/contracts";
+import {
+  accountDisplayNameSchema,
+  accountEmailSchema,
+  accountProfileSchema,
+  publicAccountSchema,
+  type AccountProfile,
+  type PublicAccount
+} from "@wenmi-rebuild/contracts";
 import { DomainError } from "../../domain/errors.js";
 import {
   hashNewPassword,
@@ -49,6 +56,12 @@ export interface PasswordChangeInput {
   readonly currentPassword: string;
   readonly nextPassword: string;
   readonly ipAddress: string;
+}
+
+export interface ProfileUpdateInput {
+  readonly sessionToken: string;
+  readonly displayName: string;
+  readonly expectedVersion: number;
 }
 
 export class AccountCoreService {
@@ -254,6 +267,41 @@ export class AccountCoreService {
       await this.audit(client, "sessions_revoke_others", "succeeded", session.account, session.account.userId, { revokedSessions: revoked });
       return { revoked };
     });
+  }
+
+  public async getProfile(sessionToken: string): Promise<AccountProfile> {
+    const session = await this.locateValidSession(sessionToken);
+    if (session === null) throw new DomainError("AUTHENTICATION_REQUIRED", "请先登录。");
+    return accountProfile(session.account);
+  }
+
+  public async updateProfile(input: ProfileUpdateInput): Promise<AccountProfile> {
+    const displayName = normalizeDisplayName(input.displayName);
+    const expectedVersion = validateExpectedProfileVersion(input.expectedVersion);
+    const result = await this.repository.withTransaction(async (client) => {
+      const session = await this.lockAndValidateSession(client, input.sessionToken);
+      if (session.account.profileVersion !== expectedVersion) {
+        await this.audit(client, "profile_update", "rejected", session.account, session.account.userId, {
+          reason: "version_conflict",
+          expectedVersion,
+          currentVersion: session.account.profileVersion
+        });
+        return { kind: "conflict" as const, profile: accountProfile(session.account) };
+      }
+      if (session.account.displayName === displayName) {
+        return { kind: "ok" as const, profile: accountProfile(session.account) };
+      }
+      const updated = await this.repository.updateProfileDisplayName(client, session.account.userId, displayName);
+      await this.audit(client, "profile_update", "succeeded", updated, updated.userId, {
+        previousVersion: session.account.profileVersion,
+        nextVersion: updated.profileVersion
+      });
+      return { kind: "ok" as const, profile: accountProfile(updated) };
+    });
+    if (result.kind === "conflict") {
+      throw new DomainError("ACCOUNT_PROFILE_CONFLICT", "资料已经更新，请刷新后重试。");
+    }
+    return result.profile;
   }
 
   public cookieFromToken(token: string): string {
@@ -463,6 +511,13 @@ function publicAccount(account: AccountRecord): PublicAccount {
   });
 }
 
+function accountProfile(account: AccountRecord): AccountProfile {
+  return accountProfileSchema.parse({
+    displayName: account.displayName,
+    profileVersion: account.profileVersion
+  });
+}
+
 function normalizeEmail(raw: string): string {
   const parsed = accountEmailSchema.safeParse(raw);
   if (!parsed.success) {
@@ -477,6 +532,13 @@ function normalizeDisplayName(raw: string): string {
     throw new DomainError("ACCOUNT_INPUT_INVALID", "昵称需要1至80个字符。");
   }
   return parsed.data;
+}
+
+function validateExpectedProfileVersion(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 2_147_483_647) {
+    throw new DomainError("ACCOUNT_INPUT_INVALID", "资料版本已经失效，请刷新后重试。");
+  }
+  return value;
 }
 
 function samePasswordRecord(left: PasswordRecord, right: PasswordRecord): boolean {

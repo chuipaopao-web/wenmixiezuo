@@ -48,6 +48,7 @@ type AccountRow = {
   password_p: number;
   password_key_length: 64;
   credential_version: number;
+  profile_version: number;
   created_at: Date | string;
   updated_at: Date | string;
   last_login_at: Date | string | null;
@@ -135,6 +136,17 @@ export class PostgresAccountRepository {
        WHERE user_id = $1
        RETURNING ${accountColumns()}`,
       [userId, password.format, password.salt, password.hash, password.n, password.r, password.p, password.keyLength]
+    );
+    return mapAccount(result.rows[0]!);
+  }
+
+  public async updateProfileDisplayName(client: PgClient, userId: string, displayName: string): Promise<AccountRecord> {
+    const result = await client.query<AccountRow>(
+      `UPDATE account_users
+       SET display_name = $2, profile_version = profile_version + 1, updated_at = clock_timestamp()
+       WHERE user_id = $1
+       RETURNING ${accountColumns()}`,
+      [userId, displayName]
     );
     return mapAccount(result.rows[0]!);
   }
@@ -366,7 +378,7 @@ function accountColumns(alias?: string): string {
   return `${prefix}user_id, ${prefix}owner_id, ${prefix}email_normalized, ${prefix}display_name,
     ${prefix}role, ${prefix}status, ${prefix}email_verified_at, ${prefix}password_format,
     ${prefix}password_salt, ${prefix}password_hash, ${prefix}password_n, ${prefix}password_r,
-    ${prefix}password_p, ${prefix}password_key_length, ${prefix}credential_version,
+    ${prefix}password_p, ${prefix}password_key_length, ${prefix}credential_version, ${prefix}profile_version,
     ${prefix}created_at, ${prefix}updated_at, ${prefix}last_login_at`;
 }
 
@@ -393,6 +405,7 @@ function mapAccount(row: AccountRow): AccountRecord {
       keyLength: 64
     },
     credentialVersion: Number(row.credential_version),
+    profileVersion: Number(row.profile_version),
     createdAt: toDate(row.created_at),
     updatedAt: toDate(row.updated_at),
     lastLoginAt: row.last_login_at === null ? null : toDate(row.last_login_at)

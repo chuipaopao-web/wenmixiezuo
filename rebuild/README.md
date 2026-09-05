@@ -96,9 +96,13 @@ For real PostgreSQL tests, provide a random `wenmi_rebuild_test_<suffix>` databa
 
 ## Account Core
 
-The backend package exports the batch 111 account API:
+The backend package exports the batch 111 account API and the batch 112 self-profile API:
 
 ```ts
+import {
+  accountProfileSchema,
+  accountProfileUpdateSchema
+} from "@wenmi-rebuild/contracts";
 import {
   createAccountCoreService,
   REBUILD_SESSION_COOKIE
@@ -109,11 +113,15 @@ The public HTTP routes are limited to:
 
 - `POST /v1/auth/login`
 - `GET /v1/auth/me`
+- `GET /v1/auth/profile`
+- `POST /v1/auth/profile`
 - `POST /v1/auth/logout`
 - `POST /v1/auth/password/change`
 - `POST /v1/auth/sessions/revoke-others`
 
 Successful auth responses use `{ data, meta: { requestId } }`, set `Cache-Control: no-store`, and store only a SHA-256 digest of the 256-bit session token in PostgreSQL. The cookie name is `wenmi_rebuild_session`, with `HttpOnly`, `SameSite=Lax`, `Path=/`, and a 24-hour absolute expiry. Email verification and password reset tokens are internal service results only in this batch; the raw token is returned to the in-process caller for tests or future mail adapters and is never persisted.
+
+`GET /v1/auth/profile` returns `{ displayName, profileVersion }`. `POST /v1/auth/profile` accepts only `{ displayName, expectedVersion }`, rejects unknown fields, returns `409 ACCOUNT_PROFILE_CONFLICT` on a stale profile version, treats same-name updates as a no-op without a version bump, and keeps profile versioning separate from password credential versioning and session revocation.
 
 ## PostgreSQL Guard
 

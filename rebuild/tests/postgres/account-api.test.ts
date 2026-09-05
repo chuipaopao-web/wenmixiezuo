@@ -154,12 +154,69 @@ describe("account HTTP routes", () => {
       await server.close();
     }
   });
+
+  it("serves profile reads and rejects unknown profile update fields", async () => {
+    const created = await service.createInternalUser({
+      email: "profile-api@example.com",
+      displayName: "接口昵称",
+      password: "profile api password"
+    });
+    await service.verifyEmailToken((await service.issueEmailVerificationToken(created.account.userId)).token);
+    const login = await service.login({ email: created.account.email, password: "profile api password", ipAddress: "127.0.0.1" });
+    const server = await createApiServer({ accountPool: appPool });
+    try {
+      const profile = await server.inject({
+        method: "GET",
+        url: "/v1/auth/profile",
+        headers: { host: "127.0.0.1:43280", cookie: `wenmi_rebuild_session=${login.token}` }
+      });
+      expect(profile.statusCode).toBe(200);
+      expect(JSON.parse(profile.body)).toMatchObject({ data: { displayName: "接口昵称", profileVersion: 1 } });
+
+      const unknown = await server.inject({
+        method: "POST",
+        url: "/v1/auth/profile",
+        headers: jsonWriteHeaders(`wenmi_rebuild_session=${login.token}`),
+        payload: { displayName: "新接口昵称", expectedVersion: 1, role: "admin" }
+      });
+      expect(unknown.statusCode).toBe(400);
+      expect(unknown.headers["cache-control"]).toBe("no-store");
+
+      const invalidVersion = await server.inject({
+        method: "POST",
+        url: "/v1/auth/profile",
+        headers: jsonWriteHeaders(`wenmi_rebuild_session=${login.token}`),
+        payload: { displayName: "新接口昵称", expectedVersion: 0 }
+      });
+      expect(invalidVersion.statusCode).toBe(400);
+
+      const updated = await server.inject({
+        method: "POST",
+        url: "/v1/auth/profile",
+        headers: jsonWriteHeaders(`wenmi_rebuild_session=${login.token}`),
+        payload: { displayName: " 新接口昵称 ", expectedVersion: 1 }
+      });
+      expect(updated.statusCode).toBe(200);
+      expect(JSON.parse(updated.body)).toMatchObject({ data: { displayName: "新接口昵称", profileVersion: 2 } });
+
+      const conflict = await server.inject({
+        method: "POST",
+        url: "/v1/auth/profile",
+        headers: jsonWriteHeaders(`wenmi_rebuild_session=${login.token}`),
+        payload: { displayName: "覆盖", expectedVersion: 1 }
+      });
+      expect(conflict.statusCode).toBe(409);
+    } finally {
+      await server.close();
+    }
+  });
 });
 
-function jsonWriteHeaders() {
+function jsonWriteHeaders(cookie?: string) {
   return {
     host: "127.0.0.1:43280",
     origin: "http://127.0.0.1:43280",
-    "content-type": "application/json"
+    "content-type": "application/json",
+    ...(cookie === undefined ? {} : { cookie })
   };
 }

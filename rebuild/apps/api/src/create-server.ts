@@ -82,6 +82,7 @@ function statusForSafeCode(code: string): number {
     code === "REQUEST_ORIGIN_REJECTED" || code === "REQUEST_HOST_REJECTED" || code === "REQUEST_COOKIE_REJECTED") return 403;
   if (code === "REQUEST_CONTENT_TYPE_REJECTED") return 415;
   if (code === "ACCOUNT_RATE_LIMITED") return 429;
+  if (code === "ACCOUNT_PROFILE_CONFLICT") return 409;
   if (code === "ACCOUNT_INPUT_INVALID" || code === "ACCOUNT_TOKEN_INVALID") return 400;
   return 500;
 }

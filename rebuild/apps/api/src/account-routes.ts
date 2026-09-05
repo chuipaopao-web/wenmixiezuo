@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   authSessionResultSchema,
+  accountProfileSchema,
+  accountProfileUpdateSchema,
   currentAccountSchema,
   passwordChangedSchema,
   revokeOtherSessionsSchema
@@ -76,6 +78,11 @@ export async function registerAccountRoutes(app: FastifyInstance, accounts: Acco
       }), request);
     });
 
+    authApp.get("/profile", async (request) => {
+      const token = requireSessionToken(request);
+      return envelope(accountProfileSchema.parse(await accounts.getProfile(token)), request);
+    });
+
     authApp.post("/logout", async (request, reply) => {
       const token = requireSessionToken(request);
       const result = await accounts.logout(token);
@@ -92,6 +99,16 @@ export async function registerAccountRoutes(app: FastifyInstance, accounts: Acco
         ipAddress: clientIp(request)
       });
       return envelope(passwordChangedSchema.parse(result), request);
+    });
+
+    authApp.post("/profile", async (request) => {
+      const token = requireSessionToken(request);
+      const input = parseProfileUpdate(request.body);
+      return envelope(accountProfileSchema.parse(await accounts.updateProfile({
+        sessionToken: token,
+        displayName: input.displayName,
+        expectedVersion: input.expectedVersion
+      })), request);
     });
 
     authApp.post("/sessions/revoke-others", async (request) => {
@@ -118,6 +135,12 @@ function requireSessionToken(request: FastifyRequest): string {
 function readString(value: unknown): string {
   if (typeof value !== "string") throw new DomainError("ACCOUNT_INPUT_INVALID", "请求内容不完整。");
   return value;
+}
+
+function parseProfileUpdate(value: unknown): { displayName: string; expectedVersion: number } {
+  const parsed = accountProfileUpdateSchema.safeParse(value);
+  if (!parsed.success) throw new DomainError("ACCOUNT_INPUT_INVALID", "资料内容没有通过检查。");
+  return parsed.data;
 }
 
 function envelope<T>(data: T, request: FastifyRequest): Envelope<T> {

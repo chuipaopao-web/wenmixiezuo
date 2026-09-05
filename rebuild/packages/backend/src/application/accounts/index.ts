@@ -5,6 +5,7 @@ export {
   type AccountServiceOptions,
   type CreateInternalAccountInput,
   type LoginInput,
-  type PasswordChangeInput
+  type PasswordChangeInput,
+  type ProfileUpdateInput
 } from "./account-service.js";
 export type { AuthContext } from "../../domain/accounts/index.js";

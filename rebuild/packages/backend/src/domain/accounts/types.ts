@@ -12,6 +12,7 @@ export interface AccountRecord {
   readonly emailVerifiedAt: Date | null;
   readonly password: PasswordRecord;
   readonly credentialVersion: number;
+  readonly profileVersion: number;
   readonly createdAt: Date;
   readonly updatedAt: Date;
   readonly lastLoginAt: Date | null;

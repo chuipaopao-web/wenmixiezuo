@@ -14,7 +14,8 @@ export {
   type AccountServiceOptions,
   type CreateInternalAccountInput,
   type LoginInput,
-  type PasswordChangeInput
+  type PasswordChangeInput,
+  type ProfileUpdateInput
 } from "./application/accounts/index.js";
 export {
   hashNewPassword,
