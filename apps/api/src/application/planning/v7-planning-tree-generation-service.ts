@@ -41,6 +41,8 @@ import {
 } from '../../infrastructure/models/v7-planning-model-gateway.js';
 import {
   V7PlanningSourceCompiler,
+  preparePlanningEvidence,
+  planningPromptSnapshot,
   planningSnapshotSourceTraces,
   type V7PlanningCompiledSnapshot
 } from './v7-planning-source-compiler.js';
@@ -416,7 +418,7 @@ export class V7PlanningTreeGenerationService {
       || routeRow.recipe_version_id !== recipeRow.recipe_version_id)) {
       throw conflict('全书方向已经更新，请重新设计正式全书框架。');
     }
-    const snapshot = this.sources.require(run.owner_id, run.book_id, run.source_snapshot_id);
+    let snapshot = this.sources.require(run.owner_id, run.book_id, run.source_snapshot_id);
     const latestSnapshot = this.sources.compile({
       ownerId: run.owner_id, bookId: run.book_id, treeKind: run.tree_kind,
       scopeId: run.scope_id, purpose: 'tree_generation'
@@ -424,23 +426,41 @@ export class V7PlanningTreeGenerationService {
     if (latestSnapshot.sourceFingerprint !== snapshot.sourceFingerprint) {
       throw conflict('开书资料、设定或上层规划已经更新，请重新设计这棵树。');
     }
+    const contextMember = frozenRoster.contextFallback[0];
+    if (contextMember === undefined) throw conflict('资料编辑部没有可用成员');
+    snapshot = await preparePlanningEvidence(snapshot, async (call) => {
+      this.ensureActive(run);
+      this.markWorking(run, contextMember.memberKey, { ...frozenRoster, stage: 'context_planning' });
+      const logicalTaskId = `planning-evidence:${run.generation_run_id}:${call.key}:${contextMember.memberKey}`;
+      const result = await this.models.generate({
+        ...this.modelAttempt(run, logicalTaskId), ownerId: run.owner_id, bookId: run.book_id,
+        runId: run.generation_run_id, runKind: 'tree', nodeKey: `context_evidence:${call.key}`,
+        taskKind: 'planning_context', workstationKey: planningWorkstation(run.tree_kind), member: contextMember,
+        operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null, sourceTraces: [],
+        prompt: call.prompt, maxOutputTokens: 2_500, temperature: 0.1
+      });
+      return result.output;
+    }, frozenRoster.contextPlan?.request.relevantSettingSourceIds ?? []);
     const contextPlan = await this.ensureContextPlan(run, snapshot, frozenRoster);
     const focusedSnapshot = focusedPlanningTreeSnapshot(snapshot, contextPlan.request);
     const recipe = JSON.parse(recipeRow.recipe_json) as LayeredPlanningRecipe;
     const recipeNodeId = selectRecipeNode(recipe, run.tree_kind, run.scope_id).nodeId;
     const layeredTask = compileLayeredPlanningTask({
-      recipe, nodeId: recipeNodeId, sources: planningSources(focusedSnapshot), mode: 'runtime'
+      recipe, nodeId: recipeNodeId, sources: planningSources(focusedSnapshot).map((source) => ({
+        ...source, content: `读取冻结资料中sourceId=${source.sourceId}的当前内容；此处不重复粘贴。`
+      })), mode: 'runtime'
     });
     const sourceRefs = treeSourceRefs(focusedSnapshot);
     const generationTask = compilePlanningTreeGenerationTask({
       treeKind: run.tree_kind, scopeId: run.scope_id, sourceRefs,
-      parentDirection: parentDirection(focusedSnapshot)
+      parentDirection: parentTreeVersion(focusedSnapshot) === null ? null
+        : `承接冻结资料中sourceId=${parentTreeVersion(focusedSnapshot)}的已确认上层方向。`
     });
     const referencePack = buildPlanningLayerReferencePack(run.tree_kind, planningTreeGenreFamilies(snapshot));
     const prompt = planningTreeGenerationPrompt({
       treeKind: run.tree_kind, scopeId: run.scope_id,
       sourceSnapshot: {
-        ...publicSnapshot(focusedSnapshot),
+        ...planningPromptSnapshot(focusedSnapshot),
         ...(routeRow === undefined ? {} : { confirmedStoryRoute: JSON.parse(routeRow.route_json) })
       },
       contextPlan: planningTaskContextPlan(contextPlan.request),
@@ -553,7 +573,7 @@ export class V7PlanningTreeGenerationService {
             '后台方法、配方和模式由系统按当前层确定性提供给设计成员，不在本任务检索或指定',
             '保留成员组合、忽略菜单资产和原创设计的空间'
           ],
-          sourceSnapshot: planningMethodSearchSnapshot(snapshot)
+          sourceSnapshot: planningPromptSnapshot(snapshot)
         });
         const result = await this.models.generate({
           ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.generation_run_id,
@@ -899,37 +919,6 @@ function parentTreeVersion(snapshot: V7PlanningCompiledSnapshot): string | null 
   return snapshot.sources.find((source) => source.sourceKind === 'confirmed_tree')?.sourceId ?? null;
 }
 
-function parentDirection(snapshot: V7PlanningCompiledSnapshot): string | null {
-  const parent = snapshot.sources.find((source) => source.sourceKind === 'confirmed_tree');
-  return parent === undefined ? null : JSON.stringify(parent.content);
-}
-
-function publicSnapshot(snapshot: V7PlanningCompiledSnapshot): Record<string, unknown> {
-  return {
-    treeKind: snapshot.treeKind, scopeId: snapshot.scopeId,
-    sources: snapshot.sources.map((source) => ({
-      authority: source.authority, label: source.label, content: source.content, includedReason: source.includedReason
-    })),
-    excludedSources: snapshot.excludedSources
-  };
-}
-
-function planningMethodSearchSnapshot(snapshot: V7PlanningCompiledSnapshot): Record<string, unknown> {
-  return {
-    treeKind: snapshot.treeKind,
-    scopeId: snapshot.scopeId,
-    sources: snapshot.sources.map((source) => ({
-      sourceKind: source.sourceKind,
-      sourceId: source.sourceId,
-      sourceVersion: source.sourceVersion,
-      authority: source.authority,
-      label: source.label,
-      content: source.content,
-      includedReason: source.includedReason
-    })),
-    excludedSources: snapshot.excludedSources
-  };
-}
 
 function memberSnapshot<T extends V7PlanningMemberDefinition | V7CreationMemberDefinition>(member: T): T {
   return { ...member, model: { ...member.model } };

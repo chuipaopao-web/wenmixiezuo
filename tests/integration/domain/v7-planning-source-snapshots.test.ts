@@ -443,7 +443,7 @@ describe('V7规划正式资料快照', () => {
     }
   });
 
-  it('逐项设定事实超过快照预算时自动降级为语义索引，规划不再要求作者缩小资料', async () => {
+  it('逐项设定超过调用预算仍完整冻结，资料Agent读取前不截断事实或阻断规划', async () => {
     context = createTestContext('wenmi-v7-planning-light-index-');
     const app = await createServer(context.config, context.database);
     try {
@@ -514,11 +514,12 @@ describe('V7规划正式资料快照', () => {
       expect(itemSources[0]?.content).toMatchObject({
         schema: 'v7-setting-fact-source-v1', itemKey: 'bulk-setting-1', label: '设定1'
       });
-      expect(itemSources[0]?.content).not.toHaveProperty('facts');
-      expect(itemSources[0]?.content).not.toHaveProperty('contextSummary');
-      expect(itemSources[0]?.label).toContain('轻量索引');
-      expect(JSON.stringify(compiled.sources)).not.toContain('完整的世界规则和人物约束');
-      expect(JSON.stringify(compiled.sources)).not.toContain('超过快照预算');
+      expect(itemSources[0]?.content).toHaveProperty('facts');
+      expect(itemSources[0]?.content).toHaveProperty('contextSummary');
+      expect(itemSources[0]?.label).not.toContain('轻量索引');
+      expect(JSON.stringify(compiled.sources)).toContain('第80项硬事实');
+      expect(JSON.stringify(compiled.sources)).toContain('超过快照预算');
+      expect(compiler.require(ownerId, bookId, compiled.snapshotId).sources).toEqual(compiled.sources);
     } finally {
       await app.close();
     }

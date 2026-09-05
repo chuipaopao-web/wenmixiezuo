@@ -86,6 +86,7 @@ export function planningMethodSearchPrompt(input: {
     `本次身份：${input.seatName}。责任：${input.seatResponsibility}`,
     `重点检查：${input.independentFocus.join('；')}`,
     '你只决定“本次设计需要哪些本书事实与设定”，并把本书题材融合档案转成只属于当前任务的临时执行身份。不要直接设计故事，也不要猜测或罗列任何方法资产：后台方法、配方和模式由系统按当前层确定性提供给设计成员，成员凭自身方法论知识自选、组合或完全原创，不需要你代为检索。',
+    '身份、责任和创意空间只能说明工作方法，不能另定披露时机、人物能力、事件顺序或结局，更不能推翻作者原话。excerpts为有路径的原文节选，正式设定的编辑说明不能冒充其实际规则。',
     '正式开书资料、作者本次目标、上级确认内容和正文实际必须保留；设定总账只负责导航，不要把总账sourceId填入relevantSettingSourceIds。已确认设定必须从schema="v7-setting-fact-source-v1"的逐项事实源中挑选本席确实需要的资料；relevantSettingSourceIds只能填写这些逐项事实源的sourceId，不得编造。',
     '如果缺少会导致设计无法可靠进行的硬信息，写入missingCriticalInputs。预计总字数是开书阶段唯一必须提前确定的规划尺度，默认按番茄连载场景工作，不要重复报缺。建议卷数、商业受众和追读定位是每席全书路线自己必须产出的结果，不是上游缺口。普通创作留白不是缺口，能在方案中合理创作的内容不要上报；信息齐全时返回空数组。不得自行脑补作者已经明确但本次资料中缺失的硬事实。',
     '输出字段：schema="v7-planning-method-search-v1",publicGoal,scaleHint,avoidNotes,relevantSettingSourceIds,missingCriticalInputs,taskPersona,taskResponsibilities,creativeSpace。missingCriticalInputs每项优先写成一句可直接给作者看的大白话；如需说明影响和待确认内容，也可写成{issue,impact,needed}，系统会合并展示。',

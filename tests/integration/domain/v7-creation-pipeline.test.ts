@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { evidenceFixtureAnswer } from '../../helpers/v7-context-evidence-fixture.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
@@ -46,15 +47,23 @@ describe('V7全链路创作总线', () => {
         repository.createWorkflow({ workflowId, ownerId, bookId, volumeScopeId: 'volume-1', firstVolume: true,
           authorGoal: null, idempotencyKey: workflowId, requestHash: 'a'.repeat(64), now: new FixedClock().now().toISOString() });
         const compiler = new V7CreationContextCompiler(context.database, resolver, new SequenceIds(), new FixedClock(), () => creationRosterFromGlobal());
-        const input = { ownerId, bookId, workflowId, taskKind: 'volume' as const, taskId: 'volume-1', taskBrief: '依据正式资料设计本卷。', firstVolume: true };
+        const input = { ownerId, bookId, workflowId, taskKind: 'volume' as const, taskId: 'volume-1', taskBrief: '依据正式资料设计本卷。', firstVolume: true,
+          extraSources: mode === 'repair-success' ? [{ sourceKey: 'formal:budget-regression', sourceId: 'budget-version-1',
+            sourceVersion: '1', contentHash: 'c'.repeat(64), sourceKind: 'setting' as const, authority: 'formal' as const,
+            label: '长原文预算回归', required: true, includedReason: '检验冻结页复用',
+            content: { requirement: '必须在开场坦白。', background: '预算测试的完整背景资料。'.repeat(2500) } }] : [] };
         if (mode === 'repair-success') {
           const result = await compiler.compile(input);
           expect(result.selection.methodStrategy.searchRequest?.relevantSettingSourceIds).toEqual(['creation-setting-version']);
           expect(resolver.calls).toHaveLength(2);
           expect(resolver.calls[0]!.agentId).toBe(resolver.calls[1]!.agentId);
+          const frozenCalls = repository.modelCallsForWorkflow(ownerId, bookId, workflowId).length;
+          expect(frozenCalls).toBeGreaterThan(2);
+          expect(result.content.contextPolicyVersion).toBe('layered-context-v5-evidence');
           const repeated = await compiler.compile(input);
           expect(repeated.contextPackId).toBe(result.contextPackId);
           expect(resolver.calls).toHaveLength(2);
+          expect(repository.modelCallsForWorkflow(ownerId, bookId, workflowId)).toHaveLength(frozenCalls);
           // Reproduce the historical ordering: a later malformed response must
           // not force a new paid call when an earlier answer is usable.
           const original = repository.modelCallsForWorkflow(ownerId, bookId, workflowId)[0]!;
@@ -70,10 +79,17 @@ describe('V7全链路创作总线', () => {
             message: '历史末次结果格式错误', now: '2026-09-05T00:00:02.000Z' });
           expect((await compiler.compile(input)).contextPackId).toBe(result.contextPackId);
           expect(resolver.calls).toHaveLength(2);
+          expect(repository.modelCallsForWorkflow(ownerId, bookId, workflowId)).toHaveLength(frozenCalls + 1);
         } else {
           await expect(compiler.compile(input)).rejects.toThrow(mode === 'repair-unknown' ? '结果' : '继续未完成步骤');
           const pack = context.database.prepare('SELECT status,error_message FROM v7_creation_context_packs WHERE workflow_id=?').get(workflowId) as { status: string; error_message: string };
           expect(pack.status).toBe(mode === 'repair-unknown' ? 'unknown' : 'failed');
+          repository.updateWorkflow({ ownerId, bookId, workflowId, stage: 'context_selection',
+            status: mode === 'repair-unknown' ? 'unknown' : 'failed', checkpoint: {},
+            errorMessage: '对不起，这次资料没有完成。', now: new FixedClock().now().toISOString() });
+          const failedView = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/creation-workflows/${workflowId}`);
+          expect(failedView.statusCode).toBe(200);
+          expect(failedView.json().data.actors.every((actor: { status: string }) => actor.status === 'failed')).toBe(true);
           if (mode === 'repair-unknown') {
             await expect(compiler.compile(input)).rejects.toThrow('停止重复下单');
             expect(resolver.calls).toHaveLength(2);
@@ -350,7 +366,8 @@ describe('V7全链路创作总线', () => {
       const activeContextPacks = Number((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_creation_context_packs
         WHERE owner_id=? AND book_id=? AND status='active'`).get(ownerId, bookId) as { count: number }).count);
       const successfulContextCalls = Number((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_creation_model_calls
-        WHERE owner_id=? AND book_id=? AND run_kind='context' AND state='succeeded'`).get(ownerId, bookId) as { count: number }).count);
+        WHERE owner_id=? AND book_id=? AND run_kind='context' AND state='succeeded'
+          AND request_id LIKE 'creation-context:%'`).get(ownerId, bookId) as { count: number }).count);
       expect(successfulContextCalls).toBe(activeContextPacks);
       const contextCandidates = (context.database.prepare(`SELECT candidate_sources_json FROM v7_creation_context_packs
         WHERE owner_id=? AND book_id=? ORDER BY created_at,context_pack_id`).all(ownerId, bookId) as Array<{
@@ -553,7 +570,7 @@ describe('V7全链路创作总线', () => {
       }>;
       expect(outlinePack.selectedSources.length).toBeGreaterThan(0);
       expect(outlinePack.excludedSources.length).toBeGreaterThan(0);
-      expect(['layered-context-v2', 'layered-context-v3', 'layered-context-v4']).toContain(outlinePack.contextPolicyVersion);
+      expect(['layered-context-v2', 'layered-context-v3', 'layered-context-v4', 'layered-context-v5-evidence']).toContain(outlinePack.contextPolicyVersion);
       expect(outlinePack.budgetChars).toBe(6_000);
       expect(outlinePack.characterCount).toBeLessThanOrEqual(outlinePack.budgetChars);
       expect(outlinePack.selectedSources.some((source) => source.sourceKey === 'formal:setting-ledger')).toBe(true);
@@ -1595,6 +1612,7 @@ class LineageResolver implements V7OpeningModelAdapterResolver {
 }
 
 function outputFor(prompt: string, excludeOneOptionalSource = false): string {
+  if (prompt.includes('可选原文：')) return evidenceFixtureAnswer(prompt);
   if (prompt.includes('候选资料：') && (prompt.includes('资料策划') || prompt.includes('资料编辑'))) {
     return contextSelectionOutput(prompt, excludeOneOptionalSource);
   }

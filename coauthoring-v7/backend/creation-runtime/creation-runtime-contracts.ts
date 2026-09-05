@@ -159,7 +159,7 @@ export interface V7CreationContextPack {
   creativeSpace: string[];
   methodPlan: V7CreationMethodPlan;
   sourceRefs: PlanningTreeSourceRef[];
-  contextPolicyVersion: 'layered-context-v2' | 'layered-context-v3' | 'layered-context-v4';
+  contextPolicyVersion: 'layered-context-v2' | 'layered-context-v3' | 'layered-context-v4' | 'layered-context-v5-evidence';
   characterCount: number;
   budgetChars: number;
   estimatedTokens: number;
@@ -178,6 +178,7 @@ export function creationPromptContext(value: unknown): unknown {
     taskKind: pack.taskKind,
     taskBrief: pack.taskBrief,
     firstVolume: pack.firstVolume,
+    sourcePolicy: '作者明确要求、正式设定和正文证据优先；任务身份及方法只是建议，不能增加相反的情节指令。excerpts是有路径的原文节选，不是新的正式版本；未来规划不代表已经发生。',
     taskPersona: pack.taskPersona,
     taskResponsibilities: pack.taskResponsibilities ?? [],
     creativeSpace: pack.creativeSpace ?? [],

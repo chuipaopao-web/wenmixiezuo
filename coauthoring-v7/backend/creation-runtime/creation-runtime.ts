@@ -119,13 +119,14 @@ export function contextSelectionPrompt(input: {
     '你负责理解当前任务、选择最小充分资料，并把本书题材融合档案转成只适合当前任务的临时执行身份。你不写故事方案或正文。后台方法、配方和模式由系统按当前层确定性提供给执行成员，成员凭自身方法论知识自选、组合或完全原创，你不需要也不能替他们检索或指定方法。',
     'required=true的正式源必须保留；不得选择其他书、过期候选或无来源推断。任务身份只属于本书本任务，不得给成员或岗位建立长期专业人设。',
     '如果资料不足，请在openQuestions说明，不得自行补事实。',
+    '任务身份只说明工作方法，不能替作者决定披露时机、剧情顺序、人物能力或结局；任何建议不得推翻作者明确要求。不要把编辑修改说明当作设定事实。',
     `最多选择${input.maximumSources}项；硬事实和当前任务优先，方法参考宁少勿杂。`,
     input.maximumInputCharacters === undefined
       ? ''
       : `本次资料策划完整输入硬限为${input.maximumInputCharacters}字符；系统在调用前只会按固定字段压缩来源目录，不会用关键词擅自删除候选；最小目录仍超限才真实失败。`,
     input.maximumCharacters === undefined
       ? ''
-      : `入选精确资料连同任务说明不得超过${input.maximumCharacters}字符；请至少为任务说明、来源说明和结构保留3000字符。设定事实账本已经覆盖全书硬事实，只有需要核对完整措辞时才选择某项设定原文。`,
+      : `最终交付资料连同任务说明不得超过${input.maximumCharacters}字符，系统为说明和结构预留空间。入选原文过长时，资料Agent会分批阅读并选择有依据的原文片段；不要仅因整份来源过长而丢弃必要事实。设定总账用于导航和统一决定，涉及本任务的具体限制须选择对应正式设定，不能把编辑说明当作硬事实。`,
     '输出字段：schema="v7-creation-context-v1",publicSummary,selectedSourceKeys,selectionReasons,excludedSourceKeys,openQuestions,taskPersona,taskResponsibilities,creativeSpace,methodStrategy。selectionReasons必须是数组，每项为{sourceKey,reason}。',
     'taskPersona字段：publicLabel,workingIdentity,priorities,authenticityChecks,avoidPatterns。它要把书级题材融合身份具体化为本任务怎么工作，但不能写成员姓名、岗位专长或人格设定。',
     'taskResponsibilities为2—6条本环节大白话责任；creativeSpace为1—5条可以自由发挥、组合或自行创新的空间。',

@@ -8,7 +8,7 @@ import {
 } from '@wenmi/v7-backend';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
-import { boundProjectionTexts } from '../creation/v7-creation-context-compiler.js';
+import { readBudgetedEvidence, type EvidenceGenerate } from '../creation/v7-context-evidence-reader.js';
 import { V7SettingLedgerReader, type V7CompactSettingLedger } from '../books/v7-setting-ledger-reader.js';
 import {
   V7PlanningRuntimeRepository,
@@ -130,7 +130,7 @@ export class V7PlanningSourceCompiler {
       settings
     });
 
-    let sources: SourceCandidate[] = [{
+    const sources: SourceCandidate[] = [{
       sourceKind: 'opening',
       sourceId: opening.opening_blueprint_id,
       sourceVersion: String(opening.version),
@@ -243,42 +243,10 @@ export class V7PlanningSourceCompiler {
       });
     }
 
-    const budgetChars = planningBudgetChars(input.treeKind);
-    const measure = (items: SourceCandidate[]): number => Array.from(stableJson(items.map((source) => ({
-      sourceKind: source.sourceKind,
-      sourceId: source.sourceId,
-      label: source.label,
-      content: source.content
-    })))).length;
-    let sourceCharacters = measure(sources);
-    // 超限时逐层确定性降级：逐项设定全文换成语义索引（保留 schema/itemKey，
-    // 资料策划仍能按 sourceId 精确引用）→ 全部来源字符串字段按固定上限限长
-    // → 逐项设定只剩最小条目目录。三步都不判断语义、不删除条目；精确原文
-    // 仍可按版本追溯。只有最小形态仍超限才真实失败，且不再让作者承担内部
-    // 预算管理。
-    if (sourceCharacters > budgetChars) {
-      sources = sources.map(lightPlanningSettingSource);
-      sourceCharacters = measure(sources);
-    }
-    if (sourceCharacters > budgetChars) {
-      sources = sources.map((source) => ({ ...source, content: boundProjectionTexts(source.content, 200) }));
-      sourceCharacters = measure(sources);
-    }
-    if (sourceCharacters > budgetChars) {
-      sources = sources.map(minimalPlanningSettingSource);
-      sourceCharacters = measure(sources);
-    }
-    if (sourceCharacters > budgetChars) {
-      throw new DomainError(
-        errorCodes.validation,
-        `对不起，这次没有完成。系统已自动压缩本轮规划资料，仍超过本步骤${budgetChars}字的安全范围。您的设定和规划资料都完好保留；可先在设定页让主编重新整理设定事实账本，再重新开始本步骤。`,
-        { sourceCharacters, budgetChars, treeKind: input.treeKind },
-        true,
-        409
-      );
-    }
-
+    // Freeze complete sources first. Reading/selection is asynchronous and budgeted below;
+    // never discard facts or cut author prose before the context Agent can read it.
     const sourceFingerprint = sha256(stableJson({
+      projectionVersion: 'planning-source-evidence-v2',
       treeKind: input.treeKind,
       scopeId: input.scopeId,
       purpose: input.purpose,
@@ -415,10 +383,47 @@ export class V7PlanningSourceCompiler {
 }
 
 /**
- * 规划节点已经由 Agent 完成资料取舍后，这里只把冻结来源和取舍结果
- * 确定性投影成统一追溯结构。旧快照若只有聚合排除说明、没有具体来源
- * 决策，则返回空数组，让统一编译器继续保留聚合载荷快照兼容。
+ * 从完整冻结来源整理受预算约束的调用视图，原快照不变。
+ * 原文取舍由Agent负责；保留来源身份和恢复时已经冻结的选择。
  */
+export async function preparePlanningEvidence(
+  snapshot: V7PlanningCompiledSnapshot, generate: EvidenceGenerate, requiredSourceIds: readonly string[] = [],
+  pinMissingSelection = false
+): Promise<V7PlanningCompiledSnapshot> {
+  const budget = planningBudgetChars(snapshot.treeKind);
+  const withContents = (contents: unknown[]): V7PlanningCompiledSnapshot => ({ ...snapshot,
+    sources: snapshot.sources.flatMap((source, index) => contents[index] === null ? [] : [{ ...source, content: contents[index] }]) });
+  const contents = await readBudgetedEvidence({
+    task: `设计${snapshot.treeKind}，当前对象${snapshot.scopeId}；承接正式上层方向与最新正文实际，不提前兑现远期规划。`,
+    sources: snapshot.sources.map((source) => ({ key: source.sourceId, label: source.label,
+      authority: source.authority, content: source.content, required: (pinMissingSelection && requiredSourceIds.includes(source.sourceId)) || source.sourceKind !== 'setting'
+        || (source.content as { schema?: string } | null)?.schema === 'v7-compact-setting-ledger-v1',
+      ...((source.content as { schema?: string } | null)?.schema === 'v7-setting-fact-source-v1'
+        ? { requiredGroup: 'setting-facts' } : {}) })),
+    budget, omitUnselected: true, measure: (values) => Array.from(JSON.stringify(planningPromptSnapshot(withContents(values)))).length, generate
+  });
+  // Normal continuation must reproduce the same page prompts and reuse their calls.
+  // Only an older selection referring to an omitted source requires a pinned reread.
+  if (!pinMissingSelection && requiredSourceIds.some((id) => !withContents(contents).sources.some((source) => source.sourceId === id))) {
+    return preparePlanningEvidence(snapshot, generate, requiredSourceIds, true);
+  }
+  const omitted = snapshot.sources.filter((_, index) => contents[index] === null).map((source) => ({
+    sourceKind: source.sourceKind, sourceId: source.sourceId, sourceVersion: source.sourceVersion,
+    authority: source.authority, label: source.label, contentHash: source.contentHash,
+    reason: '资料Agent完整分批阅读后，本轮未选择该来源的原文片段。'
+  }));
+  return { ...withContents(contents), excludedSourceDecisions: [...snapshot.excludedSourceDecisions, ...omitted] };
+}
+
+/** Audit fields and excluded-source logs stay in the snapshot, not repeated in every model prompt. */
+export function planningPromptSnapshot(snapshot: V7PlanningCompiledSnapshot): Record<string, unknown> {
+  return { treeKind: snapshot.treeKind, scopeId: snapshot.scopeId,
+    sourcePolicy: 'excerpts为有路径的原文节选，不是新的正式版本。作者原话、正式设定和正文证据优先，任务身份及方法建议不能推翻它们；规划不等于正文实际。',
+    sources: snapshot.sources.map(({ sourceKind, sourceId, sourceVersion, authority, label, content }) => ({
+      sourceKind, sourceId, sourceVersion, authority, label, content
+    })) };
+}
+
 export function planningSnapshotSourceTraces(snapshot: V7PlanningCompiledSnapshot): V7ContextSourceTrace[] {
   const excludedDecisions = snapshot.excludedSourceDecisions ?? [];
   const hasUnstructuredExclusion = snapshot.excludedSources.some((reason) =>
@@ -526,50 +531,6 @@ function planningLedgerSummary(content: V7CompactSettingLedger['content']): Omit
   return summary;
 }
 
-/**
- * 超限降级第一层：逐项设定全文换成语义索引。保留 schema 与 itemKey，
- * 资料策划仍能按 sourceId/itemKey 精确引用；事实账本摘要保持原样。
- */
-function lightPlanningSettingSource(source: SourceCandidate): SourceCandidate {
-  if (source.sourceKind !== 'setting' || source.content === null
-    || typeof source.content !== 'object' || Array.isArray(source.content)) return source;
-  const content = source.content as Record<string, unknown>;
-  if (content.schema === 'v7-compact-setting-ledger-v1') return source;
-  const itemKey = typeof content.itemKey === 'string' && content.itemKey.length > 0
-    ? content.itemKey
-    : source.sourceId;
-  return {
-    ...source,
-    label: `${source.label}（轻量索引）`,
-    content: {
-      schema: 'v7-setting-fact-source-v1',
-      itemKey,
-      label: typeof content.label === 'string' ? content.label : source.label,
-      contextSummary: typeof content.contextSummary === 'string' ? content.contextSummary : null,
-      factCount: Array.isArray(content.facts) ? content.facts.length : 0
-    },
-    includedReason: `${source.includedReason} 当前快照超限，本轮只携带本条目语义索引；完整事实仍在原版本中可追溯。`
-  };
-}
-
-/** 超限降级第三层：逐项设定只剩最小条目目录，schema/itemKey 仍可精确引用。 */
-function minimalPlanningSettingSource(source: SourceCandidate): SourceCandidate {
-  if (source.sourceKind !== 'setting' || source.content === null
-    || typeof source.content !== 'object' || Array.isArray(source.content)) return source;
-  const content = source.content as Record<string, unknown>;
-  if (content.schema === 'v7-compact-setting-ledger-v1') return source;
-  const itemKey = typeof content.itemKey === 'string' && content.itemKey.length > 0
-    ? content.itemKey
-    : source.sourceId;
-  return {
-    ...source,
-    content: {
-      schema: 'v7-setting-fact-source-v1',
-      itemKey,
-      label: typeof content.label === 'string' ? content.label : source.label
-    }
-  };
-}
 
 function missingPlanningScaleProfile(): DomainError {
   return new DomainError(

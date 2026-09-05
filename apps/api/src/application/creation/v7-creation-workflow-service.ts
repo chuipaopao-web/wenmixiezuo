@@ -1144,7 +1144,7 @@ export class V7CreationWorkflowService {
           },
           errorMessage: outcomeUnknown
             ? '对不起，这次结果还不能确认。已保存此前成果，请换一位成员继续。'
-            : `对不起，这次没有完成。${publicFailure(error)}`,
+            : creationFailureMessage(publicFailure(error)),
           now: this.now()
         });
       }
@@ -1228,7 +1228,7 @@ export class V7CreationWorkflowService {
       this.repository.updateWorkflow({
         ownerId: run.owner_id, bookId: run.book_id, workflowId: run.workflow_id,
         stage: current.stage, status: error instanceof V7CreationModelError && error.outcomeUnknown ? 'unknown' : 'failed',
-        checkpoint: json(current.checkpoint_json), errorMessage: `对不起，这次没有完成。${publicFailure(error)}`, now: this.now()
+        checkpoint: json(current.checkpoint_json), errorMessage: creationFailureMessage(publicFailure(error)), now: this.now()
       });
     }).finally(() => this.activeRuns.delete(run.workflow_id));
   }
@@ -1530,7 +1530,7 @@ export class V7CreationWorkflowService {
         failures.push(publicFailure(error));
       }
     }
-    throw new DomainError(errorCodes.agentCapabilityUnavailable, `对不起，这次没有完成。${failures.at(-1) ?? '成员均未交回可用结果。'}`, {}, true, 503);
+    throw new DomainError(errorCodes.agentCapabilityUnavailable, creationFailureMessage(failures.at(-1) ?? '成员均未交回可用结果。'), {}, true, 503);
   }
 
   private view(run: V7CreationWorkflowRow): V7CreationWorkflowView {
@@ -1976,6 +1976,10 @@ function publicMessage(run: V7CreationWorkflowRow): string {
   return '编辑部正在加紧整理，完成后会请您决定。';
 }
 
+function creationFailureMessage(message: string): string {
+  return message.startsWith('对不起') || message.startsWith('抱歉') ? message : `对不起，这次没有完成。${message}`;
+}
+
 function actorViews(calls: V7CreationActorCallRow[], run: V7CreationWorkflowRow, roster: readonly V7CreationMemberDefinition[]): V7CreationWorkflowView['actors'] {
   const latestByMember = new Map<string, V7CreationActorCallRow>();
   for (const call of calls) latestByMember.set(call.member_key, call);
@@ -1995,7 +1999,12 @@ function actorViews(calls: V7CreationActorCallRow[], run: V7CreationWorkflowRow,
   return [...latestByMember.values()].map((call) => {
     const member = roster.find((item) => item.memberKey === call.member_key);
     const handedOver = call.state === 'failed' && calls.some((other) => other.node_key === call.node_key && other.started_at > call.started_at);
-    const status = call.state === 'working'
+    const unfinishedContext = call.run_kind === 'context' && (run.stage === 'context_selection' || call === calls.at(-1));
+    const status = unfinishedContext && (run.status === 'failed' || run.status === 'unknown')
+      ? 'failed'
+      : unfinishedContext && call.state === 'succeeded' && (run.status === 'working' || run.status === 'queued')
+        ? 'working'
+        : call.state === 'working'
       ? 'working'
       : call.state === 'succeeded'
         ? 'completed'

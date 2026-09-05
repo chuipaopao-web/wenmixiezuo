@@ -40,10 +40,11 @@ import {
   type V7SettingContextProjection
 } from '../books/v7-setting-context-projection.js';
 import { V7SettingLedgerReader } from '../books/v7-setting-ledger-reader.js';
+import { readBudgetedEvidence, type EvidenceGenerate } from './v7-context-evidence-reader.js';
 
 const MAXIMUM_SELECTED_SOURCES = 12;
 const CONTEXT_REPAIR_RESERVE_CHARACTERS = 1_200;
-const CONTEXT_PROJECTION_VERSION = 'layered-context-projection-v9';
+const CONTEXT_PROJECTION_VERSION = 'layered-context-projection-v10-evidence';
 
 interface FormalOpeningRow {
   opening_blueprint_id: string;
@@ -183,7 +184,9 @@ export class V7CreationContextCompiler {
     for (const recovered of recoverableCalls) {
       try {
         const selection = parseContextSelection(recovered.output_text!, candidates, maximumSources, input.taskKind);
-        const content = compilePack(input, candidates, selection);
+        const recoveredMember = creationFallbackChain('context_editor', undefined, this.members())
+          .find((member) => member.memberKey === recovered.member_key) ?? firstMember;
+        const content = await this.compileSelectedPack(input, pack, candidates, selection, recoveredMember);
         this.creation.markContextWorking({
           ownerId: input.ownerId, bookId: input.bookId, contextPackId: pack.context_pack_id,
           memberKey: recovered.member_key, requestId: recovered.request_id, now: this.now()
@@ -204,7 +207,12 @@ export class V7CreationContextCompiler {
           content,
           sourceTraces: contextSourceTraces(input.ownerId, input.bookId, candidates, selection)
         };
-      } catch {
+      } catch (error) {
+        if (error instanceof V7CreationModelError && error.outcomeUnknown) {
+          this.creation.failContext({ ownerId: input.ownerId, bookId: input.bookId,
+            contextPackId: pack.context_pack_id, status: 'unknown', message: publicFailure(error), now: this.now() });
+          throw error;
+        }
         // A later malformed answer must not hide an earlier usable result
         // for this exact source fingerprint. No historical call is rewritten.
       }
@@ -289,7 +297,7 @@ export class V7CreationContextCompiler {
           });
           selection = parseContextSelection(repaired.output, candidates, maximumSources, input.taskKind);
         }
-        const content = compilePack(input, candidates, selection);
+        const content = await this.compileSelectedPack(input, pack, candidates, selection, member);
         const contentHash = sha256(stableJson(content));
         this.creation.activateContext({
           ownerId: input.ownerId,
@@ -343,6 +351,37 @@ export class V7CreationContextCompiler {
       now: this.now()
     });
     throw new DomainError(errorCodes.validation, message, {}, true, 503);
+  }
+
+  private async compileSelectedPack(
+    input: V7CreationContextCompileInput, pack: V7CreationContextPackRow,
+    candidates: readonly V7CreationSourceCandidate[], selection: V7CreationContextSelection,
+    member: V7CreationMemberDefinition
+  ): Promise<V7CreationContextPack> {
+    const callsAtStart = this.creation.modelCallsForWorkflow(input.ownerId, input.bookId, input.workflowId);
+    const content = await compilePack(input, candidates, selection, async (call) => {
+      if (this.creation.workflow(input.ownerId, input.bookId, input.workflowId)?.status === 'cancelled') {
+        throw gate('这项工作已经停止，已保留完成的内容。');
+      }
+      const prefix = `creation-evidence:${pack.context_pack_id}:${call.key}:${member.memberKey}`;
+      const previous = callsAtStart.filter((item) => item.request_id.startsWith(prefix));
+      const reusable = previous.find((item) => item.state === 'succeeded' || item.state === 'working' || item.state === 'unknown');
+      const requestId = reusable?.request_id ?? `${prefix}:${previous.length}`;
+      this.creation.markContextWorking({ ownerId: input.ownerId, bookId: input.bookId,
+        contextPackId: pack.context_pack_id, memberKey: member.memberKey, requestId, now: this.now() });
+      const result = await this.models.generate({
+        requestId, ownerId: input.ownerId, bookId: input.bookId, workflowId: input.workflowId,
+        runKind: 'context', nodeKey: `evidence:${input.taskKind}:${input.taskId}:${call.key}`,
+        workstationKey: contextWorkstation(input.taskKind), member, purpose: 'structured_planning',
+        operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null, sourceTraces: [],
+        prompt: call.prompt, maxOutputTokens: 2_500, temperature: 0.1
+      });
+      return result.output;
+    });
+    if (this.creation.workflow(input.ownerId, input.bookId, input.workflowId)?.status === 'cancelled') {
+      throw gate('这项工作已经停止，已保留完成的内容。');
+    }
+    return content;
   }
 
   private candidates(input: V7CreationContextCompileInput): V7CreationSourceCandidate[] {
@@ -400,6 +439,7 @@ export class V7CreationContextCompiler {
           itemKey: projection.itemKey,
           label: projection.label,
           contextSummary: projection.contextSummary,
+          facts: reviewedFacts.get(projection.itemKey) ?? projection.factEntries,
           factCount: (reviewedFacts.get(projection.itemKey) ?? projection.factEntries).length,
           projectionSource: projection.projectionSource
         },
@@ -697,53 +737,47 @@ export function compileCreationContextPlannerPrompt(input: {
   return allMinimalDirectoryPrompt;
 }
 
-function compilePack(
+export async function compilePack(
   input: V7CreationContextCompileInput,
   candidates: readonly V7CreationSourceCandidate[],
   selection: V7CreationContextSelection,
-  useCompactIndexes = false
-): V7CreationContextPack {
+  generate: EvidenceGenerate
+): Promise<V7CreationContextPack> {
   const selectedCandidates = candidates.filter((item) => selection.selectedSourceKeys.includes(item.sourceKey));
-  let compactIndexesUsed = useCompactIndexes;
-  let selected = selectedCandidates
-    .map((source) => compactIndexesUsed ? compactPackSource(source) : exactSource(source));
+  let selected = selectedCandidates.map(exactSource);
   const reasons = new Map(selection.selectionReasons.map((item) => [item.sourceKey, item.reason]));
   const excluded = candidates.filter((item) => !selection.selectedSourceKeys.includes(item.sourceKey)).map((item) => ({
     sourceKey: item.sourceKey,
     reason: reasons.get(item.sourceKey) ?? '本次任务不需要这项资料。'
   }));
   const budgetChars = V7_CREATION_CONTEXT_CHAR_BUDGETS[input.taskKind];
-  const methodPlan = compileMethodPlan(selection, input.taskKind, creationGenreFamilies(candidates));
+  let methodPlan = compileMethodPlan(selection, input.taskKind, creationGenreFamilies(candidates));
   let characterCount = packedCharacterCount(input, selected, selection, methodPlan);
-  // A context editor chooses semantic sources from compact indexes.  Some
-  // exact upstream documents (especially the book-wide setting ledger and a
-  // confirmed chain tree) legitimately exceed a chapter workstation's whole
-  // attention budget even after irrelevant sources were removed.  Keep the
-  // exact source and hash in the trace/audit store, but send its upstream
-  // Agent-authored projection to the next workstation when the exact payload
-  // is too large.  This is an explicit transport projection, never a new
-  // canon version and never a programmatic semantic summary.
-  if (characterCount > budgetChars && !compactIndexesUsed) {
-    compactIndexesUsed = true;
-    selected = selectedCandidates.map(compactPackSource);
+  // Optional method references yield to author facts before any evidence is reduced.
+  if (characterCount > budgetChars) {
+    methodPlan = { ...methodPlan, assetMenu: null, assetMenuVersion: null };
     characterCount = packedCharacterCount(input, selected, selection, methodPlan);
   }
-  // Final deterministic tier: cap every string field of the semantic indexes
-  // while keeping the full structure, every entry and every sourceKey.  The
-  // exact sources stay in the trace/audit store; this only bounds the
-  // transport projection.
-  let boundedIndexesUsed = false;
+  let evidenceUsed = false;
   if (characterCount > budgetChars) {
-    selected = selectedCandidates.map((source) => source.selectionContent === undefined
-      ? exactSource(source)
-      : { ...compactPackSource(source), content: boundProjectionTexts(source.selectionContent, 200) });
+    const overhead = packedCharacterCount(input, selected.map((source) => ({ ...source, content: null })), selection, methodPlan);
+    const evidenceBudget = budgetChars - overhead - 100;
+    if (evidenceBudget < 800) throw gate('资料说明尚未整理完成，已保留原文，可以继续未完成步骤。');
+    const contents = await readBudgetedEvidence({
+      task: `${input.taskKind} ${input.taskId}：${taskBrief(input.taskBrief)}\n作者本次要求：${input.authorInput ?? '无补充'}`,
+      sources: selected.map((source) => ({ key: source.sourceKey, label: source.label,
+        authority: source.authority, content: source.content, required: source.required })),
+      budget: evidenceBudget, generate
+    });
+    selected = selected.map((source, index) => ({ ...source, content: contents[index],
+      includedReason: `${source.includedReason} 本轮为Agent选择的原文节选，来源版本和完整原文保留在冻结存档。` }));
+    evidenceUsed = true;
     characterCount = packedCharacterCount(input, selected, selection, methodPlan);
-    boundedIndexesUsed = true;
   }
   if (characterCount > budgetChars) {
     throw new DomainError(
       errorCodes.validation,
-      `对不起，这次没有完成。系统已自动完成资料压缩，当前资料仍有${characterCount}字，超过本步骤${budgetChars}字的安全范围。您的资料都完好保留；可先在设定页让主编重新整理设定事实账本，再重新开始本步骤。`,
+      '对不起，这次资料还没有整理完成。您的原文和已完成结果都已保留，可以继续未完成步骤；无需删除或重新填写资料。',
       { characterCount, budgetChars, taskKind: input.taskKind },
       true,
       409
@@ -763,7 +797,7 @@ function compilePack(
     creativeSpace: selection.creativeSpace,
     methodPlan,
     sourceRefs: selectedCandidates.flatMap(sourceRef),
-    contextPolicyVersion: boundedIndexesUsed ? 'layered-context-v4' : compactIndexesUsed ? 'layered-context-v3' : 'layered-context-v2',
+    contextPolicyVersion: evidenceUsed ? 'layered-context-v5-evidence' : 'layered-context-v2',
     characterCount,
     budgetChars,
     estimatedTokens: estimateV7Tokens(stableJson(creationPromptContext({
@@ -780,7 +814,7 @@ function compilePack(
       creativeSpace: selection.creativeSpace,
       methodPlan,
       sourceRefs: [],
-      contextPolicyVersion: boundedIndexesUsed ? 'layered-context-v4' : compactIndexesUsed ? 'layered-context-v3' : 'layered-context-v2',
+      contextPolicyVersion: evidenceUsed ? 'layered-context-v5-evidence' : 'layered-context-v2',
       characterCount,
       budgetChars,
       estimatedTokens: 0
@@ -862,16 +896,6 @@ function estimateV7Tokens(value: string): number {
   return Math.max(1, Math.ceil(tokens));
 }
 
-function compactPackSource(source: V7CreationSourceCandidate): V7CreationSourceCandidate {
-  if (source.selectionContent === undefined) return exactSource(source);
-  const { selectionContent, ...rest } = source;
-  return {
-    ...rest,
-    label: `${source.label}（轻量索引）`,
-    content: selectionContent,
-    includedReason: `${source.includedReason} 当前工位只读取上游成员整理的语义索引，原始版本仍保留并可追溯。`
-  };
-}
 
 function exactSource(source: V7CreationSourceCandidate): V7CreationSourceCandidate {
   const { selectionContent: ignoredSelectionContent, ...exact } = source;
@@ -1207,7 +1231,7 @@ function contextIndexText(value: unknown, maximum: number): string | null {
 /**
  * 确定性传输限长：只封顶每个字符串字段的展示长度，完整保留对象结构、数组
  * 条目和来源标识。不判断语义、不删除条目、不改写内容；精确原文仍在来源
- * 版本与追溯链路中。供资料包限长层与规划快照限长层共用。
+ * 版本与追溯链路中。仅保留旧快照诊断兼容；运行组包不再调用。
  */
 export function boundProjectionTexts(value: unknown, maximum: number): unknown {
   if (typeof value === 'string') {

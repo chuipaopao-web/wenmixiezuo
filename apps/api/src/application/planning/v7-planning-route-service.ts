@@ -51,6 +51,8 @@ import {
 } from '../../infrastructure/models/v7-planning-model-gateway.js';
 import {
   V7PlanningSourceCompiler,
+  preparePlanningEvidence,
+  planningPromptSnapshot,
   planningSnapshotSourceTraces,
   requirePlanningScaleProfile,
   type V7PlanningScaleProfile,
@@ -485,6 +487,7 @@ export class V7PlanningRouteService {
     const frozenChiefs = roster.directChiefs;
     this.ensureActive(run);
     this.mark(run, 'method_search');
+    snapshot = await this.prepareEvidence(run, snapshot, roster.contextEditors);
     let sharedContextSearch: V7PlanningMethodSearchRow;
     try {
       sharedContextSearch = await this.ensureDirectContextPlan(run, snapshot, roster.contextEditors);
@@ -569,7 +572,7 @@ export class V7PlanningRouteService {
           operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
           sourceTraces: planningSnapshotSourceTraces(focusedSnapshot),
           prompt: planningDirectStoryRoutePrompt({
-            sourceSnapshot: focusedSnapshot,
+            sourceSnapshot: planningPromptSnapshot(focusedSnapshot),
             contextPlan: planningTaskContextPlan(request),
             seatKey,
             routeLabel: seat.routeLabel,
@@ -603,7 +606,7 @@ export class V7PlanningRouteService {
             operationMode: 'repair', basedOnTaskId: result.requestId, authorInstructionVersion: null,
             sourceTraces: planningSnapshotSourceTraces(focusedSnapshot),
             prompt: planningDirectStoryRouteRepairPrompt({
-              sourceSnapshot: focusedSnapshot,
+              sourceSnapshot: planningPromptSnapshot(focusedSnapshot),
               contextPlan: planningTaskContextPlan(request),
               seatKey,
               assetMenuText,
@@ -668,7 +671,7 @@ export class V7PlanningRouteService {
             '后台方法、配方和模式由系统按当前层确定性提供给设计成员，不在本任务检索或指定',
             '把融合题材身份翻译成当前任务的大白话责任并保留原创空间'
           ],
-          sourceSnapshot: snapshot
+          sourceSnapshot: planningPromptSnapshot(snapshot)
         });
         const result = await this.models.generate({
           ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
@@ -727,6 +730,27 @@ export class V7PlanningRouteService {
     throw new Error(`对不起，这次资料策划没有完成。${failures.join('；')}`);
   }
 
+  private async prepareEvidence(
+    run: V7PlanningRecipeRunRow, snapshot: V7PlanningCompiledSnapshot,
+    members: readonly V7CreationMemberDefinition[]
+  ): Promise<V7PlanningCompiledSnapshot> {
+    const member = members[0];
+    if (member === undefined) throw new Error('资料编辑部没有可用成员');
+    return preparePlanningEvidence(snapshot, async (call) => {
+      this.ensureActive(run);
+      const logicalTaskId = `planning-evidence:${run.run_id}:${call.key}:${member.memberKey}`;
+      const result = await this.models.generate({
+        ...this.modelAttempt(run, logicalTaskId), ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
+        runKind: 'recipe', nodeKey: `context_evidence:${call.key}`, member,
+        taskKind: 'planning_context', workstationKey: 'full_book_route',
+        operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
+        sourceTraces: [], prompt: call.prompt, maxOutputTokens: 2_500, temperature: 0.1
+      });
+      return result.output;
+    }, this.repository.methodSearches(run.owner_id, run.book_id, run.run_id)
+      .flatMap((search) => storedMethodSearchRequest(search).relevantSettingSourceIds));
+  }
+
   private async review(
     run: V7PlanningRecipeRunRow,
     snapshot: ReturnType<V7PlanningSourceCompiler['require']>,
@@ -750,7 +774,7 @@ export class V7PlanningRouteService {
           taskKind: 'planning_review', workstationKey: 'full_book_route',
           operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
           sourceTraces: planningSnapshotSourceTraces(reviewSnapshot),
-          prompt: planningRouteReviewPrompt({ sourceSnapshot: reviewSnapshot, routes: routeInput }),
+          prompt: planningRouteReviewPrompt({ sourceSnapshot: planningPromptSnapshot(reviewSnapshot), routes: routeInput }),
           maxOutputTokens: 5_000, temperature: 0.4
         });
         this.ensureActive(run);
@@ -779,7 +803,10 @@ export class V7PlanningRouteService {
     frozenFusionEditors: readonly V7PlanningMemberDefinition[]
   ): Promise<{ route: V7PlanningStoryRoute; brief: V7ProgressivePlanningBrief; memberKey: string }> {
     const snapshot = this.sources.require(run.owner_id, run.book_id, run.snapshot_id);
-    const focusedSnapshot = planningRunSnapshot(snapshot, this.repository.methodSearches(run.owner_id, run.book_id, run.run_id));
+    const roster = executableRouteRoster(storedRouteRoster(run), this.members(), this.contextMembers());
+    if (roster === null) throw new Error(READ_ONLY_ROUTE_MESSAGE);
+    const prepared = await this.prepareEvidence(run, snapshot, roster.contextEditors);
+    const focusedSnapshot = planningRunSnapshot(prepared, this.repository.methodSearches(run.owner_id, run.book_id, run.run_id));
     const selected = rows.map((row) => ({
       routeId: row.route_id, route: JSON.parse(row.route_json) as V7PlanningStoryRoute,
       brief: parseStoredProgressivePlanningBrief(
@@ -804,7 +831,7 @@ export class V7PlanningRouteService {
           basedOnTaskId: mode === 'adjust' ? rows[0]!.request_id : null,
           authorInstructionVersion: null,
           sourceTraces: planningSnapshotSourceTraces(focusedSnapshot),
-          prompt: planningRouteFusionPrompt({ sourceSnapshot: focusedSnapshot, selected, authorNote, assetMenuText }),
+          prompt: planningRouteFusionPrompt({ sourceSnapshot: planningPromptSnapshot(focusedSnapshot), selected, authorNote, assetMenuText }),
           maxOutputTokens: 8_000, temperature: 0.56
         });
         const fusion = parsePlanningRouteFusion(
