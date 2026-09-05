@@ -6,6 +6,7 @@ import {
   buildLayerAssetMenu,
   creationPromptContext,
   contextSelectionPrompt,
+  contextSelectionRepairPrompt,
   creationFallbackChain,
   inferGenreFamilies,
   parseContextSelection,
@@ -41,6 +42,7 @@ import {
 import { V7SettingLedgerReader } from '../books/v7-setting-ledger-reader.js';
 
 const MAXIMUM_SELECTED_SOURCES = 12;
+const CONTEXT_REPAIR_RESERVE_CHARACTERS = 1_200;
 const CONTEXT_PROJECTION_VERSION = 'layered-context-projection-v9';
 
 interface FormalOpeningRow {
@@ -174,14 +176,18 @@ export class V7CreationContextCompiler {
 
     const failures: string[] = [];
     const workflowCalls = this.creation.modelCallsForWorkflow(input.ownerId, input.bookId, input.workflowId);
-    const recovered = workflowCalls.toReversed().find((call) => call.run_kind === 'context'
+    const recoverableCalls = workflowCalls.toReversed().filter((call) => call.run_kind === 'context'
       && call.request_id.startsWith(`creation-context:${pack.context_pack_id}:`)
       && call.state === 'succeeded'
       && call.output_text !== null);
-    if (recovered?.output_text !== null && recovered?.output_text !== undefined) {
+    for (const recovered of recoverableCalls) {
       try {
-        const selection = parseContextSelection(recovered.output_text, candidates, maximumSources, input.taskKind);
+        const selection = parseContextSelection(recovered.output_text!, candidates, maximumSources, input.taskKind);
         const content = compilePack(input, candidates, selection);
+        this.creation.markContextWorking({
+          ownerId: input.ownerId, bookId: input.bookId, contextPackId: pack.context_pack_id,
+          memberKey: recovered.member_key, requestId: recovered.request_id, now: this.now()
+        });
         this.creation.activateContext({
           ownerId: input.ownerId,
           bookId: input.bookId,
@@ -199,8 +205,8 @@ export class V7CreationContextCompiler {
           sourceTraces: contextSourceTraces(input.ownerId, input.bookId, candidates, selection)
         };
       } catch {
-        // The prior answer may predate a parser or budget contract.  Only in
-        // that case is a fresh context-editor call justified.
+        // A later malformed answer must not hide an earlier usable result
+        // for this exact source fingerprint. No historical call is rewritten.
       }
     }
     let selectionPrompt: string;
@@ -257,7 +263,32 @@ export class V7CreationContextCompiler {
           maxOutputTokens: 3_000,
           temperature: 0.18
         });
-        const selection = parseContextSelection(result.output, candidates, maximumSources, input.taskKind);
+        let selection: V7CreationContextSelection;
+        try {
+          selection = parseContextSelection(result.output, candidates, maximumSources, input.taskKind);
+        } catch {
+          if (this.creation.workflow(input.ownerId, input.bookId, input.workflowId)?.status === 'cancelled') {
+            throw new DomainError(errorCodes.validation, '这项工作已经停止，已保留完成的内容。');
+          }
+          const repairRequestId = `${requestId}:repair`;
+          const repairPrompt = contextSelectionRepairPrompt({
+            originalPrompt: selectionPrompt, invalidOutput: result.output,
+            maximumCharacters: V7_CREATION_CONTEXT_PLANNER_CHAR_BUDGETS[input.taskKind]
+          });
+          assertCreationContextPlannerInputBudget(input.taskKind, repairPrompt);
+          this.creation.markContextWorking({
+            ownerId: input.ownerId, bookId: input.bookId, contextPackId: pack.context_pack_id,
+            memberKey: member.memberKey, requestId: repairRequestId, now: this.now()
+          });
+          const repaired = await this.models.generate({
+            requestId: repairRequestId, ownerId: input.ownerId, bookId: input.bookId,
+            workflowId: input.workflowId, runKind: 'context', nodeKey: `${input.taskKind}:${input.taskId}`,
+            workstationKey: contextWorkstation(input.taskKind), member, purpose: 'structured_planning',
+            operationMode: 'repair', basedOnTaskId: result.requestId, authorInstructionVersion: null,
+            sourceTraces: [], prompt: repairPrompt, maxOutputTokens: 4_000, temperature: 0.18
+          });
+          selection = parseContextSelection(repaired.output, candidates, maximumSources, input.taskKind);
+        }
         const content = compilePack(input, candidates, selection);
         const contentHash = sha256(stableJson(content));
         this.creation.activateContext({
@@ -302,13 +333,13 @@ export class V7CreationContextCompiler {
         failures.push(publicFailure(error));
       }
     }
-    const message = `对不起，这次资料没有整理完成。${failures.at(-1) ?? '编辑部没有交回可用结果。'}`;
+    const message = '对不起，这次资料没有整理完成。已保存的资料和结果仍然保留，您可以继续未完成步骤；若再次失败，请联系管理员核对。';
     this.creation.failContext({
       ownerId: input.ownerId,
       bookId: input.bookId,
       contextPackId: pack.context_pack_id,
       status: 'failed',
-      message,
+      message: failures.join('；') || message,
       now: this.now()
     });
     throw new DomainError(errorCodes.validation, message, {}, true, 503);
@@ -621,7 +652,8 @@ export function compileCreationContextPlannerPrompt(input: {
   candidates: readonly V7CreationSourceCandidate[];
   maximumSources: number;
 }): string {
-  const budgetChars = V7_CREATION_CONTEXT_PLANNER_CHAR_BUDGETS[input.taskKind];
+  // Reserve space for repair instructions without truncating the original task.
+  const budgetChars = V7_CREATION_CONTEXT_PLANNER_CHAR_BUDGETS[input.taskKind] - CONTEXT_REPAIR_RESERVE_CHARACTERS;
   const promptInput = {
     taskKind: input.taskKind,
     taskBrief: taskBrief(input.taskBrief),
@@ -659,6 +691,9 @@ export function compileCreationContextPlannerPrompt(input: {
     minimalCandidateDirectory: true
   });
   assertCreationContextPlannerInputBudget(input.taskKind, allMinimalDirectoryPrompt);
+  if (Array.from(allMinimalDirectoryPrompt).length > budgetChars) {
+    throw new DomainError(errorCodes.validation, '资料整理没有留足安全补交空间，已保留原有资料，请反馈给管理员处理。');
+  }
   return allMinimalDirectoryPrompt;
 }
 
@@ -1298,6 +1333,7 @@ function stableJson(value: unknown): string {
 function sha256(value: string): string { return createHash('sha256').update(value).digest('hex'); }
 
 function publicFailure(error: unknown): string {
+  if (error instanceof SyntaxError) return '成员交回的资料格式不完整，已保留原有内容。';
   const message = error instanceof Error ? error.message : String(error);
   return message.length > 240 ? `${message.slice(0, 237)}…` : message;
 }

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   V7_CREATION_CONTEXT_PLANNER_CHAR_BUDGETS,
+  contextSelectionPrompt,
+  contextSelectionRepairPrompt,
+  parseContextSelection,
   type V7CreationSourceCandidate,
   type V7CreationTaskKind
 } from '@wenmi/v7-backend';
@@ -11,6 +14,67 @@ import {
 } from '../../apps/api/src/application/creation/v7-creation-context-compiler.js';
 
 describe('V7创作资料策划输入预算', () => {
+  it.each(['full', 'compact', 'optional-minimum', 'required-minimum'] as const)(
+    '%s目录始终提供正式设定编号，不要求模型猜测被压缩掉的编号',
+    (tier) => {
+      const required = requiredCandidate();
+      const setting = settingCandidate();
+      if (tier === 'compact') setting.includedReason = '目录传输说明'.repeat(5_000);
+      if (tier === 'optional-minimum') setting.selectionContent = { summary: '设定索引'.repeat(6_000) };
+      if (tier === 'required-minimum') required.content = { exact: '必要正式资料'.repeat(4_000) };
+      const prompt = compileCreationContextPlannerPrompt({
+        taskKind: 'volume', taskBrief: '依据正式设定设计本卷。', candidates: [required, setting], maximumSources: 12
+      });
+      const directory = JSON.parse(prompt.split('候选资料：').at(-1)!);
+      expect(directory).toEqual(expect.arrayContaining([expect.objectContaining({
+        sourceKey: setting.sourceKey, sourceKind: 'setting', sourceId: setting.sourceId
+      })]));
+      expect(Array.from(prompt).length).toBeLessThanOrEqual(V7_CREATION_CONTEXT_PLANNER_CHAR_BUDGETS.volume - 1_200);
+      if (tier !== 'full') expect(directory[0]).not.toHaveProperty('contentHash');
+      if (tier === 'optional-minimum') expect(directory[1].content).toEqual({ kind: 'setting', name: setting.label });
+      if (tier === 'required-minimum') expect(directory[0].content).toEqual({ kind: 'planning_tree', name: required.label });
+    }
+  );
+
+  it('只将当前目录唯一的设定选择键归一为正式版本编号，并拒绝未知、非设定和歧义引用', () => {
+    const setting = settingCandidate();
+    const candidates = [requiredCandidate(), setting];
+    const output = contextSelectionFixture(candidates);
+    for (const id of [setting.sourceId, setting.sourceKey]) {
+      output.methodStrategy.searchRequest.relevantSettingSourceIds = [id];
+      expect(parseContextSelection(JSON.stringify(output), candidates, 12, 'volume')
+        .methodStrategy.searchRequest?.relevantSettingSourceIds).toEqual([setting.sourceId]);
+    }
+    output.methodStrategy.searchRequest.relevantSettingSourceIds = [setting.sourceId, setting.sourceKey];
+    expect(parseContextSelection(JSON.stringify(output), candidates, 12, 'volume')
+      .methodStrategy.searchRequest?.relevantSettingSourceIds).toEqual([setting.sourceId]);
+    for (const id of ['other-book-version', 'old-setting-version', requiredCandidate().sourceKey]) {
+      output.methodStrategy.searchRequest.relevantSettingSourceIds = [id];
+      expect(() => parseContextSelection(JSON.stringify(output), candidates, 12, 'volume')).toThrow('无效设定来源');
+    }
+    output.methodStrategy.searchRequest.relevantSettingSourceIds = [setting.sourceKey];
+    expect(() => parseContextSelection(JSON.stringify(output), [...candidates, {
+      ...setting, sourceKey: 'formal:setting:other', sourceId: setting.sourceKey
+    }], 12, 'volume')).toThrow('不唯一');
+    output.selectedSourceKeys.push('other-book-source');
+    expect(() => parseContextSelection(JSON.stringify(output), candidates, 12, 'volume')).toThrow('无效来源');
+  });
+
+  it('补交保留完整原任务与编号，损坏草稿包含转义字符时仍遵守字符预算', () => {
+    const originalPrompt = contextSelectionPrompt({
+      taskKind: 'volume', taskBrief: '不可更改的作者要求', candidates: [settingCandidate()], maximumSources: 12
+    });
+    const maximumCharacters = Array.from(originalPrompt).length + 1_200;
+    const repaired = contextSelectionRepairPrompt({
+      originalPrompt, invalidOutput: '\\"\n😀'.repeat(10_000), maximumCharacters
+    });
+    expect(repaired.endsWith(originalPrompt)).toBe(true);
+    expect(repaired).toContain(settingCandidate().sourceId);
+    expect(Array.from(repaired).length).toBeLessThanOrEqual(maximumCharacters);
+    expect(() => contextSelectionRepairPrompt({ originalPrompt, invalidOutput: '{}', maximumCharacters: 10 }))
+      .toThrow('安全范围');
+  });
+
   it.each(Object.entries(V7_CREATION_CONTEXT_PLANNER_CHAR_BUDGETS) as Array<[V7CreationTaskKind, number]>)(
     '%s在调用模型前按字符硬限阻断超大候选包',
     (taskKind, budgetChars) => {
@@ -115,6 +179,29 @@ describe('V7创作资料策划输入预算', () => {
     expect(JSON.stringify(bounded).length).toBeLessThan(JSON.stringify(value).length);
   });
 });
+
+function settingCandidate(): V7CreationSourceCandidate {
+  return {
+    sourceKey: 'formal:setting:world', sourceKind: 'setting', sourceId: 'formal-world-version-2',
+    sourceVersion: '2', authority: 'formal', label: '世界设定',
+    content: { era: '北宋' }, selectionContent: { summary: '北宋历史边界' },
+    contentHash: 'setting-hash', required: false, includedReason: '核对本卷背景'
+  };
+}
+
+function contextSelectionFixture(candidates: V7CreationSourceCandidate[]) {
+  const keys = candidates.map((item) => item.sourceKey);
+  return {
+    schema: 'v7-creation-context-v1', publicSummary: '本卷资料已整理', selectedSourceKeys: keys,
+    selectionReasons: keys.map((sourceKey) => ({ sourceKey, reason: '本卷需要' })), excludedSourceKeys: [], openQuestions: [],
+    taskPersona: { publicLabel: '本卷资料', workingIdentity: '核对本卷所需资料', priorities: ['正式资料'], authenticityChecks: ['来源有效'], avoidPatterns: ['猜测事实'] },
+    taskResponsibilities: ['核对边界', '选择资料'], creativeSpace: ['允许原创推进'],
+    methodStrategy: { mode: 'combined', publicSummary: '参考资料', searchRequest: {
+      schema: 'v7-planning-method-search-v1', publicGoal: '为本卷选择资料', scaleHint: '本卷', avoidNotes: [],
+      relevantSettingSourceIds: [settingCandidate().sourceId], missingCriticalInputs: []
+    } }
+  };
+}
 
 function requiredCandidate(): V7CreationSourceCandidate {
   return {

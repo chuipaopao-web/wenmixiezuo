@@ -13,6 +13,7 @@ import { ModelAdapterError } from '../../../apps/api/src/infrastructure/models/m
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
 import { V7CreationModelGateway } from '../../../apps/api/src/infrastructure/models/v7-creation-model-gateway.js';
+import { V7CreationContextCompiler } from '../../../apps/api/src/application/creation/v7-creation-context-compiler.js';
 import { V7CreationRuntimeRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-creation-runtime-repository.js';
 import { V7PlanningTreeService } from '../../../apps/api/src/application/planning/v7-planning-tree-service.js';
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
@@ -28,6 +29,70 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7全链路创作总线', () => {
+  it.each(['repair-success', 'repair-failed', 'repair-unknown'] as const)(
+    '资料结果损坏时%s：同成员有限补交、血缘记账、未知停止与安全反馈',
+    async (mode) => {
+      context = createTestContext('wenmi-v7-context-repair-');
+      const resolver = new ContextRepairResolver(mode);
+      const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+      try {
+        const cookie = await register(app, 'context-repair@example.com', '资料恢复作者');
+        const bookId = await createBook(app, cookie, '资料恢复书', 'context-repair-book-0001');
+        const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string }).owner_id);
+        confirmSetting(ownerId, bookId);
+        seedConfirmedBookTree(new V7PlanningTreeService(context.database, new SequenceIds(), new FixedClock()), ownerId, bookId);
+        const repository = new V7CreationRuntimeRepository(context.database);
+        const workflowId = 'context-repair-workflow';
+        repository.createWorkflow({ workflowId, ownerId, bookId, volumeScopeId: 'volume-1', firstVolume: true,
+          authorGoal: null, idempotencyKey: workflowId, requestHash: 'a'.repeat(64), now: new FixedClock().now().toISOString() });
+        const compiler = new V7CreationContextCompiler(context.database, resolver, new SequenceIds(), new FixedClock(), () => creationRosterFromGlobal());
+        const input = { ownerId, bookId, workflowId, taskKind: 'volume' as const, taskId: 'volume-1', taskBrief: '依据正式资料设计本卷。', firstVolume: true };
+        if (mode === 'repair-success') {
+          const result = await compiler.compile(input);
+          expect(result.selection.methodStrategy.searchRequest?.relevantSettingSourceIds).toEqual(['creation-setting-version']);
+          expect(resolver.calls).toHaveLength(2);
+          expect(resolver.calls[0]!.agentId).toBe(resolver.calls[1]!.agentId);
+          const repeated = await compiler.compile(input);
+          expect(repeated.contextPackId).toBe(result.contextPackId);
+          expect(resolver.calls).toHaveLength(2);
+          // Reproduce the historical ordering: a later malformed response must
+          // not force a new paid call when an earlier answer is usable.
+          const original = repository.modelCallsForWorkflow(ownerId, bookId, workflowId)[0]!;
+          repository.beginModelCall({ requestId: `${original.request_id}:late`, ownerId, bookId, workflowId,
+            runKind: 'context', nodeKey: original.node_key, memberKey: original.member_key,
+            provider: original.provider, modelId: original.model_id, plan: original.plan,
+            governanceRevision: 1, temperature: original.temperature,
+            purpose: 'structured_planning', promptHash: 'b'.repeat(64), reservedTokens: 8_000,
+            now: '2026-09-05T00:00:00.000Z' });
+          repository.completeModelCall({ requestId: `${original.request_id}:late`, outputText: '{"schema":',
+            inputTokens: 100, outputTokens: 20, cashMicros: 0, now: '2026-09-05T00:00:01.000Z' });
+          repository.failContext({ ownerId, bookId, contextPackId: result.contextPackId, status: 'failed',
+            message: '历史末次结果格式错误', now: '2026-09-05T00:00:02.000Z' });
+          expect((await compiler.compile(input)).contextPackId).toBe(result.contextPackId);
+          expect(resolver.calls).toHaveLength(2);
+        } else {
+          await expect(compiler.compile(input)).rejects.toThrow(mode === 'repair-unknown' ? '结果' : '继续未完成步骤');
+          const pack = context.database.prepare('SELECT status,error_message FROM v7_creation_context_packs WHERE workflow_id=?').get(workflowId) as { status: string; error_message: string };
+          expect(pack.status).toBe(mode === 'repair-unknown' ? 'unknown' : 'failed');
+          if (mode === 'repair-unknown') {
+            await expect(compiler.compile(input)).rejects.toThrow('停止重复下单');
+            expect(resolver.calls).toHaveLength(2);
+          } else {
+            const memberCount = creationFallbackChain('context_editor', undefined, creationRosterFromGlobal()).length;
+            expect(resolver.calls).toHaveLength(memberCount * 2);
+          }
+        }
+        const contracts = context.database.prepare(`SELECT t.task_id,t.based_on_task_id,p.member_key AS prior_member,c.member_key,
+          p.owner_id AS prior_owner,p.book_id AS prior_book FROM v7_task_contracts t
+          JOIN v7_creation_model_calls c ON c.request_id=t.task_id
+          JOIN v7_creation_model_calls p ON p.request_id=t.based_on_task_id
+          WHERE c.workflow_id=? AND t.operation_mode='repair'`).all(workflowId);
+        expect(contracts.length).toBeGreaterThan(0);
+        for (const row of contracts) expect(row).toMatchObject({ prior_member: row.member_key, prior_owner: ownerId, prior_book: bookId });
+      } finally { await app.close(); }
+    }
+  );
+
   it('从确认全书树完成卷、链、章纲、正文定稿和四类写后维护，重复请求不重复生成', async () => {
     context = createTestContext('wenmi-v7-creation-pipeline-');
     const resolver = new CreationResolver(null, 3, true, 1);
@@ -1450,6 +1515,31 @@ function stageTaskPrompt(compiledPrompt: string): string {
     return typeof payload === 'string' ? payload : JSON.stringify(payload);
   } catch {
     return compiledPrompt;
+  }
+}
+
+class ContextRepairResolver implements V7OpeningModelAdapterResolver {
+  public readonly calls: ModelRequest[] = [];
+  private readonly base = new CreationResolver();
+  public constructor(private readonly mode: 'repair-success' | 'repair-failed' | 'repair-unknown') {}
+  public resolve(provider: string, modelId: string, purpose: ModelPurpose): ModelAdapter {
+    const adapter = this.base.resolve(provider, modelId, purpose);
+    return { provider, modelId, generate: async (request, signal) => {
+      const prompt = stageTaskPrompt(request.prompt);
+      if (!prompt.includes('你是文秘写作资料策划')) return adapter.generate(request, signal);
+      this.calls.push(request);
+      const repair = request.requestId.endsWith(':repair');
+      if (repair && this.mode === 'repair-unknown') {
+        throw new ModelAdapterError('连接中断，结果还不能确认', 'technical_failure', true, undefined, true);
+      }
+      let output = '{"schema":"v7-creation-context-v1",';
+      if (repair && this.mode === 'repair-success') {
+        const selection = JSON.parse(contextSelectionOutput(prompt, false));
+        selection.methodStrategy.searchRequest.relevantSettingSourceIds = ['formal:setting:world-stage'];
+        output = JSON.stringify(selection);
+      }
+      return { provider, modelId, output, inputTokens: 180, outputTokens: 620, cashCostCny: 0, state: 'succeeded' };
+    } };
   }
 }
 
