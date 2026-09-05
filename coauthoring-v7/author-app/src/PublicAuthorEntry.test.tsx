@@ -68,9 +68,13 @@ describe('public author homepage entry', () => {
     expect(screen.getByRole('navigation', { name: '公开入口' })).toHaveTextContent('登录');
     expect(screen.getByRole('navigation', { name: '公开入口' })).toHaveTextContent('注册');
     expect(screen.getByRole('button', { name: /开始创作/ })).toBeEnabled();
+    expect(screen.getByRole('link', { name: '查看 AI 编辑部协同创作' })).toBeVisible();
     expect(screen.getByLabelText('创作流程示意')).toBeVisible();
+    for (const copy of ['貂蝉', 'AI主编', '西施', 'AI副编', '红玉', 'AI策划编剧', '清照', 'AI主笔', '周行简', 'AI审查编辑']) {
+      expect(document.body.textContent).toContain(copy);
+    }
     expect(document.body.textContent).toContain('短剧创作：规划中。');
-    expect(document.body.textContent).not.toMatch(/实时必达|永久准确|成功率|用户数|剧本工作流已开放|后续公共页面批次|不把.*冒充|结算历史/u);
+    expect(document.body.textContent).not.toMatch(/实时必达|永久准确|成功率|用户数|剧本工作流已开放|后续公共页面批次|不把.*冒充|结算历史|世界观编辑/u);
     expect(screen.queryByRole('link', { name: '用户协议' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '隐私说明' })).not.toBeInTheDocument();
   });

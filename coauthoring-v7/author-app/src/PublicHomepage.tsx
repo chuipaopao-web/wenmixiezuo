@@ -3,7 +3,6 @@ import {
   CheckCircleIcon,
   FileTextIcon,
   FlowArrowIcon,
-  LeafIcon,
   LightbulbIcon,
   NotePencilIcon,
   PenNibIcon,
@@ -12,6 +11,7 @@ import {
   UsersThreeIcon
 } from '@phosphor-icons/react';
 import type { AuthorAccount } from './account-api';
+import { memberAvatarPosition } from './member-avatars';
 
 type PublicIcon = typeof LightbulbIcon;
 
@@ -32,12 +32,38 @@ const PROCESS_STEPS = [
   ['05', '正文', '进入章节写作、审查和采纳。']
 ] as const;
 
-const EDITORIAL_ROLES: Array<[string, string, PublicIcon]> = [
-  ['主编', '把控整体方向与一致性。', LeafIcon],
-  ['剧情编剧', '梳理主线、支线与阶段冲突。', FlowArrowIcon],
-  ['世界观编辑', '维护规则、势力与背景资料。', TreeStructureIcon],
-  ['写作编辑', '推进章节正文与表达。', PenNibIcon]
-];
+const EDITORIAL_MEMBERS = [
+  {
+    memberKey: 'chief-deepseek-v4-pro',
+    name: '貂蝉',
+    role: 'AI主编',
+    responsibility: '统筹开书、路线和审查，给出可执行结论。'
+  },
+  {
+    memberKey: 'deputy-glm-5-3',
+    name: '西施',
+    role: 'AI副编',
+    responsibility: '整理当前需要的资料，标注依据和不确定处。'
+  },
+  {
+    memberKey: 'planner-deepseek-v4-pro',
+    name: '红玉',
+    role: 'AI策划编剧',
+    responsibility: '设计开书、设定和故事框架，保持方案可修改。'
+  },
+  {
+    memberKey: 'writer-kimi-k3',
+    name: '清照',
+    role: 'AI主笔',
+    responsibility: '依据确认章纲和正式资料创作完整正文。'
+  },
+  {
+    memberKey: 'review-kimi-k3',
+    name: '周行简',
+    role: 'AI审查编辑',
+    responsibility: '独立检查正文事实、连续性、人物和节奏。'
+  }
+] as const;
 
 type PublicHomepageAccountState =
   | { status: 'checking' }
@@ -96,6 +122,15 @@ export function PublicHomepage({
             <span>{authenticated ? '进入工作台' : '开始创作'}</span>
           </button>
         </div>
+        <a className="public-hero-editors" href="#collaboration" aria-label="查看 AI 编辑部协同创作">
+          <span className="public-hero-avatar-stack" aria-hidden="true">
+            {EDITORIAL_MEMBERS.map((member) => <i key={member.memberKey} style={{ backgroundPosition: memberAvatarPosition(member.memberKey) }} />)}
+          </span>
+          <span>
+            <strong>AI编辑部协同创作</strong>
+            <small>主编、副编、策划、主笔和审查编辑接力推进。</small>
+          </span>
+        </a>
       </div>
 
       <div className="public-workflow-preview" aria-label="创作流程示意">
@@ -151,14 +186,18 @@ export function PublicHomepage({
 
     <section className="public-memory-section" id="collaboration" aria-labelledby="public-memory-title">
       <div className="public-section-heading">
-        <h2 id="public-memory-title">编辑部协作，记住你的长期创作线索</h2>
-        <p>主编、剧情、世界与写作分工协作，把你采纳过的角色、规则、伏笔和章节正文沉淀为后续参考。</p>
+        <h2 id="public-memory-title">AI编辑部协作，记住你的长期创作线索</h2>
+        <p>这些是文秘写作里的 AI 创作角色：主编、副编、策划、主笔与审查编辑分工协作，把你采纳过的角色、规则、伏笔和章节正文沉淀为后续参考。</p>
       </div>
       <div className="public-memory-layout">
-        <div className="public-editorial-map" aria-label="多智能体协作示意">
-          {EDITORIAL_ROLES.map(([title, copy, Icon]) => <article key={title}>
-            <Icon aria-hidden="true" />
-            <span><strong>{title}</strong><small>{copy}</small></span>
+        <div className="public-editorial-map" aria-label="AI编辑部代表成员">
+          {EDITORIAL_MEMBERS.map((member) => <article key={member.memberKey}>
+            <span className="public-editorial-avatar" style={{ backgroundPosition: memberAvatarPosition(member.memberKey) }} aria-hidden="true" />
+            <span>
+              <small>{member.role}</small>
+              <strong>{member.name}</strong>
+              <p>{member.responsibility}</p>
+            </span>
           </article>)}
         </div>
         <div className="public-memory-ledger">

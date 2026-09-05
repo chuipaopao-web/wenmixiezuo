@@ -1466,6 +1466,68 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
   align-items: center;
 }
 
+.public-hero-editors {
+  width: fit-content;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: -4px;
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--line));
+  border-radius: 999px;
+  padding: 8px 16px 8px 10px;
+  color: #27483f;
+  background: rgb(255 255 255 / 72%);
+  box-shadow: 0 12px 28px rgb(38 62 54 / 8%);
+  text-decoration: none;
+}
+
+.public-hero-editors:hover {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.public-hero-avatar-stack {
+  display: flex;
+  align-items: center;
+  padding-left: 10px;
+}
+
+.public-hero-avatar-stack i {
+  width: 44px;
+  height: 44px;
+  display: inline-block;
+  margin-left: -10px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background-image: var(--member-avatar-sprite);
+  background-repeat: no-repeat;
+  background-size: 300% 300%;
+  box-shadow: 0 8px 18px rgb(29 55 47 / 16%);
+}
+
+.public-hero-avatar-stack i:first-child {
+  margin-left: 0;
+}
+
+.public-hero-editors > span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.public-hero-editors strong {
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.public-hero-editors small {
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .public-primary-action {
   min-height: 58px;
   border-radius: 14px;
@@ -1751,7 +1813,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .public-editorial-map article {
   min-height: 150px;
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-columns: 68px minmax(0, 1fr);
   gap: 14px;
   align-items: center;
   border: 1px solid var(--line);
@@ -1760,31 +1822,42 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
   background: #fff;
 }
 
-.public-editorial-map svg {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  padding: 12px;
-  color: var(--accent);
-  background: var(--accent-soft);
+.public-editorial-avatar {
+  width: 68px;
+  height: 68px;
+  border: 3px solid #fff;
+  border-radius: 22px;
+  background-image: var(--member-avatar-sprite);
+  background-repeat: no-repeat;
+  background-size: 300% 300%;
+  box-shadow: 0 12px 26px rgb(37 61 53 / 15%);
 }
 
-.public-editorial-map span {
+.public-editorial-map article > span:last-child {
   min-width: 0;
   display: grid;
-  gap: 7px;
+  gap: 5px;
 }
 
 .public-editorial-map strong {
   color: #1d372f;
   font-family: var(--font-display);
-  font-size: 25px;
+  font-size: 27px;
+  line-height: 1.15;
   letter-spacing: 0;
 }
 
 .public-editorial-map small {
+  color: #477365;
+  font-size: 12px;
+  font-weight: 820;
+  line-height: 1.3;
+}
+
+.public-editorial-map p {
+  margin: 0;
   color: var(--ink-soft);
-  line-height: 1.65;
+  line-height: 1.6;
 }
 
 .public-memory-ledger {
@@ -1939,6 +2012,9 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
   .public-hero-copy p { font-size: 16px; line-height: 1.75; }
   .public-hero-actions { display: grid; grid-template-columns: 1fr; }
   .public-primary-action, .public-secondary-action { width: 100%; min-width: 0; }
+  .public-hero-editors { width: 100%; border-radius: 18px; padding: 11px 12px; }
+  .public-hero-avatar-stack i { width: 38px; height: 38px; }
+  .public-hero-editors small { font-size: 11px; }
   .public-workflow-preview { border-radius: 18px; padding: 16px; }
   .public-workflow-preview::before { display: none; }
   .public-workflow-preview > header, .public-preview-grid, .public-manuscript-preview { padding-left: 0; margin-left: 0; }
@@ -1955,8 +2031,8 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
   .public-process-rail small { font-size: 13px; }
   .public-control-panel { grid-template-columns: 1fr; border-radius: 16px; padding: 18px; }
   .public-editorial-map { grid-template-columns: 1fr; }
-  .public-editorial-map article { min-height: 0; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; padding: 14px; }
-  .public-editorial-map svg { width: 44px; height: 44px; border-radius: 13px; padding: 10px; }
+  .public-editorial-map article { min-height: 0; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; padding: 14px; }
+  .public-editorial-avatar { width: 52px; height: 52px; border-radius: 16px; }
   .public-editorial-map strong { font-size: 22px; }
   .public-editorial-map small { line-height: 1.5; }
   .public-memory-ledger { border-radius: 16px; padding: 20px; }
