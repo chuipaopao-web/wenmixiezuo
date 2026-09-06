@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ModelAdapter, ModelRequest, ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import { ModelAdapterError } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
@@ -157,6 +157,42 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7开书Agent平台接入', () => {
+  it('候选事务中断后自动复用已结算结果，恢复时不重复调用模型或扣量', async () => {
+    context = createTestContext('wenmi-v7-opening-commit-recovery-');
+    const resolver = new ScriptedResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const database = context.database;
+    const commit = V7OpeningAgentRepository.prototype.commitCandidate;
+    let intercepted = false;
+    const spy = vi.spyOn(V7OpeningAgentRepository.prototype, 'commitCandidate').mockImplementation(async function (this: V7OpeningAgentRepository, ...args: Parameters<typeof commit>) {
+      if (intercepted) return commit.call(this, ...args);
+      intercepted = true;
+      database.exec(`CREATE TEMP TRIGGER opening_fail_once BEFORE INSERT ON v7_opening_agent_candidates
+        BEGIN SELECT RAISE(ABORT, 'simulated candidate storage interruption'); END`);
+      try { return await commit.call(this, ...args); }
+      finally { database.exec('DROP TRIGGER opening_fail_once'); }
+    });
+    try {
+      await register(app, 'opening-recovery-admin@example.com', '测试管理员', 'strong-pass-556');
+      const cookie = await register(app, 'opening-recovery@example.com', '恢复验收', 'strong-pass-555');
+      const started = await app.inject({ method: 'POST', url: '/api/v1/v7/opening-agent/tasks',
+        headers: { ...BROWSER_HEADERS, cookie }, payload: {
+          idea: '张三穿越三国，从流民起步，保护同行百姓。', idempotencyKey: 'opening-commit-recovery-128'
+        } });
+      expect(started.statusCode).toBe(200);
+      const taskId = started.json().data.taskId as string;
+      const view = await poll(app, cookie, taskId, ['awaiting_author_confirmation', 'failed']);
+      expect(view.status, view.errorMessage).toBe('awaiting_author_confirmation');
+      expect(intercepted).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(3);
+      expect(resolver.generateCount).toBe(2);
+      expect(database.prepare('SELECT COUNT(*) AS count FROM v7_opening_agent_candidates WHERE task_id=?').get(taskId)).toEqual({count: 2});
+      expect(database.prepare('SELECT COUNT(*) AS count FROM v7_opening_agent_model_calls WHERE task_id=?').get(taskId)).toEqual({count: 2});
+      const membership = await app.inject({method: 'GET', url: '/api/v1/membership/me', headers: {host: BROWSER_HEADERS.host, cookie}});
+      expect(membership.json().data.membership.computeConsumed).toBe(2 * (120 + 240) * 2);
+    } finally { spy.mockRestore(); await app.close(); }
+  });
+
   it('读取历史任务书流程只返回保留结果，绝不恢复模型调用', async () => {
     context = createTestContext('wenmi-v7-opening-retired-work-order-');
     const resolver = new ScriptedResolver();
@@ -589,7 +625,7 @@ describe('V7开书Agent平台接入', () => {
       expect(department.statusCode).toBe(200);
       const departmentData = department.json().data;
       const visibleMembers = departmentData.departments.flatMap((group: { members: Array<{ displayName: string; capabilities: string[] }> }) => group.members);
-      expect(departmentData.summary).toMatchObject({ memberCount: 22, workingCount: 0 });
+      expect(departmentData.summary).toMatchObject({ memberCount: 23, workingCount: 0 });
       expect(new Set(visibleMembers.map((member: { displayName: string }) => member.displayName)).size).toBe(visibleMembers.length);
       expect(departmentData.departments.map((group: { departmentKey: string }) => group.departmentKey)).toEqual([
         'chief_editor', 'deputy_editor', 'planning_writer', 'lead_writer',
@@ -702,7 +738,7 @@ describe('V7开书Agent平台接入', () => {
       });
       expect(initial.statusCode).toBe(200);
       expect(initial.json().data).toMatchObject({
-        summary: { roleCount: 7, memberCount: 22 },
+        summary: { roleCount: 7, memberCount: 23 },
         credentials: { codingPlan: false, agentPlan: false, image: true }
       });
       expect(initial.json().data.roles[0].members[0]).toEqual(expect.objectContaining({

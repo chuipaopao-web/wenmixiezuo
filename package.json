@@ -16,7 +16,8 @@
     "apps/worker",
     "coauthoring-v7/backend",
     "coauthoring-v7/author-app",
-    "coauthoring-v7/admin-console"
+    "coauthoring-v7/admin-console",
+    "rebuild/packages/backend/src/legacy-opening"
   ],
   "scripts": {
     "acceptance": "vitest run tests/acceptance",

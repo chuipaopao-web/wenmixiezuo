@@ -29,6 +29,7 @@ const SOURCE_ROOTS = [
   'apps/api/src',
   'apps/worker/src',
   'coauthoring-v7/backend',
+  'rebuild/packages/backend/src/legacy-opening',
   'coauthoring-v7/author-app/src',
   'coauthoring-v7/admin-console/src'
 ] as const;
@@ -81,15 +82,21 @@ const BUILD_RESOURCES: ReadonlyArray<{
   ...workspaceBuildResources('apps/contracts', 'shared-platform', true),
   ...workspaceBuildResources('apps/worker', 'shared-platform', true),
   ...workspaceBuildResources('coauthoring-v7/backend', 'shared-platform', true),
+  ...workspaceBuildResources('rebuild/packages/backend/src/legacy-opening', 'shared-platform', true),
   ...workspaceBuildResources('coauthoring-v7/author-app', 'v7-authoring', false),
   ...workspaceBuildResources('coauthoring-v7/admin-console', 'v7-admin', false)
 ];
 const STANDALONE_OPERATIONAL_RESOURCES = [
   // R119 API-only release: invoked by the explicitly authorized deployment script.
   'scripts/release/deploy-r119-api.sh',
+  'scripts/release/deploy-r116-author-static.sh',
+  'scripts/release/deploy-r117-author-static.sh',
+  'scripts/release/deploy-r118-author-static.sh',
   'scripts/release/r119-active-count.py',
   'scripts/release/r119-compiled-probe.mjs',
   'scripts/release/deploy-r122-admin.sh',
+  'scripts/release/deploy-r128-opening.sh',
+  'scripts/release/r128-opening-probe.mjs',
   'scripts/release/r122-admin-probe.mjs',
   'scripts/create-desktop-shortcut.ps1',
   'scripts/start-desktop.ps1',
@@ -109,7 +116,8 @@ const STANDALONE_OPERATIONAL_RESOURCES = [
 
 const WORKSPACE_PACKAGES: Readonly<Record<string, string>> = {
   '@wenmi/contracts': 'apps/contracts/src/index.ts',
-  '@wenmi/v7-backend': 'coauthoring-v7/backend/index.ts'
+  '@wenmi/v7-backend': 'coauthoring-v7/backend/index.ts',
+  '@wenmi/opening-runtime': 'rebuild/packages/backend/src/legacy-opening/runtime.ts'
 };
 
 const RETIRED_RUNTIME_PATHS = [
@@ -821,7 +829,8 @@ function validateWorkspaceBuildGraph(root: string, errors: string[]): void {
     'apps/worker',
     'coauthoring-v7/backend',
     'coauthoring-v7/author-app',
-    'coauthoring-v7/admin-console'
+    'coauthoring-v7/admin-console',
+    'rebuild/packages/backend/src/legacy-opening'
   ];
   const expectedPackages: ReadonlyArray<{
     workspace: string;
@@ -834,7 +843,8 @@ function validateWorkspaceBuildGraph(root: string, errors: string[]): void {
     { workspace: 'apps/api', name: '@wenmi/api', build: 'tsc -p tsconfig.build.json', start: 'node dist/main.js' },
     { workspace: 'apps/contracts', name: '@wenmi/contracts', build: 'tsc -p tsconfig.build.json', exportEntry: './dist/index.js' },
     { workspace: 'apps/worker', name: '@wenmi/worker', build: 'tsc -p tsconfig.build.json', start: 'node dist/main.js' },
-    { workspace: 'coauthoring-v7/backend', name: '@wenmi/v7-backend', build: 'tsc -p tsconfig.build.json', exportEntry: './dist/index.js' },
+    { workspace: 'coauthoring-v7/backend', name: '@wenmi/v7-backend', build: 'npm run build -w @wenmi/opening-runtime && tsc -p tsconfig.build.json', exportEntry: './dist/index.js' },
+    { workspace: 'rebuild/packages/backend/src/legacy-opening', name: '@wenmi/opening-runtime', build: 'tsc -p tsconfig.build.json', exportEntry: './dist/runtime.js' },
     { workspace: 'coauthoring-v7/author-app', name: '@wenmi/v7-author-app', build: 'vite build --config vite.config.mjs --configLoader native', viteBase: '/' },
     { workspace: 'coauthoring-v7/admin-console', name: '@wenmi/v7-admin-console', build: 'vite build --config vite.config.mjs --configLoader native', viteBase: '/v7/' }
   ];
@@ -843,7 +853,7 @@ function validateWorkspaceBuildGraph(root: string, errors: string[]): void {
     ? rootPackage.workspaces.filter((item): item is string => typeof item === 'string')
     : [];
   if (JSON.stringify(workspaces) !== JSON.stringify(expectedWorkspaces)) {
-    errors.push(`工作区构建图不是 V7 六工作区：${workspaces.join(', ')}`);
+    errors.push(`工作区构建图与当前发布清单不一致：${workspaces.join(', ')}`);
   }
   for (const expected of expectedPackages) {
     const packagePath = resolve(root, expected.workspace, 'package.json');

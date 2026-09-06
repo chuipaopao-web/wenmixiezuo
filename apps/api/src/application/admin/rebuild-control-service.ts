@@ -166,9 +166,8 @@ export async function readRebuildControl(config: RuntimeConfig, database: Databa
   const audit = new V7TaskAuditRepository(database);
   const taskCount = audit.count({ start: windowStart });
   const rows = audit.list({ start: windowStart, limit: 1000 });
-  const heartbeat = database.prepare('SELECT heartbeat_at FROM worker_health ORDER BY heartbeat_at DESC LIMIT 1')
-    .get() as { heartbeat_at: string } | undefined;
-  const age = heartbeat ? now.getTime() - Date.parse(heartbeat.heartbeat_at) : NaN;
+  const heartbeat = audit.latestWorkerHeartbeat();
+  const age = heartbeat ? now.getTime() - Date.parse(heartbeat) : NaN;
   const openIssueCount = audit.issuePage({ status: 'open', offset: 0, limit: 1 }).total
     + audit.issuePage({ status: 'in_progress', offset: 0, limit: 1 }).total;
   const sourceProgress = {
@@ -181,7 +180,7 @@ export async function readRebuildControl(config: RuntimeConfig, database: Databa
     units: plan.units, sourceFeatures: plan.sourceFeatures, configurations: CONFIGURATIONS,
     runtime: { checkedAt: now.toISOString(), origin: config.publicOrigin ?? '本地或隔离服务', releaseId: config.releaseId,
       database: 'responding', worker: age >= 0 && age <= 15_000 ? 'recent_heartbeat' : 'stale_or_missing',
-      heartbeatAt: heartbeat?.heartbeat_at ?? null, windowStart, taskCount, sampledCount: rows.length,
+      heartbeatAt: heartbeat, windowStart, taskCount, sampledCount: rows.length,
       taskSignals: summarizeTaskSignals(rows), openIssueCount }
   };
 }

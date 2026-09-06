@@ -256,6 +256,18 @@ export class V7OpeningAgentRepository implements OpeningAgentToolGateway {
     `).run(message.slice(0, 1_000), now, ownerId, taskId);
   }
 
+  public hasRecoverableCandidate(ownerId: string, taskId: string): boolean {
+    const row = this.byTaskId(ownerId, taskId);
+    if (row?.state_json == null) return false;
+    const state = JSON.parse(row.state_json) as OpeningAgentTaskState;
+    return state.attempts.some((attempt) => attempt.phase === state.phase && attempt.status === 'working'
+      && this.database.prepare(`SELECT 1 FROM v7_opening_agent_model_calls m
+        WHERE m.owner_id=? AND m.task_id=? AND m.request_id=? AND m.state='succeeded'
+        AND NOT EXISTS (SELECT 1 FROM v7_opening_agent_candidates c
+          WHERE c.owner_id=m.owner_id AND c.task_id=m.task_id AND c.model_request_id=m.request_id)`)
+        .get(ownerId, taskId, attempt.requestId) !== undefined);
+  }
+
   public async readOpeningIdea(ownerId: string, taskId: string): Promise<OpeningIdeaSnapshot> {
     const row = this.requireRow(ownerId, taskId);
     return {
@@ -289,12 +301,20 @@ export class V7OpeningAgentRepository implements OpeningAgentToolGateway {
   }
 
   public async saveTask(state: OpeningAgentTaskState): Promise<void> {
+    // Keep uncommitted successes pending so restart reconciles the saved model result.
+    const durable = structuredClone(state);
+    for (const attempt of durable.attempts) {
+      if (attempt.phase !== durable.phase || attempt.status !== 'succeeded') continue;
+      const candidate = this.database.prepare(`SELECT 1 FROM v7_opening_agent_candidates
+        WHERE owner_id=? AND task_id=? AND model_request_id=?`).get(state.ownerId, state.taskId, attempt.requestId);
+      if (candidate === undefined) attempt.status = 'working';
+    }
     const result = this.database.prepare(`
       UPDATE v7_opening_agent_tasks
       SET status = ?, phase = ?, state_json = ?, error_code = ?, error_message = ?, updated_at = ?
       WHERE owner_id = ? AND task_id = ?
     `).run(
-      state.status, state.phase, JSON.stringify(state), state.errorCode, state.errorMessage, new Date().toISOString(),
+      durable.status, durable.phase, JSON.stringify(durable), durable.errorCode, durable.errorMessage, new Date().toISOString(),
       state.ownerId, state.taskId
     );
     if (result.changes !== 1) throw new Error('V7开书任务不存在或不属于当前账号');

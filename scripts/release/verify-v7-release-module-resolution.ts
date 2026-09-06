@@ -16,7 +16,7 @@ export interface ReleaseClosureManifest {
 }
 
 export interface ResolvedReleaseModule {
-  specifier: '@wenmi/contracts' | '@wenmi/v7-backend';
+  specifier: '@wenmi/contracts' | '@wenmi/v7-backend' | '@wenmi/opening-runtime';
   resolvedPath: string;
 }
 
@@ -30,6 +30,11 @@ const RELEASE_MODULES = [
     specifier: '@wenmi/v7-backend' as const,
     sourceEntry: 'coauthoring-v7/backend/index.ts',
     compiledEntry: 'coauthoring-v7/backend/dist/index.js'
+  },
+  {
+    specifier: '@wenmi/opening-runtime' as const,
+    sourceEntry: 'rebuild/packages/backend/src/legacy-opening/runtime.ts',
+    compiledEntry: 'rebuild/packages/backend/src/legacy-opening/dist/runtime.js'
   }
 ] as const;
 

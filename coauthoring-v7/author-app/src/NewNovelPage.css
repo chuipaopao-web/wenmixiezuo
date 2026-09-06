@@ -1,0 +1,197 @@
+.novel-create-surface .opening-member-choice {
+  margin-top: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--accent) 6%, white);
+}
+
+.novel-create-surface .opening-member-choice > summary {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 15px;
+  color: var(--accent);
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.novel-create-surface .opening-member-choice > summary::-webkit-details-marker {
+  display: none;
+}
+
+.novel-create-surface .opening-member-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0;
+  padding: 12px 14px 14px;
+}
+
+.novel-create-surface .opening-member-options legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.novel-create-surface .opening-member-options label {
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 8px 10px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+.novel-create-surface .opening-member-options label:hover,
+.novel-create-surface .opening-member-options label:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.novel-create-surface .opening-member-options label.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, white);
+  box-shadow: 0 12px 28px rgb(39 73 62 / 12%);
+}
+
+.novel-create-surface .opening-member-options input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.novel-create-surface .opening-member-avatar,
+.novel-create-surface .opening-member-auto {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+}
+
+.novel-create-surface .opening-member-avatar {
+  border: 3px solid #fff;
+  background-image: url('/avatars/team-collage-source.jpg');
+  background-repeat: no-repeat;
+  background-size: 300% 300%;
+  box-shadow: 0 6px 16px rgb(44 74 66 / 16%);
+}
+
+.novel-create-surface .opening-member-auto {
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  background: #fff;
+  color: var(--accent);
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.novel-create-surface .opening-member-options strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.novel-create-surface .opening-member-options b {
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.novel-create-surface .editorial-live-room {
+  min-height: auto;
+  align-content: start;
+  gap: 12px;
+  padding-block: clamp(20px, 4vw, 42px);
+}
+
+.novel-create-surface .editorial-live-cast {
+  margin-bottom: 2px;
+}
+
+.novel-create-surface .editorial-live-message {
+  max-width: 680px;
+  margin: 0;
+  font-size: clamp(21px, 2.5vw, 32px);
+}
+
+.novel-create-surface .editorial-live-members {
+  margin-top: 2px;
+  color: var(--ink-soft);
+}
+
+.novel-create-surface .editorial-live-members summary,
+.novel-create-surface .editorial-brief summary {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 14px;
+  background: #fff;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.novel-create-surface .editorial-live-members > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.novel-create-surface .editorial-live-members > div > span {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 11px 4px 5px;
+  background: #fff;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.novel-create-surface .editorial-live-members .agent-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+}
+
+.novel-create-surface .safe-leave-copy {
+  margin: 0;
+  color: var(--ink-faint);
+}
+
+@media (max-width: 640px) {
+  .novel-create-surface .opening-member-options {
+    grid-template-columns: 1fr;
+    padding: 10px 12px 12px;
+  }
+
+  .novel-create-surface .editorial-live-room {
+    padding-inline: 8px;
+  }
+}

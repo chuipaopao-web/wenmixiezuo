@@ -61,6 +61,12 @@ export interface V7AdminIssueAuditRow {
 export class V7TaskAuditRepository {
   public constructor(private readonly database: DatabaseSync) {}
 
+  public latestWorkerHeartbeat(): string | null {
+    const row = this.database.prepare('SELECT heartbeat_at FROM worker_health ORDER BY heartbeat_at DESC LIMIT 1')
+      .get() as { heartbeat_at: string } | undefined;
+    return row?.heartbeat_at ?? null;
+  }
+
   public list(filter: V7TaskAuditFilter = {}): V7TaskAuditRow[] {
     const { where, values } = auditWhere(filter);
     const limit = Math.min(10_000, Math.max(1, filter.limit ?? 1_000));

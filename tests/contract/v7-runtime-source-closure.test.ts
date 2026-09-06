@@ -21,8 +21,8 @@ describe('V7运行源码闭包', () => {
     expect(result.manifest.schema).toBe('v7-runtime-source-closure-v2');
     expect(result.manifest.summary.runtimeSourceFiles).toBeGreaterThan(150);
     expect(result.manifest.summary.operationalResources).toBeGreaterThanOrEqual(10);
-    expect(result.manifest.summary.migrations).toBe(106);
-    expect(result.manifest.summary.buildInputs).toBe(24);
+    expect(result.manifest.summary.migrations).toBe(107);
+    expect(result.manifest.summary.buildInputs).toBe(28);
     expect(result.manifest.files.some((file) => file.path.includes('/dist/'))).toBe(false);
     expect(result.manifest.files.some((file) => file.path.endsWith('/.env.production'))).toBe(false);
     expect(new Set(result.manifest.files.map((file) => file.path)).size).toBe(result.manifest.files.length);
@@ -104,7 +104,9 @@ describe('V7运行源码闭包', () => {
       const contractsDist = resolve(source, 'apps/contracts/dist/index.js');
       const backendSource = resolve(source, 'coauthoring-v7/backend/index.ts');
       const backendDist = resolve(source, 'coauthoring-v7/backend/dist/index.js');
-      for (const path of [contractsSource, contractsDist, backendSource, backendDist]) {
+      const openingSource = resolve(source, 'rebuild/packages/backend/src/legacy-opening/runtime.ts');
+      const openingDist = resolve(source, 'rebuild/packages/backend/src/legacy-opening/dist/runtime.js');
+      for (const path of [contractsSource, contractsDist, backendSource, backendDist, openingSource, openingDist]) {
         mkdirSync(resolve(path, '..'), { recursive: true });
       }
       writeFileSync(resolve(source, 'RELEASE_ID'), 'V7-test-release\n', 'utf8');
@@ -112,12 +114,15 @@ describe('V7运行源码闭包', () => {
       writeFileSync(contractsDist, 'export const contract = true;\n', 'utf8');
       writeFileSync(backendSource, 'export const backend = true;\n', 'utf8');
       writeFileSync(backendDist, 'export const backend = true;\n', 'utf8');
+      writeFileSync(openingSource, 'export const opening = true;\n', 'utf8');
+      writeFileSync(openingDist, 'export const opening = true;\n', 'utf8');
       const manifest: ReleaseClosureManifest = {
         schema: 'v7-runtime-source-closure-v2',
         releaseId: 'V7-test-release',
         files: [
           { path: 'apps/contracts/src/index.ts', sha256: fileSha256(contractsSource) },
-          { path: 'coauthoring-v7/backend/index.ts', sha256: fileSha256(backendSource) }
+          { path: 'coauthoring-v7/backend/index.ts', sha256: fileSha256(backendSource) },
+          { path: 'rebuild/packages/backend/src/legacy-opening/runtime.ts', sha256: fileSha256(openingSource) }
         ]
       };
       expect(validateResolvedReleaseModules({
@@ -125,7 +130,8 @@ describe('V7运行源码闭包', () => {
         manifest,
         resolutions: [
           { specifier: '@wenmi/contracts', resolvedPath: contractsDist },
-          { specifier: '@wenmi/v7-backend', resolvedPath: backendDist }
+          { specifier: '@wenmi/v7-backend', resolvedPath: backendDist },
+          { specifier: '@wenmi/opening-runtime', resolvedPath: openingDist }
         ]
       })).toEqual([]);
 

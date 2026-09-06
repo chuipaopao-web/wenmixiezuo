@@ -357,7 +357,7 @@ export class V7OpeningAgentService {
     try {
       const row = this.repository.byTaskId(ownerId, taskId);
       if (row === undefined) return;
-      await this.engine.run({
+      const runInput = {
         ownerId,
         taskId,
         memberRoster: parseMemberRoster(row.member_roster_json),
@@ -365,7 +365,14 @@ export class V7OpeningAgentService {
         ...(row.selected_screenwriter_member_key === null
           ? {}
           : { selectedScreenwriterMemberKey: row.selected_screenwriter_member_key })
-      });
+      };
+      try {
+        await this.engine.run(runInput);
+      } catch (error) {
+        // One bounded retry, only when a successful receipt can be reconciled without another model call.
+        if (error instanceof OpeningAgentStoppedError || !this.repository.hasRecoverableCandidate(ownerId, taskId)) throw error;
+        await this.engine.run(runInput);
+      }
     } catch (error) {
       if (!(error instanceof OpeningAgentStoppedError)) {
         this.repository.markUnexpectedFailure(

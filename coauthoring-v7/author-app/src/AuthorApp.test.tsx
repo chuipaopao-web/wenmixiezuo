@@ -616,7 +616,8 @@ describe('V7 author opening flow', () => {
     render(<AuthorApp />);
 
     fireEvent.click(await screen.findByText('选择开书设计成员（可不选）'));
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'planner-kimi-k3' } });
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: '苏映棠' }));
     fireEvent.change(screen.getByLabelText('说说您想写什么'), { target: { value: '张三穿越三国，从流民开始求生。' } });
     fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
 
@@ -1339,8 +1340,11 @@ describe('V7 author opening flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
     expect(await screen.findByLabelText('编辑部工作进度')).toBeVisible();
     expect(screen.getByText('编剧正在设计开书资料包')).toBeVisible();
-    expect(screen.getByText('直接设计')).toBeVisible();
-    expect(screen.getByText('审查点评')).toBeVisible();
+    expect(screen.queryByText('直接设计')).not.toBeInTheDocument();
+    expect(screen.queryByText('审查点评')).not.toBeInTheDocument();
+    expect(screen.queryByText('AI团队正在设计')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('团队详情'));
+    expect(screen.getByText('总编·月衡 · 审查主编')).toBeVisible();
     expect(screen.queryByText('主编理解')).not.toBeInTheDocument();
     expect(screen.queryByText('编剧设计')).not.toBeInTheDocument();
     expect(screen.queryByText('主编审查')).not.toBeInTheDocument();
