@@ -26,7 +26,7 @@ import {
   type OpeningTaskView,
   type OpeningTaxonomy
 } from './opening-api';
-import { memberAvatarPosition, memberDisplayName } from './member-avatars';
+import { memberAvatarStyle, memberDisplayName } from './member-avatars';
 import { publicFailureCopy, publicStatusCopy, uniqueByMemberKey } from './author-projection';
 import { clearOpeningDraft, clearOpeningDraftForTask, openingDraftKey } from './opening-draft-storage';
 import { WorkflowActionDock } from './WorkflowActionDock';
@@ -214,7 +214,7 @@ function DesignerMemberPicker({ members, value, onChange }: {
           return (
             <label className={selected ? 'selected' : ''} key={member.memberKey}>
               <input type="radio" name="opening-designer-member" value={member.memberKey} checked={selected} onChange={() => onChange(member.memberKey)} />
-              <i className="opening-member-avatar" style={{ backgroundPosition: memberAvatarPosition(member.memberKey) }} aria-hidden="true" />
+              <i className="opening-member-avatar" style={memberAvatarStyle(member.memberKey)} aria-hidden="true" />
               <span className="opening-member-identity"><strong>{memberDisplayName(member.memberKey, member.displayName)}</strong>{' '}<small>{member.role}</small></span>
               {selected && <b aria-hidden="true">已选</b>}
             </label>
@@ -235,7 +235,7 @@ function WorkStatus({ task }: { task: OpeningTaskView }): React.JSX.Element {
     <div className="editorial-live-room" role="status" aria-live="polite" aria-label="编辑部工作进度">
       <div className="editorial-live-cast">
         {activeMember !== null && <div className="editorial-lead">
-          <span className="chief-live-avatar" style={{ backgroundPosition: memberAvatarPosition(activeMember.memberKey) }} aria-hidden="true" />
+          <span className="chief-live-avatar" style={memberAvatarStyle(activeMember.memberKey)} aria-hidden="true" />
           <strong>{memberDisplayName(activeMember.memberKey, activeMember.displayName)}</strong>
         </div>}
       </div>
@@ -245,7 +245,7 @@ function WorkStatus({ task }: { task: OpeningTaskView }): React.JSX.Element {
         <summary>团队详情</summary>
         <div>
           {members.map((member) => <span key={member.memberKey}>
-            <i className="agent-avatar" style={{ backgroundPosition: memberAvatarPosition(member.memberKey) }} aria-hidden="true" />
+            <i className="agent-avatar" style={memberAvatarStyle(member.memberKey)} aria-hidden="true" />
             <b>{memberDisplayName(member.memberKey, member.displayName)} · {member.memberKey === reviewer?.memberKey ? '审查主编' : '设计成员'}</b>
           </span>)}
         </div>

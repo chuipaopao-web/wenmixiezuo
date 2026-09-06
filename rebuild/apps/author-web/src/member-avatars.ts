@@ -50,6 +50,12 @@ export function memberAvatarPosition(memberKey: string): string {
   return publicMemberIdentity(canonicalMemberIdentityKey(memberKey))?.avatarPosition ?? '100% 100%';
 }
 
+export function memberAvatarStyle(memberKey: string) {
+  const identity=publicMemberIdentity(canonicalMemberIdentityKey(memberKey));
+  return {backgroundPosition:memberAvatarPosition(memberKey),
+    ...(identity ? {backgroundImage:`url('${identity.avatarPath}')`,backgroundSize:identity.avatarSize} : {})};
+}
+
 /** 兼容已保存的 V7 任务快照；编号名只保留在内部历史记录中。 */
 export function memberDisplayName(memberKey: string, storedName: string): string {
   return publicMemberIdentity(canonicalMemberIdentityKey(memberKey))?.displayName
