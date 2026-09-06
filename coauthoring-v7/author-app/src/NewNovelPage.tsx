@@ -199,8 +199,8 @@ function DesignerMemberPicker({ members, value, onChange }: {
 }): React.JSX.Element | null {
   if (members.length === 0) return null;
   return (
-    <details className="opening-member-choice">
-      <summary>选择开书设计成员（可不选）</summary>
+    <section className="opening-member-choice" aria-label="选择开书设计成员（可不选）">
+      <h3>选择开书设计成员（可不选）</h3>
       <fieldset className="opening-member-options">
         <legend>开书设计成员</legend>
         <label className={value === '' ? 'selected' : ''}>
@@ -215,13 +215,13 @@ function DesignerMemberPicker({ members, value, onChange }: {
             <label className={selected ? 'selected' : ''} key={member.memberKey}>
               <input type="radio" name="opening-designer-member" value={member.memberKey} checked={selected} onChange={() => onChange(member.memberKey)} />
               <i className="opening-member-avatar" style={{ backgroundPosition: memberAvatarPosition(member.memberKey) }} aria-hidden="true" />
-              <strong>{memberDisplayName(member.memberKey, member.displayName)}</strong>
+              <span className="opening-member-identity"><strong>{memberDisplayName(member.memberKey, member.displayName)}</strong>{' '}<small>{member.role}</small></span>
               {selected && <b aria-hidden="true">已选</b>}
             </label>
           );
         })}
       </fieldset>
-    </details>
+    </section>
   );
 }
 
@@ -409,6 +409,12 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     .filter((member) => member.presence !== 'leave') ?? [], [department]);
 
   useEffect(() => { onCreatedRef.current = onCreated; }, [onCreated]);
+
+  useEffect(() => {
+    if (department !== null && selectedDesignerMemberKey && !designMembers.some((member) => member.memberKey === selectedDesignerMemberKey)) {
+      setSelectedDesignerMemberKey('');
+    }
+  }, [department, designMembers, selectedDesignerMemberKey]);
 
   const handleRequestFailure = useCallback((reason: unknown, showError = true): boolean => {
     if (reason instanceof AuthorApiError && reason.status === 401) {

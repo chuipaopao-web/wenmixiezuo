@@ -593,7 +593,8 @@ describe('V7 author opening flow', () => {
     expect(screen.getByRole('button', { name: '开始设计' })).toBeEnabled();
   });
 
-  it('lets the author choose one strong opening designer and sends the selection with the task', async () => {
+  it.each(['', 'planner-on-leave'])('keeps members visible and submits an available choice (saved: %s)', async (savedMember) => {
+    localStorage.setItem(AI_DRAFT_KEY, JSON.stringify({ mode: 'ai', selectedDesignerMemberKey: savedMember }));
     const working = {
       ...COMPLETE_TASK,
       status: 'working', phase: 'package_design', isRunning: true, candidates: [],
@@ -615,9 +616,12 @@ describe('V7 author opening flow', () => {
     window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
     render(<AuthorApp />);
 
-    fireEvent.click(await screen.findByText('选择开书设计成员（可不选）'));
+    expect(await screen.findByRole('group', { name: '开书设计成员' })).toBeVisible();
+    expect(screen.getByText('选择开书设计成员（可不选）').closest('details')).toBeNull();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('radio', { name: '苏映棠' }));
+    const choice = await screen.findByRole('radio', { name: '苏映棠 策划编剧' });
+    await waitFor(() => expect(screen.getByRole('radio', { name: '自动安排' })).toBeChecked());
+    fireEvent.click(choice);
     fireEvent.change(screen.getByLabelText('说说您想写什么'), { target: { value: '张三穿越三国，从流民开始求生。' } });
     fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
 

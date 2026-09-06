@@ -631,19 +631,21 @@ describe('V7 author opening flow', () => {
     window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
     const mounted = render(<AuthorApp />);
 
-    fireEvent.click(await screen.findByText('选择开书设计成员（可不选）'));
+    expect(await screen.findByRole('group', { name: '开书设计成员' })).toBeVisible();
+    expect(screen.getByText('选择开书设计成员（可不选）').closest('details')).toBeNull();
+    const choice = await screen.findByRole('radio', { name: '苏映棠 策划编剧' });
     expect(screen.getByRole('radio', { name: '自动安排' })).toBeChecked();
-    expect(screen.queryByRole('radio', { name: '离岗成员' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('radio', { name: '苏映棠' }));
-    expect(screen.getByRole('radio', { name: '苏映棠' })).toBeChecked();
+    expect(screen.queryByRole('radio', { name: /离岗成员/ })).not.toBeInTheDocument();
+    fireEvent.click(choice);
+    expect(await screen.findByRole('radio', { name: '苏映棠 策划编剧' })).toBeChecked();
     await waitFor(() => expect(JSON.parse(localStorage.getItem(AI_DRAFT_KEY) ?? 'null')).toMatchObject({
       selectedDesignerMemberKey: 'planner-kimi-k3'
     }));
     mounted.unmount();
 
     render(<AuthorApp />);
-    fireEvent.click(await screen.findByText('选择开书设计成员（可不选）'));
-    expect(screen.getByRole('radio', { name: '苏映棠' })).toBeChecked();
+    expect(await screen.findByRole('group', { name: '开书设计成员' })).toBeVisible();
+    expect(screen.getByRole('radio', { name: '苏映棠 策划编剧' })).toBeChecked();
     fireEvent.change(screen.getByLabelText('说说您想写什么'), { target: { value: '张三穿越三国，从流民开始求生。' } });
     fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
 
