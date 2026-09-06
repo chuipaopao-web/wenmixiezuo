@@ -76,8 +76,8 @@ export function buildPlanningFallbackChain(
     .filter((candidate) => candidate.roleKey === canonicalRoleKey && candidate.enabledByDefault)
     .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority);
   // structure/commercial are persisted proposal-seat keys, not permanent jobs.
-  // Rotate the same three fixed chief members so a new run gets three distinct
-  // primary planners without registering one person three times in the roster.
+  // Rotate the available chiefs across proposal slots. With two chiefs, one may
+  // design more than one candidate; that is not an independent model review.
   if (roleKey === 'structure_deputy') candidates = rotate(candidates, 1);
   if (roleKey === 'commercial_deputy') candidates = rotate(candidates, 2);
   const selected = options.selectedMemberKey === undefined
@@ -126,7 +126,7 @@ export function validatePlanningEditorialRoster(members: readonly V7PlanningMemb
   }
   for (const roleKey of ['chief_editor', 'planning_writer', 'continuity_editor'] as const) {
     const role = members.filter((candidate) => candidate.roleKey === roleKey && candidate.enabledByDefault);
-    if (role.length < 3) errors.push(`${roleKey}至少需要三名可交接成员`);
+    if (role.length < 2) errors.push(`${roleKey}至少需要两名可交接成员`);
     if (role.filter((candidate) => candidate.defaultForRole).length !== 1) errors.push(`${roleKey}必须且只能有一名默认成员`);
   }
   const primaryAssignments = [
@@ -135,7 +135,8 @@ export function validatePlanningEditorialRoster(members: readonly V7PlanningMemb
     ...members.filter((candidate) => candidate.roleKey === 'planning_writer' && candidate.enabledByDefault)
       .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority).slice(0, 3)
   ].filter((candidate): candidate is V7PlanningMemberDefinition => candidate !== undefined);
-  if (new Set(primaryAssignments.map((candidate) => candidate.displayName)).size !== primaryAssignments.length) {
+  const chiefCount = members.filter((candidate) => candidate.roleKey === 'chief_editor' && candidate.enabledByDefault).length;
+  if (chiefCount >= 3 && new Set(primaryAssignments.map((candidate) => candidate.displayName)).size !== primaryAssignments.length) {
     errors.push('同一轮默认规划席位不得重复安排同一成员');
   }
   return errors;

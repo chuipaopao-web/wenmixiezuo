@@ -56,7 +56,7 @@ export function planningRosterFromGlobal(
   // structured output before GLM 5.3.  GLM remains selectable and the final
   // fallback instead of consuming a full failed call on every chapter.
   const maintainers = structuredOutputMembers(textMembers(members, 'continuity_editor'));
-  if (chiefs.length < 3) throw new Error('全书规划至少需要三名在岗主编');
+  if (chiefs.length < 2) throw new Error('全书规划至少需要两名在岗主编，以保留交接和异模型审查');
   return [
     ...chiefs.map((member, index) => planning(member, 'chief_editor', index + 1, index === 0)),
     ...planners.map((member, index) => planning(member, 'planning_writer', index + 1, index === 0)),

@@ -14,9 +14,34 @@ import {
   planningRosterFromGlobal,
   settingRosterFromGlobal
 } from './runtime-rosters.js';
-import { buildPlanningFallbackChain } from '../planning-methods/planning-editorial-runtime.js';
+import { buildPlanningFallbackChain, validatePlanningEditorialRoster } from '../planning-methods/planning-editorial-runtime.js';
 
 describe('V7统一成员与模型治理', () => {
+  it('GLM停岗后各运行名册可用，方案槽仍完整且交接不选停岗模型', () => {
+    const members = effectiveGlobalMembers().map((member) => ({
+      ...member,
+      enabled: member.modelProfileKey !== 'glm-5.3',
+      defaultForRole: member.memberKey === 'deputy-deepseek-v4-pro' || (member.defaultForRole && member.modelProfileKey !== 'glm-5.3')
+    }));
+    const planning = planningRosterFromGlobal(members);
+    expect(validatePlanningEditorialRoster(planning)).toEqual([]);
+    for (const roster of [planning, openingRosterFromGlobal(members), settingRosterFromGlobal(members), creationRosterFromGlobal(members)]) {
+      expect(roster.length).toBeGreaterThan(0);
+      expect(roster.some((member) => member.model.modelId === 'glm-5.3')).toBe(false);
+    }
+    for (const slot of ['chief_editor', 'structure_deputy', 'commercial_deputy'] as const) {
+      const candidates = buildPlanningFallbackChain(slot, { members: planning });
+      expect(candidates).toHaveLength(2);
+      expect(new Set(candidates.map((member) => member.model.modelId)).size).toBe(2);
+    }
+    expect(() => buildPlanningFallbackChain('chief_editor', { members: planning, selectedMemberKey: 'chief-glm-5-3' })).toThrow(/未上岗/);
+    for (const writer of members.filter((member) => member.enabled && member.fixedRoleKey === 'lead_writer')) {
+      const reviewers = independentReviewers(writer, members);
+      expect(reviewers.length).toBeGreaterThan(0);
+      expect(reviewers.every((member) => member.modelProfileKey !== writer.modelProfileKey && member.enabled)).toBe(true);
+    }
+    expect(() => planningRosterFromGlobal(members.filter((member) => member.memberKey !== 'chief-kimi-k3'))).toThrow(/两名/);
+  });
   it('全局成员一人一岗且岗位数量完整', () => {
     expect(validateGlobalAgentRegistry()).toEqual([]);
     expect(V7_GLOBAL_MEMBERS).toHaveLength(23);
