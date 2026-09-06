@@ -9,6 +9,7 @@ import {
 import { V7PlanningTreeService } from '../../../apps/api/src/application/planning/v7-planning-tree-service.js';
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { sampleBlueprint } from '../../helpers/book-blueprint-fixture.js';
 
 const HEADERS = {
   host: '127.0.0.1:43111', origin: 'http://127.0.0.1:43110',
@@ -34,10 +35,13 @@ describe('V7三棵竖向综合规划树后端', () => {
         node('volume-1', 'volume', 1, '第一卷：乱世立足', { treeKind: 'volume', scopeId: 'volume-1' }),
         node('ending', 'ending', 2, '结局：建立新秩序')
       ]);
+      bookTree.bookBlueprint = sampleBlueprint(['volume-1']);
+      bookTree.root.budget.wordTarget = bookTree.root.children[0]!.budget.wordTarget;
       const created = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-trees/book/${bookId}/candidates`, {
         expectedRevision: 0, tree: bookTree, sourceRefs, idempotencyKey: 'book-tree-create-0001'
       });
       expect(created.statusCode).toBe(200);
+      expect(created.json().data.bookBlueprint).toEqual(bookTree.bookBlueprint);
       expect(created.json().data).toMatchObject({ treeKind: 'book', scopeId: bookId, revision: 1, status: 'candidate' });
       expect(created.json().data.root.children[0]).toMatchObject({
         title: '第一卷：乱世立足', actual: null,
@@ -71,6 +75,7 @@ describe('V7三棵竖向综合规划树后端', () => {
       });
       expect(confirmed.statusCode).toBe(200);
       expect(confirmed.json().data).toMatchObject({ revision: 3, status: 'confirmed' });
+      expect(confirmed.json().data.bookBlueprint).toEqual(bookTree.bookBlueprint);
       const history = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/planning-trees/book/${bookId}/history`);
       expect(history.statusCode).toBe(200);
       expect(history.json().data.map((item: { revision: number; status: string }) => [item.revision, item.status])).toEqual([
@@ -146,6 +151,7 @@ describe('V7三棵竖向综合规划树后端', () => {
       expect(actual.state).toBe('partial');
       const projected = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/planning-trees/book/${bookId}`);
       expect(projected.json().data.root.children[0].actual).toMatchObject({ state: 'partial', outcome: '张三进入军营，尚未成为伍长。' });
+      expect(projected.json().data.bookBlueprint).toEqual(bookTree.bookBlueprint);
       expect(JSON.stringify(projected.json().data)).not.toMatch(/sourceVersionId|evidenceRefs/iu);
       expect(projected.json().data.root.children[0].story.outcome).toBe('本层结束时产生清楚、可继续衔接的结果。');
 

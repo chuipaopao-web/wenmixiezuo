@@ -76,6 +76,7 @@ export interface V7PlanningTreeGenerationView {
 type PlanningMemberSource = readonly V7PlanningMemberDefinition[] | (() => readonly V7PlanningMemberDefinition[]);
 type ContextMemberSource = readonly V7CreationMemberDefinition[] | (() => readonly V7CreationMemberDefinition[]);
 type StoredGenerationRoster = {
+  bookBlueprintVersion?: 1;
   fallback: V7PlanningMemberDefinition[];
   contextFallback: V7CreationMemberDefinition[];
   contextMember?: V7CreationMemberDefinition;
@@ -124,7 +125,7 @@ export class V7PlanningTreeGenerationService {
     if (recipe === undefined) throw conflict('请先确认全书方法配方，再开始设计规划树。');
     const route = this.runtime.activeRoute(ownerId, bookId, 'confirmed');
     if (treeKind === 'book' && (route === undefined || route.recipe_version_id !== recipe.recipe_version_id)) {
-      throw conflict('请先从三套全书路线中确认一套方向，再开始设计正式全书框架。');
+      throw conflict('请先确认全书方向，再开始设计全书框架。');
     }
     const snapshot = this.sources.compile({ ownerId, bookId, treeKind, scopeId, purpose: 'tree_generation' });
     const fallback = buildPlanningFallbackChain('planning_writer', {
@@ -149,6 +150,7 @@ export class V7PlanningTreeGenerationService {
       parentTreeVersionId: parentTreeVersion(snapshot), routeVersionId: route?.route_version_id ?? null,
       assignedMemberKey: fallback[0]!.memberKey,
       memberSnapshot: {
+        ...(treeKind === 'book' ? { bookBlueprintVersion: 1 } : {}),
         fallback: fallback.map(memberSnapshot),
         contextFallback: contextFallback.map(memberSnapshot)
       }, idempotencyKey, requestHash,
@@ -357,6 +359,7 @@ export class V7PlanningTreeGenerationService {
         fallback,
         contextFallback,
         ...(contextMember === undefined ? {} : { contextMember }),
+        ...(stored.bookBlueprintVersion === 1 ? { bookBlueprintVersion: 1 as const } : {}),
         ...(stored.contextPlan === undefined ? {} : { contextPlan: stored.contextPlan }),
         ...(stored.stage === undefined ? {} : { stage: stored.stage })
       };
@@ -453,6 +456,8 @@ export class V7PlanningTreeGenerationService {
     });
     const sourceRefs = treeSourceRefs(focusedSnapshot);
     const generationTask = compilePlanningTreeGenerationTask({
+      includeBookBlueprint: JSON.parse(run.member_snapshot_json).bookBlueprintVersion === 1,
+      ...(routeRow === undefined ? {} : { bookTargets: { targetWords: JSON.parse(routeRow.route_json).targetWords, targetVolumes: JSON.parse(routeRow.route_json).targetVolumes } }),
       treeKind: run.tree_kind, scopeId: run.scope_id, sourceRefs,
       parentDirection: parentTreeVersion(focusedSnapshot) === null ? null
         : `承接冻结资料中sourceId=${parentTreeVersion(focusedSnapshot)}的已确认上层方向。`
@@ -494,7 +499,7 @@ export class V7PlanningTreeGenerationService {
         let acceptedRequestId = result.requestId;
         let document: ReturnType<typeof parsePlanningTreeOutput>;
         try {
-          document = parsePlanningTreeOutput(result.output, run.tree_kind, run.scope_id, referencePack);
+          document = parsePlanningTreeOutput(result.output, run.tree_kind, run.scope_id, referencePack, generationTask.bookBlueprintVersion === 1, generationTask.bookTargets);
         } catch (contractError) {
           const repairLogicalTaskId = `${logicalTaskId}:repair`;
           const repairAttempt = this.modelAttempt(run, repairLogicalTaskId);
@@ -507,6 +512,8 @@ export class V7PlanningTreeGenerationService {
             operationMode: 'repair', basedOnTaskId: result.requestId, authorInstructionVersion: null,
             sourceTraces: planningSnapshotSourceTraces(focusedSnapshot),
             prompt: planningTreeRepairPrompt({
+              requireBookBlueprint: generationTask.bookBlueprintVersion === 1,
+              ...(generationTask.bookTargets ? { bookTargets: generationTask.bookTargets } : {}),
               treeKind: run.tree_kind,
               scopeId: run.scope_id,
               invalidOutput: result.output,
@@ -515,7 +522,7 @@ export class V7PlanningTreeGenerationService {
             maxOutputTokens: treeOutputLimit(run.tree_kind), temperature: 0.22
           });
           this.ensureActive(run);
-          document = parsePlanningTreeOutput(repaired.output, run.tree_kind, run.scope_id, referencePack);
+          document = parsePlanningTreeOutput(repaired.output, run.tree_kind, run.scope_id, referencePack, generationTask.bookBlueprintVersion === 1, generationTask.bookTargets);
           acceptedRequestId = repaired.requestId;
         }
         const stillActive = this.runtime.activeRecipe(run.owner_id, run.book_id, 'confirmed');
@@ -770,6 +777,7 @@ function readStoredGenerationRoster(run: V7PlanningGenerationRunRow): StoredGene
     return {
       fallback: value.fallback,
       contextFallback: value.contextFallback,
+      ...(value.bookBlueprintVersion === 1 ? { bookBlueprintVersion: 1 as const } : {}),
       ...(value.contextMember === undefined ? {} : { contextMember: value.contextMember }),
       ...(value.contextPlan === undefined ? {} : { contextPlan: value.contextPlan }),
       ...(value.stage === 'context_planning' || value.stage === 'tree_design' ? { stage: value.stage } : {})

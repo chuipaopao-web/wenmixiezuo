@@ -1,4 +1,5 @@
 import { assertValidPlanningTree } from './planning-tree-domain.js';
+import { BOOK_BLUEPRINT_INSTRUCTIONS } from './book-blueprint.js';
 import {
   V7_PLANNING_TREE_SCHEMA,
   type PlanningTreeDocument,
@@ -14,7 +15,9 @@ export function parsePlanningTreeOutput(
   output: string,
   treeKind: PlanningTreeKind,
   scopeId: string,
-  referencePack?: V7PlanningLayerReferencePack
+  referencePack?: V7PlanningLayerReferencePack,
+  requireBookBlueprint = false,
+  bookTargets?: { targetWords: number; targetVolumes: number }
 ): PlanningTreeDocument {
   const trimmed = output.trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '');
   const first = trimmed.indexOf('{');
@@ -23,9 +26,14 @@ export function parsePlanningTreeOutput(
   const value = JSON.parse(trimmed.slice(first, last + 1)) as unknown;
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('规划成员返回的不是树形方案');
   const document = normalizePlanningTreeEnvelope(value as Record<string, unknown>, treeKind, scopeId);
+  if (requireBookBlueprint && document.bookBlueprint === undefined) throw new Error('本次全书方案缺少bookBlueprint故事线与阶段路线');
   if (document.treeKind !== treeKind || document.scopeId !== scopeId) throw new Error('规划成员返回了错误的层级或范围');
   if (referencePack !== undefined) validateDesignStrategy(document, referencePack);
   assertValidPlanningTree(document);
+  if (requireBookBlueprint && bookTargets && (document.root.budget.wordTarget !== bookTargets.targetWords
+    || document.root.children.filter(n=>n.kind==='volume').length !== bookTargets.targetVolumes)) {
+    throw new Error(`必须保留已确认篇幅：${bookTargets.targetWords}字、${bookTargets.targetVolumes}卷`);
+  }
   return document;
 }
 
@@ -45,7 +53,9 @@ export function planningTreeGenerationPrompt(input: {
     '后台资产只是少量候选，不是剧情答案。先从本书人物、实际处境和上层责任创造方案，再决定是否引用；不得把模板替换人名后直接使用。',
     '已确认上层规划中的designStrategy、伏笔和开放问题属于本层交接责任。承接它们不等于复制上层分段：即使继续使用同一个方法，也必须按当前层的跨度、冲突、人物选择和回报重新设计，并让本层的埋设、兑现和下一层接口能追溯到上层承诺。',
     `资料策划签发的本任务身份、责任与创意空间：${JSON.stringify(input.contextPlan)}`,
-    '顶层JSON字段必须完整且只按本合同输出：schema="v7-planning-tree-v1",treeKind,scopeId,title,designStrategy,root。不得省略服务端已给出的固定字段。',
+    '顶层JSON字段必须完整且只按本合同输出：schema="v7-planning-tree-v1",treeKind,scopeId,title,designStrategy,root，以及当前任务要求的扩展字段。不得省略服务端已给出的固定字段。',
+    ...(input.generationTask.bookBlueprintVersion === 1 ? [BOOK_BLUEPRINT_INSTRUCTIONS] : []),
+    ...(input.generationTask.bookTargets ? [`已确认篇幅合同：${JSON.stringify(input.generationTask.bookTargets)}。字数和卷数必须一致，不得自行改变。`] : []),
     '输出顶层designStrategy：libraryRefs最多使用候选包允许的数量，也可以为0；只能引用"当前层资产菜单"里列出的资产（名册中只列名字的资产也可引用其key），冻结资料中上层规划的引用不代表本轮可用，会被直接忽略；originalStrategies为1至6项，每项必须是{title,applicationNote}，说明只适合本书当前人物与局势的原创推进办法；decisionNote说明为什么这样取舍。',
     '正式资料与已确认上层方向不可静默改写；正文实际只能来自结算，不得把未来计划写成已经发生。',
     '每个节点必须同时写清剧情、情绪、阅读体验、因果、伏笔与篇幅；没有必要的伏笔可用空数组，不能凑数。已有上层伏笔必须明确在本层继续加深、局部兑现、正式回收或有理由延后，不能静默丢失。',
@@ -64,6 +74,8 @@ export function planningTreeGenerationPrompt(input: {
 }
 
 export function planningTreeRepairPrompt(input: {
+  requireBookBlueprint?: boolean;
+  bookTargets?: { targetWords: number; targetVolumes: number };
   treeKind: PlanningTreeKind;
   scopeId: string;
   invalidOutput: string;
@@ -76,6 +88,8 @@ export function planningTreeRepairPrompt(input: {
     '顶层必须含schema,treeKind,scopeId,title,designStrategy,root。designStrategy.originalStrategies为1至6个{title,applicationNote}对象。',
     'emotion.intensity必须保留原有非空强弱说明。budget.chapterRange只能是null或[start,end]数字数组。',
     `校验问题：${input.validationMessage}`,
+    ...(input.requireBookBlueprint === true ? [BOOK_BLUEPRINT_INSTRUCTIONS] : []),
+    ...(input.bookTargets ? [`已确认篇幅合同：${JSON.stringify(input.bookTargets)}`] : []),
     `待修复原文：${input.invalidOutput}`
   ].join('\n\n');
 }

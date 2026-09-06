@@ -954,6 +954,11 @@ export interface PlanningTreeNodeView {
 }
 
 export interface PlanningTreeView {
+  bookBlueprint?: {
+    schema: 'book-blueprint-v1'; endingPromise: string;
+    storylines: Array<{key: string; title: string; goal: string; development: string; resolution: string}>;
+    stages: Array<{key: string; title: string; startState: string; gain: string; cost: string; causalBridge: string; rhythm: string; volumeKeys: string[]; storylineKeys: string[]}>;
+  };
   treeKind: 'book' | 'volume' | 'chain';
   scopeId: string;
   revision: number;

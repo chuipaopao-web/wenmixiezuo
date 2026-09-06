@@ -42,17 +42,19 @@ import { CreationOperationsPage } from './CreationOperationsPage';
 import { FeatureCapabilitiesPage } from './FeatureCapabilitiesPage';
 import { RebuildControlCenter } from './RebuildControlCenter';
 import { RhythmAssetsPage } from './RhythmAssetsPage';
+import './asset-library.css';
+
+const ASSET_TABS = [
+  { key: 'overview', label: '总览' }, { key: 'rhythm', label: '节奏短卡' },
+  { key: 'methods', label: '叙事方法' }, { key: 'patterns', label: '剧情模式' },
+  { key: 'recipes', label: '剧情配方' }, { key: 'planning', label: '分层应用' }
+] as const;
 
 const NAVIGATION = [
   { key: 'rebuild', label: '功能地图', icon: GitBranch, group: '产品管理' },
   { key: 'configuration', label: '配置中心', icon: ClipboardText, group: '产品管理' },
   { key: 'features', label: '现有能力对照', icon: ClipboardText, group: '产品管理' },
-  { key: 'overview', label: '资产总览', icon: House, group: '创作资产' },
-  { key: 'methods', label: '叙事方法', icon: TextT, group: '创作资产' },
-  { key: 'rhythm', label: '节奏资产', icon: TreeStructure, group: '创作资产' },
-  { key: 'patterns', label: '剧情模式', icon: BookOpen, group: '创作资产' },
-  { key: 'recipes', label: '剧情配方', icon: List, group: '创作资产' },
-  { key: 'planning', label: '分层规划', icon: TreeStructure, group: '创作资产' },
+  { key: 'overview', label: '资产方法论', icon: House, group: '创作资产' },
   { key: 'agents', label: '成员与上下文', icon: Robot, group: '创作团队' },
   { key: 'creation-ops', label: '创作运行', icon: GitBranch, group: '创作团队' },
   { key: 'operations', label: '运营总览', icon: ChartLineUp, group: '平台运营' },
@@ -69,8 +71,8 @@ const DEFAULT_PATTERN_FILTERS: PatternFilters = { query: '', category: 'all', ge
 const DEFAULT_RECIPE_FILTERS: RecipeFilters = { query: '', genre: 'all' };
 
 const CURRENT_PLANNING_FLOW = [
-  '每个新任务先由资料策划 Agent 理解本层目标，从作者确认资料中挑选最小必要范围，并签发本任务临时题材身份和候选方法。',
-  '时光机由三名强模型主编读取同一资料范围，各自完成一套全案路线、设计理由、受众定位和卷数安排。',
+  '系统冻结本次正式资料与配置版本，按任务层提供少量节奏短卡；资料处理只保留本层需要的内容。',
+  '时光机默认一套全书方向，作者可选择比较两套或三套；每套完整负责故事走向、阶段递进和全书兑现，不固定三名主编。',
   '卷和链默认只请一名强模型成员设计；作者需要比较时才扩展到两套或三套，多方案时再由异模型主编独立点评。',
   '同一方法可以跨全书、卷和链重复使用，但成员必须按当前层责任重新解释，并把钩子、伏笔和回收责任交给下层。',
   '作者只需要选择或提出调整；选中方案形成正式版本，未选方案保留审计但不污染正史。'
@@ -83,7 +85,9 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
   const [recipeFilters, setRecipeFilters] = useState<RecipeFilters>(DEFAULT_RECIPE_FILTERS);
   const [detail, setDetail] = useState<AssetDetail | null>(null);
   const mobileNavigationRef = useRef<HTMLElement | null>(null);
-  const current = NAVIGATION.find((item) => item.key === section) ?? NAVIGATION[0];
+  const inLibrary = ASSET_TABS.some(item => item.key === section);
+  const navigationKey = inLibrary ? 'overview' : section;
+  const current = NAVIGATION.find((item) => item.key === navigationKey) ?? NAVIGATION[0];
 
   const methods = useMemo(() => filterMethods(methodFilters), [methodFilters]);
   const patterns = useMemo(() => filterPatterns(patternFilters), [patternFilters]);
@@ -132,8 +136,8 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
         {(index === 0 || NAVIGATION[index - 1]?.group !== group) && <span className="asset-nav-group">{group}</span>}
         <button
           type="button"
-          className={section === key ? 'active' : ''}
-          aria-current={section === key ? 'page' : undefined}
+          className={navigationKey === key ? 'active' : ''}
+          aria-current={navigationKey === key ? 'page' : undefined}
           onClick={() => navigate(key)}
         ><Icon aria-hidden="true" /><span>{label}</span></button>
       </Fragment>)}</nav>
@@ -152,6 +156,8 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
       </header>
 
       <main className="asset-content">
+        {window.location.hostname === '127.0.0.1' && <p className="asset-local-notice">本地预览环境 · <a href="https://admin.wenmixiezuo.com/v7/?section=overview">打开生产后台</a></p>}
+        {inLibrary && <nav className="asset-library-tabs" aria-label="资产分类">{ASSET_TABS.map(tab => <button key={tab.key} type="button" aria-current={section === tab.key ? 'page' : undefined} onClick={() => navigate(tab.key)}>{tab.label}</button>)}</nav>}
         {(section === 'rebuild' || section === 'configuration') && <RebuildControlCenter mode={section === 'rebuild' ? 'map' : 'configuration'} onNavigate={navigate} />}
         {section === 'overview' && <OverviewPage onNavigate={(next) => navigate(next)} />}
         {section === 'methods' && <MethodsPage items={methods} filters={methodFilters} onFilters={setMethodFilters} onOpen={(value) => setDetail({ kind: 'method', value })} onClear={clearFilters} />}
@@ -167,7 +173,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
     </div>
 
     <nav ref={mobileNavigationRef} className="asset-mobile-nav" aria-label="手机后台导航">
-      {NAVIGATION.map((item) => <button key={item.key} type="button" className={section === item.key ? 'active' : ''} aria-current={section === item.key ? 'page' : undefined} onClick={() => navigate(item.key)}><item.icon aria-hidden="true" /><span>{item.label.replace('资产', '')}</span></button>)}
+      {NAVIGATION.map((item) => <button key={item.key} type="button" className={navigationKey === item.key ? 'active' : ''} aria-current={navigationKey === item.key ? 'page' : undefined} onClick={() => navigate(item.key)}><item.icon aria-hidden="true" /><span>{item.label.replace('资产', '')}</span></button>)}
     </nav>
 
     {detail !== null && <DetailDrawer detail={detail} onClose={() => setDetail(null)} />}
@@ -177,7 +183,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
 function OverviewPage({ onNavigate }: { onNavigate: (section: AssetSection) => void }): React.JSX.Element {
   const categoryTotal = Math.max(...Object.values(ASSET_SUMMARY.patterns.categoryCounts));
   return <div className="asset-page">
-    <PageHeading title="V7 创作资产总览" description="这里集中查看创作时可调用的内部方法、剧情零件和跨单元配方。当前页面只读，不会修改任何生产任务。" />
+    <PageHeading title="创作资产总览" description="在顶部切换各类资产。节奏短卡管理实际供给，完整方法、模式与配方用于查阅；分层应用说明如何进入创作任务。" />
     <section className="asset-metrics" aria-label="资产数量">
       <Metric label="叙事方法" value={ASSET_SUMMARY.methods.totalMethods} suffix="项" hint="决定怎样组织和讲" onClick={() => onNavigate('methods')} />
       <Metric label="剧情模式" value={ASSET_SUMMARY.patterns.totalPatterns} suffix="项" hint="决定这一段发生什么" onClick={() => onNavigate('patterns')} />
@@ -562,7 +568,7 @@ function EmptyState({ onClear }: { onClear: () => void }): React.JSX.Element {
 function sectionFromUrl(): AdminSection {
   const value = new URL(window.location.href).searchParams.get('section');
   if(value==='prompt-context')return 'agents';
-  return NAVIGATION.some((item) => item.key === value) ? value as AdminSection : 'rebuild';
+  return [...NAVIGATION, ...ASSET_TABS].some((item) => item.key === value) ? value as AdminSection : 'rebuild';
 }
 
 function sectionCapabilityLabel(section: AdminSection): string {

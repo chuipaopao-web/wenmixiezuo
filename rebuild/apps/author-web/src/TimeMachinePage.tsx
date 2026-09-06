@@ -42,6 +42,7 @@ import {
   type StoryStateItemView
 } from './creation-api';
 import { WorkflowActionDock } from './WorkflowActionDock';
+import { BookBlueprintPanel } from './BookBlueprintPanel';
 
 type DecisionMode = 'select' | 'adjust' | 'merge';
 
@@ -73,6 +74,8 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
   const [actualsBusy, setActualsBusy] = useState(false);
   const [coreRetryBusy, setCoreRetryBusy] = useState(false);
   const [authorGoal, setAuthorGoal] = useState('');
+  const [targetWords, setTargetWords] = useState('');
+  const [targetVolumes, setTargetVolumes] = useState('');
   const [candidateCount, setCandidateCount] = useState<1 | 2 | 3>(1);
   const [routeMemberKeys, setRouteMemberKeys] = useState<string[]>([]);
   const [mode, setMode] = useState<DecisionMode>('select');
@@ -201,6 +204,9 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
     const controller = new AbortController();
     setLoading(true);
     setTree(null);
+    setAuthorGoal('');
+    setTargetWords('');
+    setTargetVolumes('');
     setTreeReadState('loading');
     setRouteRun(null);
     setGeneration(null);
@@ -304,9 +310,15 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
   }, [recommendedId, routeRun, selectedRouteIds.length]);
 
   const startRoutes = async (): Promise<void> => {
+    if ((targetWords !== '' && (!Number.isFinite(Number(targetWords)) || Number(targetWords) < 5 || Number(targetWords) > 2000))
+      || (targetVolumes !== '' && (!Number.isInteger(Number(targetVolumes)) || Number(targetVolumes) < 1 || Number(targetVolumes) > 30))) {
+      setError('请填写有效目标：篇幅为5至2000万字，卷数为1至30；也可以留空。'); return;
+    }
+    const goal = [authorGoal, targetWords ? `作者明确要求：全书目标${Math.round(Number(targetWords)*10000)}字。` : '',
+      targetVolumes ? `作者明确要求：共${targetVolumes}卷；阶段可以跨卷，不按卷数机械分阶段。` : ''].filter(Boolean).join('\n');
     setEditingDirection(true);
     setBusy(true); setError(null);
-    try { setRouteRun(await createPlanningRouteRun(bookId, authorGoal, candidateCount, routeMemberKeys.slice(0, candidateCount).filter(Boolean))); }
+    try { setRouteRun(await createPlanningRouteRun(bookId, goal, candidateCount, routeMemberKeys.slice(0, candidateCount).filter(Boolean))); }
     catch (reason) { setError(publicError(reason)); }
     finally { setBusy(false); }
   };
@@ -471,6 +483,7 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
       return <PlanningRouteComplete />;
     }
     return <PlanningStart
+      targetWords={targetWords} targetVolumes={targetVolumes} onTargetWords={setTargetWords} onTargetVolumes={setTargetVolumes}
       members={members} authorGoal={authorGoal} candidateCount={candidateCount}
       memberKeys={routeMemberKeys} busy={busy} message={routeRun?.errorMessage ?? null} compact={compact}
       onGoal={setAuthorGoal} onCount={(count) => { setCandidateCount(count); setRouteMemberKeys((current) => current.slice(0, count)); }}
@@ -566,7 +579,8 @@ function PlanningSuggestionPanel({ suggestions, busy, onDecision }: {
   </details>;
 }
 
-function PlanningStart({ members, authorGoal, candidateCount, memberKeys, busy, message, compact = false, onGoal, onCount, onMember, onStart }: {
+function PlanningStart({ members, authorGoal, candidateCount, memberKeys, busy, message, compact = false, onGoal, onCount, onMember, onStart, targetWords, targetVolumes, onTargetWords, onTargetVolumes }: {
+  targetWords: string; targetVolumes: string; onTargetWords: (value:string)=>void; onTargetVolumes:(value:string)=>void;
   members: PlanningMemberView[]; authorGoal: string; candidateCount: 1 | 2 | 3; memberKeys: string[];
   busy: boolean; message?: string | null; compact?: boolean; onGoal: (value: string) => void;
   onCount: (value: 1 | 2 | 3) => void; onMember: (index: number, memberKey: string) => void; onStart: () => void;
@@ -574,12 +588,13 @@ function PlanningStart({ members, authorGoal, candidateCount, memberKeys, busy, 
   const chiefs = uniqueByMemberKey(members.filter((member) => member.roleKey === 'chief_editor')).slice(0, 3);
   return <section className={`planning-start-card${compact ? ' is-compact' : ''}`}>
     <PathIcon />
-    <div><h2>先准备全书方向</h2><p>资料策划会先整理本次真正需要的设定和方法，再由主编设计；您需要比较时，可增加到两套或三套。</p></div>
+    <div><h2>先准备全书方向</h2><p>从开局和结局出发，设计故事线、阶段变化与分卷节奏。默认一套方案，需要比较时可增加。</p></div>
     {chiefs.length > 0 && <PlanningMemberFaces members={chiefs} />}
     {message !== undefined && message !== null && <p className="planning-start-failure">{publicFailureCopy(message)}</p>}
     <div className="planning-route-count" role="group" aria-label="全书路线数量">{([1, 2, 3] as const).map((count) => <button key={count} type="button" aria-pressed={candidateCount === count} onClick={() => onCount(count)}>{count}套</button>)}</div>
     <details className="planning-member-choice"><summary>选择本轮主编（可不选）<CaretDownIcon /></summary>{Array.from({ length: candidateCount }, (_, index) => <label key={index}><span>路线{['一', '二', '三'][index]}主编</span><select value={memberKeys[index] ?? ''} onChange={(event) => onMember(index, event.target.value)}><option value="">编辑部自动安排</option>{chiefs.filter((member) => !memberKeys.some((selected, selectedIndex) => selectedIndex !== index && selected === member.memberKey)).map((member) => <option key={member.memberKey} value={member.memberKey}>{memberDisplayName(member.memberKey, member.name)}{member.defaultForRole ? '（推荐）' : ''}</option>)}</select></label>)}</details>
-    <label><span>还有特别想法可以补充（可不填）</span><textarea value={authorGoal} maxLength={2000} onChange={(event) => onGoal(event.target.value)} placeholder="例如：前期重点写小人物求生，中后期再扩大到天下格局。" /></label>
+    <div className="book-plan-goals"><label><span>目标篇幅（万字，可不填）</span><input type="number" min="5" max="2000" step="0.1" value={targetWords} disabled={busy} onChange={e=>onTargetWords(e.target.value)} placeholder="例如：60" /></label><label><span>目标卷数（可不填）</span><input type="number" min="1" max="30" step="1" value={targetVolumes} disabled={busy} onChange={e=>onTargetVolumes(e.target.value)} placeholder="例如：12" /></label></div>
+    <label><span>还有特别想法可以补充（可不填）</span><textarea value={authorGoal} maxLength={1800} onChange={(event) => onGoal(event.target.value)} placeholder="例如：从小兵到统一天下；一个成长阶段可以跨两卷，先立足，再治理、扩张，最后兑现结局。" /></label>
     <WorkflowActionDock
       mode="card"
       title={`准备生成 ${candidateCount} 套全书方向`}
@@ -784,7 +799,7 @@ function PlanningTreeResult({ tree, busy, members, generation, routeRun, writing
       summary={editorialSummary}
       open={editorialOpen || tree.status === 'candidate'}
     >
-      {tree.status === 'candidate' && <div className="tree-candidate-bar"><span><strong>正式框架已经生成</strong><small>现在还是草案，确认后才会成为后续分卷的方向依据。</small></span></div>}
+      {tree.status === 'candidate' && <div className="tree-candidate-bar"><span><strong>全书框架草案已生成</strong><small>现在还是草案，确认后才会成为后续分卷的方向依据。</small></span></div>}
       {editorialContent ?? <div className="time-machine-editorial-summary">
         <div className="time-machine-editorial-person">
           {activeMemberKey === undefined
@@ -802,7 +817,7 @@ function PlanningTreeResult({ tree, busy, members, generation, routeRun, writing
       icon={<PathIcon />}
       title="全书方向"
       summary={tree.root.story.summary}
-      open
+      open={tree.bookBlueprint === undefined}
     >
       <article className="planning-tree-root time-machine-direction-card">
         <span>全书</span>
@@ -822,12 +837,13 @@ function PlanningTreeResult({ tree, busy, members, generation, routeRun, writing
       </article>
     </TimeMachineGroup>
 
+    <BookBlueprintPanel tree={tree} onAdjust={onEditDirection} />
     <TimeMachineGroup
       className="time-machine-route-group"
       icon={<ClockCounterClockwiseIcon />}
       title="全书路线"
-      summary={`${tree.root.children.length}卷路线${currentVolume === undefined ? '' : ` · 当前查看${currentVolume.title}`}`}
-      open
+      summary={`${tree.root.children.filter(n => n.kind === 'volume').length}卷路线${currentVolume === undefined ? '' : ` · 当前查看${currentVolume.title}`}`}
+      open={tree.bookBlueprint === undefined}
     >
       {tree.root.children.length === 0
         ? <p className="time-machine-empty-state">还没有分卷路线，调整全书方向后可以重新生成。</p>

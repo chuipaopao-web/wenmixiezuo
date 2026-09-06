@@ -1,4 +1,5 @@
 import type { PlanningTreeDocument, PlanningTreeNode } from './planning-tree-contracts.js';
+import { projectBookBlueprint } from './book-blueprint.js';
 
 /**
  * Builds the frozen parent contract handed to a child planning layer.
@@ -74,6 +75,7 @@ export function projectPlanningTreeForChild(
     // This is the parent Agent's structured decision record, not textbook
     // content. The child may reuse, combine, ignore or reinterpret it.
     designStrategy: document.designStrategy,
+    ...(document.bookBlueprint === undefined ? {} : { bookBlueprint: projectBookBlueprint(document, focusChildScopeId) }),
     root: projectNode(document.root, true)
   };
 }

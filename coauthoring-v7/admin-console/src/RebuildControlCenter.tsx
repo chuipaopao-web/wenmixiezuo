@@ -183,6 +183,7 @@ function UnitDetail({ unit, data, onSelect, onNavigate }: {
       const detail = unit.details.find((item) => item.label === key);
       return detail ? <section key={key} className="rebuild-detail-section"><h4>{title}</h4><p>{detail.text}</p></section> : null;
     })}
+    {unit.details.filter((item) => item.label.startsWith('设计·')).map((detail) => <section key={detail.label} className="rebuild-detail-section"><h4>{detail.label.slice(3)} · 设计与处理逻辑</h4><p>{detail.text}</p></section>)}
     <section className="rebuild-detail-section"><h4>前置功能</h4>{unit.dependencies.length ? <div className="rebuild-dependencies">{unit.dependencies.map((id) => {
       const dependency = data.units.find((item) => item.id === id)!;
       return <button type="button" key={id} onClick={() => onSelect(id)}>{id} {dependency.name}<small>{unitStage(dependency)}</small><ArrowRight aria-hidden="true" /></button>;

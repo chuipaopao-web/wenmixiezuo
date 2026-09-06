@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { sampleBlueprint } from '../../helpers/book-blueprint-fixture.js';
 import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
@@ -272,6 +273,7 @@ describe('V7规划编辑部三席协作', () => {
           retry_count: number; member_snapshot_json: string;
         };
       expect(before.retry_count).toBe(0);
+      expect(JSON.parse(before.member_snapshot_json).bookBlueprintVersion).toBe(1);
       const contextPlanBefore = (JSON.parse(before.member_snapshot_json) as { contextPlan?: unknown }).contextPlan;
       expect(contextPlanBefore).toBeDefined();
       const legacyRoster = JSON.parse(before.member_snapshot_json) as Record<string, unknown>;
@@ -309,6 +311,7 @@ describe('V7规划编辑部三席协作', () => {
           retry_count: number; member_snapshot_json: string;
         };
       expect(after.retry_count).toBe(1);
+      expect(JSON.parse(after.member_snapshot_json).bookBlueprintVersion).toBe(1);
       expect((JSON.parse(after.member_snapshot_json) as { contextPlan?: unknown }).contextPlan).toEqual(contextPlanBefore);
       expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_model_calls
         WHERE owner_id=? AND book_id=? AND run_id=? AND node_key='context_plan'`).get(ownerId, bookId, runId) as { count: number }).count)
@@ -2252,8 +2255,18 @@ function planningTreeOutput(prompt: string): string {
       : treeNode('chain-root', 'chain', 1, '军营求生链', null, [
           treeNode('chain-event-1', 'event', 1, '张三在首次冲突中证明价值', null)
         ]);
+  const withBlueprint = treeKind === 'book' && (prompt.includes('"bookBlueprintVersion":1') || prompt.includes('本次全书树顶层增加bookBlueprint'));
+  if (withBlueprint) {
+    const targets = JSON.parse(/已确认篇幅合同：(\{[^\n]+?\})/u.exec(prompt)?.[1] ?? '{"targetWords":3000000,"targetVolumes":8}') as {targetWords:number;targetVolumes:number};
+    root.budget.wordTarget = targets.targetWords;
+    root.children = Array.from({length:targets.targetVolumes},(_,i)=>{
+      const child=treeNode(`book-volume-${i+1}`,'volume',i+1,`第${i+1}卷：阶段推进`,{treeKind:'volume',scopeId:`volume-${i+1}`});
+      child.budget.wordTarget=Math.floor(targets.targetWords/targets.targetVolumes)+(i===targets.targetVolumes-1?targets.targetWords%targets.targetVolumes:0);return child;
+    });
+  }
   return JSON.stringify({
     schema: 'v7-planning-tree-v1', treeKind, scopeId, title: root.title,
+    ...(withBlueprint ? {bookBlueprint:sampleBlueprint(root.children.map(n=>n.key))} : {}),
     designStrategy: {
       libraryRefs: [],
       originalStrategies: [{ title: '张三选择产生后果', applicationNote: '本层全部推进都由张三的主动选择和不可逆结果串联。' }],

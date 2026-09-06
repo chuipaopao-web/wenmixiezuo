@@ -1,3 +1,4 @@
+import { validateBookBlueprint } from './book-blueprint.js';
 import {
   V7_PLANNING_TREE_SCHEMA,
   expectedChildKinds,
@@ -40,6 +41,7 @@ export function validatePlanningTree(document: PlanningTreeDocument): string[] {
     const endingCount = document.root.children.filter((node) => node.kind === 'ending').length;
     if (endingCount > 1) errors.push('全书树最多只能有一个结局节点');
   }
+  errors.push(...validateBookBlueprint(document));
   return errors;
 }
 
@@ -105,6 +107,7 @@ export function buildAuthorPlanningTreeView(input: {
     revision: input.revision,
     status: input.status,
     title: input.document.title,
+    ...(input.document.bookBlueprint === undefined ? {} : { bookBlueprint: structuredClone(input.document.bookBlueprint) }),
     designSummary: input.document.designStrategy === undefined ? null : {
       decisionNote: input.document.designStrategy.decisionNote,
       originalApproaches: structuredClone(input.document.designStrategy.originalStrategies)

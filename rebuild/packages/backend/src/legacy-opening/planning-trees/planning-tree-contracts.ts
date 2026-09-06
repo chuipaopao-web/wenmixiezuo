@@ -1,3 +1,4 @@
+import type { BookBlueprint } from './book-blueprint.js';
 export const V7_PLANNING_TREE_SCHEMA = 'v7-planning-tree-v1' as const;
 
 export type PlanningTreeKind = 'book' | 'volume' | 'chain';
@@ -70,6 +71,7 @@ export interface PlanningTreeNode {
 }
 
 export interface PlanningTreeDocument {
+  bookBlueprint?: BookBlueprint;
   schema: typeof V7_PLANNING_TREE_SCHEMA;
   treeKind: PlanningTreeKind;
   scopeId: string;
@@ -120,6 +122,7 @@ export interface AuthorPlanningTreeNode extends PlanningTreeNode {
 }
 
 export interface AuthorPlanningTreeView {
+  bookBlueprint?: BookBlueprint;
   treeKind: PlanningTreeKind;
   scopeId: string;
   revision: number;
@@ -143,6 +146,8 @@ export type PlanningTreeOperation =
   | { kind: 'reorder_children'; parentKey: string; orderedNodeKeys: string[] };
 
 export interface PlanningTreeGenerationTask {
+  bookBlueprintVersion?: 1;
+  bookTargets?: { targetWords: number; targetVolumes: number };
   schema: 'v7-planning-tree-generation-task-v1';
   treeKind: PlanningTreeKind;
   scopeId: string;
@@ -163,6 +168,8 @@ export function expectedChildKinds(treeKind: PlanningTreeKind): readonly Plannin
 }
 
 export function compilePlanningTreeGenerationTask(input: {
+  includeBookBlueprint?: boolean;
+  bookTargets?: { targetWords: number; targetVolumes: number };
   treeKind: PlanningTreeKind;
   scopeId: string;
   sourceRefs: readonly PlanningTreeSourceRef[];
@@ -170,6 +177,8 @@ export function compilePlanningTreeGenerationTask(input: {
 }): PlanningTreeGenerationTask {
   return {
     schema: 'v7-planning-tree-generation-task-v1',
+    ...(input.treeKind === 'book' && input.includeBookBlueprint === true ? { bookBlueprintVersion: 1 as const } : {}),
+    ...(input.includeBookBlueprint === true && input.bookTargets !== undefined ? { bookTargets: input.bookTargets } : {}),
     treeKind: input.treeKind,
     scopeId: input.scopeId,
     sourceRefs: input.sourceRefs.map((item) => ({ ...item })),

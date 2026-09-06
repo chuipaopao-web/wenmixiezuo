@@ -39,6 +39,20 @@ describe('V7时光机真实规划闭环', () => {
 
   afterEach(() => cleanup());
 
+  it('把明确篇幅与卷数连同作者想法交给全书规划，非法值不启动任务', async () => {
+    mocked.createPlanningRouteRun.mockRejectedValue(new Error('测试中的服务暂不可用'));
+    render(<TimeMachinePage bookId="book-1" />);
+    await screen.findByRole('button',{name:'开始规划全书'});
+    fireEvent.change(screen.getByLabelText('目标篇幅（万字，可不填）'),{target:{value:'60'}});
+    fireEvent.change(screen.getByLabelText('目标卷数（可不填）'),{target:{value:'31'}});
+    fireEvent.click(screen.getByRole('button',{name:'开始规划全书'}));
+    expect(mocked.createPlanningRouteRun).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('目标卷数（可不填）'),{target:{value:'12'}});
+    fireEvent.click(screen.getByRole('button',{name:'开始规划全书'}));
+    await waitFor(()=>expect(mocked.createPlanningRouteRun).toHaveBeenCalledWith('book-1',expect.stringContaining('600000字'),1,[]));
+    expect(mocked.createPlanningRouteRun.mock.calls[0]![1]).toContain('12卷');
+  });
+
   it('没有真实任务时默认准备一套并允许选择三位主编，不把示范冒充本书内容', async () => {
     mocked.fetchPlanningMembers.mockResolvedValue([
       { memberKey: 'chief-deepseek-v4-pro', name: '貂蝉', roleKey: 'chief_editor', role: 'chief_editor', defaultForRole: true },
@@ -57,7 +71,7 @@ describe('V7时光机真实规划闭环', () => {
     expect(screen.getByRole('button', { name: '3套' })).toHaveAttribute('aria-pressed', 'false');
     expect(document.querySelectorAll('.planning-member-faces > span')).toHaveLength(3);
     expect(screen.getAllByText('貂蝉')).not.toHaveLength(0);
-    expect(screen.getAllByText('顾承砚')).not.toHaveLength(0);
+    expect(screen.getAllByText('顾婉仪')).not.toHaveLength(0);
     expect(screen.getAllByText('沈知微')).not.toHaveLength(0);
     expect(document.body.textContent).not.toMatch(/第一卷·乱世入局|八序列|methodKey|modelId/u);
   });
@@ -693,7 +707,7 @@ describe('V7时光机真实规划闭环', () => {
     expect(screen.getByRole('button', { name: '3套' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText('选择本轮主编（可不选）')).toBeVisible();
     expect(screen.getAllByText('貂蝉')).not.toHaveLength(0);
-    expect(screen.getAllByText('顾承砚')).not.toHaveLength(0);
+    expect(screen.getAllByText('顾婉仪')).not.toHaveLength(0);
     expect(screen.getAllByText('沈知微')).not.toHaveLength(0);
   });
 
