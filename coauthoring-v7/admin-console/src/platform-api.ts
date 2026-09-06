@@ -284,7 +284,7 @@ export interface V7UnifiedAgentGovernance {
   credentials: { codingPlan: boolean; agentPlan: boolean; image: boolean };
   modelProfiles: Array<{ profileKey: string; publicName: string }>;
   roles: Array<{
-    roleKey: string; publicName: string; publicResponsibility: string; capabilities: string[]; tools: string[];
+    roleKey: string; publicName: string; publicResponsibility: string; capabilities: string[]; tools: string[]; taskKinds?: string[];
     outputContract: string; failureContract: string; authorSelectable: boolean; allowedModelProfileKeys: string[];
     modelCandidates?: Array<{ profileKey: string; publicName: string; status: 'compatible' | 'pending' | 'suspended'; reason: string }>;
     members: Array<{
@@ -831,13 +831,15 @@ export function restoreV7PromptAssetDraft(
 }
 
 export function fetchV7PromptManifests(
-  filters: { ownerId?: string; bookId?: string; taskId?: string; limit?: number } = {},
+  filters: { ownerId?: string; bookId?: string; taskId?: string; memberKey?: string; workstationKey?: string; limit?: number } = {},
   signal?: AbortSignal
 ): Promise<V7PromptManifestSummary[]> {
   const query = new URLSearchParams();
   if (filters.ownerId !== undefined && filters.ownerId.length > 0) query.set('ownerId', filters.ownerId);
   if (filters.bookId !== undefined && filters.bookId.length > 0) query.set('bookId', filters.bookId);
   if (filters.taskId !== undefined && filters.taskId.length > 0) query.set('taskId', filters.taskId);
+  if (filters.memberKey) query.set('memberKey', filters.memberKey);
+  if (filters.workstationKey) query.set('workstationKey', filters.workstationKey);
   query.set('limit', String(filters.limit ?? 100));
   return platformRequest(`/api/v1/admin/v7/prompt-context/manifests?${query.toString()}`, signal === undefined ? {} : { signal });
 }

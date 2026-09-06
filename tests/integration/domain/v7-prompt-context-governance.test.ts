@@ -149,6 +149,9 @@ describe('V7提示词与上下文治理持久化', () => {
     expect(service.saveRuntimeBundle({ taskContract, contextPack, manifest })).toMatchObject({ created: true });
     expect(service.saveRuntimeBundle({ taskContract, contextPack, manifest })).toMatchObject({ created: false });
     expect(service.manifests({ taskId: taskContract.taskId })).toHaveLength(1);
+    expect(service.manifests({memberKey:manifest.memberKey,workstationKey:'opening'})).toHaveLength(1);
+    expect(service.manifests({memberKey:'does-not-exist'})).toHaveLength(0);
+    expect(service.manifests({memberKey:manifest.memberKey,workstationKey:'volume'})).toHaveLength(0);
     const detail = service.manifest(manifest.manifestId) as {
       manifest: { compiledPromptHash: string; provider: string; modelId: string; plan: string; maxOutputTokens: number };
       taskContract: { objective: string };
@@ -305,6 +308,10 @@ describe('V7提示词与上下文治理持久化', () => {
         headers: { ...BROWSER_HEADERS, cookie }
       });
       expect(prebookList.statusCode).toBe(200);
+      for(const [filter,expected] of [[`memberKey=${manifest.memberKey}&workstationKey=opening`,1],['memberKey=does-not-exist',0],[`memberKey=${manifest.memberKey}&workstationKey=volume`,0]] as const){
+        const response=await app.inject({method:'GET',url:'/api/v1/admin/v7/prompt-context/manifests?'+filter,headers:{...BROWSER_HEADERS,cookie}});
+        expect(response.statusCode).toBe(200);expect(response.json().data).toHaveLength(expected);
+      }
       expect(prebookList.json().data).toEqual([expect.objectContaining({
         manifestId: manifest.manifestId, openingTaskId, taskId: requestId, storageKind: 'prebook_model_call',
         execution: expect.objectContaining({ state: 'working' })

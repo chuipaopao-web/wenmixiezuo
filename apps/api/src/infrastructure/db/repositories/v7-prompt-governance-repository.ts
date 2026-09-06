@@ -540,12 +540,14 @@ export class V7PromptGovernanceRepository {
     return bundle;
   }
 
-  public listManifests(filters: { ownerId?: string; bookId?: string; taskId?: string; limit: number }): object[] {
+  public listManifests(filters: { ownerId?: string; bookId?: string; taskId?: string; memberKey?: string; workstationKey?: string; limit: number }): object[] {
     const clauses: string[] = [];
     const values: string[] = [];
     if (filters.ownerId !== undefined) { clauses.push('owner_id=?'); values.push(filters.ownerId); }
     if (filters.bookId !== undefined) { clauses.push('book_id=?'); values.push(filters.bookId); }
     if (filters.taskId !== undefined) { clauses.push('task_id=?'); values.push(filters.taskId); }
+    if (filters.memberKey !== undefined) { clauses.push('member_key=?'); values.push(filters.memberKey); }
+    if (filters.workstationKey !== undefined) { clauses.push('workstation_key=?'); values.push(filters.workstationKey); }
     const where = clauses.length === 0 ? '' : `WHERE ${clauses.join(' AND ')}`;
     const rows = this.database.prepare(`SELECT * FROM v7_prompt_manifests ${where}
       ORDER BY created_at DESC,manifest_id DESC LIMIT ?`).all(...values, filters.limit) as unknown as PromptManifestRow[];
@@ -641,7 +643,7 @@ export class V7PromptGovernanceRepository {
   }
 
   private listPrebookPromptBundles(
-    filters: { ownerId?: string; bookId?: string; taskId?: string; limit: number }
+    filters: { ownerId?: string; bookId?: string; taskId?: string; memberKey?: string; workstationKey?: string; limit: number }
   ): PrebookPromptBundleRow[] {
     const clauses = [
       'task_contract_json IS NOT NULL',
@@ -658,6 +660,8 @@ export class V7PromptGovernanceRepository {
       clauses.push("(task_id=? OR json_extract(prompt_manifest_json,'$.taskId')=?)");
       values.push(filters.taskId, filters.taskId);
     }
+    if (filters.memberKey !== undefined) { clauses.push('member_key=?'); values.push(filters.memberKey); }
+    if (filters.workstationKey !== undefined) { clauses.push("json_extract(prompt_manifest_json,'$.workstationKey')=?"); values.push(filters.workstationKey); }
     return this.database.prepare(`SELECT request_id,owner_id,task_id AS opening_task_id,member_key,model_id,state,
       governance_revision,temperature,task_contract_json,context_pack_json,prompt_manifest_json,
       failure_message,completed_at,created_at

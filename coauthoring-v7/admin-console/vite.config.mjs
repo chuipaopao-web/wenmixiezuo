@@ -1,9 +1,21 @@
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
 import { defineConfig } from 'vite';
 
 const apiTarget = process.env.V7_ADMIN_API_TARGET ?? 'http://127.0.0.1:43111';
 const trustedLocalOrigin = process.env.V7_ADMIN_PROXY_ORIGIN ?? 'http://127.0.0.1:43110';
+
+// Production serves these shared avatars at /avatars; give local admin the same URLs.
+function sharedAvatars(server) {
+  server.middlewares.use((req, res, next) => {
+    const name = req.url?.split('?')[0];
+    if (!['/avatars/editorial-women-v130.png', '/avatars/editorial-women-v131.png'].includes(name)) return next();
+    readFile(new URL('../author-app/public' + name, import.meta.url)).then(data => {
+      res.setHeader('Content-Type', 'image/png'); res.end(data);
+    }).catch(next);
+  });
+}
 
 const apiProxy = {
   target: apiTarget,
@@ -22,7 +34,7 @@ const apiProxy = {
 export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
   base: '/v7/',
-  plugins: [react()],
+  plugins: [react(), { name: 'shared-member-avatars', configureServer: sharedAvatars, configurePreviewServer: sharedAvatars }],
   build: {
     outDir: 'dist',
     emptyOutDir: true

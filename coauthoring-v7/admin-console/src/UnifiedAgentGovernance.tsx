@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { openingRanking } from '@wenmi/agent-catalog';
+import { openingRanking, ROLES, MEMBER_SLOTS } from '@wenmi/agent-catalog';
+import {MemberWorkspace} from './MemberWorkspace';
+import {PromptContextCenter} from './PromptContextCenter';
 import { ArrowClockwise, CheckCircle, Robot, WarningCircle } from '@phosphor-icons/react';
 import { publicMemberIdentity, V7_MEMBER_AVATAR_SIZE, V7_MEMBER_AVATAR_SPRITE } from '../../backend/agent-governance/member-identities';
 import {
@@ -14,7 +16,13 @@ export function UnifiedAgentGovernance(): React.JSX.Element {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [tab, setTab] = useState<'members' | 'evaluation' | 'policies'>('members');
+  const [tab, setTab] = useState<'members' | 'evaluation' | 'policies' | 'configuration'>(()=>new URL(location.href).searchParams.get('section')==='prompt-context'?'configuration':'members');
+  const [memberKey,setMemberKey]=useState<string|null>(()=>new URL(location.href).searchParams.get('member'));
+  const [configurationDirty,setConfigurationDirty]=useState(false);
+  useEffect(()=>{if(!configurationDirty)return;const guard=(e:Event)=>{e.preventDefault();setError('请先保存当前共用配置草稿，再切换。');};window.addEventListener('wenmi:admin-navigate',guard);return()=>window.removeEventListener('wenmi:admin-navigate',guard);},[configurationDirty]);
+  useEffect(()=>{const restore=()=>setMemberKey(new URL(location.href).searchParams.get('member'));window.addEventListener('popstate',restore);return()=>window.removeEventListener('popstate',restore);},[]);
+  function openMember(key:string|null){const url=new URL(location.href);url.searchParams.set('section','agents');if(key)url.searchParams.set('member',key);else url.searchParams.delete('member');history.pushState({},'',url);setMemberKey(key);}
+  function changeTab(next:typeof tab){if(configurationDirty){setError('请先保存当前共用配置草稿，再切换。');return;}setTab(next);}
   const [roleFilter, setRoleFilter] = useState('all');
   const [memberFilter, setMemberFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -43,18 +51,25 @@ export function UnifiedAgentGovernance(): React.JSX.Element {
     finally { setBusy(null); }
   };
 
-  if (data === null) return <section className="platform-remote-state"><span className="asset-spinner"/><strong>正在读取V7创作团队</strong><p>{error ?? '正在核对岗位、成员和模型。'}</p>{error && <button type="button" onClick={() => void load()}><ArrowClockwise/>重试</button>}</section>;
+  if (data === null) return <section className="platform-remote-state"><span className="asset-spinner"/><strong>正在读取创作团队</strong><p>{error ?? '正在核对岗位、成员和模型。'}</p>{error && <button type="button" onClick={() => void load()}><ArrowClockwise/>重试</button>}</section>;
+  const selectedRole=data.roles.find(role=>role.members.some(m=>m.memberKey===memberKey));
+  const selectedMember=selectedRole?.members.find(m=>m.memberKey===memberKey);
+  if(memberKey&&selectedRole&&selectedMember)return <><div role="status">{notice}</div>{error&&<p role="alert">{error}</p>}<MemberWorkspace key={memberKey} role={selectedRole} member={selectedMember} onBack={()=>openMember(null)} configuration={<MemberCard data={data} role={selectedRole} member={selectedMember} busy={busy!==null} update={updateMember}/>}/></>;
+  if(memberKey)return <section><h2>当前后台未找到该成员</h2><p>请核对连接的环境和成员目录版本。</p><button onClick={()=>openMember(null)}>返回全部成员</button></section>;
   return <div className="agent-team-page">
-    <header className="agent-team-heading"><div><span>V7 UNIFIED EDITORIAL OFFICE</span><h1>V7创作团队</h1><p>成员姓名与岗位固定，模型可以更换。任务按工位、作者要求和书籍资料加载所需指令；更换模型不会改写历史任务。</p></div><button type="button" onClick={() => void load()}><ArrowClockwise/>刷新</button></header>
+    <header className="agent-team-heading"><div><span>EDITORIAL WORKSPACE</span><h1>成员与上下文</h1><p>按岗位管理成员。进入成员详情，查看模型、工位规则和最近收到的资料。</p></div><button type="button" disabled={configurationDirty} onClick={() => void load()}><ArrowClockwise/>刷新</button></header>
+    {data.summary.memberCount!==MEMBER_SLOTS.length&&<p role="alert" className="prompt-context-notice error">当前连接的服务返回{data.summary.memberCount}位成员，与共用目录的{MEMBER_SLOTS.length}位不一致。请更新该环境后端；这里不伪造缺失成员或在岗状态。</p>}
     <div className="agent-team-metrics"><Metric label="岗位" value={`${data.summary.roleCount}`} detail="职责互不混用"/><Metric label="成员" value={`${data.summary.memberCount}`} detail="全局唯一身份"/><Metric label="在岗" value={`${data.summary.onDutyCount}`} detail="可以接新任务"/><Metric label="请假" value={`${data.summary.leaveCount}`} detail="自动交接" warning={data.summary.leaveCount > 0}/></div>
     {(notice || error) && <div className={`agent-team-notice ${error ? 'error' : 'success'}`}>{error ? <WarningCircle/> : <CheckCircle/>}<span>{error ?? notice}</span></div>}
     <section className="agent-credential-strip"><Credential label="Coding Plan" ready={data.credentials.codingPlan}/><Credential label="Agent Plan" ready={data.credentials.agentPlan}/><Credential label="图片能力" ready={data.credentials.image}/><p>配置版本 {data.revision}。执行中的任务保留创建时的成员与参数快照。</p></section>
     <div className="prompt-context-tabs" role="tablist" aria-label="成员管理">
-      <button role="tab" aria-selected={tab === 'members'} onClick={() => setTab('members')}>全部成员（{data.summary.memberCount}）</button>
-      <button role="tab" aria-selected={tab === 'evaluation'} onClick={() => setTab('evaluation')}>开书速度与准入</button>
-      <button role="tab" aria-selected={tab === 'policies'} onClick={() => setTab('policies')}>任务参数</button>
+      <button role="tab" aria-selected={tab === 'members'} onClick={() => changeTab('members')}>全部成员（{data.summary.memberCount}）</button>
+      <button role="tab" aria-selected={tab === 'evaluation'} onClick={() => changeTab('evaluation')}>开书速度与准入</button>
+      <button role="tab" aria-selected={tab === 'policies'} onClick={() => changeTab('policies')}>任务参数</button>
+      <button role="tab" aria-selected={tab === 'configuration'} onClick={() => changeTab('configuration')}>共用规则与题材模板</button>
     </div>
     {tab === 'evaluation' && <OpeningEvaluation data={data}/>}
+    {tab === 'configuration' && <><p>统一管理共用配置。按成员查看最近资料，请返回全部成员并进入详情。</p><PromptContextCenter editorOnly onDirtyChange={setConfigurationDirty}/></>}
     {tab === 'members' && <>
     <p>文字岗位各9位，封面画师2位。待验证 {data.summary.candidateCount ?? 0} 位，未绑定 {data.summary.unboundCount ?? 0} 位。成员身份已建立不代表所有节点都已准入；开书接单单独标注。</p>
     <div className="admin-context-filters">
@@ -62,7 +77,7 @@ export function UnifiedAgentGovernance(): React.JSX.Element {
       <label>成员状态<select aria-label="成员状态" value={memberFilter} onChange={e => setMemberFilter(e.target.value)}><option value="all">全部状态</option><option value="opening">开书接单</option><option value="on_duty">在岗</option><option value="candidate">待验证</option><option value="unbound">未绑定</option><option value="off">停岗</option></select></label>
       <label>查找成员或模型<input value={search} onChange={e => setSearch(e.target.value)} placeholder="姓名、模型名称或编号" /></label>
     </div>
-    <div className="agent-role-grid">{data.roles.filter(role => roleFilter === 'all' || role.roleKey === roleFilter).map((role) => {
+    <div className="agent-role-grid member-directory">{data.roles.toSorted((a,b)=>ROLES.findIndex(r=>r.roleKey===a.roleKey)-ROLES.findIndex(r=>r.roleKey===b.roleKey)).filter(role => roleFilter === 'all' || role.roleKey === roleFilter).map((role) => {
       const members = role.members.filter(member => {
         const statusMatch = memberFilter === 'all' || (memberFilter === 'opening' ? Boolean(member.openingNode) : memberFilter === 'off' ? !member.enabled && !member.configurationOnly : member.status === memberFilter);
         return statusMatch && [member.displayName, member.modelName, member.memberKey, member.modelProfileKey ?? ''].join(' ').toLowerCase().includes(search.trim().toLowerCase());
@@ -72,7 +87,10 @@ export function UnifiedAgentGovernance(): React.JSX.Element {
       <details className="agent-prompt-editor"><summary>查看岗位能力与交付标准</summary><div className="agent-prompt-body"><p><strong>能力：</strong>{role.capabilities.join('；')}</p><p><strong>工具：</strong>{role.tools.join('；')}</p><p><strong>交付：</strong>{role.outputContract}</p><p><strong>失败：</strong>{role.failureContract}</p></div></details>
       {role.modelCandidates && <details className="agent-prompt-editor"><summary>候选模型与上岗条件</summary><div className="agent-prompt-body"><p>通道兼容不等于文学质量通过。待验证模型可在成员停岗后保存；复测准入完成后才能接新任务。</p>{role.modelCandidates.map((candidate) => <p key={candidate.profileKey}><strong>{candidate.publicName} · {admissionLabel(candidate.status)}</strong>：{candidate.reason}</p>)}</div></details>}
       <p>当前显示 {members.length} / {role.members.length} 位</p>
-      <div className="agent-member-list">{members.map((member) => <MemberCard key={member.memberKey} data={data} role={role} member={member} busy={busy !== null} update={updateMember}/>)}</div>
+      <div className="agent-member-list member-summary-grid">{members.map((member) => {
+        const identity=publicMemberIdentity(member.memberKey);
+        return <article className="agent-member-card" key={member.memberKey}><div className="agent-member-identity"><span className="agent-avatar" aria-hidden="true" style={{backgroundImage:`url('${identity?.avatarPath??V7_MEMBER_AVATAR_SPRITE}')`,backgroundSize:identity?.avatarSize??V7_MEMBER_AVATAR_SIZE,backgroundPosition:identity?.avatarPosition}}/><div><h3>{member.displayName}</h3><p>{role.publicName}</p></div></div><p>{member.modelName}</p><p>{member.openingNode?'开书接单':member.status==='on_duty'?'在岗':member.status==='unbound'?'未绑定':member.status==='candidate'?'待验证':'停岗'}</p><button type="button" aria-label={`管理${member.displayName}的资料与工位`} onClick={()=>openMember(member.memberKey)}>资料、工位与模型 →</button></article>;
+      })}</div>
     </section>})}</div></>}
     {tab === 'policies' && <section className="agent-role-panel"><header><div className="agent-role-icon"><Robot/></div><div><span>按任务控制</span><h2>性能与温度</h2><p>不同任务使用不同温度区间，不再给所有成员套同一个数值。</p></div></header><div className="agent-member-list">{data.taskPolicies.map((policy) => <PolicyCard key={policy.taskKind} policy={policy} busy={busy !== null} update={updatePolicy}/>)}</div></section>}
   </div>;

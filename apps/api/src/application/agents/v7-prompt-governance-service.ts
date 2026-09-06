@@ -183,11 +183,15 @@ export class V7PromptGovernanceService {
     const ownerId = optionalText(query.ownerId, 160);
     const bookId = optionalText(query.bookId, 160);
     const taskId = optionalText(query.taskId, 200);
+    const memberKey = optionalText(query.memberKey, 200);
+    const workstationKey = optionalText(query.workstationKey, 100);
     const limit = optionalInteger(query.limit, 1, 200) ?? 50;
     return this.repository.listManifests({
       ...(ownerId === undefined ? {} : { ownerId }),
       ...(bookId === undefined ? {} : { bookId }),
       ...(taskId === undefined ? {} : { taskId }),
+      ...(memberKey === undefined ? {} : { memberKey }),
+      ...(workstationKey === undefined ? {} : { workstationKey }),
       limit
     });
   }

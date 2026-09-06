@@ -35,11 +35,13 @@ describe('V7统一成员治理后台', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   afterEach(() => cleanup());
   beforeEach(() => {
+    history.replaceState({},'', '/v7/?section=agents');
     fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/api/v1/admin/v7/agent-governance') && init?.method === undefined) return json(governance);
       if (url.includes('/agent-governance/members/') && init?.method === 'PATCH') return json({ ...governance, revision: 8 });
       if (url.includes('/agent-governance/task-policies/') && init?.method === 'PATCH') return json({ ...governance, revision: 8 });
+      if(url.includes('/prompt-context/assets')||url.includes('/prompt-context/manifests?'))return json([]);
       return new Response('{}', { status: 404 });
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -47,7 +49,7 @@ describe('V7统一成员治理后台', () => {
 
   it('统一显示固定主笔、独立审查和按任务温度', async () => {
     render(<AgentGovernancePage/>);
-    expect(await screen.findByRole('heading', { name: 'V7创作团队' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: '成员与上下文' })).toBeVisible();
     expect(screen.getByText('林黛玉')).toBeVisible();
     expect(screen.getByText('陆婉宁')).toBeVisible();
     fireEvent.change(screen.getByLabelText('查找成员或模型'), { target: { value: 'DeepSeek' } });
@@ -70,12 +72,16 @@ describe('V7统一成员治理后台', () => {
     expect(within(report).getByText(/第1名/)).toBeVisible();
   });
 
-  it('成员页只管理身份模型与可用性，并携带全局版本保存模型', async () => {
+  it('成员独立页按成员读取资料，并携带全局版本保存模型', async () => {
     render(<AgentGovernancePage/>);
-    const card = (await screen.findByText('林黛玉')).closest('article');
+    fireEvent.click(await screen.findByRole('button',{name:'管理林黛玉的资料与工位'}));
+    expect(new URL(location.href).searchParams.get('member')).toBe('writer-glm-5-3');
+    expect(await screen.findByText(/还没有可展示的调用记录/)).toBeVisible();
+    expect(fetchMock.mock.calls.some(([url])=>String(url).includes('memberKey=writer-glm-5-3'))).toBe(true);
+    fireEvent.click(screen.getByRole('tab',{name:'模型与状态'}));
+    const card = screen.getByLabelText('绑定模型').closest('article');
     expect(card).not.toBeNull();
     expect(screen.queryByText('成员补充提示')).not.toBeInTheDocument();
-    expect(screen.getByText(/成员姓名与岗位固定，模型可以更换/)).toBeVisible();
     fireEvent.change(within(card!).getByLabelText('绑定模型'), { target: { value: 'deepseek-v4-pro' } });
     await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => String(url).includes('/members/writer-glm-5-3') && init?.method === 'PATCH')).toBe(true));
     const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/members/writer-glm-5-3'));

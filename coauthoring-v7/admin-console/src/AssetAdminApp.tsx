@@ -39,7 +39,6 @@ import { PlatformPage, type PlatformSection } from './PlatformPages';
 import { fetchV7PlanningRuntimeAudit, type AdminAccount, type V7PlanningRuntimeAudit } from './platform-api';
 import { AgentGovernancePage } from './AgentGovernancePage';
 import { CreationOperationsPage } from './CreationOperationsPage';
-import { PromptContextCenter } from './PromptContextCenter';
 import { FeatureCapabilitiesPage } from './FeatureCapabilitiesPage';
 import { RebuildControlCenter } from './RebuildControlCenter';
 
@@ -52,8 +51,7 @@ const NAVIGATION = [
   { key: 'patterns', label: '剧情模式', icon: BookOpen, group: '创作资产' },
   { key: 'recipes', label: '剧情配方', icon: List, group: '创作资产' },
   { key: 'planning', label: '分层规划', icon: TreeStructure, group: '创作资产' },
-  { key: 'agents', label: '创作成员', icon: Robot, group: '创作团队' },
-  { key: 'prompt-context', label: '提示词与上下文', mobileLabel: '提示词', icon: TextT, group: '创作团队' },
+  { key: 'agents', label: '成员与上下文', icon: Robot, group: '创作团队' },
   { key: 'creation-ops', label: '创作运行', icon: GitBranch, group: '创作团队' },
   { key: 'operations', label: '运营总览', icon: ChartLineUp, group: '平台运营' },
   { key: 'users', label: '用户与书籍', icon: Users, group: '平台运营' },
@@ -90,11 +88,15 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
   const recipes = useMemo(() => filterRecipes(recipeFilters), [recipeFilters]);
 
   const navigate = (next: AdminSection): void => {
+    if (!window.dispatchEvent(new Event('wenmi:admin-navigate', { cancelable: true }))) return;
+    if(next==='prompt-context')next='agents';
     setSection(next);
     setDetail(null);
     const url = new URL(window.location.href);
     url.searchParams.set('section', next);
+    url.searchParams.delete('member');
     window.history.replaceState({}, '', url);
+    window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
   const updateCurrentQuery = (query: string): void => {
@@ -155,7 +157,6 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
         {section === 'recipes' && <RecipesPage items={recipes} filters={recipeFilters} onFilters={setRecipeFilters} onOpen={(value) => setDetail({ kind: 'recipe', value })} onClear={clearFilters} />}
         {section === 'planning' && <PlanningPage />}
         {section === 'agents' && <AgentGovernancePage />}
-        {section === 'prompt-context' && <PromptContextCenter />}
         {section === 'creation-ops' && <CreationOperationsPage />}
         {section === 'features' && <FeatureCapabilitiesPage />}
         {isPlatformSection(section) && <PlatformPage section={section} currentAccountId={account.userId} />}
@@ -163,7 +164,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
     </div>
 
     <nav ref={mobileNavigationRef} className="asset-mobile-nav" aria-label="手机后台导航">
-      {NAVIGATION.map((item) => <button key={item.key} type="button" className={section === item.key ? 'active' : ''} aria-current={section === item.key ? 'page' : undefined} onClick={() => navigate(item.key)}><item.icon aria-hidden="true" /><span>{'mobileLabel' in item ? item.mobileLabel : item.label.replace('资产', '')}</span></button>)}
+      {NAVIGATION.map((item) => <button key={item.key} type="button" className={section === item.key ? 'active' : ''} aria-current={section === item.key ? 'page' : undefined} onClick={() => navigate(item.key)}><item.icon aria-hidden="true" /><span>{item.label.replace('资产', '')}</span></button>)}
     </nav>
 
     {detail !== null && <DetailDrawer detail={detail} onClose={() => setDetail(null)} />}
@@ -557,6 +558,7 @@ function EmptyState({ onClear }: { onClear: () => void }): React.JSX.Element {
 
 function sectionFromUrl(): AdminSection {
   const value = new URL(window.location.href).searchParams.get('section');
+  if(value==='prompt-context')return 'agents';
   return NAVIGATION.some((item) => item.key === value) ? value as AdminSection : 'rebuild';
 }
 

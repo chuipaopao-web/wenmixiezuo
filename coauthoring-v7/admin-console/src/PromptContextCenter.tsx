@@ -40,20 +40,23 @@ const STATUS_LABELS: Record<V7PromptAssetStatus, string> = {
   retired: '历史版本'
 };
 
-export function PromptContextCenter(): React.JSX.Element {
-  const [tab, setTab] = useState<CenterTab>('opening');
+export function PromptContextCenter({ initialAssetKey, allowedAssetKeys, editorOnly = false, memberKey, onDirtyChange }: {
+  initialAssetKey?: string; allowedAssetKeys?: string[]; editorOnly?: boolean; memberKey?: string; onDirtyChange?: (value:boolean)=>void;
+} = {}): React.JSX.Element {
+  const [tab, setTab] = useState<CenterTab>(editorOnly ? 'sources' : 'opening');
   const [summary, setSummary] = useState<V7PromptContextSummary | null>(null);
   const [assets, setAssets] = useState<V7PromptAssetSummary[]>([]);
   const [manifests, setManifests] = useState<V7PromptManifestSummary[]>([]);
   const [kind, setKind] = useState<'all' | V7PromptAssetKind>('all');
   const [manifestState, setManifestState] = useState('all');
-  const [selectedAssetKey, setSelectedAssetKey] = useState<string | null>(null);
+  const [selectedAssetKey, setSelectedAssetKey] = useState<string | null>(initialAssetKey ?? null);
   const [assetVersions, setAssetVersions] = useState<V7PromptAssetVersion[] | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [assetSummary, setAssetSummary] = useState('');
   const [contentText, setContentText] = useState('{}');
   const [dirty, setDirty] = useState(false);
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   const [preview, setPreview] = useState<V7PromptAssetPreview | null>(null);
   const [selectedManifestId, setSelectedManifestId] = useState<string | null>(null);
   const [manifestDetail, setManifestDetail] = useState<V7PromptManifestDetail | null>(null);
@@ -100,7 +103,7 @@ export function PromptContextCenter(): React.JSX.Element {
       const [nextSummary, assetList, manifestList] = await Promise.all([
         fetchV7PromptContextSummary(signal),
         fetchV7PromptAssets({}, signal),
-        fetchV7PromptManifests({ limit: 100 }, signal)
+        fetchV7PromptManifests({ limit: 100, ...(memberKey ? { memberKey } : {}) }, signal)
       ]);
       setSummary(nextSummary);
       setAssets(assetList);
@@ -112,7 +115,7 @@ export function PromptContextCenter(): React.JSX.Element {
     } finally {
       if (!signal?.aborted) setBusy(null);
     }
-  }, []);
+  }, [memberKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -145,7 +148,7 @@ export function PromptContextCenter(): React.JSX.Element {
     return () => controller.abort();
   }, [selectedManifestId, tab]);
 
-  const filteredAssets = useMemo(() => assets.filter((item) => kind === 'all' || item.kind === kind), [assets, kind]);
+  const filteredAssets = useMemo(() => assets.filter((item) => (!allowedAssetKeys || allowedAssetKeys.includes(item.assetKey)) && (kind === 'all' || item.kind === kind)), [assets, kind, allowedAssetKeys]);
   const filteredManifests = useMemo(
     () => manifests.filter((item) => (manifestState === 'all' || item.execution.state === manifestState)
       && (traceWorkstation === 'all' || item.workstationKey === traceWorkstation)
@@ -175,7 +178,7 @@ export function PromptContextCenter(): React.JSX.Element {
       setError('当前修改还没有保存，请先保存草稿，再切换配置类型。');
       return;
     }
-    const firstVisible = assets.find((item) => nextKind === 'all' || item.kind === nextKind);
+    const firstVisible = assets.find((item) => (!allowedAssetKeys || allowedAssetKeys.includes(item.assetKey)) && (nextKind === 'all' || item.kind === nextKind));
     setKind(nextKind);
     setSelectedAssetKey(firstVisible?.assetKey ?? null);
     setAssetVersions(null);
@@ -311,7 +314,7 @@ export function PromptContextCenter(): React.JSX.Element {
   if (summary === null) return <RemoteState error={error ?? '提示词与上下文暂时无法读取。'} onRetry={() => void loadOverview()} />;
 
   return <div className="prompt-context-page">
-    <section className="prompt-context-intro">
+    {!editorOnly && <><section className="prompt-context-intro">
       <p>统一管理岗位、工位、题材身份和执行流程；每次任务都保留实际采用版本与资料来源。</p>
       <button type="button" onClick={() => void loadOverview()} disabled={busy !== null}><ArrowClockwise />刷新</button>
     </section>
@@ -321,17 +324,17 @@ export function PromptContextCenter(): React.JSX.Element {
       <Metric label="待发布草稿" value={summary.draftCount} />
       <Metric label="已留档任务" value={summary.manifestCount} />
       <Metric label="资料包快照" value={summary.contextPackCount} />
-    </div>
+    </div></>}
 
     {(notice !== null || error !== null) && <div className={`prompt-context-notice ${error === null ? 'success' : 'error'}`} role={error === null ? 'status' : 'alert'}>
       {error === null ? <CheckCircle /> : <WarningCircle />}<span>{error ?? notice}</span>
     </div>}
 
-    <div className="prompt-context-tabs" role="tablist" aria-label="提示词与上下文管理">
+    {!editorOnly && <div className="prompt-context-tabs" role="tablist" aria-label="提示词与上下文管理">
       <button type="button" role="tab" aria-selected={tab === 'opening'} className={tab === 'opening' ? 'active' : ''} onClick={() => setTab('opening')}>基础通用配置与样例</button>
       <button type="button" role="tab" aria-selected={tab === 'sources'} className={tab === 'sources' ? 'active' : ''} onClick={() => setTab('sources')}>配置来源</button>
       <button type="button" role="tab" aria-selected={tab === 'traces'} className={tab === 'traces' ? 'active' : ''} onClick={() => setTab('traces')}>运行追溯</button>
-    </div>
+    </div>}
 
     {tab === 'opening' ? <OpeningContextGuide assets={assets} sample={example} sampleLoading={exampleLoading} onSample={() => void sampleOpening()} onEdit={key => {
       if (dirty) { setError('请先保存当前配置草稿，再切换。'); return; }
@@ -643,7 +646,7 @@ function TracesPanel(props: {
   </section>;
 }
 
-function ManifestDetail({ detail }: { detail: V7PromptManifestDetail }): React.JSX.Element {
+export function ManifestDetail({ detail }: { detail: V7PromptManifestDetail }): React.JSX.Element {
   const [verification, setVerification] = useState<V7PromptManifestRebuildVerification | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [verificationError, setVerificationError] = useState<string | null>(null);
