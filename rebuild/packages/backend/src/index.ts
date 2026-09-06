@@ -1,4 +1,5 @@
 export { createFoundationStatus } from "./application/foundation-status.js";
+export { OpeningTaskService, type OpeningTask, type OpeningLease, type OpeningPolicy, type OpeningCallReceipt } from "./application/opening-tasks/service.js";
 export {
   ENVIRONMENT_MARKER,
   type PostgresRuntimeConfig,
