@@ -12,6 +12,14 @@ import type {
 const CREATED_AT = '2026-08-28T00:00:00.000Z';
 const CREATED_BY = 'v7-source-registry';
 const SOURCE_VERSION_OVERRIDES: Readonly<Record<string, number>> = {
+  // R131 role descriptions/failure contracts changed; existing @1 is immutable.
+  'role.chief_editor': 2,
+  'role.deputy_editor': 2,
+  'role.planning_writer': 2,
+  'role.lead_writer': 2,
+  'role.independent_reviewer': 2,
+  'role.continuity_editor': 2,
+  'role.visual_renderer': 2,
   // 已进入真实本地库的 @1 版本不可覆盖。下列资产在轻量流程收敛后
   // 发布 @2，历史任务仍继续引用 @1。
   'workstation.chain': 2,

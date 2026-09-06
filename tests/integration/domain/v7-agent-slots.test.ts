@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { MEMBER_SLOTS, ROLES, TEXT_MODELS, candidateModels } from '@wenmi/agent-catalog';
+import { V7_ROLE_PROMPT_ASSETS, sha256, stableStringify } from '@wenmi/v7-backend';
+import { V7PromptGovernanceRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-prompt-governance-repository.js';
 import { V7AgentGovernanceService } from '../../../apps/api/src/application/agents/v7-agent-governance-service.js';
 import { V7AgentGovernanceRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-agent-governance-repository.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
@@ -14,6 +16,24 @@ const create = () => {
 };
 
 describe('fixed member slots and replaceable model bindings', () => {
+  it('upgrades existing role prompt history with new versions instead of overwriting immutable seeds', () => {
+    create();
+    const prompts=new V7PromptGovernanceRepository(context!.database);
+    for(const source of V7_ROLE_PROMPT_ASSETS) {
+      expect(source.version).toBe(2);
+      const old=stableStringify({...source.content,responsibility:'上一版岗位职责'});
+      context!.database.prepare(`INSERT INTO v7_prompt_asset_versions
+        (asset_id,asset_key,kind,version,status,governance_revision,title,summary,content_json,content_hash,created_by,created_at,published_by,published_at)
+        VALUES(?,?,'role_prompt',1,'published',1,?,?,?,?,'legacy','2026-09-01T00:00:00Z','legacy','2026-09-01T00:00:00Z')`)
+        .run(`${source.assetKey}@1`,source.assetKey,source.title,source.summary,old,sha256(old));
+    }
+    prompts.ensureSourceRegistrySeeded('2026-09-06T01:00:00Z');
+    prompts.ensureSourceRegistrySeeded('2026-09-06T02:00:00Z');
+    for(const source of V7_ROLE_PROMPT_ASSETS) {
+      expect(prompts.publishedAsset(source.assetKey)?.assetId).toBe(source.assetId);
+      expect(prompts.assetById(`${source.assetKey}@1`)?.content.responsibility).toBe('上一版岗位职责');
+    }
+  });
   it('has 54 text and 2 image identities, seven actual text profiles and distinct portraits', () => {
     expect(MEMBER_SLOTS).toHaveLength(56);
     expect(TEXT_MODELS).toHaveLength(7);
