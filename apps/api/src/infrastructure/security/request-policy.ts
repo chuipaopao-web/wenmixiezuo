@@ -9,6 +9,7 @@ export interface RequestPolicyOptions {
 }
 
 const WRITE_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
+const READ_METHODS = new Set(['GET', 'HEAD']);
 const PUBLIC_AUTH_PATHS = new Set(['/api/v1/auth/register', '/api/v1/auth/login']);
 
 function reject(code: string, message: string, statusCode: number): never {
@@ -59,19 +60,6 @@ export async function registerRequestPolicy(
 ): Promise<void> {
   const hosts = allowedHosts(config);
 
-  // 公网部署时启用限流，保护认证和写操作端点
-  if (config.publicOrigin !== null) {
-    await app.register(fastifyRateLimit, {
-      max: 100,
-      timeWindow: '1 minute',
-      keyGenerator: (request) => request.ip,
-      // 插件会原样 throw 这里返回的值，交给全局错误处理：返回 DomainError 才能得到
-      // 正确的 429 + RATE_LIMITED + retryable，而不是被兜底成 500 INTERNAL_ERROR。
-      errorResponseBuilder: () => new DomainError('RATE_LIMITED', '请求太频繁，请稍后再试', {}, true, 429),
-      // 注册和登录使用更严格的全局限流，见下方路由级覆盖
-    });
-  }
-
   app.addHook('onRequest', async (request) => {
     request.authContext = null;
     const path = request.url.split('?', 1)[0] ?? request.url;
@@ -113,6 +101,20 @@ export async function registerRequestPolicy(
     if (WRITE_METHODS.has(request.method)) verifyBrowserWrite(request, config);
   });
 
+  // 公网部署时启用限流。认证 hook 已先填充 authContext，下面只使用已验证身份；
+  // 注册、登录、匿名和健康检查仍按 IP 分桶，不能被任意 cookie/header 绕过。
+  if (config.publicOrigin !== null) {
+    await app.register(fastifyRateLimit, {
+      max: async (request) => rateLimitBudget(request),
+      timeWindow: '1 minute',
+      keyGenerator: (request) => rateLimitKey(request),
+      // 插件会原样 throw 这里返回的值，交给全局错误处理：返回 DomainError 才能得到
+      // 正确的 429 + RATE_LIMITED + retryable，而不是被兜底成 500 INTERNAL_ERROR。
+      errorResponseBuilder: () => new DomainError('RATE_LIMITED', '请求太频繁，请稍后再试', {}, true, 429),
+      // 注册和登录使用更严格的路由级限流，见 account-routes。
+    });
+  }
+
   app.addHook('onSend', async (_request, reply, payload) => {
     reply.header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
     reply.header('X-Content-Type-Options', 'nosniff');
@@ -121,4 +123,27 @@ export async function registerRequestPolicy(
     reply.header('Cross-Origin-Resource-Policy', 'same-site');
     return payload;
   });
+}
+
+function requestPath(request: FastifyRequest): string {
+  return request.url.split('?', 1)[0] ?? request.url;
+}
+
+function rateLimitKey(request: FastifyRequest): string {
+  const path = requestPath(request);
+  if (path === '/health') return `health:${request.ip}`;
+  if (PUBLIC_AUTH_PATHS.has(path)) return `public-auth:${path}:${request.ip}`;
+  if (request.authContext !== null) {
+    if (READ_METHODS.has(request.method)) return `user-read:${request.authContext.userId}`;
+    if (WRITE_METHODS.has(request.method)) return `user-write:${request.authContext.userId}`;
+  }
+  return `anonymous:${request.ip}`;
+}
+
+function rateLimitBudget(request: FastifyRequest): number {
+  const path = requestPath(request);
+  if (path === '/health') return 100;
+  if (PUBLIC_AUTH_PATHS.has(path)) return 100;
+  if (request.authContext !== null && READ_METHODS.has(request.method)) return 600;
+  return 100;
 }

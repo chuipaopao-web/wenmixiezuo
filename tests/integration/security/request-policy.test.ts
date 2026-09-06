@@ -8,11 +8,22 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 let accountCounter = 0;
-async function sessionCookie(app: Awaited<ReturnType<typeof createServer>>): Promise<string> {
+async function sessionCookie(app: Awaited<ReturnType<typeof createServer>>, email?: string): Promise<string> {
   accountCounter += 1;
+  const accountEmail = email ?? `policy-${accountCounter}@example.com`;
   const response = await app.inject({
     method: 'POST', url: '/api/v1/auth/register',
-    payload: { email: `policy-${accountCounter}@example.com`, password: 'policy-pass-123', displayName: '安全测试' },
+    payload: { email: accountEmail, password: 'policy-pass-123', displayName: '安全测试' },
+    headers: { host: HOST, origin: ORIGIN, 'sec-fetch-site': 'same-site', 'content-type': 'application/json' }
+  });
+  const rawCookie = response.headers['set-cookie'];
+  return (Array.isArray(rawCookie) ? rawCookie[0] : rawCookie)!.split(';', 1)[0]!;
+}
+
+async function loginCookie(app: Awaited<ReturnType<typeof createServer>>, email: string): Promise<string> {
+  const response = await app.inject({
+    method: 'POST', url: '/api/v1/auth/login',
+    payload: { email, password: 'policy-pass-123' },
     headers: { host: HOST, origin: ORIGIN, 'sec-fetch-site': 'same-site', 'content-type': 'application/json' }
   });
   const rawCookie = response.headers['set-cookie'];
@@ -153,6 +164,167 @@ describe('统一账号HTTP请求策略', () => {
       expect(limited.json().error.code).toBe('RATE_LIMITED');
       // 另一个真实访客 IP 是独立的桶，不受前者耗尽影响。
       expect((await register('203.0.113.11', 'limit-b-0@example.com')).statusCode).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('已认证业务读取按用户分桶，正常切页不会被100次IP桶拦住，直到600次才限流', async () => {
+    context = createTestContext('wenmi-policy-auth-read-');
+    context.config.publicOrigin = 'https://wenmixiezuo.com';
+    const app = await createServer(context.config, context.database);
+    try {
+      const cookie = await sessionCookie(app, 'read-limit@example.com');
+      let response;
+      for (let index = 0; index < 600; index += 1) {
+        response = await app.inject({
+          method: 'GET',
+          url: '/api/v1/v7/books',
+          headers: { host: HOST, cookie, 'x-forwarded-for': '203.0.113.20' }
+        });
+        expect(response.statusCode).toBe(200);
+      }
+      const limited = await app.inject({
+        method: 'GET',
+        url: '/api/v1/v7/books',
+        headers: { host: HOST, cookie, 'x-forwarded-for': '203.0.113.20' }
+      });
+      expect(limited.statusCode).toBe(429);
+      expect(limited.json().error).toMatchObject({ code: 'RATE_LIMITED', retryable: true });
+      expect(limited.headers['retry-after']).toBeDefined();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('相同IP下不同已认证账户读取限流互相隔离', async () => {
+    context = createTestContext('wenmi-policy-auth-users-');
+    context.config.publicOrigin = 'https://wenmixiezuo.com';
+    const app = await createServer(context.config, context.database);
+    try {
+      const firstCookie = await sessionCookie(app, 'read-user-a@example.com');
+      const secondCookie = await sessionCookie(app, 'read-user-b@example.com');
+      for (let index = 0; index < 600; index += 1) {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/api/v1/v7/books',
+          headers: { host: HOST, cookie: firstCookie, 'x-forwarded-for': '203.0.113.21' }
+        });
+        expect(response.statusCode).toBe(200);
+      }
+      expect((await app.inject({
+        method: 'GET',
+        url: '/api/v1/v7/books',
+        headers: { host: HOST, cookie: firstCookie, 'x-forwarded-for': '203.0.113.21' }
+      })).statusCode).toBe(429);
+      expect((await app.inject({
+        method: 'GET',
+        url: '/api/v1/v7/books',
+        headers: { host: HOST, cookie: secondCookie, 'x-forwarded-for': '203.0.113.21' }
+      })).statusCode).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('同一账户不同会话共享读取桶，读取耗尽不吞写入和health额度', async () => {
+    context = createTestContext('wenmi-policy-auth-sessions-');
+    context.config.publicOrigin = 'https://wenmixiezuo.com';
+    const app = await createServer(context.config, context.database);
+    try {
+      const email = 'read-session@example.com';
+      const firstCookie = await sessionCookie(app, email);
+      const secondCookie = await loginCookie(app, email);
+      for (let index = 0; index < 599; index += 1) {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/api/v1/v7/books',
+          headers: { host: HOST, cookie: firstCookie, 'x-forwarded-for': '203.0.113.22' }
+        });
+        expect(response.statusCode).toBe(200);
+      }
+      expect((await app.inject({
+        method: 'HEAD',
+        url: '/api/v1/v7/books',
+        headers: { host: HOST, cookie: secondCookie, 'x-forwarded-for': '203.0.113.22' }
+      })).statusCode).toBe(200);
+      expect((await app.inject({
+        method: 'GET',
+        url: '/api/v1/v7/books',
+        headers: { host: HOST, cookie: secondCookie, 'x-forwarded-for': '203.0.113.22' }
+      })).statusCode).toBe(429);
+      expect((await app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/logout',
+        payload: {},
+        headers: {
+          host: HOST,
+          cookie: secondCookie,
+          origin: ORIGIN,
+          'sec-fetch-site': 'same-site',
+          'content-type': 'application/json',
+          'x-forwarded-for': '203.0.113.22'
+        }
+      })).statusCode).toBe(200);
+      expect((await app.inject({
+        method: 'GET',
+        url: '/health',
+        headers: { host: HOST, 'x-forwarded-for': '203.0.113.22' }
+      })).statusCode).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('注册和登录保持IP严格限额，不能被有效cookie绕过', async () => {
+    context = createTestContext('wenmi-policy-public-auth-');
+    context.config.publicOrigin = 'https://wenmixiezuo.com';
+    const app = await createServer(context.config, context.database);
+    const register = (index: number, cookie?: string) => app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: { email: `public-auth-${index}@example.com`, password: 'policy-pass-123', displayName: '访客' },
+      headers: {
+        host: HOST,
+        origin: ORIGIN,
+        'sec-fetch-site': 'same-site',
+        'content-type': 'application/json',
+        'x-forwarded-for': '203.0.113.23',
+        ...(cookie === undefined ? {} : { cookie })
+      }
+    });
+    const login = (cookie?: string) => app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'public-auth-0@example.com', password: 'policy-pass-123' },
+      headers: {
+        host: HOST,
+        origin: ORIGIN,
+        'sec-fetch-site': 'same-site',
+        'content-type': 'application/json',
+        'x-forwarded-for': '203.0.113.24',
+        ...(cookie === undefined ? {} : { cookie })
+      }
+    });
+    try {
+      const first = await register(0);
+      expect(first.statusCode).toBe(200);
+      const rawCookie = first.headers['set-cookie'];
+      const cookie = (Array.isArray(rawCookie) ? rawCookie[0] : rawCookie)!.split(';', 1)[0]!;
+      expect((await register(1, cookie)).statusCode).toBe(200);
+      expect((await register(2, cookie)).statusCode).toBe(200);
+      const registerLimited = await register(3, cookie);
+      expect(registerLimited.statusCode).toBe(429);
+      expect(registerLimited.json().error).toMatchObject({ code: 'RATE_LIMITED', retryable: true });
+      expect(registerLimited.headers['retry-after']).toBeDefined();
+
+      for (let index = 0; index < 10; index += 1) {
+        expect((await login(cookie)).statusCode).toBe(200);
+      }
+      const loginLimited = await login(cookie);
+      expect(loginLimited.statusCode).toBe(429);
+      expect(loginLimited.json().error).toMatchObject({ code: 'RATE_LIMITED', retryable: true });
+      expect(loginLimited.headers['retry-after']).toBeDefined();
     } finally {
       await app.close();
     }
