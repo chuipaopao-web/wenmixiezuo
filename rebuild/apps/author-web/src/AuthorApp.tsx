@@ -7,7 +7,6 @@ import {
   GearSixIcon,
   GiftIcon,
   InfoIcon,
-  ListIcon,
   MapTrifoldIcon,
   PlusIcon,
   TreeStructureIcon,
@@ -227,9 +226,7 @@ export function AuthorApp(): React.JSX.Element {
   const [bookShelfStatus, setBookShelfStatus] = useState<BookShelfStatus>('loading');
   const [bookShelfRequest, setBookShelfRequest] = useState(0);
   const [leftOpen, setLeftOpen] = useState(false);
-  const [rightOpen, setRightOpen] = useState(false);
   const leftToggleRef = useRef<HTMLButtonElement | null>(null);
-  const rightToggleRef = useRef<HTMLButtonElement | null>(null);
   const [archiveConfirmation, setArchiveConfirmation] = useState<string | null>(null);
   const [lifecycleBusy, setLifecycleBusy] = useState<string | null>(null);
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
@@ -249,7 +246,6 @@ export function AuthorApp(): React.JSX.Element {
       setInformationSection(informationSectionFromSearch(window.location.search));
       setSettingRecoveryFocus(settingRecoveryFocusFromSearch(window.location.search));
       setLeftOpen(false);
-      setRightOpen(false);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -271,7 +267,6 @@ export function AuthorApp(): React.JSX.Element {
         setInformationSection('profile');
         setSettingRecoveryFocus(null);
         setLeftOpen(false);
-        setRightOpen(false);
       }
     }).catch(() => {
       if (!controller.signal.aborted) setBookShelfStatus('error');
@@ -333,7 +328,6 @@ export function AuthorApp(): React.JSX.Element {
     if (nextView === 'information') setInformationSection('profile');
     setSettingRecoveryFocus(null);
     setLeftOpen(false);
-    setRightOpen(false);
   };
 
   const openSettings = (nextBookId: string, focus: SettingRecoveryFocus | null = null): void => {
@@ -348,44 +342,26 @@ export function AuthorApp(): React.JSX.Element {
     setInformationSection('setting');
     setSettingRecoveryFocus(focus);
     setLeftOpen(false);
-    setRightOpen(false);
   };
 
   useEffect(() => {
-    if (!leftOpen && !rightOpen) return;
+    if (!leftOpen) return;
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return;
-      if (leftOpen) {
-        setLeftOpen(false);
-        leftToggleRef.current?.focus();
-      }
-      if (rightOpen) {
-        setRightOpen(false);
-        rightToggleRef.current?.focus();
-      }
+      setLeftOpen(false);
+      leftToggleRef.current?.focus();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [leftOpen, rightOpen]);
+  }, [leftOpen]);
 
   const openLeftMenu = (): void => {
-    setLeftOpen(true);
-    setRightOpen(false);
-  };
-
-  const openRightMenu = (): void => {
-    setRightOpen((current) => !current);
-    setLeftOpen(false);
+    setLeftOpen((current) => !current);
   };
 
   const closeLeftMenu = (): void => {
     setLeftOpen(false);
     leftToggleRef.current?.focus();
-  };
-
-  const closeRightMenu = (): void => {
-    setRightOpen(false);
-    rightToggleRef.current?.focus();
   };
 
   const navigateMain = (target: MainNavKey): void => {
@@ -498,14 +474,14 @@ export function AuthorApp(): React.JSX.Element {
           <BooksIcon aria-hidden="true" />
           <span>书架</span>
         </button>
-        <div className="topbar-brand" aria-label="文秘写作作者端">
-          <span className="brand-mark" aria-hidden="true">文</span>
-          <span>文秘写作</span>
-        </div>
-        <button ref={rightToggleRef} className="topbar-menu-button" type="button" aria-label="打开功能导航" aria-expanded={rightOpen} onClick={openRightMenu}>
-          <ListIcon aria-hidden="true" />
-          <span>功能</span>
-        </button>
+        <nav className="ios-function-bar" aria-label="主导航">
+          {MAIN_NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const enabled = !item.requiresBook || bookId !== null;
+            const active = mainNavKeyForView(view) === item.key;
+            return <button className={active ? 'active' : ''} type="button" disabled={!enabled} aria-disabled={!enabled} key={item.key} title={enabled ? item.label : '请先创建并选择一本书'} onClick={() => { if (enabled) navigateMain(item.key); }}><Icon aria-hidden="true" /><span>{item.label}</span></button>;
+          })}
+        </nav>
       </header>
 
       <aside
@@ -553,29 +529,6 @@ export function AuthorApp(): React.JSX.Element {
       </aside>
 
       {leftOpen && <button className="drawer-scrim" type="button" aria-label="关闭书架" onClick={closeLeftMenu} />}
-
-      {rightOpen && <button className="function-scrim" type="button" aria-label="关闭功能导航" onClick={closeRightMenu} />}
-
-      <nav
-        className={`ios-function-bar ${rightOpen ? 'drawer-open' : ''}`}
-        aria-label="功能导航"
-        aria-hidden={!rightOpen}
-        inert={rightOpen ? undefined : true}
-        style={{ visibility: rightOpen ? 'visible' : 'hidden' }}
-      >
-        <div className="function-panel-heading">
-          <strong>功能导航</strong>
-          <button className="icon-button" type="button" aria-label="关闭功能导航" onClick={closeRightMenu}><XIcon /></button>
-        </div>
-        <div className="function-nav-primary">
-          {MAIN_NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const enabled = !item.requiresBook || bookId !== null;
-            const active = mainNavKeyForView(view) === item.key;
-            return <button className={active ? 'active' : ''} type="button" disabled={!enabled} aria-disabled={!enabled} key={item.key} title={enabled ? item.label : '请先创建并选择一本书'} onClick={() => { if (enabled) navigateMain(item.key); }}><Icon aria-hidden="true" /><span>{item.label}</span></button>;
-          })}
-        </div>
-      </nav>
 
       <main className="workspace-main">
         {(view === 'time-machine' || view === 'library') && bookId !== null && (

@@ -35,9 +35,9 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
   return (
     <section className="information-surface information-hub" aria-label="信息">
       <nav className="information-section-tabs" aria-label="信息功能">
-        <button type="button" className={section === 'profile' ? 'active' : ''} aria-pressed={section === 'profile'} onClick={() => setSection('profile')}><BookOpenTextIcon />开书资料</button>
+        <button type="button" className={section === 'profile' ? 'active' : ''} aria-pressed={section === 'profile'} onClick={() => setSection('profile')}><BookOpenTextIcon />资料</button>
         <button type="button" className={section === 'setting' ? 'active' : ''} aria-pressed={section === 'setting'} onClick={() => setSection('setting')}><SlidersHorizontalIcon />设定</button>
-        <button type="button" className={section === 'naming' ? 'active' : ''} aria-pressed={section === 'naming'} onClick={() => setSection('naming')}><MagicWandIcon />取名助手</button>
+        <button type="button" className={section === 'naming' ? 'active' : ''} aria-pressed={section === 'naming'} onClick={() => setSection('naming')}><MagicWandIcon />取名</button>
       </nav>
 
       {section === 'setting' ? (

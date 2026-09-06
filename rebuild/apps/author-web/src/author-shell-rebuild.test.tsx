@@ -88,38 +88,35 @@ describe('rebuild author shell navigation', () => {
     window.localStorage.clear();
   });
 
-  it('keeps the top bar to two menu buttons and makes the menus mutually exclusive', async () => {
+  it('keeps the top bar to the bookshelf plus one-row main navigation', async () => {
     installBookFetch();
     renderWithSession(<AuthorApp />);
 
     const topbar = screen.getByRole('banner');
-    expect(within(topbar).getAllByRole('button')).toHaveLength(2);
-    expect(within(topbar).getByText('文秘写作')).toBeVisible();
+    expect(within(topbar).getAllByRole('button')).toHaveLength(6);
+    expect(within(topbar).queryByText('文秘写作')).not.toBeInTheDocument();
 
     const shelfButton = within(topbar).getByRole('button', { name: '打开书架' });
-    const functionButton = within(topbar).getByRole('button', { name: '打开功能导航' });
+    const mainNavigation = within(topbar).getByRole('navigation', { name: '主导航' });
+    expect(within(mainNavigation).getAllByRole('button').map((button) => button.textContent)).toEqual(['信息', '时光机', '创作', '状态', '福利']);
     expect(screen.getByLabelText('书架')).not.toBeVisible();
-    expect(screen.getByLabelText('功能导航')).not.toBeVisible();
     expect(screen.queryByRole('complementary', { name: '书架' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('navigation', { name: '功能导航' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('书架')).toHaveAttribute('inert');
-    expect(screen.getByLabelText('功能导航')).toHaveAttribute('inert');
+    expect(mainNavigation).toBeVisible();
     fireEvent.click(shelfButton);
     expect(screen.getByLabelText('书架')).toBeVisible();
     expect(shelfButton).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('complementary', { name: '书架' })).not.toHaveAttribute('inert');
-    fireEvent.click(functionButton);
+    expect(mainNavigation).toBeVisible();
+    fireEvent.click(shelfButton);
     expect(shelfButton).toHaveAttribute('aria-expanded', 'false');
-    expect(functionButton).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByLabelText('书架')).not.toBeVisible();
-    expect(screen.getByLabelText('功能导航')).toBeVisible();
     expect(screen.queryByRole('complementary', { name: '书架' })).not.toBeInTheDocument();
-    expect(screen.getByRole('navigation', { name: '功能导航' })).not.toHaveAttribute('inert');
+    fireEvent.click(shelfButton);
     fireEvent.keyDown(window, { key: 'Escape' });
-    expect(functionButton).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByLabelText('功能导航')).not.toBeVisible();
-    expect(screen.queryByRole('navigation', { name: '功能导航' })).not.toBeInTheDocument();
-    expect(document.activeElement).toBe(functionButton);
+    expect(shelfButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByLabelText('书架')).not.toBeVisible();
+    expect(document.activeElement).toBe(shelfButton);
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/v1/v7/books', expect.any(Object)));
   });
@@ -167,7 +164,6 @@ describe('rebuild author shell navigation', () => {
     window.history.replaceState({}, '', '/?view=chain&bookId=book-1&volumeId=v1&chainId=c2&chapter=9');
     renderWithSession(<AuthorApp />);
 
-    fireEvent.click(screen.getByRole('button', { name: '打开功能导航' }));
     fireEvent.click(screen.getByRole('button', { name: '福利' }));
     let params = new URLSearchParams(window.location.search);
     expect(params.get('view')).toBe('benefits');
@@ -176,7 +172,6 @@ describe('rebuild author shell navigation', () => {
     expect(params.get('chainId')).toBe('c2');
     expect(params.get('chapter')).toBe('9');
 
-    fireEvent.click(screen.getByRole('button', { name: '打开功能导航' }));
     fireEvent.click(screen.getByRole('button', { name: '时光机' }));
     params = new URLSearchParams(window.location.search);
     expect(params.get('view')).toBe('time-machine');
@@ -185,7 +180,6 @@ describe('rebuild author shell navigation', () => {
     expect(params.get('chainId')).toBe('c2');
     expect(params.get('chapter')).toBe('9');
 
-    fireEvent.click(screen.getByRole('button', { name: '打开功能导航' }));
     fireEvent.click(screen.getByRole('button', { name: '状态' }));
     params = new URLSearchParams(window.location.search);
     expect(params.get('view')).toBe('status');
@@ -202,7 +196,6 @@ describe('rebuild author shell navigation', () => {
     expect(params.get('chainId')).toBe('c2');
     expect(params.get('chapter')).toBe('9');
 
-    fireEvent.click(screen.getByRole('button', { name: '打开功能导航' }));
     fireEvent.click(screen.getByRole('button', { name: '时光机' }));
     params = new URLSearchParams(window.location.search);
     expect(params.get('view')).toBe('time-machine');
@@ -211,7 +204,6 @@ describe('rebuild author shell navigation', () => {
     expect(params.get('chainId')).toBe('c2');
     expect(params.get('chapter')).toBe('9');
 
-    fireEvent.click(screen.getByRole('button', { name: '打开功能导航' }));
     fireEvent.click(screen.getByRole('button', { name: '创作' }));
     params = new URLSearchParams(window.location.search);
     expect(params.get('view')).toBe('volume');
