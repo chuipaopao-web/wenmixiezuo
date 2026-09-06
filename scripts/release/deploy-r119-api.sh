@@ -20,12 +20,31 @@ printf '%s  %s\n' "$SHA" "$ARCHIVE" | sha256sum -c -
 active_count() { python3 "$SRC/scripts/release/r119-active-count.py" "$DB"; }
 atomic_link() { ln -s "$1" "$2.r119-next"; mv -Tf "$2.r119-next" "$2"; }
 write_release() { printf '%s\n' "$1" >/opt/wenmi/RELEASE_ID.r119-next; chown wenmi:wenmi /opt/wenmi/RELEASE_ID.r119-next; chmod 644 /opt/wenmi/RELEASE_ID.r119-next; mv -Tf /opt/wenmi/RELEASE_ID.r119-next /opt/wenmi/RELEASE_ID; }
+api_ready() {
+ for n in $(seq 1 30); do
+  if curl -fsS http://127.0.0.1:43111/health >"$ROOT/api-ready.json" 2>/dev/null &&
+    grep -Fq "\"releaseId\":\"$1\"" "$ROOT/api-ready.json" &&
+    grep -Fq '"status":"ok"' "$ROOT/api-ready.json"; then return; fi
+  sleep 1
+ done
+ return 1
+}
+worker_current() {
+ python3 - "$DB" "$1" "$(systemctl show -p MainPID --value wenmi-worker)" <<'PY'
+import sqlite3,sys,datetime
+d=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True)
+rows=d.execute('SELECT heartbeat_at FROM worker_health WHERE release_id=? AND process_id=?',(sys.argv[2],int(sys.argv[3]))).fetchall()
+now=datetime.datetime.now(datetime.timezone.utc)
+ok=any(0 <= (now-datetime.datetime.fromisoformat(r[0].replace('Z','+00:00'))).total_seconds() < 15 for r in rows)
+sys.exit(0 if ok else 1)
+PY
+}
 health() {
  for n in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:43111/health >"$ROOT/health.json" 2>/dev/null &&
     grep -Fq "\"releaseId\":\"$1\"" "$ROOT/health.json" &&
     grep -Fq '"worker":"ready"' "$ROOT/health.json" &&
-    grep -Fq '"status":"ok"' "$ROOT/health.json"; then return; fi
+    grep -Fq '"status":"ok"' "$ROOT/health.json" && worker_current "$1"; then return; fi
   sleep 1
  done
  return 1
@@ -94,6 +113,7 @@ rollback() {
   atomic_link "$OLD/apps" /opt/wenmi/apps
   write_release "$BASE"
   systemctl start wenmi-api
+  api_ready "$BASE"
   systemctl start wenmi-worker
   health "$BASE"
   echo "R119_ROLLED_BACK code=$code"
@@ -107,6 +127,7 @@ systemctl stop wenmi-api
 atomic_link "$SRC/apps" /opt/wenmi/apps
 write_release "$NEW"
 systemctl start wenmi-api
+api_ready "$NEW"
 # Requires=wenmi-api.service stops Worker when API is stopped. Start the
 # unchanged Worker implementation again before asserting readiness.
 systemctl start wenmi-worker
