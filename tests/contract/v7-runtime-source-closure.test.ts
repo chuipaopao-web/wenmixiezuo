@@ -21,8 +21,8 @@ describe('V7运行源码闭包', () => {
     expect(result.manifest.schema).toBe('v7-runtime-source-closure-v2');
     expect(result.manifest.summary.runtimeSourceFiles).toBeGreaterThan(150);
     expect(result.manifest.summary.operationalResources).toBeGreaterThanOrEqual(10);
-    expect(result.manifest.summary.migrations).toBe(107);
-    expect(result.manifest.summary.buildInputs).toBe(28);
+    expect(result.manifest.summary.migrations).toBe(108);
+    expect(result.manifest.summary.buildInputs).toBe(30);
     expect(result.manifest.files.some((file) => file.path.includes('/dist/'))).toBe(false);
     expect(result.manifest.files.some((file) => file.path.endsWith('/.env.production'))).toBe(false);
     expect(new Set(result.manifest.files.map((file) => file.path)).size).toBe(result.manifest.files.length);
@@ -106,7 +106,8 @@ describe('V7运行源码闭包', () => {
       const backendDist = resolve(source, 'coauthoring-v7/backend/dist/index.js');
       const openingSource = resolve(source, 'rebuild/packages/backend/src/legacy-opening/runtime.ts');
       const openingDist = resolve(source, 'rebuild/packages/backend/src/legacy-opening/dist/runtime.js');
-      for (const path of [contractsSource, contractsDist, backendSource, backendDist, openingSource, openingDist]) {
+      const catalogSource = resolve(source, 'rebuild/packages/agent-catalog/index.js');
+      for (const path of [contractsSource, contractsDist, backendSource, backendDist, openingSource, openingDist, catalogSource]) {
         mkdirSync(resolve(path, '..'), { recursive: true });
       }
       writeFileSync(resolve(source, 'RELEASE_ID'), 'V7-test-release\n', 'utf8');
@@ -116,10 +117,12 @@ describe('V7运行源码闭包', () => {
       writeFileSync(backendDist, 'export const backend = true;\n', 'utf8');
       writeFileSync(openingSource, 'export const opening = true;\n', 'utf8');
       writeFileSync(openingDist, 'export const opening = true;\n', 'utf8');
+      writeFileSync(catalogSource, 'export const members = [];\n', 'utf8');
       const manifest: ReleaseClosureManifest = {
         schema: 'v7-runtime-source-closure-v2',
         releaseId: 'V7-test-release',
         files: [
+          { path: 'rebuild/packages/agent-catalog/index.js', sha256: fileSha256(catalogSource) },
           { path: 'apps/contracts/src/index.ts', sha256: fileSha256(contractsSource) },
           { path: 'coauthoring-v7/backend/index.ts', sha256: fileSha256(backendSource) },
           { path: 'rebuild/packages/backend/src/legacy-opening/runtime.ts', sha256: fileSha256(openingSource) }
@@ -129,6 +132,7 @@ describe('V7运行源码闭包', () => {
         releaseSource: source,
         manifest,
         resolutions: [
+          { specifier: '@wenmi/agent-catalog', resolvedPath: catalogSource },
           { specifier: '@wenmi/contracts', resolvedPath: contractsDist },
           { specifier: '@wenmi/v7-backend', resolvedPath: backendDist },
           { specifier: '@wenmi/opening-runtime', resolvedPath: openingDist }
