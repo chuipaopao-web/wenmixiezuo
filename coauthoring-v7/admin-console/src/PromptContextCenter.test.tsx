@@ -252,6 +252,17 @@ describe('提示词与上下文中心', () => {
     await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes('bookId=v7-prebook%3Aopening-test-1'))).toBe(true));
     expect(screen.getByText('本次 PromptManifest')).toBeVisible();
   });
+  it('从通用入口再次打开同一配置仍保留已加载的编辑器', async () => {
+    currentVersions = [{ ...published, assetKey: 'workstation.opening', assetId: 'workstation.opening@1', title: '开书资料工位' }];
+    const prior = fetchMock.getMockImplementation() as (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith('/assets/workstation.opening/versions') ? json(currentVersions) : prior(input, init));
+    render(<PromptContextCenter/>);
+    fireEvent.click(await screen.findByRole('button', { name: /开书资料工位/ }));
+    expect(await screen.findByRole('heading', { name: '开书资料工位' })).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: '基础通用配置与样例' }));
+    fireEvent.click(screen.getByRole('button', { name: /开书资料工位/ }));
+    expect(await screen.findByRole('heading', { name: '开书资料工位' })).toBeVisible();
+  });
 });
 
 function version(overrides: Partial<V7PromptAssetVersion>): V7PromptAssetVersion {

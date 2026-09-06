@@ -335,7 +335,9 @@ export function PromptContextCenter(): React.JSX.Element {
 
     {tab === 'opening' ? <OpeningContextGuide assets={assets} sample={example} sampleLoading={exampleLoading} onSample={() => void sampleOpening()} onEdit={key => {
       if (dirty) { setError('请先保存当前配置草稿，再切换。'); return; }
-      setKind('all'); setSelectedAssetKey(key); setAssetVersions(null); setTab('sources');
+      setKind('all');
+      if (key !== selectedAssetKey) { setAssetVersions(null); setSelectedAssetKey(key); }
+      setTab('sources');
     }} onTraces={() => { setTraceWorkstation('opening'); setTraceMode('all'); setManifestState('all'); setTab('traces'); }} /> : tab === 'sources'
       ? <SourcesPanel
           assets={filteredAssets} kind={kind} onKind={selectKind} selectedAssetKey={selectedAssetKey}
