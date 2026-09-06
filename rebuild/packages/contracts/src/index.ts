@@ -383,6 +383,15 @@ export const openingBookCreateResultSchema = z.strictObject({
   nextView: z.literal("information")
 });
 
+export const agentOpeningBookConfirmSchema = z.strictObject({
+  taskId: z.uuid(),
+  candidateId: z.string().min(8).max(300).refine(safePostgresJsonText),
+  // Keep the exact author-visible projection for comparison with the reviewed candidate.
+  openingPackage: z.unknown(),
+  idempotencyKey: z.string().trim().regex(/^[a-zA-Z0-9_-]{8,128}$/u)
+});
+export type AgentOpeningBookConfirm = z.infer<typeof agentOpeningBookConfirmSchema>;
+
 export const bookProfileUpdateRequestSchema = z.strictObject({
   expectedVersion: z.number().int().positive().max(2_147_483_647),
   title: bookTitleSchema,

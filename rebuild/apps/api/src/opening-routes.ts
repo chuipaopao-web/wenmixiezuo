@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   editorialDepartmentSchema,
+  agentOpeningBookConfirmSchema,
   openingBookCreateRequestSchema,
   openingBookCreateResultSchema,
   openingTaxonomySchema
@@ -8,7 +9,8 @@ import {
 import {
   DomainError,
   type BookShelfService,
-  type EditorialDepartmentService
+  type EditorialDepartmentService,
+  type OpeningConfirmationService
 } from "@wenmi-rebuild/backend";
 import { registerLocalProtectedHooks, requireSessionToken } from "./local-security.js";
 
@@ -20,7 +22,8 @@ interface Envelope<T> {
 export async function registerOpeningRoutes(
   app: FastifyInstance,
   books: BookShelfService,
-  editorialDepartment: EditorialDepartmentService
+  editorialDepartment: EditorialDepartmentService,
+  confirmation: OpeningConfirmationService
 ): Promise<void> {
   await app.register(async (openingApp) => {
     registerLocalProtectedHooks(openingApp);
@@ -39,6 +42,11 @@ export async function registerOpeningRoutes(
       bodyLimit: 2 * 1024 * 1024
     }, async (request) => {
       const token = requireSessionToken(request);
+      if (request.body && typeof request.body === 'object' && Object.hasOwn(request.body, 'taskId')) {
+        const parsed = agentOpeningBookConfirmSchema.safeParse(request.body);
+        if (!parsed.success) throw new DomainError('BOOK_INPUT_INVALID', '确认资料没有通过检查。');
+        return envelope(await confirmation.confirm(token, parsed.data), request);
+      }
       const parsed = openingBookCreateRequestSchema.safeParse(request.body);
       if (!parsed.success) throw new DomainError("BOOK_INPUT_INVALID", "手动开书内容没有通过检查。");
       const result = await books.confirmManualOpeningBookFromSession(token, parsed.data);

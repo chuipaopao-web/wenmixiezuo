@@ -5,6 +5,7 @@ import {
   createBookShelfService,
   createFoundationStatus,
   createEditorialDepartmentService,
+  OpeningConfirmationService,
   createLogger,
   createPostgresPool,
   loadPostgresRuntimeConfig,
@@ -59,7 +60,7 @@ export async function createApiServer(options: ApiServerOptions = {}) {
   });
 
   await registerAccountRoutes(server, accountService);
-  await registerOpeningRoutes(server, bookShelfService, editorialDepartmentService);
+  await registerOpeningRoutes(server, bookShelfService, editorialDepartmentService, new OpeningConfirmationService(accountPool, accountService));
   await registerBookshelfRoutes(server, bookShelfService);
 
   server.get("/health", async (_request, reply) => {

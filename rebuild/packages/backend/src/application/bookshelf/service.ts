@@ -202,10 +202,11 @@ export class BookShelfService {
       const book = await this.repository.findByOwnerAndBookId(client, session.account.ownerId, normalizedBookId, true);
       if (book === null || book.status !== "active") return { kind: "not-found" as const };
       const source = await this.repository.findManualOpeningSource(client, session.account.ownerId, book.bookId);
-      if (source === null) return { kind: "not-found" as const };
       const latest = await this.repository.findLatestBookProfileVersion(client, session.account.ownerId, book.bookId);
+      const original = source ?? await this.repository.findAgentOpeningSource(client, session.account.ownerId, book.bookId);
+      if (original === null || (latest === null && source === null)) return { kind: "not-found" as const };
       const current = latest === null
-        ? profileFromManualPackage(book, source.openingPackage as OpeningPackage, source.openingIdea, 1)
+        ? profileFromManualPackage(book, source!.openingPackage as OpeningPackage, source!.openingIdea, 1)
         : bookProfileSchema.parse(latest.profile);
       const currentProfileVersion = current.version ?? 1;
       if (currentProfileVersion !== parsed.data.expectedVersion) {
@@ -216,7 +217,7 @@ export class BookShelfService {
         });
         return { kind: "conflict" as const };
       }
-      const blueprint = preserveServerOpeningIdea(parsed.data.openingBlueprint, source.openingIdea);
+      const blueprint = preserveServerOpeningIdea(parsed.data.openingBlueprint, original.openingIdea);
       const candidate = profileFromBlueprint(title, blueprint, currentProfileVersion, current);
       if (profileFingerprint(candidate) === profileFingerprint(current)) {
         return { kind: "ok" as const, profile: current };
@@ -482,12 +483,13 @@ function profileFromManualPackage(
   return profileFromBlueprint(book.title, blueprint, version, null, openingPackage.positioning.category);
 }
 
-function profileFromBlueprint(
+export function profileFromBlueprint(
   title: string,
   blueprint: BookOpeningBlueprint,
   version: number,
   previous: BookProfile | null,
-  categoryFallback = ""
+  categoryFallback = "",
+  source = "manual_opening_package"
 ): BookProfile {
   const channel = blueprint.channel === "female" ? "女频" : "男频";
   const category = categoryNameFor(blueprint.channel ?? "male", blueprint.categoryKey) || previous?.category || categoryFallback;
@@ -507,7 +509,7 @@ function profileFromBlueprint(
     styleSecondary: blueprint.styleSecondary ?? previous?.styleSecondary ?? "",
     mustFollow: [...(blueprint.mustFollow ?? previous?.mustFollow ?? [])],
     style: blueprint.styleIntent ?? previous?.style ?? { languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: [] },
-    source: previous?.source ?? "manual_opening_package",
+    source: previous?.source ?? source,
     version,
     openingBlueprint: blueprint
   });

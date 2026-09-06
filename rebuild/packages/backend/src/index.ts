@@ -3,6 +3,7 @@ export { OpeningTaskService, type OpeningTask, type OpeningLease, type OpeningPo
 export { ExistingOpeningModelExecutor, existingOpeningModelResolver, type ExistingOpeningModelInput } from "./application/opening-tasks/existing-model-executor.js";
 export { loadModelRuntimeConfig } from "./infrastructure/models/model-runtime-config.js";
 export { ExistingOpeningWorkflow, PostgresOpeningTools, type OpeningWorkflowOptions } from "./application/opening-tasks/legacy-workflow.js";
+export { OpeningConfirmationService } from "./application/opening-tasks/confirmation.js";
 export {
   ENVIRONMENT_MARKER,
   type PostgresRuntimeConfig,

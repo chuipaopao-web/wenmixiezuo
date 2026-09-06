@@ -160,6 +160,12 @@ export class PostgresBookshelfRepository {
     return result.rows[0] === undefined ? null : mapManualDirectory(result.rows[0]);
   }
 
+  public async findAgentOpeningSource(client: PgClient, ownerId: string, bookId: string): Promise<{ openingIdea: string } | null> {
+    const result = await client.query<{opening_idea: string}>(
+      "SELECT opening_idea FROM agent_book_opening_sources WHERE owner_id=$1 AND book_id=$2", [ownerId, bookId]);
+    return result.rows[0] ? { openingIdea: result.rows[0].opening_idea } : null;
+  }
+
   public async findLatestBookProfileVersion(client: PgClient, ownerId: string, bookId: string): Promise<{ readonly version: number; readonly profile: unknown } | null> {
     const result = await client.query<BookProfileVersionRow>(
       `SELECT ${profileVersionColumns()} FROM book_profile_versions
