@@ -26,9 +26,11 @@ export function settingMembersForRole(roleKey: V7SettingMemberDefinition['roleKe
 
 export function validateSettingEditorialRoster(members = V7_SETTING_MEMBERS): string[] {
   const errors: string[] = [];
-  if (members.filter((memberDefinition) => memberDefinition.roleKey === 'chief_editor').length !== 3) errors.push('设定编辑部必须登记三名强模型主编');
-  if (members.filter((memberDefinition) => memberDefinition.roleKey === 'deputy_editor').length !== 3) errors.push('设定编辑部必须登记三名强模型副编');
-  if (members.filter((memberDefinition) => memberDefinition.roleKey === 'screenwriter').length < 3) errors.push('设定编辑部至少登记三名可交接编剧');
+  for (const roleKey of ['chief_editor', 'deputy_editor', 'screenwriter'] as const) {
+    if (members.filter((memberDefinition) => memberDefinition.roleKey === roleKey && memberDefinition.enabledByDefault).length < 2) {
+      errors.push(`${roleKey}至少需要两名在岗成员`);
+    }
+  }
   if (new Set(members.map((memberDefinition) => memberDefinition.memberKey)).size !== members.length) errors.push('成员编号不得重复');
   for (const memberDefinition of members) {
     if (memberDefinition.model.modelId === 'kimi-k3' && memberDefinition.model.plan !== 'agent') errors.push('Kimi K3必须使用Agent Plan');

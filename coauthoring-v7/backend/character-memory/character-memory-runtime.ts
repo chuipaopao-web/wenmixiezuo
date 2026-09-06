@@ -47,7 +47,7 @@ export function buildCharacterFallbackChain(
 export function validateCharacterRoster(members: readonly V7CharacterMemberDefinition[] = V7_CHARACTER_MEMBERS): string[] {
   const enabled = members.filter((candidate) => candidate.enabledByDefault);
   const errors: string[] = [];
-  if (enabled.length < 3) errors.push('人物资料岗位至少需要三名可交接成员');
+  if (enabled.length < 2) errors.push('人物资料岗位至少需要两名可交接成员');
   if (enabled.filter((candidate) => candidate.defaultForRole).length !== 1) errors.push('人物资料岗位必须且只能有一名默认成员');
   if (new Set(members.map((candidate) => candidate.memberKey)).size !== members.length) errors.push('人物资料成员键不能重复');
   for (const candidate of members) {

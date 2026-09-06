@@ -10,11 +10,14 @@ import {
 } from './agent-governance-registry.js';
 import {
   creationRosterFromGlobal,
+  characterRosterFromGlobal,
   openingRosterFromGlobal,
   planningRosterFromGlobal,
   settingRosterFromGlobal
 } from './runtime-rosters.js';
 import { buildPlanningFallbackChain, validatePlanningEditorialRoster } from '../planning-methods/planning-editorial-runtime.js';
+import { validateCharacterRoster } from '../character-memory/character-memory-runtime.js';
+import { validateSettingEditorialRoster } from '../setting-agent/setting-editorial-roster.js';
 
 describe('V7统一成员与模型治理', () => {
   it('GLM停岗后各运行名册可用，方案槽仍完整且交接不选停岗模型', () => {
@@ -25,6 +28,8 @@ describe('V7统一成员与模型治理', () => {
     }));
     const planning = planningRosterFromGlobal(members);
     expect(validatePlanningEditorialRoster(planning)).toEqual([]);
+    expect(validateCharacterRoster(characterRosterFromGlobal(members))).toEqual([]);
+    expect(validateSettingEditorialRoster(settingRosterFromGlobal(members))).toEqual([]);
     for (const roster of [planning, openingRosterFromGlobal(members), settingRosterFromGlobal(members), creationRosterFromGlobal(members)]) {
       expect(roster.length).toBeGreaterThan(0);
       expect(roster.some((member) => member.model.modelId === 'glm-5.3')).toBe(false);
