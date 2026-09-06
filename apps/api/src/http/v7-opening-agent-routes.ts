@@ -49,7 +49,7 @@ export async function registerV7OpeningAgentRoutes(
     new V7OpeningAgentModelGateway(database, adapters, clock),
     ids,
     clock,
-    { effectiveRoster: effectiveOpeningRoster }
+    { effectiveRoster: () => unifiedGovernance.openingRoster() }
   );
   const books = new V7OpeningBookService(database, ids, clock);
   const bookProfiles = new BookProfileViewService(database);
@@ -178,7 +178,12 @@ export async function registerV7OpeningAgentRoutes(
 
   app.get('/api/v1/v7/editorial-department', async (request) => {
     const owner = requireAuthenticatedOwner(request);
-    return success(editorialDepartment.get(owner.ownerId), request.id);
+    const view=editorialDepartment.get(owner.ownerId);
+    const openingDesignMembers=unifiedGovernance.openingRoster().filter(member=>member.roleKey==='screenwriter').map(member=>{
+      const original=view.departments.flatMap(department=>department.members).find(item=>item.memberKey===member.memberKey)!;
+      return {...original,presence:original.currentWork ? 'working' as const : 'ready' as const,statusText:'已通过开书设计测试，可选择开始设计。'};
+    });
+    return success({...view,openingDesignMembers}, request.id);
   });
 
   app.post('/api/v1/v7/opening-agent/tasks/abandon-all', async (request) => {

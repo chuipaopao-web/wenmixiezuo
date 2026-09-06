@@ -1,4 +1,4 @@
-import { MEMBER_SLOTS, OPENING_EVALUATION_REPORT, publicMemberIdentity } from '@wenmi/agent-catalog';
+import { MEMBER_SLOTS, OPENING_EVALUATION_REPORT, openingRanking, publicMemberIdentity } from '@wenmi/agent-catalog';
 import {
   V7_MODEL_PROFILE_LABELS,
   V7_ROLE_CONTRACTS,
@@ -38,6 +38,31 @@ export class V7AgentGovernanceService {
 
   public snapshot(): V7AgentGovernanceSnapshot {
     return this.repository.snapshot();
+  }
+
+  /** Opening admission is node-specific; it never expands the global role roster. */
+  public openingRoster(): import('@wenmi/v7-backend').V7OpeningMemberDefinition[] {
+    const snapshot=this.snapshot();
+    const candidates=this.repository.candidateSlots();
+    const result: import('@wenmi/v7-backend').V7OpeningMemberDefinition[]=[];
+    for (const node of ['review','design'] as const) {
+      const fixedRoleKey=node==='design'?'planning_writer':'chief_editor';
+      const roleKey=node==='design'?'screenwriter':'chief_editor';
+      for (const row of openingRanking(node)) {
+        const legacy=snapshot.members.find(m=>m.fixedRoleKey===fixedRoleKey && m.modelProfileKey===row.profileKey && m.enabled);
+        const slot=candidates.find(m=>m.roleKey===fixedRoleKey && m.modelProfileKey===row.profileKey);
+        const memberKey=legacy?.memberKey ?? slot?.memberKey;
+        if (!memberKey) continue;
+        const model=modelBindingForProfile(row.profileKey);
+        if (model.plan==='image' || !this.credentialReady({model})) continue;
+        const position=result.filter(m=>m.roleKey===roleKey).length;
+        if (node==='design' && position>=3) break;
+        result.push({memberKey,displayName:publicMemberIdentity(memberKey)!.displayName,roleKey,
+          enabledByDefault:true,defaultForRole:position===0,fallbackPriority:position+1,
+          model:{provider:model.provider as 'volcengine-ark-coding-plan'|'volcengine-ark-agent-plan',modelId:model.modelId,plan:model.plan},promptInstruction:''});
+      }
+    }
+    return result;
   }
 
   public members(roleKey?: V7FixedRoleKey): V7EffectiveMember[] {
@@ -86,6 +111,7 @@ export class V7AgentGovernanceService {
 
   public adminView(): object {
     const snapshot = this.snapshot();
+    const openingMembers=this.openingRoster();
     const candidates = this.repository.candidateSlots().map(slot => {
       const identity = publicMemberIdentity(slot.memberKey)!;
       const model = slot.modelProfileKey === null ? null : modelBindingForProfile(slot.modelProfileKey);
@@ -96,7 +122,9 @@ export class V7AgentGovernanceService {
         enabled: false, defaultForRole: false, fallbackPriority: 100, temperatureAdjustment: 0,
         credentialReady: model !== null && this.credentialReady({ model }),
         configurationOnly: true,
-        admission: { status: 'pending', reason: slot.modelProfileKey === null
+        openingNode: openingMembers.find(member=>member.memberKey===slot.memberKey)?.roleKey ?? null,
+        admission: { status: 'pending', reason: openingMembers.some(member=>member.memberKey===slot.memberKey)
+          ? '已通过开书节点测试并按速度接单；其他节点仍待验证。解绑模型可停止本节点接单。' : slot.modelProfileKey === null
           ? '预留成员，可随时绑定同类型模型。' : '模型已绑定；待全书、卷等具体节点验证后接单，当前不会自动参与作者任务。' },
         status: slot.modelProfileKey === null ? 'unbound' : 'candidate'
       };
@@ -104,6 +132,7 @@ export class V7AgentGovernanceService {
     return {
       revision: snapshot.revision,
       openingEvaluation: OPENING_EVALUATION_REPORT,
+      openingSelection: openingMembers.map(member=>({memberKey:member.memberKey,roleKey:member.roleKey,modelId:member.model.modelId,order:member.fallbackPriority})),
       summary: {
         roleCount: V7_ROLE_CONTRACTS.length,
         memberCount: MEMBER_SLOTS.length,

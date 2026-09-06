@@ -64,7 +64,7 @@ export const additionalConfigurablePlanProfiles = [
   { provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-flash', plan: 'coding' },
   { provider: 'volcengine-ark-coding-plan', modelId: 'kimi-k2.7-code', plan: 'coding' },
   { provider: 'volcengine-ark-coding-plan', modelId: 'doubao-seed-2.1-turbo', plan: 'coding' },
-  { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.2', plan: 'coding' },
+  { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3-flash', plan: 'coding' },
   { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3', plan: 'coding' },
   { provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k3', plan: 'agent' },
   { provider: 'volcengine-ark-agent-plan', modelId: 'minimax-m3', plan: 'agent' }

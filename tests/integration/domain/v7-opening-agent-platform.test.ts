@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { OPENING_EVALUATION_REPORT } from '@wenmi/agent-catalog';
 import type { ModelAdapter, ModelRequest, ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import { ModelAdapterError } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
@@ -15,7 +16,22 @@ import { parseMemberRoster } from '../../../apps/api/src/application/books/v7-op
 import { validateV7OpeningPackage } from '../../../apps/api/src/application/books/v7-opening-package-contract.js';
 import { V7_OPENING_MEMBERS, openingRosterFromGlobal, type OpeningModelRequest } from '@wenmi/v7-backend';
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
-import { createTestContext, FixedClock, type TestContext } from '../../helpers/test-context.js';
+import { createTestContext as createBaseContext, FixedClock, type TestContext } from '../../helpers/test-context.js';
+
+// Model calls are scripted here; keep admission evidence deterministic rather than
+// changing ownership/recovery expectations whenever the live benchmark changes.
+const originalEvaluationRows=OPENING_EVALUATION_REPORT.rows;
+beforeEach(()=>Object.defineProperty(OPENING_EVALUATION_REPORT,'rows',{value:[
+  ['deepseek-v4-pro','design',1],['kimi-k2.7-code','design',2],['doubao-seed-2.1-turbo','design',3],
+  ['kimi-k3','review',1],['deepseek-v4-pro','review',2]
+].map(([profileKey,node,milliseconds])=>({profileKey,node,milliseconds,structurePassed:true,quality:'passed',assessment:'scripted fixture',outputTokens:100}))}));
+afterEach(()=>Object.defineProperty(OPENING_EVALUATION_REPORT,'rows',{value:originalEvaluationRows}));
+function createTestContext(prefix:string){
+  const context=createBaseContext(prefix);
+  context.config.modelRuntime.endpoints.coding.apiKey='test-coding-key';
+  context.config.modelRuntime.endpoints.agent.apiKey='test-agent-key';
+  return context;
+}
 
 const BROWSER_HEADERS = {
   host: '127.0.0.1:43111',
@@ -739,7 +755,7 @@ describe('V7开书Agent平台接入', () => {
       expect(initial.statusCode).toBe(200);
       expect(initial.json().data).toMatchObject({
         summary: { roleCount: 7, memberCount: 56 },
-        credentials: { codingPlan: false, agentPlan: false, image: true }
+        credentials: { codingPlan: true, agentPlan: true, image: true }
       });
       expect(initial.json().data.roles[0].members[0]).toEqual(expect.objectContaining({
         memberKey: 'chief-deepseek-v4-pro'
@@ -827,7 +843,7 @@ describe('V7开书Agent平台接入', () => {
       `).get(taskId) as { member_roster_json: string };
       const frozenRoster = JSON.parse(frozen.member_roster_json) as Array<{ memberKey: string }>;
       expect(frozenRoster).toContainEqual(expect.objectContaining({
-        memberKey: 'chief-kimi-k3', enabled: true, defaultForRole: true, fallbackPriority: 2,
+        memberKey: 'chief-kimi-k3', enabled: true, defaultForRole: true, fallbackPriority: 1,
         promptInstruction: ''
       }));
       expect(frozenRoster).toContainEqual(expect.objectContaining({ memberKey: 'planner-deepseek-v4-pro' }));

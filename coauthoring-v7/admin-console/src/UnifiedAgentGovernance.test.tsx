@@ -60,7 +60,9 @@ describe('V7统一成员治理后台', () => {
     expect(within(report).getByText('开书审查 · 180秒')).toBeVisible();
     expect(within(report).getByText('字段结构通过 · 内容样本通过')).toBeVisible();
     expect(within(report).getByText('未正常交付 · 内容未验证')).toBeVisible();
-    expect(within(report).getByText(/不自动改变成员上岗状态/)).toBeVisible();
+    expect(within(report).getByRole('region',{name:'开书设计速度榜'})).toBeVisible();
+    expect(within(report).getByRole('region',{name:'开书审查速度榜'})).toBeVisible();
+    expect(within(report).getByText(/第1名/)).toBeVisible();
   });
 
   it('成员页只管理身份模型与可用性，并携带全局版本保存模型', async () => {

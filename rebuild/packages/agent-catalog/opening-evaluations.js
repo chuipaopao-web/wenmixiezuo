@@ -1,22 +1,140 @@
-// Reviewed synthetic node evidence, not a global permission to execute tasks.
+// Reviewed synthetic node evidence; raw first runs and rechecks are archived separately.
 export const OPENING_EVALUATION_REPORT = {
-  version: 'opening-r132',
-  testedAt: '2026-09-06T15:06:23.772Z',
-  scope: '7个文字模型、14次同题测试及2次参数修复复测。沿用实际开书提示、分类目录和字段校验；审查使用含明确设定冲突与旧目录词条的共同候选。内容结论来自人工阅读，不代表所有题材或长篇质量。',
-  rows: [
-    {profileKey:'deepseek-v4-pro',node:'design',milliseconds:63883,structurePassed:true,quality:'passed',assessment:'保留唯一主角、无系统和知识落地代价，方向完整；作为现有设计首选继续验证完整流程。',outputTokens:3633},
-    {profileKey:'deepseek-v4-pro',node:'review',milliseconds:18400,structurePassed:true,quality:'failed',assessment:'识别了系统冲突，但要求填写已明确弃用的goal、boundary空位，可能增加无效返修；不推荐为审查首选。',outputTokens:1243},
-    {profileKey:'deepseek-v4-flash',node:'design',milliseconds:82293,structurePassed:false,quality:'unverified',assessment:'返回了内容，但使用目录外标签“穿越”；需要验证格式修复后再准入，不能直接上岗。',outputTokens:3561},
-    {profileKey:'deepseek-v4-flash',node:'review',milliseconds:8403,structurePassed:true,quality:'passed',assessment:'识别作者明确禁止系统的冲突，给出修改卡；速度较快，仍需候选成员完整执行与恢复验证。',outputTokens:608},
-    {profileKey:'glm-5.2',node:'design',milliseconds:84077,structurePassed:false,quality:'unverified',assessment:'目录外标签导致字段校验失败，暂不开放开书设计。',outputTokens:7657},
-    {profileKey:'glm-5.2',node:'review',milliseconds:43912,structurePassed:false,quality:'unverified',assessment:'首轮400；修正思考参数后复测约44秒，仍没有可用文字。继续待验证。',outputTokens:null},
-    {profileKey:'glm-5.3',node:'design',milliseconds:180010,structurePassed:false,quality:'unverified',assessment:'达到180秒测试期限，未取得可用结果；停止本次探针，不自动重发，继续停岗。',outputTokens:null},
-    {profileKey:'glm-5.3',node:'review',milliseconds:105231,structurePassed:false,quality:'unverified',assessment:'约105秒后没有形成可用文字，继续停岗。',outputTokens:null},
-    {profileKey:'kimi-k2.7-code',node:'design',milliseconds:68032,structurePassed:true,quality:'passed',assessment:'主角与无系统边界保留，方向完整，个别中英混杂措辞需润色；待候选成员完整流程验证。',outputTokens:2933},
-    {profileKey:'kimi-k2.7-code',node:'review',milliseconds:74478,structurePassed:false,quality:'unverified',assessment:'首轮400；参数修正后约74秒仍未形成可用文字。设计成绩不能代替审查准入。',outputTokens:null},
-    {profileKey:'kimi-k3',node:'design',milliseconds:180002,structurePassed:false,quality:'unverified',assessment:'达到180秒测试期限，未取得可用结果；不推荐新开书默认选择，历史任务保留。',outputTokens:null},
-    {profileKey:'kimi-k3',node:'review',milliseconds:22799,structurePassed:true,quality:'passed',assessment:'识别系统冲突与旧分类，没有要求补写弃用空位；书名意见偏强，需保留作者决定权。',outputTokens:631},
-    {profileKey:'doubao-seed-2.1-turbo',node:'design',milliseconds:132494,structurePassed:true,quality:'passed',assessment:'字段及作者硬要求保留，但约132秒，未比现有设计首选更快；暂不扩充执行名册。',outputTokens:7184},
-    {profileKey:'doubao-seed-2.1-turbo',node:'review',milliseconds:17798,structurePassed:true,quality:'failed',assessment:'识别系统冲突，但修改建议又引入目录外标签“穿越”，尚需解决建议可执行性。',outputTokens:794}
+  "version": "opening-r133",
+  "testedAt": "2026-09-06T16:10:57.734Z",
+  "scope": "当前7种文字模型先逐一设计，再逐一审查；共14个初测记录全部保留。3个设计格式错误做一次修复，按首次返回加修复总耗时排名。审查先用旧目录压力样本，随后对3个结构合格模型，用系统已校验目录且含禁止系统冲突的共同候选复核；这3个按复核耗时排名，其余保留初测失败。全部顺序执行、每调用180秒、同岗位同输入/参数；只是本题单次完整返回时间，不是首字速度或长期平均。",
+  "rows": [
+    {
+      "profileKey": "deepseek-v4-pro",
+      "node": "design",
+      "milliseconds": 113545,
+      "firstMilliseconds": 73848,
+      "repairMilliseconds": 39697,
+      "structurePassed": true,
+      "quality": "passed",
+      "assessment": "首次返回格式/目录校验未通过，一次结构修复后可用。人工核对保留唯一主角、无系统及知识落地代价；仅代表本题样本。",
+      "outputTokens": 2880
+    },
+    {
+      "profileKey": "deepseek-v4-flash",
+      "node": "design",
+      "milliseconds": 132261,
+      "firstMilliseconds": 49098,
+      "repairMilliseconds": 83163,
+      "structurePassed": true,
+      "quality": "passed",
+      "assessment": "首次返回格式/目录校验未通过，一次结构修复后可用。人工核对保留唯一主角、无系统及知识落地代价；仅代表本题样本。",
+      "outputTokens": 5749
+    },
+    {
+      "profileKey": "glm-5.3",
+      "node": "design",
+      "milliseconds": 180005,
+      "structurePassed": false,
+      "quality": "unverified",
+      "assessment": "达到180秒测试期限，未取得可用开书信息，本节点不接单。",
+      "outputTokens": null
+    },
+    {
+      "profileKey": "glm-5.3-flash",
+      "node": "design",
+      "milliseconds": 180001,
+      "structurePassed": false,
+      "quality": "unverified",
+      "assessment": "达到180秒测试期限，未取得可用开书信息，本节点不接单。",
+      "outputTokens": null
+    },
+    {
+      "profileKey": "kimi-k2.7-code",
+      "node": "design",
+      "milliseconds": 120560,
+      "firstMilliseconds": 68151,
+      "repairMilliseconds": 52409,
+      "structurePassed": true,
+      "quality": "passed",
+      "assessment": "首次返回格式/目录校验未通过，一次结构修复后可用。人工核对保留唯一主角、无系统及知识落地代价；仅代表本题样本。",
+      "outputTokens": 2775
+    },
+    {
+      "profileKey": "kimi-k3",
+      "node": "design",
+      "milliseconds": 180001,
+      "structurePassed": false,
+      "quality": "unverified",
+      "assessment": "达到180秒测试期限，未取得可用开书信息，本节点不接单。",
+      "outputTokens": null
+    },
+    {
+      "profileKey": "doubao-seed-2.1-turbo",
+      "node": "design",
+      "milliseconds": 173028,
+      "structurePassed": true,
+      "quality": "passed",
+      "assessment": "首轮返回可用。人工核对保留唯一主角、无系统及知识落地代价；仅代表本题样本。",
+      "outputTokens": 11327
+    },
+    {
+      "profileKey": "deepseek-v4-pro",
+      "node": "review",
+      "milliseconds": 8267,
+      "structurePassed": true,
+      "quality": "passed",
+      "assessment": "首轮旧目录压力样本耗时12.2秒，存在不可执行的目录修改建议。在目录已由系统校验的共同候选中复测，正确识别禁止系统的冲突，修改卡字段正确；按本次复测耗时排序，不代表目录纠错能力。",
+      "outputTokens": 442
+    },
+    {
+      "profileKey": "deepseek-v4-flash",
+      "node": "review",
+      "milliseconds": 8800,
+      "structurePassed": true,
+      "quality": "passed",
+      "assessment": "首轮旧目录压力样本耗时10.6秒，遗漏目录错误。在目录已由系统校验的共同候选中复测，正确识别禁止系统的冲突，修改卡字段正确；按本次复测耗时排序，不代表目录纠错能力。",
+      "outputTokens": 438
+    },
+    {
+      "profileKey": "glm-5.3",
+      "node": "review",
+      "milliseconds": 151639,
+      "structurePassed": false,
+      "quality": "unverified",
+      "assessment": "未取得可用审查文字，本节点不接单。",
+      "outputTokens": null
+    },
+    {
+      "profileKey": "glm-5.3-flash",
+      "node": "review",
+      "milliseconds": 180005,
+      "structurePassed": false,
+      "quality": "unverified",
+      "assessment": "未取得可用审查文字，本节点不接单。",
+      "outputTokens": null
+    },
+    {
+      "profileKey": "kimi-k2.7-code",
+      "node": "review",
+      "milliseconds": 75982,
+      "structurePassed": false,
+      "quality": "unverified",
+      "assessment": "返回内容未通过格式或修改卡校验，不参与审查排名。",
+      "outputTokens": 2318
+    },
+    {
+      "profileKey": "kimi-k3",
+      "node": "review",
+      "milliseconds": 17939,
+      "structurePassed": true,
+      "quality": "passed",
+      "assessment": "首轮旧目录压力样本耗时14.9秒，存在不可执行的目录修改建议。在目录已由系统校验的共同候选中复测，正确识别禁止系统的冲突，修改卡字段正确；按本次复测耗时排序，不代表目录纠错能力。",
+      "outputTokens": 501
+    },
+    {
+      "profileKey": "doubao-seed-2.1-turbo",
+      "node": "review",
+      "milliseconds": 24283,
+      "structurePassed": false,
+      "quality": "unverified",
+      "assessment": "返回内容未通过格式或修改卡校验，不参与审查排名。",
+      "outputTokens": 1064
+    }
   ]
 };

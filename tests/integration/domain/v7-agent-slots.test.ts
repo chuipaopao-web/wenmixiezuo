@@ -36,7 +36,9 @@ describe('fixed member slots and replaceable model bindings', () => {
   });
   it('has 54 text and 2 image identities, seven actual text profiles and distinct portraits', () => {
     expect(MEMBER_SLOTS).toHaveLength(56);
-    expect(TEXT_MODELS).toHaveLength(7);
+    expect(TEXT_MODELS).toHaveLength(8); // Seven selectable models plus historical GLM 5.2 decoding.
+    expect(candidateModels('planning_writer')).toHaveLength(7);
+    expect(candidateModels('planning_writer').some(model=>model.profileKey==='glm-5.2')).toBe(false);
     expect(new Set(MEMBER_SLOTS.map(slot=>slot.memberKey)).size).toBe(56);
     expect(new Set(MEMBER_SLOTS.map(slot=>slot.displayName)).size).toBe(56);
     expect(new Set(MEMBER_SLOTS.map(slot=>`${slot.avatarPath}:${slot.avatarPosition}`)).size).toBe(56);
@@ -53,8 +55,9 @@ describe('fixed member slots and replaceable model bindings', () => {
     const key='member-planning_writer-9';
     const frozen=service.taskSnapshot(service.members('planning_writer')[0]!, 'opening_design');
     const before=service.snapshot().revision;
-    service.updateMember('admin',key,{expectedRevision:before,modelProfileKey:'glm-5.2'});
-    expect(repository.candidateSlots().find(slot=>slot.memberKey===key)?.modelProfileKey).toBe('glm-5.2');
+    expect(()=>service.updateMember('admin',key,{expectedRevision:before,modelProfileKey:'glm-5.2'})).toThrow();
+    service.updateMember('admin',key,{expectedRevision:before,modelProfileKey:'glm-5.3-flash'});
+    expect(repository.candidateSlots().find(slot=>slot.memberKey===key)?.modelProfileKey).toBe('glm-5.3-flash');
     expect(()=>service.updateMember('admin',key,{expectedRevision:before,modelProfileKey:'kimi-k3'})).toThrow('刚刚');
     service.updateMember('admin',key,{expectedRevision:service.snapshot().revision,modelProfileKey:null});
     repository.ensureSeeded(new Date().toISOString());

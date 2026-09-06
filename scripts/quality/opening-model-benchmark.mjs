@@ -23,16 +23,21 @@ assert(start>=0&&end>start);
 const literal=fixture.slice(start+'const PACKAGE: OpeningPackage = '.length,end).trim().replace(/;$/,'');
 const reviewPackage=JSON.parse(JSON.stringify(runInNewContext('('+literal+')',Object.create(null),{timeout:1000})));
 const idea='张三穿越到三国乱世，从流民开始求生，想靠现代知识改变自己和百姓的命运。张三是唯一主角，没有系统或超能力，不会无代价掌握古代工艺，也不能准确记住所有历史细节。';
-// Shared legacy candidate plus an unambiguous author-constraint contradiction.
+// Production validates taxonomy before review; keep this deterministic boundary
+// separate from the semantic contradiction being tested by reviewers.
+reviewPackage.positioning.category='历史古代';
+reviewPackage.positioning.genres=['秦汉三国','历史古代','种田经营'];
+reviewPackage.positioning.tags=['历史','古代','种田','成长'];
+core.parseOpeningPackage(JSON.stringify(reviewPackage),taxonomy,'fanqie');
+// The same unambiguous author-constraint contradiction for every reviewer.
 reviewPackage.protagonists[0].goldenFinger='绑定签到系统，每天凭空获得无限粮食和现代武器，不需要学习或付出代价。';
 const referencePack=core.buildOpeningReferencePack(idea);
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const evidence={version:1,scope:'opening_design_and_review_synthetic',release:readFileSync(root+'/RELEASE_ID','utf8').trim(),startedAt:new Date().toISOString(),idea,fixtureHash:hash(JSON.stringify(reviewPackage)),timeoutMs:180000,maxConcurrency:2,automaticRetries:0,reviewExpected:'识别作者明确禁止系统与候选签到系统的矛盾，提出可执行修改，不要求补写本阶段延后字段',probes:[]};
-const retest=process.argv[3]==='retest-review-compat';
-assert(process.argv[3]===undefined||retest);
-const jobs=retest?['glm-5.2','kimi-k2.7-code'].map(profile=>({profile,kind:'review'}))
-  :core.V7_TEXT_MODEL_PROFILE_KEYS.flatMap(profile=>['design','review'].map(kind=>({profile,kind})));
-assert.equal(jobs.length,retest?2:14);
+const phase=process.argv[3];
+assert(phase==='design'||phase==='review','Explicitly select design or review; stages are measured independently');
+const jobs=core.V7_TEXT_MODEL_PROFILE_KEYS.filter(profile=>profile!=='glm-5.2').map(profile=>({profile,kind:phase}));
+evidence.scope='opening_'+phase+'_independent';evidence.maxConcurrency=1;
 writeFileSync(output,JSON.stringify(evidence,null,2));
 let cursor=0;
 async function worker(){while(cursor<jobs.length){
@@ -52,6 +57,6 @@ async function worker(){while(cursor<jobs.length){
  record.milliseconds=Date.now()-began;evidence.probes.push(record);writeFileSync(output,JSON.stringify(evidence,null,2));
  console.log(JSON.stringify({profile,kind,structurePassed:record.structurePassed,milliseconds:record.milliseconds,outputTokens:record.outputTokens??null,failure:record.failure??null}));
 }}
-await Promise.all([worker(),worker()]);
+await worker();
 evidence.completedAt=new Date().toISOString();writeFileSync(output,JSON.stringify(evidence,null,2));
 console.log(JSON.stringify({complete:true,count:evidence.probes.length}));

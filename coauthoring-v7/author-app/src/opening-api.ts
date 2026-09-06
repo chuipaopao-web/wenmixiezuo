@@ -123,6 +123,7 @@ export interface OpeningTaskView {
 }
 
 export interface EditorialDepartmentView {
+  openingDesignMembers?: EditorialDepartmentView['departments'][number]['members'];
   summary: { memberCount: number; readyCount: number; workingCount: number; leaveCount: number; completedCount: number };
   departments: Array<{
     departmentKey:

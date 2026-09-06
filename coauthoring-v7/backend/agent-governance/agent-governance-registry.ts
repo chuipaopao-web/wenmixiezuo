@@ -76,7 +76,7 @@ const LEGACY_EXECUTABLE_TEXT_KEYS = [
   'kimi-k2.7-code', 'kimi-k3', 'doubao-seed-2.1-turbo'
 ] as const;
 
-export const V7_TEXT_MODEL_PROFILE_KEYS: readonly string[] = TEXT_MODELS.map(model => model.profileKey);
+export const V7_TEXT_MODEL_PROFILE_KEYS: readonly string[] = TEXT_MODELS.filter(model => model.profileKey !== 'glm-5.2').map(model => model.profileKey);
 
 const V7_STRONG_MODEL_PROFILE_KEYS = [
   'deepseek-v4-pro', 'glm-5.3', 'kimi-k3'
@@ -147,7 +147,8 @@ export function modelAdmissionForRole(roleKey: V7FixedRoleKey, profileKey: strin
 
 export function modelBindingForProfile(profileKey: string): V7GlobalModelBinding {
   if (profileKey === 'doubao-seedream') return { provider: 'volcengine-ark-image', modelId: 'doubao-seedream-5-0-260128', plan: 'image' };
-  if (!(V7_TEXT_MODEL_PROFILE_KEYS as readonly string[]).includes(profileKey)) throw new Error(`未批准的模型档案：${profileKey}`);
+  // Historical snapshots remain decodable; retired profiles cannot be newly selected.
+  if (!TEXT_MODELS.some(model => model.profileKey === profileKey)) throw new Error(`未批准的模型档案：${profileKey}`);
   return modelBinding(profileKey);
 }
 

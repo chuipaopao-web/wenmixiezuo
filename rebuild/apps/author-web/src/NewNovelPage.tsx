@@ -404,7 +404,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   const openingSubmitRef = useRef(false);
   const confirmSubmitRef = useRef(false);
   const onCreatedRef = useRef(onCreated);
-  const designMembers = useMemo(() => department?.departments
+  const designMembers = useMemo(() => department?.openingDesignMembers ?? department?.departments
     .find((item) => item.departmentKey === 'planning_writer')?.members
     .filter((member) => member.presence !== 'leave') ?? [], [department]);
 

@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { publicMemberIdentity } from '@wenmi/agent-catalog';
 import {
   OpeningAgentEngine,
   OpeningAgentStoppedError,
-  V7_GLOBAL_MEMBERS,
   V7_OPENING_MEMBERS,
-  allowedModelProfilesForRole,
+  candidateModelProfilesForRole,
   modelProfileKeyForBinding,
   validateEffectiveOpeningAgentRoster,
   type OpeningAgentTaskState,
@@ -832,16 +832,18 @@ export function isCurrentV7OpeningTask(row: V7OpeningTaskRow): boolean {
   try {
     const roster = parseMemberRoster(row.member_roster_json);
     if (!roster.every((member) => {
-      const registered = V7_GLOBAL_MEMBERS.find((candidate) => candidate.memberKey === member.memberKey);
+      const registered = publicMemberIdentity(member.memberKey);
       if (registered === undefined) return false;
-      const expectedRole = registered.fixedRoleKey === 'chief_editor'
+      const expectedRole = registered.roleKey === 'chief_editor'
         ? 'chief_editor'
-        : registered.fixedRoleKey === 'planning_writer'
+        : registered.roleKey === 'planning_writer'
           ? 'screenwriter'
           : null;
       if (expectedRole === null || member.roleKey !== expectedRole) return false;
       const profileKey = modelProfileKeyForBinding(member.model);
-      return allowedModelProfilesForRole(registered.fixedRoleKey).includes(profileKey);
+      // Admission is checked when a task is created. Frozen valid identities must
+      // not turn into read-only historical tasks when the next speed ranking changes.
+      return candidateModelProfilesForRole(registered.roleKey).includes(profileKey);
     })) return false;
     if (row.state_json === null) return true;
     const state = JSON.parse(row.state_json) as OpeningAgentTaskState;

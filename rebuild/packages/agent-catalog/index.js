@@ -1,9 +1,14 @@
 // Public identities and supported channel names only; no credentials, user data or task state.
 export { OPENING_EVALUATION_REPORT } from './opening-evaluations.js';
+import { OPENING_EVALUATION_REPORT } from './opening-evaluations.js';
+export function openingRanking(node, report=OPENING_EVALUATION_REPORT){
+ return report.rows.filter(row=>row.node===node && row.profileKey!=='glm-5.2' && row.structurePassed && row.quality==='passed' && Number.isFinite(row.milliseconds) && row.milliseconds>0)
+  .toSorted((a,b)=>a.milliseconds-b.milliseconds || a.profileKey.localeCompare(b.profileKey));
+}
 export const TEXT_MODELS = Object.freeze([
   ['deepseek-v4-pro', 'DeepSeek V4 Pro'], ['deepseek-v4-flash', 'DeepSeek V4 Flash'],
-  ['glm-5.2', 'GLM 5.2'], ['glm-5.3', 'GLM 5.3'], ['kimi-k2.7-code', 'Kimi 2.7'],
-  ['kimi-k3', 'Kimi K3'], ['doubao-seed-2.1-turbo', '豆包 Seed 2.1 Turbo']
+  ['glm-5.2', 'GLM 5.2（已停用）'], ['glm-5.3', 'GLM 5.3'], ['kimi-k2.7-code', 'Kimi 2.7'],
+  ['kimi-k3', 'Kimi K3'], ['doubao-seed-2.1-turbo', '豆包 Seed 2.1 Turbo'], ['glm-5.3-flash','GLM 5.3 Flash']
 ].map(([profileKey, publicName]) => Object.freeze({profileKey, publicName, kind: 'text'})));
 export const IMAGE_MODELS = Object.freeze([Object.freeze({profileKey:'doubao-seedream',publicName:'Seedream',kind:'image'})]);
 export const ROLES = Object.freeze([
@@ -35,10 +40,11 @@ for(const role of ROLES){
  const models=(role.kind==='image'?IMAGE_MODELS:TEXT_MODELS).filter(p=>!existing.some(m=>m.initialModelProfileKey===p.profileKey));
  for(let number=existing.length+1;number<=role.capacity;number++){
   const extra=index++;
-  members.push({memberKey:`member-${role.roleKey}-${number}`,displayName:extraNames[extra],roleKey:role.roleKey,initialModelProfileKey:models.shift()?.profileKey??null,legacy:false,avatarPath:'/avatars/editorial-women-v131.png',avatarSize:'600% 600%',avatarPosition:positions(extra,6)});
+  const initial=models.shift()?.profileKey??null;
+  members.push({memberKey:`member-${role.roleKey}-${number}`,displayName:extraNames[extra],roleKey:role.roleKey,initialModelProfileKey:initial==='glm-5.2'?null:initial,legacy:false,avatarPath:'/avatars/editorial-women-v131.png',avatarSize:'600% 600%',avatarPosition:positions(extra,6)});
  }
 }
 export const MEMBER_SLOTS=Object.freeze(members.map(Object.freeze));
 export const V7_MEMBER_IDENTITIES=Object.freeze(MEMBER_SLOTS.map(m=>Object.freeze([m.memberKey,m.displayName])));
 export function publicMemberIdentity(memberKey){return MEMBER_SLOTS.find(m=>m.memberKey===memberKey);}
-export function candidateModels(roleKey){const role=ROLES.find(r=>r.roleKey===roleKey);return role?(role.kind==='image'?IMAGE_MODELS:TEXT_MODELS):[];}
+export function candidateModels(roleKey){const role=ROLES.find(r=>r.roleKey===roleKey);return role?(role.kind==='image'?IMAGE_MODELS:TEXT_MODELS.filter(model=>model.profileKey!=='glm-5.2')):[];}

@@ -15,6 +15,8 @@ export interface OpeningEvaluationRow {
   readonly profileKey: string;
   readonly node: 'design'|'review';
   readonly milliseconds: number;
+  readonly firstMilliseconds?: number;
+  readonly repairMilliseconds?: number;
   readonly structurePassed: boolean;
   readonly quality: 'passed'|'failed'|'unverified';
   readonly assessment: string;
@@ -27,3 +29,4 @@ export interface OpeningEvaluationReport {
   readonly rows: readonly OpeningEvaluationRow[];
 }
 export const OPENING_EVALUATION_REPORT: OpeningEvaluationReport;
+export function openingRanking(node: 'design'|'review', report?: OpeningEvaluationReport): OpeningEvaluationRow[];

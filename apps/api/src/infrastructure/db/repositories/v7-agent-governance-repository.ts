@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { MEMBER_SLOTS, candidateModels } from '@wenmi/agent-catalog';
+import { MEMBER_SLOTS, candidateModels, openingRanking } from '@wenmi/agent-catalog';
 import {
   V7_GLOBAL_MEMBERS,
   V7_TASK_TEMPERATURE_POLICIES,
@@ -183,6 +183,19 @@ export class V7AgentGovernanceRepository {
   }
 
   public resolveTaskPolicy(memberKey: string, taskKind: V7AgentTaskKind): V7ResolvedTaskPolicy {
+    const slot=MEMBER_SLOTS.find(candidate=>!candidate.legacy && candidate.memberKey===memberKey);
+    if (slot && ['opening_design','opening_review','opening_revision'].includes(taskKind)) {
+      const node=taskKind==='opening_review'?'review':'design';
+      const role=node==='review'?'chief_editor':'planning_writer';
+      const binding=this.candidateSlots().find(candidate=>candidate.memberKey===memberKey);
+      if (slot.roleKey!==role || binding?.roleKey!==role || !openingRanking(node).some(row=>row.profileKey===binding.modelProfileKey)) {
+        throw new Error(`该成员尚未通过当前开书节点验证：${memberKey}`);
+      }
+      const snapshot=this.snapshot();
+      const policy=snapshot.taskPolicies.find(item=>item.taskKind===taskKind);
+      if (!policy) throw new Error('开书节点参数缺失');
+      return {governanceRevision:snapshot.revision,temperature:policy.defaultTemperature};
+    }
     const definition = V7_GLOBAL_MEMBERS.find((candidate) => candidate.memberKey === memberKey);
     if (definition === undefined) throw new Error(`V7任务成员已经退役或不存在：${memberKey}`);
     const meta = this.database.prepare('SELECT revision FROM v7_agent_governance_meta WHERE singleton=1').get() as
