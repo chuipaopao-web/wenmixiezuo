@@ -185,7 +185,7 @@ function openBookShelf(): HTMLElement {
   return screen.getByLabelText('书架');
 }
 
-function openMainNav(label: '信息' | '时光机' | '规划' | '状态' | '福利'): void {
+function openMainNav(label: '信息' | '时光机' | '创作' | '状态' | '福利'): void {
   const menu = openFunctionMenu();
   fireEvent.click(within(menu).getByRole('button', { name: label }));
 }
@@ -213,7 +213,7 @@ describe('V7 author opening flow', () => {
     render(<AuthorApp />);
     expect(within(screen.getByRole('banner')).getAllByRole('button')).toHaveLength(2);
     const menu = openFunctionMenu();
-    for (const label of ['信息', '时光机', '规划'] as const) {
+    for (const label of ['信息', '时光机', '创作'] as const) {
       expect(within(menu).getByRole('button', { name: label })).toBeDisabled();
     }
     expect(within(menu).getByRole('button', { name: '状态' })).toBeEnabled();

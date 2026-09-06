@@ -152,7 +152,7 @@ describe('rebuild author shell navigation', () => {
     view.unmount();
     window.history.replaceState({}, '', '/?view=chain&bookId=book-1&volumeId=v1&chainId=c2&chapter=9');
     renderWithSession(<AuthorApp />);
-    const planningTabs = screen.getByLabelText('规划二级入口');
+    const planningTabs = screen.getByLabelText('创作二级入口');
     expect(within(planningTabs).getByRole('button', { name: '链' })).toHaveClass('active');
     fireEvent.click(within(planningTabs).getByRole('button', { name: '章' }));
     const params = new URLSearchParams(window.location.search);
@@ -212,7 +212,7 @@ describe('rebuild author shell navigation', () => {
     expect(params.get('chapter')).toBe('9');
 
     fireEvent.click(screen.getByRole('button', { name: '打开功能导航' }));
-    fireEvent.click(screen.getByRole('button', { name: '规划' }));
+    fireEvent.click(screen.getByRole('button', { name: '创作' }));
     params = new URLSearchParams(window.location.search);
     expect(params.get('view')).toBe('volume');
     expect(params.get('bookId')).toBe('book-1');

@@ -109,7 +109,7 @@ type OpeningRecoveryNavigation = {
   membershipRetry?: OpeningMembershipRetryGrant;
 };
 
-type MainNavKey = 'information' | 'time-machine' | 'planning' | 'status' | 'benefits';
+type MainNavKey = 'information' | 'time-machine' | 'creation' | 'status' | 'benefits';
 
 const MAIN_NAV_ITEMS: Array<{
   key: MainNavKey;
@@ -119,7 +119,7 @@ const MAIN_NAV_ITEMS: Array<{
 }> = [
   { key: 'information', label: '信息', icon: InfoIcon, requiresBook: true },
   { key: 'time-machine', label: '时光机', icon: BookOpenTextIcon, requiresBook: true },
-  { key: 'planning', label: '规划', icon: MapTrifoldIcon, requiresBook: true },
+  { key: 'creation', label: '创作', icon: MapTrifoldIcon, requiresBook: true },
   { key: 'status', label: '状态', icon: FileTextIcon, requiresBook: false },
   { key: 'benefits', label: '福利', icon: GiftIcon, requiresBook: false }
 ];
@@ -127,7 +127,7 @@ const MAIN_NAV_ITEMS: Array<{
 function mainNavKeyForView(view: AuthorView): MainNavKey | null {
   if (view === 'information') return 'information';
   if (view === 'time-machine' || view === 'library') return 'time-machine';
-  if (view === 'volume' || view === 'chain' || view === 'chapter') return 'planning';
+  if (view === 'volume' || view === 'chain' || view === 'chapter') return 'creation';
   if (view === 'status' || view === 'tasks' || view === 'team') return 'status';
   if (view === 'benefits') return 'benefits';
   return null;
@@ -389,7 +389,7 @@ export function AuthorApp(): React.JSX.Element {
   };
 
   const navigateMain = (target: MainNavKey): void => {
-    if (target === 'planning') {
+    if (target === 'creation') {
       navigate('volume', bookId);
       return;
     }
@@ -585,7 +585,7 @@ export function AuthorApp(): React.JSX.Element {
           </div>
         )}
         {(view === 'volume' || view === 'chain' || view === 'chapter') && bookId !== null && (
-          <div className="workspace-secondary-tabs planning-tabs" aria-label="规划二级入口">
+          <div className="workspace-secondary-tabs creation-tabs" aria-label="创作二级入口">
             <button type="button" className={view === 'volume' ? 'active' : ''} onClick={() => navigate('volume', bookId)}>卷</button>
             <button type="button" className={view === 'chain' ? 'active' : ''} onClick={() => navigate('chain', bookId)}>链</button>
             <button type="button" className={view === 'chapter' ? 'active' : ''} onClick={() => navigate('chapter', bookId)}>章</button>
