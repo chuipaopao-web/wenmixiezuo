@@ -1,0 +1,526 @@
+import { describe, expect, it, vi } from 'vitest';
+import { ArkPlanModelAdapter } from '../../packages/backend/src/infrastructure/models/ark-plan-model.js';
+import { ModelAdapterError } from '../../packages/backend/src/infrastructure/models/model-adapter.js';
+
+const request = {
+  requestId: 'request-plan-1',
+  taskId: 'task-plan-1',
+  ownerId: 'owner-1',
+  bookId: 'book-1',
+  agentId: 'agent-1',
+  prompt: '只回复结果',
+  maxOutputTokens: 100
+};
+
+describe('火山方舟严格套餐适配器', () => {
+  it.each(['deepseek-v4-pro', 'doubao-seed-2.1-turbo'])('快速方案%s禁用额外思考并保留完整可见输出额度', async (modelId) => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        model: modelId, thinking: { type: 'disabled' }, max_tokens: 12000
+      });
+      return Response.json({ content: [{ type: 'text', text: '{}' }], usage: { output_tokens: 2 } });
+    });
+    const adapter = new ArkPlanModelAdapter({ plan: 'coding', provider: 'volcengine-ark-coding-plan', modelId,
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding', apiKey: 'test', purpose: 'interactive_planning' }, fetchImpl);
+    await adapter.generate({ ...request, maxOutputTokens: 12000 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it.each(['kimi-k3', 'glm-5.3', 'deepseek-v4-flash'])('快速方案拒绝未通过速度/交付验证的%s且不发请求', async (modelId) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const adapter = new ArkPlanModelAdapter({ plan: 'coding', provider: 'volcengine-ark-coding-plan', modelId,
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding', apiKey: 'test', purpose: 'interactive_planning' }, fetchImpl);
+    await expect(adapter.generate(request)).rejects.toThrow('未进入快速方案路线');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+  it('只调用Agent Plan Messages端点并将现金费用记为零', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe('https://ark.cn-beijing.volces.com/api/plan/v1/messages');
+      expect(init?.method).toBe('POST');
+      expect((init as RequestInit & { dispatcher?: unknown }).dispatcher).toBeDefined();
+      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer agent-test-key');
+      const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number; messages: unknown[]; thinking?: { type?: string; budget_tokens?: number } };
+      expect(body).toMatchObject({ model: 'kimi-k2-6-modelhub', max_tokens: 100 + 16_000 });
+      expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 16_000 });
+      // 方舟套餐端点使用 Messages 标准字符串 content。
+      expect(body.messages).toEqual([{ role: 'user', content: '只回复结果' }]);
+      return Response.json({
+        model: 'kimi-k2.6',
+        content: [{ type: 'text', text: '套餐结果' }],
+        usage: { input_tokens: 8, output_tokens: 2 }
+      });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent',
+      provider: 'volcengine-ark-agent-plan',
+      modelId: 'kimi-k2-6-modelhub',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan',
+      apiKey: 'agent-test-key',
+      purpose: 'discussion'
+    }, fetchImpl);
+
+    await expect(adapter.generate(request)).resolves.toEqual({
+      provider: 'volcengine-ark-agent-plan',
+      modelId: 'kimi-k2-6-modelhub',
+      output: '套餐结果',
+      inputTokens: 8,
+      outputTokens: 2,
+      cashCostCny: 0,
+      state: 'succeeded'
+    });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('Coding Plan只能进入/api/coding且不会使用普通Endpoint', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe('https://ark.cn-beijing.volces.com/api/coding/v1/messages');
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
+      expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 16_000 });
+      return Response.json({ content: [{ type: 'text', text: '正文' }], usage: { input_tokens: 5, output_tokens: 2 } });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'coding',
+      provider: 'volcengine-ark-coding-plan',
+      modelId: 'deepseek-v4-pro',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding',
+      apiKey: 'coding-test-key',
+      purpose: 'novel_writer'
+    }, fetchImpl);
+
+    await adapter.generate(request);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('结构化创意任务只发送显式温度，不同时篡改top_p', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { temperature?: number; top_p?: number };
+      expect(body.temperature).toBe(0.8);
+      expect(body.top_p).toBeUndefined();
+      return Response.json({ content: [{ type: 'text', text: '{}' }], usage: { input_tokens: 5, output_tokens: 2 } });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'coding', provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding', apiKey: 'coding-test-key', purpose: 'structured_planning'
+    }, fetchImpl);
+
+    await adapter.generate({ ...request, temperature: 0.8 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('DeepSeek事实点评关闭隐藏思考并保留完整JSON输出额度', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { max_tokens?: number; thinking?: { type?: string; budget_tokens?: number } };
+      expect(body.thinking).toEqual({ type: 'disabled' });
+      expect(body.max_tokens).toBe(request.maxOutputTokens);
+      return Response.json({ content: [{ type: 'text', text: '{"verdict":"pass"}' }], usage: { input_tokens: 5, output_tokens: 8 } });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'coding', provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding', apiKey: 'coding-test-key', purpose: 'novel_reviewer'
+    }, fetchImpl);
+
+    await adapter.generate(request);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('MiniMax文学审查关闭思考直出文字（预算对它不生效，会把全部额度烧进思考块）', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
+      expect(body.thinking).toEqual({ type: 'disabled' });
+      return Response.json({
+        content: [{ type: 'text', text: '{verdict:pass}' }],
+        usage: { input_tokens: 8, output_tokens: 12 }
+      });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'minimax-m3',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'novel_reviewer'
+    }, fetchImpl);
+
+    await adapter.generate(request);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('DeepSeek规划与小说正文都带着预算思考', async () => {
+    const seen: Array<{ type?: string; budget_tokens?: number } | undefined> = [];
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
+      seen.push(body.thinking);
+      return Response.json({ content: [{ type: 'text', text: '{}' }], usage: { input_tokens: 5, output_tokens: 2 } });
+    });
+    await new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'discussion'
+    }, fetchImpl).generate(request);
+    await new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'novel_writer'
+    }, fetchImpl).generate(request);
+    expect(seen).toEqual([
+      { type: 'enabled', budget_tokens: 16_000 },
+      { type: 'enabled', budget_tokens: 16_000 }
+    ]);
+  });
+
+  it('GLM带着预算思考，思考收束后额度留给岗位最终输出', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
+      expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 16_000 });
+      return Response.json({ content: [{ type: 'text', text: '设定结论' }], usage: { input_tokens: 5, output_tokens: 2 } });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2-260617',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'discussion'
+    }, fetchImpl);
+
+    await expect(adapter.generate(request)).resolves.toMatchObject({ output: '设定结论' });
+  });
+
+  it('主笔重写系统合同明确禁止只返回修改片段', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { system?: string };
+      expect(body.system).toContain('修改后的完整章节');
+      expect(body.system).toContain('禁止只返回修改片段');
+      return Response.json({ content: [{ type: 'text', text: '完整正文' }], usage: { input_tokens: 5, output_tokens: 2 } });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2-260617',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'novel_writer'
+    }, fetchImpl);
+
+    await expect(adapter.generate(request)).resolves.toMatchObject({ output: '完整正文' });
+  });
+
+  it('尊重取消并对错误响应脱敏', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('cancelled-by-owner'));
+    const neverCalled = vi.fn<typeof fetch>();
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent',
+      provider: 'volcengine-ark-agent-plan',
+      modelId: 'glm-5-2-260617',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan',
+      apiKey: 'secret-must-not-leak',
+      purpose: 'novel_reviewer'
+    }, neverCalled);
+
+    await expect(adapter.generate(request, controller.signal)).rejects.toThrow('cancelled-by-owner');
+    expect(neverCalled).not.toHaveBeenCalled();
+
+    const failing = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2-260617',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'secret-must-not-leak', purpose: 'novel_reviewer'
+    }, async () => new Response('{"error":{"message":"denied"}}', { status: 403 }));
+    const error = await failing.generate(request).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject<Partial<ModelAdapterError>>({ failureClass: 'authentication_failure', retryable: false, statusCode: 403 });
+    expect((error as Error).message).toContain('403');
+    expect((error as Error).message).not.toContain('secret-must-not-leak');
+  });
+
+  it('只把限流和服务端故障标记为可重试技术错误', async () => {
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2-260617',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'discussion'
+    }, async () => new Response('rate limited', { status: 429 }));
+
+    const error = await adapter.generate(request).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ModelAdapterError);
+    expect(error).toMatchObject<Partial<ModelAdapterError>>({ failureClass: 'technical_failure', retryable: true, statusCode: 429 });
+  });
+
+  it('超时会真实中断底层HTTP请求', async () => {
+    let observedAbort = false;
+    const fetchImpl: typeof fetch = async (_input, init) => await new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        observedAbort = true;
+        reject(init.signal?.reason);
+      }, { once: true });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2-260617',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key',
+      purpose: 'discussion', timeoutMs: 1_000
+    }, fetchImpl);
+
+    const error = await adapter.generate(request).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ModelAdapterError);
+    expect(error).toMatchObject<Partial<ModelAdapterError>>({
+      failureClass: 'technical_failure', retryable: false, outcomeUnknown: true
+    });
+    expect((error as Error).message).toMatch(/1000毫秒/u);
+    expect(observedAbort).toBe(true);
+  });
+
+  it('真实套餐默认保留十五分钟完成长篇规划，避免五分钟误中断', async () => {
+    vi.useFakeTimers();
+    try {
+      let observedAbort = false;
+      const fetchImpl: typeof fetch = async (_input, init) => await new Promise<Response>((resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          observedAbort = true;
+          reject(init.signal?.reason);
+        }, { once: true });
+        setTimeout(() => resolve(Response.json({
+          content: [{ type: 'text', text: '长篇规划完成' }],
+          usage: { input_tokens: 8, output_tokens: 4 }
+        })), 300_001);
+      });
+      const adapter = new ArkPlanModelAdapter({
+        plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro',
+        baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'discussion'
+      }, fetchImpl);
+
+      const pending = adapter.generate(request);
+      await vi.advanceTimersByTimeAsync(300_001);
+      await expect(pending).resolves.toMatchObject({ output: '长篇规划完成' });
+      expect(observedAbort).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('2xx响应不可解析时冻结为供应商结果未知而不是安全重试', async () => {
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2-260617',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'discussion'
+    }, async () => new Response('not-json', { status: 200 }));
+
+    const error = await adapter.generate(request).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ModelAdapterError);
+    expect(error).toMatchObject<Partial<ModelAdapterError>>({
+      failureClass: 'technical_failure', retryable: false, statusCode: 200, outcomeUnknown: true
+    });
+  });
+
+  it('已解析的max_tokens空文字是已知失败，可由调用方使用更大额度安全重试', async () => {
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.7-code',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'discussion'
+    }, async () => Response.json({
+      stop_reason: 'max_tokens',
+      content: [
+        { type: 'thinking', thinking: '内部推理已达到当前额度' },
+        { type: 'text', text: '' }
+      ],
+      usage: { input_tokens: 5_200, output_tokens: 3_600 }
+    }));
+
+    const error = await adapter.generate(request).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ModelAdapterError);
+    expect(error).toMatchObject<Partial<ModelAdapterError>>({
+      failureClass: 'technical_failure', retryable: true, statusCode: 200, outcomeUnknown: false
+    });
+    expect((error as Error).message).toContain('max_tokens');
+    expect((error as Error).message).not.toContain('结果状态未知');
+  });
+
+  it('Kimi K2.7 Code 带着预算思考（disabled 会被端点拒绝）', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
+      expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 16_000 });
+      return Response.json({
+        content: [{ type: 'text', text: '{"chapterGoal":"reverse analysis"}' }],
+        usage: { input_tokens: 5, output_tokens: 8 }
+      });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.7-code',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'novel_reviewer'
+    }, fetchImpl);
+
+    await adapter.generate(request);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('Kimi K3 正文使用 8000 Token 专用思考预算，避免隐藏推理拖慢单章', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        max_tokens?: number;
+        thinking?: { type?: string; budget_tokens?: number };
+      };
+      expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 8_000 });
+      expect(body.max_tokens).toBe(request.maxOutputTokens + 8_000);
+      return Response.json({
+        content: [{ type: 'text', text: '正文内容' }],
+        usage: { input_tokens: 5, output_tokens: 8 }
+      });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k3',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'novel_writer'
+    }, fetchImpl);
+
+    await adapter.generate(request);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('Kimi K3 证据审校关闭隐藏思考，直接交回结构化报告', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        max_tokens?: number;
+        thinking?: { type?: string; budget_tokens?: number };
+        system?: string;
+      };
+      expect(body.thinking).toEqual({ type: 'disabled' });
+      expect(body.max_tokens).toBe(request.maxOutputTokens);
+      expect(body.system).toContain('有停止条件');
+      expect(body.system).not.toContain('scores包含');
+      return Response.json({
+        content: [{ type: 'text', text: '{"passed":true}' }],
+        usage: { input_tokens: 5, output_tokens: 8 }
+      });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k3',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'novel_reviewer'
+    }, fetchImpl);
+
+    await adapter.generate(request);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('GLM 5.3 的短设定、结构化规划和证据审校都走可见直出，余量按提示词规模折算', async () => {
+    // 2026-09-02 生产实证：固定1k余量会被GLM失控的隐式思考全部烧穿（思考
+    // 4.4万~5.1万字符、max_tokens截断、零可见文字，成功率跌至9%）。直出路由
+    // 改为按提示词长度折算的动态余量；测试夹具提示词极短，取保底 8_000。
+    const smallPromptHeadroom = 8_000;
+    for (const [purpose, maxOutputTokens, expectedBudget, omitThinking] of [
+      ['discussion', 100, smallPromptHeadroom, true],
+      ['discussion', 4_000, 16_000, false],
+      ['structured_planning', 15_000, smallPromptHeadroom, true],
+      ['novel_reviewer', 100, smallPromptHeadroom, true]
+    ] as const) {
+      const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as { max_tokens?: number; thinking?: { type?: string; budget_tokens?: number } };
+        if (omitThinking) expect(body.thinking).toBeUndefined();
+        else expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: expectedBudget });
+        expect(body.max_tokens).toBe(maxOutputTokens + expectedBudget);
+        return Response.json({
+          content: [{ type: 'text', text: '{"chapterGoal":"visible output"}' }],
+          usage: { input_tokens: 5, output_tokens: 8 }
+        });
+      });
+      const adapter = new ArkPlanModelAdapter({
+        plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'glm-5.3',
+        baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose
+      }, fetchImpl);
+
+      await adapter.generate({ ...request, maxOutputTokens });
+      expect(fetchImpl).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('GLM 5.3 大资料包规划按提示词1/3折算思考余量并封顶32k', async () => {
+    // 生产失败调用编译后提示词达数万~十万字符，最坏思考约2万 Token；
+    // 9万字符提示词 → ceil(90000/3)=30000 → max_tokens = 预算 + 30000，
+    // 覆盖实测最坏组合（思考约2万 + 可见输出19k）。
+    const bigPrompt = '资'.repeat(90_000);
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { max_tokens?: number; thinking?: { type?: string } };
+      expect(body.thinking).toBeUndefined();
+      expect(body.max_tokens).toBe(19_000 + 30_000);
+      return Response.json({
+        content: [{ type: 'text', text: '{"volumeTitle":"可见方案"}' }],
+        usage: { input_tokens: 30_000, output_tokens: 39_000 }
+      });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'coding', provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding', apiKey: 'coding-test-key', purpose: 'structured_planning'
+    }, fetchImpl);
+
+    await adapter.generate({ ...request, prompt: bigPrompt, maxOutputTokens: 19_000 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('GLM 5.3 超长提示词的思考余量封顶在32k', async () => {
+    const hugePrompt = '设'.repeat(300_000);
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { max_tokens?: number };
+      expect(body.max_tokens).toBe(19_000 + 32_000);
+      return Response.json({
+        content: [{ type: 'text', text: '{"volumeTitle":"可见方案"}' }],
+        usage: { input_tokens: 90_000, output_tokens: 40_000 }
+      });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'coding', provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding', apiKey: 'coding-test-key', purpose: 'structured_planning'
+    }, fetchImpl);
+
+    await adapter.generate({ ...request, prompt: hugePrompt, maxOutputTokens: 19_000 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('DeepSeek 的有限链规划关闭隐藏思考，较大规划仍保留有限预算', async () => {
+    for (const [maxOutputTokens, expectedThinking, expectedBudget] of [
+      [5_000, 'disabled', 0],
+      [8_000, 'enabled', 4_000]
+    ] as const) {
+      const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as {
+          max_tokens?: number;
+          thinking?: { type?: string; budget_tokens?: number };
+        };
+        expect(body.thinking?.type).toBe(expectedThinking);
+        if (expectedThinking === 'enabled') expect(body.thinking?.budget_tokens).toBe(expectedBudget);
+        expect(body.max_tokens).toBe(maxOutputTokens + expectedBudget);
+        return Response.json({
+          content: [{ type: 'text', text: '{"schema":"visible"}' }],
+          usage: { input_tokens: 5, output_tokens: 8 }
+        });
+      });
+      const adapter = new ArkPlanModelAdapter({
+        plan: 'coding', provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro',
+        baseUrl: 'https://ark.cn-beijing.volces.com/api/coding', apiKey: 'coding-test-key', purpose: 'structured_planning'
+      }, fetchImpl);
+      await adapter.generate({ ...request, maxOutputTokens });
+      expect(fetchImpl).toHaveBeenCalledOnce();
+    }
+  });
+  it('MiniMax M3 全用途关闭思考（生产实测预算不生效，思考烧光 24000 输出 Token 零可见文字）', async () => {
+    for (const purpose of ['discussion', 'structured_planning', 'novel_reviewer'] as const) {
+      const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
+        expect(body.thinking).toEqual({ type: 'disabled' });
+        return Response.json({
+          content: [{ type: 'text', text: '可见输出' }],
+          usage: { input_tokens: 5, output_tokens: 8 }
+        });
+      });
+      const adapter = new ArkPlanModelAdapter({
+        plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'minimax-m3',
+        baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose
+      }, fetchImpl);
+
+      await adapter.generate(request);
+      expect(fetchImpl).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('套餐模型按用途追加推理余量，GLM 5.3 短讨论走直出并使用动态余量保底8k', async () => {
+    const seen: Array<{ model: string; maxTokens: number }> = [];
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number };
+      seen.push({ model: body.model, maxTokens: body.max_tokens });
+      return Response.json({
+        content: [{ type: 'text', text: '可见输出' }],
+        usage: { input_tokens: 5, output_tokens: 8 }
+      });
+    });
+    for (const modelId of ['glm-5.3', 'glm-5.2', 'kimi-k2.7-code', 'deepseek-v4-flash']) {
+      const adapter = new ArkPlanModelAdapter({
+        plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId,
+        baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'discussion'
+      }, fetchImpl);
+      await adapter.generate(request);
+    }
+    expect(seen).toEqual([
+      { model: 'glm-5.3', maxTokens: 100 + 8_000 },
+      { model: 'glm-5.2', maxTokens: 100 + 16_000 },
+      { model: 'kimi-k2.7-code', maxTokens: 100 + 16_000 },
+      { model: 'deepseek-v4-flash', maxTokens: 100 + 16_000 }
+    ]);
+  });
+});

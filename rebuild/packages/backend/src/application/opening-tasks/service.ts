@@ -156,6 +156,14 @@ export class OpeningTaskService {
     });
   }
 
+  // Provider execution may outlive a lease or account suspension. Preserve uncertainty even then.
+  async markCallUnknown(taskId: string, ownerId: string, callId: string): Promise<OpeningTask> {
+    return this.transaction(taskId, ownerId, async (client, task) => {
+      if (task.active_call_id !== callId) return task;
+      return this.unknown(client, task);
+    }, true);
+  }
+
   private scope(task: OpeningTask) { return { ownerId: task.owner_id, reservationId: task.reservation_id, operationKind: "prebook_opening" as const, operationId: task.task_id }; }
   private async unknown(client: PgClient, task: OpeningTask) {
     await this.usage.markUnknownTransaction(client, this.scope(task));

@@ -1,0 +1,246 @@
+import { Agent, type Dispatcher } from 'undici';
+import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from './model-adapter.js';
+import { assertPlanBaseUrl, thinkingTokenAllowance, usesGlmVisibleOutputRoute, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
+
+export interface ArkPlanModelOptions {
+  plan: Extract<ModelPlan, 'coding' | 'agent'>;
+  provider: string;
+  modelId: string;
+  baseUrl: string;
+  apiKey: string;
+  purpose: ModelPurpose;
+  systemPrompt?: string;
+  timeoutMs?: number;
+}
+
+interface ArkMessagesResponse {
+  content?: Array<{ type?: string; text?: string; thinking?: string }>;
+  stop_reason?: string;
+  usage?: { input_tokens?: number; output_tokens?: number };
+}
+
+const SYSTEM_PROMPTS: Record<ModelPurpose, string> = {
+  interactive_planning: '你是文秘写作的策划编剧。依据当前资料独立设计完整方案，严格遵守输出合同，只输出一个完整JSON对象。保持人物因果、作者要求与容量责任，不输出思考过程，不缩减要求的篇幅。',
+  discussion: '你是文秘写作中的小说创作成员。只按当前任务和当前书籍范围给出明确、可执行的中文意见，不冒充其他成员，不声称执行了未执行的操作。',
+  structured_planning: '你是文秘写作中的正式规划成员。严格执行输入中的operation、instructions和outputContract，只输出一个可直接解析的JSON对象，不用Markdown，不写解释、确认请求或后续承诺。',
+  novel_writer: '你是文秘写作的主笔。根据输入的章节信息或修改要求输出完整中文小说正文。正文优先达到2700至3200有效字符，且不得少于2350或超过3650，只输出正文，不使用Markdown代码围栏，不写TODO、占位符或解释。正文中禁止出现“前章、上一章、本章、下一章”、章纲、审查、生成或资料包等创作过程说明，承接前文必须直接进入故事。重写时必须返回修改后的完整章节，禁止只返回修改片段、摘要或省略未修改段落；必须逐项落实requiredActions，明确要求删除、后移、合并或避免的表达不得原样复现，也不得仅换近义词保留同一种问题。输出前在内部核对每一项修改要求，但不要输出核对过程。保持人物、时间线和因果连续。',
+  novel_reviewer: '你是文秘写作的独立审校。这是有停止条件的证据核对，不是穷举所有可能问题。只输出当前任务明确要求的JSON对象，不使用Markdown围栏，不输出思考过程，不添加任务没有要求的评分或字段。',
+  review_synthesis: '你是文秘写作的主编汇总器。只综合各席结构化报告，不读取正文再做一轮点评。只输出JSON对象，字段必须且只能为panelId、manuscriptVersionId、recommendedVerdict、priorityIssueIndexes、preservedDisagreements、rationale。'
+};
+
+export function defaultSystemPromptForPurpose(purpose: ModelPurpose): string {
+  return SYSTEM_PROMPTS[purpose];
+}
+
+export class ArkPlanModelAdapter implements ModelAdapter {
+  public readonly provider: string;
+  public readonly modelId: string;
+  readonly #endpoint: string;
+
+  public constructor(
+    private readonly options: ArkPlanModelOptions,
+    private readonly fetchImpl: typeof fetch = fetch
+  ) {
+    this.provider = options.provider;
+    this.modelId = options.modelId;
+    this.#endpoint = `${assertPlanBaseUrl(options.plan, options.baseUrl)}/v1/messages`;
+    if (options.apiKey.trim().length === 0) throw new Error(`${planDisplayName(options.plan)}凭证未配置`);
+  }
+
+  public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
+    if (this.options.purpose === 'interactive_planning'
+      && !['doubao-seed-2.1-turbo', 'deepseek-v4-pro'].includes(this.modelId)) {
+      throw new ModelAdapterError('该模型未进入快速方案路线，请改用当前方案成员。', 'request_failure', false);
+    }
+    if (signal?.aborted === true) throw signal.reason ?? new DOMException('模型调用已取消', 'AbortError');
+    // Reasoning-capable plan models can legitimately need more than five minutes for
+    // long-form planning and review. Aborting a paid-plan request leaves the remote
+    // result unknown and makes a safe retry impossible, so use the documented
+    // fifteen-minute safety ceiling while preserving explicit test overrides.
+    const timeoutMs = this.options.timeoutMs ?? 900_000;
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 900_000) throw new Error('模型调用超时必须在1秒至15分钟之间');
+    const controller = new AbortController();
+    let timedOut = false;
+    const forwardAbort = (): void => controller.abort(signal?.reason ?? new DOMException('模型调用已取消', 'AbortError'));
+    signal?.addEventListener('abort', forwardAbort, { once: true });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort(new DOMException(`${planDisplayName(this.options.plan)}模型调用超时`, 'TimeoutError'));
+    }, timeoutMs);
+    const temperature = temperatureField(request.temperature);
+    let response: Response;
+    try {
+      response = await this.fetchImpl(this.#endpoint, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${this.options.apiKey}`,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json; charset=utf-8'
+        },
+        body: JSON.stringify({
+          model: this.modelId,
+          // max_tokens 在可见输出限额之上追加与当前模型策略一致的推理余量；
+          // thinking字段是否发送由模型和用途能力决定。GLM 直出路由的余量
+          // 随提示词规模折算（2026-09-02 实测：固定1k会被失控思考全部烧穿）。
+          max_tokens: request.maxOutputTokens + thinkingTokenAllowance(this.modelId, this.options.purpose, request.maxOutputTokens, request.prompt.length),
+          ...temperature,
+          ...thinkingField(this.options.plan, this.modelId, this.options.purpose, request.maxOutputTokens),
+          system: appendSupplement(
+            this.options.systemPrompt ?? SYSTEM_PROMPTS[this.options.purpose],
+            request.supplementalInstructions
+          ),
+          messages: [{
+            role: 'user',
+            content: request.prompt
+          }]
+        }),
+        signal: controller.signal,
+        dispatcher: longRequestDispatcher(timeoutMs)
+      } as RequestInit & { dispatcher: Dispatcher });
+    } catch (error) {
+      if (timedOut) throw new ModelAdapterError(
+        `${planDisplayName(this.options.plan)}模型调用在${timeoutMs}毫秒内未完成，供应商结果状态未知`,
+        'technical_failure', false, undefined, true
+      );
+      if (isAborted(signal)) throw signal?.reason ?? new DOMException('模型调用已取消', 'AbortError');
+      throw new ModelAdapterError(
+        `${planDisplayName(this.options.plan)}请求中断，供应商结果状态未知${error instanceof Error && error.name.length > 0 ? `：${error.name}` : ''}`,
+        'technical_failure', false, undefined, true
+      );
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', forwardAbort);
+    }
+    if (!response.ok) {
+      const detail = sanitize(await response.text().catch(() => ''), this.options.apiKey).slice(0, 240);
+      const message = `${planDisplayName(this.options.plan)}返回${response.status}${detail.length === 0 ? '' : `：${detail}`}`;
+      const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+      const failureClass = retryable
+        ? 'technical_failure'
+        : response.status === 401 || response.status === 403
+          ? 'authentication_failure'
+          : 'request_failure';
+      throw new ModelAdapterError(message, failureClass, retryable, response.status);
+    }
+    let body: ArkMessagesResponse;
+    try {
+      body = await response.json() as ArkMessagesResponse;
+    } catch {
+      throw new ModelAdapterError(`${planDisplayName(this.options.plan)}已返回成功状态但响应无法解析，供应商结果状态未知`,
+        'technical_failure', false, response.status, true);
+    }
+    const output = body.content?.filter((item) => item.type === 'text' && typeof item.text === 'string').map((item) => item.text!.trim()).filter(Boolean).join('\n').trim();
+    if (output === undefined || output.length === 0) throw new ModelAdapterError(
+      `${planDisplayName(this.options.plan)}已执行但没有形成可提交文字（${describeEmptyResponse(body)}）`,
+      // A parsed 2xx response is a known, unusable result rather than an unknown
+      // provider outcome.  In particular, Kimi can spend the complete allowance
+      // on reasoning and stop at max_tokens with an empty text block.  The caller
+      // may retry with the task's guarded larger budget without triggering an
+      // unsafe editor takeover or leaving a false reconciliation hold.
+      'technical_failure', true, response.status, false
+    );
+    return {
+      provider: this.provider,
+      modelId: this.modelId,
+      output,
+      inputTokens: finiteTokenCount(body.usage?.input_tokens),
+      outputTokens: finiteTokenCount(body.usage?.output_tokens),
+      cashCostCny: 0,
+      state: 'succeeded'
+    };
+  }
+}
+
+function temperatureField(value: number | undefined): { temperature?: number } {
+  if (value === undefined) return {};
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error('Messages模型温度必须在0至1之间');
+  }
+  return { temperature: value };
+}
+
+const longRequestDispatchers = new Map<number, Dispatcher>();
+
+function longRequestDispatcher(timeoutMs: number): Dispatcher {
+  const existing = longRequestDispatchers.get(timeoutMs);
+  if (existing !== undefined) return existing;
+  const dispatcher = new Agent({
+    headersTimeout: timeoutMs,
+    bodyTimeout: timeoutMs,
+    connectTimeout: Math.min(timeoutMs, 30_000)
+  });
+  longRequestDispatchers.set(timeoutMs, dispatcher);
+  return dispatcher;
+}
+
+function describeEmptyResponse(body: ArkMessagesResponse): string {
+  const blocks = Array.isArray(body.content) ? body.content : [];
+  const types = [...new Set(blocks.map((item) => item.type).filter((value): value is string => typeof value === 'string'))];
+  const thinkingCharacters = blocks.reduce(
+    (total, item) => total + (typeof item.thinking === 'string' ? item.thinking.length : 0),
+    0
+  );
+  return [
+    `停止原因=${typeof body.stop_reason === 'string' ? body.stop_reason : '未知'}`,
+    `内容块=${blocks.length}`,
+    `类型=${types.length > 0 ? types.join(',') : '无'}`,
+    `思考字符=${thinkingCharacters}`,
+    `输出Token=${finiteTokenCount(body.usage?.output_tokens)}`
+  ].join('，');
+}
+
+function planDisplayName(plan: Extract<ModelPlan, 'coding' | 'agent'>): string {
+  return plan === 'coding' ? '火山方舟Coding Plan' : '火山方舟Agent Plan';
+}
+
+function appendSupplement(systemPrompt: string, supplement: string | undefined): string {
+  if (supplement === undefined || supplement.trim().length === 0) return systemPrompt;
+  return [
+    systemPrompt,
+    '【老板为本书设置的岗位补充要求】',
+    supplement.trim(),
+    '以上是软性创作偏好；若与系统硬约束、事实证据、正史、安全或输出格式冲突，以系统硬约束为准。'
+  ].join('\n\n');
+}
+
+function thinkingField(
+  plan: Extract<ModelPlan, 'coding' | 'agent'>,
+  modelId: string,
+  purpose: ModelPurpose,
+  maxOutputTokens: number
+): { thinking?: { type: 'enabled' | 'disabled'; budget_tokens?: number } } {
+  if (purpose === 'interactive_planning') return { thinking: { type: 'disabled' } };
+  // 火山方舟套餐端点：glm-5.3 与 kimi-k2.7-code 拒绝 disabled（400 InvalidParameter），
+  // 统一启用有预算的思考。2026-08-18 实测。
+  // 例外：MiniMax M3 的预算并不生效——生产实测 budget_tokens=16000 下它仍把
+  // 24000 输出 Token 全部烧进 thinking 块（5 万余字符思考、零可见文字，重试必现），
+  // 而它接受 disabled 且直出文字（2026-08-18 实测 200），因此任何用途都关闭它的思考。
+  if (modelId.startsWith('minimax-')) return { thinking: { type: 'disabled' } };
+  // Kimi K3 审校是封闭的证据对照合同，不是创意推演。2026-08-29实测
+  // 4k显式思考仍把6400总输出全部烧进thinking并耗时210秒，零报告。
+  if (modelId === 'kimi-k3' && purpose === 'novel_reviewer') return { thinking: { type: 'disabled' } };
+  if (modelId.startsWith('deepseek-')
+    && (purpose === 'novel_reviewer' || purpose === 'review_synthesis')) {
+    return { thinking: { type: 'disabled' } };
+  }
+  // GLM-5.3 的短讨论、结构化规划和证据型审校省略字段，让模型使用自身的直出路由；显式
+  // disabled 会被 Coding Plan 以400拒绝，而显式 enabled 在真实设定与卷方案中
+  // 都曾耗尽全部输出额度后返回空文字。
+  if (usesGlmVisibleOutputRoute(modelId, purpose, maxOutputTokens)) return {};
+  if (purpose === 'structured_planning' && maxOutputTokens <= 5_000) {
+    return { thinking: { type: 'disabled' } };
+  }
+  return { thinking: { type: 'enabled', budget_tokens: thinkingTokenAllowance(modelId, purpose, maxOutputTokens) } };
+}
+
+function finiteTokenCount(value: number | undefined): number {
+  return Number.isInteger(value) && value !== undefined && value >= 0 ? value : 0;
+}
+
+function sanitize(value: string, secret: string): string {
+  return secret.length === 0 ? value : value.replaceAll(secret, '***');
+}
+
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
