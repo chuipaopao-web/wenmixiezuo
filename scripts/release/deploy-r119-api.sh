@@ -94,6 +94,8 @@ rollback() {
   atomic_link "$OLD/apps" /opt/wenmi/apps
   write_release "$BASE"
   systemctl start wenmi-api
+  systemctl start wenmi-worker
+  health "$BASE"
   echo "R119_ROLLED_BACK code=$code"
  else echo "R119_ROLLBACK_DEFERRED active_work" >"$ROOT/rollback-deferred"; fi
  exit "$code"
@@ -105,8 +107,11 @@ systemctl stop wenmi-api
 atomic_link "$SRC/apps" /opt/wenmi/apps
 write_release "$NEW"
 systemctl start wenmi-api
+# Requires=wenmi-api.service stops Worker when API is stopped. Start the
+# unchanged Worker implementation again before asserting readiness.
+systemctl start wenmi-worker
 health "$NEW"
-[[ $(systemctl show -p MainPID --value wenmi-worker) == "$WORKER_PID" ]]
+[[ $(systemctl show -p MainPID --value wenmi-worker) -gt 0 ]]
 [[ $(readlink -f /opt/wenmi/releases/current) == "$STATIC" ]]
 curl -fsS https://wenmixiezuo.com/health >"$ROOT/public-health.json"
 grep -Fq "\"releaseId\":\"$NEW\"" "$ROOT/public-health.json"
@@ -117,5 +122,5 @@ cmp "$ROOT/public-author.html" "$STATIC/index.html"
 curl -fsS https://admin.wenmixiezuo.com/v7/ >"$ROOT/public-admin.html"
 cmp "$ROOT/public-admin.html" "$STATIC/v7/index.html"
 trap - ERR
-printf 'release=%s\nstatic=%s\ncompleted=%s\noldApiPid=%s\nnewApiPid=%s\nworkerPid=%s\n' "$NEW" "$(basename "$STATIC")" "$(date -u --iso-8601=seconds)" "$API_PID" "$(systemctl show -p MainPID --value wenmi-api)" "$WORKER_PID" >"$ROOT/deployment-passed.txt"
-echo "R119_DEPLOYED release=$NEW worker_unchanged=$WORKER_PID"
+printf 'release=%s\nstatic=%s\ncompleted=%s\noldApiPid=%s\nnewApiPid=%s\noldWorkerPid=%s\nnewWorkerPid=%s\n' "$NEW" "$(basename "$STATIC")" "$(date -u --iso-8601=seconds)" "$API_PID" "$(systemctl show -p MainPID --value wenmi-api)" "$WORKER_PID" "$(systemctl show -p MainPID --value wenmi-worker)" >"$ROOT/deployment-passed.txt"
+echo "R119_DEPLOYED release=$NEW worker_ready"
