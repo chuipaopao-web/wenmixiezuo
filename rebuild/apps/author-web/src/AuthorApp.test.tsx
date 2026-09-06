@@ -620,7 +620,8 @@ describe('V7 author opening flow', () => {
         departments: [{ departmentKey: 'planning_writer', name: '策划编剧组', members: [
           { memberKey: 'planner-deepseek-v4-pro', displayName: '红玉', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'ready', statusText: '当前空闲，可以接单。', currentWork: null, completedCount: 0 },
           { memberKey: 'planner-glm-5-3', displayName: '幼薇', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'ready', statusText: '当前空闲，可以接单。', currentWork: null, completedCount: 0 },
-          { memberKey: 'planner-kimi-k3', displayName: '苏映棠', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'ready', statusText: '当前空闲，可以接单。', currentWork: null, completedCount: 0 }
+          { memberKey: 'planner-kimi-k3', displayName: '苏映棠', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'ready', statusText: '当前空闲，可以接单。', currentWork: null, completedCount: 0 },
+          { memberKey: 'planner-on-leave', displayName: '离岗成员', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'leave', statusText: '休假中。', currentWork: null, completedCount: 0 }
         ] }]
       });
       if (url.endsWith('/api/v1/v7/opening-agent/tasks') && init?.method === 'POST') return response(working);
@@ -628,10 +629,21 @@ describe('V7 author opening flow', () => {
       return null;
     });
     window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
-    render(<AuthorApp />);
+    const mounted = render(<AuthorApp />);
 
     fireEvent.click(await screen.findByText('选择开书设计成员（可不选）'));
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'planner-kimi-k3' } });
+    expect(screen.getByRole('radio', { name: '自动安排' })).toBeChecked();
+    expect(screen.queryByRole('radio', { name: '离岗成员' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: '苏映棠' }));
+    expect(screen.getByRole('radio', { name: '苏映棠' })).toBeChecked();
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(AI_DRAFT_KEY) ?? 'null')).toMatchObject({
+      selectedDesignerMemberKey: 'planner-kimi-k3'
+    }));
+    mounted.unmount();
+
+    render(<AuthorApp />);
+    fireEvent.click(await screen.findByText('选择开书设计成员（可不选）'));
+    expect(screen.getByRole('radio', { name: '苏映棠' })).toBeChecked();
     fireEvent.change(screen.getByLabelText('说说您想写什么'), { target: { value: '张三穿越三国，从流民开始求生。' } });
     fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
 
@@ -1353,9 +1365,15 @@ describe('V7 author opening flow', () => {
     fireEvent.change(await screen.findByLabelText('说说您想写什么'), { target: { value: '张三穿越三国，从流民开始求生。' } });
     fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
     expect(await screen.findByLabelText('编辑部工作进度')).toBeVisible();
+    expect(screen.getByText('编剧·青岚')).toBeVisible();
     expect(screen.getByText('编剧正在设计开书资料包')).toBeVisible();
-    expect(screen.getByText('直接设计')).toBeVisible();
-    expect(screen.getByText('审查点评')).toBeVisible();
+    expect(screen.queryByText('AI团队正在设计')).not.toBeInTheDocument();
+    expect(screen.queryByText('当前工位')).not.toBeInTheDocument();
+    expect(screen.queryByText('直接设计')).not.toBeInTheDocument();
+    expect(screen.queryByText('审查点评')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('团队详情'));
+    expect(screen.getByText('总编·月衡 · 审查主编')).toBeVisible();
+    expect(screen.getByText('看看本轮开书想法')).toBeVisible();
     expect(screen.queryByText('主编理解')).not.toBeInTheDocument();
     expect(screen.queryByText('编剧设计')).not.toBeInTheDocument();
     expect(screen.queryByText('主编审查')).not.toBeInTheDocument();

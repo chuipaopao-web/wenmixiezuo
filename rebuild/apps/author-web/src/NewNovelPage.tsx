@@ -30,6 +30,7 @@ import { memberAvatarPosition, memberDisplayName } from './member-avatars';
 import { publicFailureCopy, publicStatusCopy, uniqueByMemberKey } from './author-projection';
 import { clearOpeningDraft, clearOpeningDraftForTask, openingDraftKey } from './opening-draft-storage';
 import { WorkflowActionDock } from './WorkflowActionDock';
+import './NewNovelPage.css';
 
 const DECISION_KEY_PREFIX = 'wenmi-v7-opening-decisions-v2';
 const OPENING_RECOVERY_TIMEOUT_MS = 15_000;
@@ -189,12 +190,46 @@ function errorMessage(error: unknown): string {
   return '对不起，这次操作没有完成，请稍后重试。';
 }
 
+type OpeningDesignerMember = EditorialDepartmentView['departments'][number]['members'][number];
+
+function DesignerMemberPicker({ members, value, onChange }: {
+  members: OpeningDesignerMember[];
+  value: string;
+  onChange: (memberKey: string) => void;
+}): React.JSX.Element | null {
+  if (members.length === 0) return null;
+  return (
+    <details className="opening-member-choice">
+      <summary>选择开书设计成员（可不选）</summary>
+      <fieldset className="opening-member-options">
+        <legend>开书设计成员</legend>
+        <label className={value === '' ? 'selected' : ''}>
+          <input type="radio" name="opening-designer-member" value="" checked={value === ''} onChange={() => onChange('')} />
+          <span className="opening-member-auto" aria-hidden="true">✓</span>
+          <strong>自动安排</strong>
+          {value === '' && <b aria-hidden="true">已选</b>}
+        </label>
+        {members.map((member) => {
+          const selected = value === member.memberKey;
+          return (
+            <label className={selected ? 'selected' : ''} key={member.memberKey}>
+              <input type="radio" name="opening-designer-member" value={member.memberKey} checked={selected} onChange={() => onChange(member.memberKey)} />
+              <i className="opening-member-avatar" style={{ backgroundPosition: memberAvatarPosition(member.memberKey) }} aria-hidden="true" />
+              <strong>{memberDisplayName(member.memberKey, member.displayName)}</strong>
+              {selected && <b aria-hidden="true">已选</b>}
+            </label>
+          );
+        })}
+      </fieldset>
+    </details>
+  );
+}
+
 function WorkStatus({ task }: { task: OpeningTaskView }): React.JSX.Element {
   const reviewer = task.selectedMembers.reviewer ?? task.selectedMembers.chiefEditor;
   const designer = task.selectedMembers.designer ?? task.selectedMembers.screenwriter;
   const activeMember = task.phase.includes('review') ? reviewer : designer;
   const members = uniqueByMemberKey([designer, reviewer].filter((member): member is NonNullable<typeof member> => member !== null));
-  const phaseText = publicStatusCopy(task.phaseText, '正在处理当前步骤');
   const statusText = publicStatusCopy(task.phaseText || task.statusText, '编辑部正在处理这项工作。');
   return (
     <div className="editorial-live-room" role="status" aria-live="polite" aria-label="编辑部工作进度">
@@ -202,22 +237,21 @@ function WorkStatus({ task }: { task: OpeningTaskView }): React.JSX.Element {
         {activeMember !== null && <div className="editorial-lead">
           <span className="chief-live-avatar" style={{ backgroundPosition: memberAvatarPosition(activeMember.memberKey) }} aria-hidden="true" />
           <strong>{memberDisplayName(activeMember.memberKey, activeMember.displayName)}</strong>
-          <small>{activeMember.memberKey === reviewer?.memberKey ? '审查主编' : '开书设计'} · 当前工位：{phaseText}</small>
         </div>}
       </div>
       <p className="editorial-live-message">{statusText}</p>
-      <div className="editorial-live-members" aria-label="本轮创作成员">
-        {members.map((member) => <span key={member.memberKey}>
-          <i className="agent-avatar" style={{ backgroundPosition: memberAvatarPosition(member.memberKey) }} aria-hidden="true" />
-          <b>{memberDisplayName(member.memberKey, member.displayName)} · {member.memberKey === reviewer?.memberKey ? '审查主编' : '设计成员'}</b>
-        </span>)}
-      </div>
-      <div className="phase-track" aria-label={`当前进度：${phaseText}`}>
-        {['直接设计', '审查点评'].map((label, index) => <div className={index + 1 < task.progress.currentStep ? 'done' : index + 1 === task.progress.currentStep ? 'active' : ''} key={label}><span>{index + 1 < task.progress.currentStep ? '✓' : index + 1}</span><strong>{label}</strong></div>)}
-      </div>
       <div className="honest-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress.percent}><span style={{ width: `${task.progress.percent}%` }} /></div>
+      {members.length > 0 && <details className="editorial-live-members" aria-label="团队详情">
+        <summary>团队详情</summary>
+        <div>
+          {members.map((member) => <span key={member.memberKey}>
+            <i className="agent-avatar" style={{ backgroundPosition: memberAvatarPosition(member.memberKey) }} aria-hidden="true" />
+            <b>{memberDisplayName(member.memberKey, member.displayName)} · {member.memberKey === reviewer?.memberKey ? '审查主编' : '设计成员'}</b>
+          </span>)}
+        </div>
+      </details>}
       <details className="editorial-brief"><summary>看看本轮开书想法</summary><p>{task.idea}</p></details>
-      <p className="safe-leave-copy">任务已经保存，您可以放心离开或刷新；回来后，编辑部会接着向您汇报真实进度。</p>
+      <p className="safe-leave-copy">任务已保存，可以放心离开或刷新。</p>
     </div>
   );
 }
@@ -370,6 +404,9 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   const openingSubmitRef = useRef(false);
   const confirmSubmitRef = useRef(false);
   const onCreatedRef = useRef(onCreated);
+  const designMembers = useMemo(() => department?.departments
+    .find((item) => item.departmentKey === 'planning_writer')?.members
+    .filter((member) => member.presence !== 'leave') ?? [], [department]);
 
   useEffect(() => { onCreatedRef.current = onCreated; }, [onCreated]);
 
@@ -833,9 +870,6 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   }
 
   if (mode === 'idea') {
-    const designMembers = department?.departments
-      .find((item) => item.departmentKey === 'planning_writer')?.members
-      .filter((member) => member.presence !== 'leave') ?? [];
     return (
       <section className="novel-create-surface" aria-label="填写开书想法">
         <div className="idea-card">
@@ -843,7 +877,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
           <label htmlFor="opening-idea">说说您想写什么</label>
           <ImeTextarea id="opening-idea" maxChars={2_000} value={idea} onChange={(next) => { setIdea(next); setError(null); }} placeholder="例如：张三穿越到三国成为一名小卒，想靠现代知识活下来，并在乱世中建立自己的班底……" rows={8} />
           <div className="idea-meta"><span>4至2000字</span><output>{ideaLength}/2000</output></div>
-          {designMembers.length > 0 && <details className="opening-member-choice"><summary>选择开书设计成员（可不选）</summary><label><span>不选择时由编辑部自动安排；完成后会交给另一名强模型主编独立审查。</span><select value={selectedDesignerMemberKey} onChange={(event) => setSelectedDesignerMemberKey(event.target.value)}><option value="">编辑部自动安排</option>{designMembers.map((member) => <option key={member.memberKey} value={member.memberKey}>{member.displayName}</option>)}</select></label></details>}
+          <DesignerMemberPicker members={designMembers} value={selectedDesignerMemberKey} onChange={setSelectedDesignerMemberKey} />
           {error !== null && <div className="error-notice" role="alert">{error}</div>}
         </div>
         <WorkflowActionDock title="让编辑部开始设计" detail="想法至少4字，最多2000字。" primary={<button className="primary-action" type="button" disabled={ideaLength < 4 || busy} onClick={() => void startAi()}><UsersThreeIcon />{busy ? '正在提交…' : '开始设计'}</button>} secondary={<button className="secondary-action" type="button" onClick={onBack}>返回创作类型</button>} />
@@ -852,9 +886,6 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   }
 
   if (openingPackage !== null) {
-    const designMembers = department?.departments
-      .find((item) => item.departmentKey === 'planning_writer')?.members
-      .filter((member) => member.presence !== 'leave') ?? [];
     const currentErrors = manualStep === 1 ? manualValidation.stepOne : manualValidation.stepTwo;
     const needsReview = mode === 'ai' && (dirty || hasDecisionUpdates || review?.verdict !== 'pass' || task?.needsAuthorDecision === true);
     const reviewNeedsImmediateAction = needsReview && (review?.verdict !== 'pass' || task?.needsAuthorDecision === true || manualStep === 2);
