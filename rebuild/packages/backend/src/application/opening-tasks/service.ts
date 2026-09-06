@@ -14,6 +14,7 @@ export interface OpeningTask {
   max_attempts: number; attempts: number; deadline: Date; retry_at: Date;
   worker_id: string | null; lease_token: number; lease_until: Date | null;
   active_call_id: string | null; cancel_requested: boolean; checkpoint: SyntheticJsonValue;
+  engine_state: SyntheticJsonValue | null;
 }
 export interface OpeningLease { taskId: string; ownerId: string; workerId: string; token: number }
 export interface OpeningPolicy { totalTokens: number; maxAttempts: number; deadlineMs: number }
@@ -31,12 +32,12 @@ export class OpeningTaskService {
     this.usage = createUsageCoreService(pool);
   }
 
-  async enqueue(sessionToken: string, commandKey: string, input: { idea: string; memberId?: string }, policy: OpeningPolicy): Promise<OpeningTask> {
+  async enqueue(sessionToken: string, commandKey: string, input: { idea: string; memberId?: string; workflow?: unknown }, policy: OpeningPolicy): Promise<OpeningTask> {
     text(commandKey, 160); text(input.idea, 2000, 4);
     if (input.memberId !== undefined) text(input.memberId, 120);
     integer(policy.totalTokens, 1, 1_000_000); integer(policy.maxAttempts, 1, 10);
     integer(policy.deadlineMs, 1000, 86_400_000);
-    const request = { idea: input.idea, memberId: input.memberId ?? null };
+    const request = { idea: input.idea, memberId: input.memberId ?? null, ...(input.workflow === undefined ? {} : { workflow: input.workflow }) };
     const requestHash = hash({ request: json(request, "开书请求"), totalTokens: policy.totalTokens, maxAttempts: policy.maxAttempts, deadlineMs: policy.deadlineMs });
     return this.accounts.withAuthenticatedSessionTransaction(sessionToken, async (client, session) => {
       const ownerId = session.account.ownerId;
@@ -117,7 +118,7 @@ export class OpeningTaskService {
   }
 
   // May receive a late response after lease loss. It records evidence, never grants the old worker a new lease.
-  async recordReceipt(taskId: string, ownerId: string, callId: string, receipt: OpeningCallReceipt): Promise<OpeningTask> {
+  async recordReceipt(taskId: string, ownerId: string, callId: string, receipt: OpeningCallReceipt, continuingLease?: OpeningLease): Promise<OpeningTask> {
     integer(receipt.inputTokens, 0, 1_000_000); integer(receipt.outputTokens, 0, 1_000_000);
     if (!["continue", "ready", "retry", "failed", "not_started"].includes(receipt.outcome)) throw new DomainError("TASK_REQUEST_INVALID", "调用结果类型不正确。");
     if (receipt.outcome === "not_started" && (receipt.inputTokens !== 0 || receipt.outputTokens !== 0)) throw new DomainError("TASK_REQUEST_INVALID", "未执行证据不能包含已消耗用量。");
@@ -131,16 +132,22 @@ export class OpeningTaskService {
         return task;
       }
       if (task.active_call_id !== callId) throw new DomainError("TASK_EXTERNAL_CHECK_REQUIRED", "调用状态需核对。");
+      const now = await this.now(client);
+      const keepLease = continuingLease !== undefined && continuingLease.taskId === taskId && continuingLease.ownerId === ownerId
+        && task.status === "running" && !task.cancel_requested && task.worker_id === continuingLease.workerId
+        && task.lease_token === continuingLease.token && task.lease_until !== null && task.lease_until > now && task.deadline > now;
       await client.query("UPDATE opening_task_calls SET receipt=$2 WHERE call_id=$1", [callId, evidence]);
       // Keep every receipt in calls; only successful steps become the resumable checkpoint.
       const checkpoint = ["continue", "ready"].includes(receipt.outcome) ? { step: call.step, result: receipt.result } : task.checkpoint;
       task = (await client.query<OpeningTask>(`UPDATE opening_tasks SET active_call_id=NULL,input_tokens=input_tokens+$2,
-        output_tokens=output_tokens+$3,checkpoint=$4,worker_id=NULL,lease_until=NULL WHERE task_id=$1 RETURNING *`,
-        [taskId, receipt.inputTokens, receipt.outputTokens, checkpoint])).rows[0]!;
+        output_tokens=output_tokens+$3,checkpoint=$4,worker_id=CASE WHEN $5 THEN worker_id ELSE NULL END,
+        lease_until=CASE WHEN $5 THEN lease_until ELSE NULL END WHERE task_id=$1 RETURNING *`,
+        [taskId, receipt.inputTokens, receipt.outputTokens, checkpoint, keepLease])).rows[0]!;
       if (Number(task.input_tokens) + Number(task.output_tokens) > Number(task.total_tokens)) return this.close(client, task, "failed");
       if (task.cancel_requested) return this.close(client, task, "cancelled");
       if (receipt.outcome === "ready") return this.close(client, task, "awaiting_author");
-      if (receipt.outcome === "failed" || task.deadline <= await this.now(client) || task.attempts >= task.max_attempts) return this.close(client, task, "failed");
+      if (receipt.outcome === "failed" || task.deadline <= await this.now(client) || (!keepLease && task.attempts >= task.max_attempts)) return this.close(client, task, "failed");
+      if (keepLease && ["continue", "not_started"].includes(receipt.outcome)) return task;
       const delay = receipt.outcome === "continue" ? 0 : Math.min(30_000, 1000 * 2 ** task.attempts);
       return (await client.query<OpeningTask>("UPDATE opening_tasks SET status='queued',retry_at=clock_timestamp()+$2*interval '1 millisecond' WHERE task_id=$1 RETURNING *", [taskId, delay])).rows[0]!;
     }, true);
@@ -161,6 +168,22 @@ export class OpeningTaskService {
     return this.transaction(taskId, ownerId, async (client, task) => {
       if (task.active_call_id !== callId) return task;
       return this.unknown(client, task);
+    }, true);
+  }
+
+  /** Short DB operations only; the old engine's tool adapter uses the same fencing and owner locks. */
+  async withExecution<T>(lease: OpeningLease, work: (client: PgClient, task: OpeningTask) => Promise<T>, allowUncertain = false): Promise<T> {
+    return this.transaction(lease.taskId, lease.ownerId, async (client, task) => {
+      const uncertain = allowUncertain && task.status === "reconciling" && task.lease_token === lease.token && !task.cancel_requested;
+      if (!uncertain) await this.assertLease(client, task, lease);
+      return work(client, task);
+    });
+  }
+
+  async finishExecution(lease: OpeningLease, outcome: "awaiting_author" | "failed" | "interrupted"): Promise<OpeningTask> {
+    return this.withExecution(lease, async (client, task) => {
+      if (task.active_call_id || task.status === "reconciling") return this.unknown(client, task);
+      return this.close(client, task, outcome === "awaiting_author" ? outcome : "failed");
     }, true);
   }
 

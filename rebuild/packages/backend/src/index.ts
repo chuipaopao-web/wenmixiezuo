@@ -2,6 +2,7 @@ export { createFoundationStatus } from "./application/foundation-status.js";
 export { OpeningTaskService, type OpeningTask, type OpeningLease, type OpeningPolicy, type OpeningCallReceipt } from "./application/opening-tasks/service.js";
 export { ExistingOpeningModelExecutor, existingOpeningModelResolver, type ExistingOpeningModelInput } from "./application/opening-tasks/existing-model-executor.js";
 export { loadModelRuntimeConfig } from "./infrastructure/models/model-runtime-config.js";
+export { ExistingOpeningWorkflow, PostgresOpeningTools, type OpeningWorkflowOptions } from "./application/opening-tasks/legacy-workflow.js";
 export {
   ENVIRONMENT_MARKER,
   type PostgresRuntimeConfig,

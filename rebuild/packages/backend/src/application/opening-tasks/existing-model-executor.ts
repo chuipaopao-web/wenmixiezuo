@@ -33,7 +33,7 @@ export function existingOpeningModelResolver(config: ModelRuntimeConfig, fetchIm
 export class ExistingOpeningModelExecutor {
   constructor(private readonly tasks: OpeningTaskService, private readonly resolve: OpeningModelResolver) {}
 
-  async execute(input: ExistingOpeningModelInput, signal?: AbortSignal): Promise<ModelResult> {
+  async execute(input: ExistingOpeningModelInput, signal?: AbortSignal, retainLease = false): Promise<ModelResult> {
     if (signal?.aborted) throw new DomainError("TASK_NOT_CLAIMABLE", "本次执行已取消。");
     if (typeof input.prompt !== "string" || !input.prompt.trim() || input.prompt.length > 150_000
       || !Number.isSafeInteger(input.maxOutputTokens) || input.maxOutputTokens < 1 || input.maxOutputTokens > 100_000
@@ -66,8 +66,8 @@ export class ExistingOpeningModelExecutor {
       // Only an explicit rejected HTTP request proves no generation occurred. Timeouts/aborts stay unknown.
       if (error instanceof ModelAdapterError && !error.outcomeUnknown && [400,401,403,404,429].includes(error.statusCode ?? 0)) {
         await this.tasks.recordReceipt(input.lease.taskId, input.lease.ownerId, callId, {
-          inputTokens: 0, outputTokens: 0, result: null, outcome: "not_started", evidence: `供应商明确拒绝请求，HTTP ${error.statusCode}`
-        });
+          inputTokens: 0, outputTokens: 0, result: { failureClass: error.failureClass, statusCode: error.statusCode! }, outcome: "not_started", evidence: `供应商明确拒绝请求，HTTP ${error.statusCode}`
+        }, retainLease ? input.lease : undefined);
         throw new ModelAdapterError("模型服务明确拒绝了本次请求，已有结果已保留。", error.failureClass, error.retryable, error.statusCode, false);
       } else {
         await this.tasks.markCallUnknown(input.lease.taskId, input.lease.ownerId, callId);
@@ -87,8 +87,8 @@ export class ExistingOpeningModelExecutor {
     // No reasoning content is returned by the preserved transport.
     const saved = await this.tasks.recordReceipt(input.lease.taskId, input.lease.ownerId, callId, {
       inputTokens: result.inputTokens, outputTokens: result.outputTokens, result: { ...result }, outcome: "continue"
-    });
-    if (saved.status !== "queued") throw new DomainError("TASK_NOT_CLAIMABLE", "模型返回已保存，本次任务暂不继续。");
+    }, retainLease ? input.lease : undefined);
+    if (saved.status !== "queued" && !(retainLease && saved.status === "running")) throw new DomainError("TASK_NOT_CLAIMABLE", "模型返回已保存，本次任务暂不继续。");
     return result;
   }
 }
