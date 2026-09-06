@@ -16,5 +16,8 @@
     "test": "vitest run --config vitest.config.mjs --configLoader native && node --import tsx --test --test-concurrency=4 agents/agent-foundation.test.ts narrative-methods/narrative-method-library.test.ts narrative-methods/method-nomination-cards.test.ts opening-agent/opening-agent-engine.test.ts plot-patterns/plot-pattern-library.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": { "@wenmi/opening-runtime": "1.0.0" }
+  "dependencies": {
+    "@wenmi/opening-runtime": "1.0.0",
+    "@wenmi/agent-catalog": "1.0.0"
+  }
 }

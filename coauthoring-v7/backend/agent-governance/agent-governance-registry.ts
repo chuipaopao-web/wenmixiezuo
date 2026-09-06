@@ -1,3 +1,4 @@
+import { ROLES, TEXT_MODELS, IMAGE_MODELS, candidateModels } from '@wenmi/agent-catalog';
 import type { V7MemberModelBinding } from '../agents/agent-roster.js';
 import { publicMemberIdentity } from './member-identities.js';
 import type {
@@ -70,10 +71,12 @@ export const V7_TASK_TEMPERATURE_POLICIES: readonly V7TaskTemperaturePolicy[] = 
   policy('cover_render', '封面出图', .35, .20, .50, '供支持温度参数的图像模型使用。')
 ] as const;
 
-export const V7_TEXT_MODEL_PROFILE_KEYS = [
+const LEGACY_EXECUTABLE_TEXT_KEYS = [
   'deepseek-v4-pro', 'deepseek-v4-flash', 'glm-5.3',
   'kimi-k2.7-code', 'kimi-k3', 'doubao-seed-2.1-turbo'
 ] as const;
+
+export const V7_TEXT_MODEL_PROFILE_KEYS: readonly string[] = TEXT_MODELS.map(model => model.profileKey);
 
 const V7_STRONG_MODEL_PROFILE_KEYS = [
   'deepseek-v4-pro', 'glm-5.3', 'kimi-k3'
@@ -111,26 +114,18 @@ export const V7_GLOBAL_MEMBERS: readonly V7GlobalMemberDefinition[] = [
   visual('visual-seedream', '绘真', 'visual_renderer', 'doubao-seedream', 1, true)
 ] as const;
 
-export const V7_MODEL_PROFILE_LABELS: Readonly<Record<string, string>> = {
-  'deepseek-v4-pro': 'DeepSeek V4 Pro',
-  'deepseek-v4-flash': 'DeepSeek V4 Flash',
-  'glm-5.3': 'GLM 5.3',
-  'kimi-k2.7-code': 'Kimi 2.7',
-  'kimi-k3': 'Kimi K3',
-  'doubao-seed-2.1-turbo': '豆包 Seed 2.1 Turbo',
-  'doubao-seedream': 'Seedream'
-};
+export const V7_MODEL_PROFILE_LABELS: Readonly<Record<string, string>> = Object.fromEntries([...TEXT_MODELS, ...IMAGE_MODELS].map(model => [model.profileKey, model.publicName]));
 
 export function allowedModelProfilesForRole(roleKey: V7FixedRoleKey): readonly string[] {
   if (roleKey === 'visual_renderer') return ['doubao-seedream'];
-  if (roleKey === 'lead_writer') return V7_TEXT_MODEL_PROFILE_KEYS;
+  if (roleKey === 'lead_writer') return LEGACY_EXECUTABLE_TEXT_KEYS;
   return V7_STRONG_MODEL_PROFILE_KEYS;
 }
 
 /** Candidate inventory is not permission to serve an author task. Identity is
  * independent of this matrix; historical task bindings remain immutable. */
 export function candidateModelProfilesForRole(roleKey: V7FixedRoleKey): readonly string[] {
-  return roleKey === 'visual_renderer' ? ['doubao-seedream'] : V7_TEXT_MODEL_PROFILE_KEYS;
+  return candidateModels(roleKey).map(model => model.profileKey);
 }
 
 export function modelAdmissionForRole(roleKey: V7FixedRoleKey, profileKey: string): {
@@ -242,8 +237,10 @@ function role(
   authorSelectable: boolean
 ): V7RoleContract {
   return {
-    roleKey, publicName, publicResponsibility, taskKinds, capabilities, tools, outputContract, authorSelectable,
-    failureContract: '失败时必须停止显示工作中，先真诚道歉，再说明已保存内容和可执行的重试或交接方案。'
+    roleKey, publicName: ROLES.find(role => role.roleKey === roleKey)?.publicName ?? publicName,
+    publicResponsibility: ROLES.find(role => role.roleKey === roleKey)?.publicResponsibility ?? publicResponsibility,
+    taskKinds, capabilities, tools, outputContract, authorSelectable,
+    failureContract: '状态来自真实执行；说明未完成步骤、已保存结果和可执行的恢复办法。'
   };
 }
 

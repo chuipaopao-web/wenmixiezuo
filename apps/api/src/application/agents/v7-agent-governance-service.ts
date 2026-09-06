@@ -1,3 +1,4 @@
+import { MEMBER_SLOTS, publicMemberIdentity } from '@wenmi/agent-catalog';
 import {
   V7_MODEL_PROFILE_LABELS,
   V7_ROLE_CONTRACTS,
@@ -85,13 +86,30 @@ export class V7AgentGovernanceService {
 
   public adminView(): object {
     const snapshot = this.snapshot();
+    const candidates = this.repository.candidateSlots().map(slot => {
+      const identity = publicMemberIdentity(slot.memberKey)!;
+      const model = slot.modelProfileKey === null ? null : modelBindingForProfile(slot.modelProfileKey);
+      return {
+        memberKey: slot.memberKey, displayName: identity.displayName, roleKey: identity.roleKey,
+        modelProfileKey: slot.modelProfileKey, modelName: slot.modelProfileKey === null ? '未绑定模型' : V7_MODEL_PROFILE_LABELS[slot.modelProfileKey],
+        provider: model?.provider ?? null, plan: model?.plan ?? null,
+        enabled: false, defaultForRole: false, fallbackPriority: 100, temperatureAdjustment: 0,
+        credentialReady: model !== null && this.credentialReady({ model }),
+        configurationOnly: true,
+        admission: { status: 'pending', reason: slot.modelProfileKey === null
+          ? '预留成员，可随时绑定同类型模型。' : '模型已绑定；待全书、卷等具体节点验证后接单，当前不会自动参与作者任务。' },
+        status: slot.modelProfileKey === null ? 'unbound' : 'candidate'
+      };
+    });
     return {
       revision: snapshot.revision,
       summary: {
         roleCount: V7_ROLE_CONTRACTS.length,
-        memberCount: snapshot.members.length,
+        memberCount: MEMBER_SLOTS.length,
         onDutyCount: snapshot.members.filter((member) => this.onDuty(member)).length,
-        leaveCount: snapshot.members.filter((member) => !this.onDuty(member)).length
+        leaveCount: snapshot.members.filter((member) => !this.onDuty(member)).length,
+        candidateCount: candidates.filter(member => member.modelProfileKey !== null).length,
+        unboundCount: candidates.filter(member => member.modelProfileKey === null).length
       },
       credentials: this.credentials,
       modelProfiles: Object.entries(V7_MODEL_PROFILE_LABELS).map(([profileKey, publicName]) => ({ profileKey, publicName })),
@@ -102,7 +120,7 @@ export class V7AgentGovernanceService {
           profileKey, publicName: V7_MODEL_PROFILE_LABELS[profileKey],
           ...modelAdmissionForRole(role.roleKey, profileKey)
         })),
-        members: snapshot.members.filter((member) => member.fixedRoleKey === role.roleKey)
+        members: [...snapshot.members.filter((member) => member.fixedRoleKey === role.roleKey)
           .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority)
           .map((member) => ({
             memberKey: member.memberKey,
@@ -118,13 +136,27 @@ export class V7AgentGovernanceService {
             credentialReady: this.credentialReady(member),
             admission: modelAdmissionForRole(role.roleKey, member.modelProfileKey),
             status: this.onDuty(member) ? 'on_duty' : 'on_leave'
-          }))
+          })), ...candidates.filter(member => member.roleKey === role.roleKey)]
       })),
       taskPolicies: snapshot.taskPolicies
     };
   }
 
   public updateMember(actorId: string, memberKey: string, body: Record<string, unknown>): object {
+    const slot = publicMemberIdentity(memberKey);
+    if (slot && !slot.legacy) {
+      if (Object.keys(body).some(key => !['expectedRevision','modelProfileKey','reason'].includes(key))) {
+        throw new DomainError(errorCodes.validation, '新成员须先完成业务节点验证，目前仅开放模型绑定和解绑。');
+      }
+      const expectedRevision = requiredInteger(body.expectedRevision, '配置版本无效');
+      const modelProfileKey = body.modelProfileKey === null ? null : optionalText(body.modelProfileKey,100);
+      if (modelProfileKey === undefined) throw new DomainError(errorCodes.validation, '请选择要绑定的模型。');
+      try {
+        this.repository.updateCandidateSlot({ memberKey, modelProfileKey, expectedRevision, actorId,
+          eventId: this.ids.next(), reason: optionalText(body.reason,1000) ?? '管理员调整候选成员模型', now: this.clock.now().toISOString() });
+        return this.adminView();
+      } catch (error) { throw governanceError(error); }
+    }
     const snapshot = this.snapshot();
     const target = snapshot.members.find((member) => member.memberKey === memberKey);
     if (target === undefined) throw new DomainError(errorCodes.validation, '成员不存在。');

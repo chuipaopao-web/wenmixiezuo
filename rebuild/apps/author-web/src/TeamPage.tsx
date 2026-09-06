@@ -1,3 +1,4 @@
+import { publicMemberIdentity } from '@wenmi/agent-catalog';
 import { BriefcaseIcon, CaretDownIcon, CaretUpIcon, UsersThreeIcon } from '@phosphor-icons/react';
 import { useEffect, useMemo, useState } from 'react';
 import { canonicalMemberIdentityKey, publicRoleKey, publicRoleLabel, publicStatusCopy, uniqueByMemberKey, type PublicRoleKey } from './author-projection';
@@ -144,6 +145,8 @@ function canonicalRoleForMemberKey(memberKey: string): PublicRoleKey | null {
 }
 
 function avatarStyle(memberKey: string): React.CSSProperties {
+  const identity = publicMemberIdentity(canonicalMemberIdentityKey(memberKey));
+  if (identity) return { backgroundImage: `url(${identity.avatarPath})`, backgroundSize: identity.avatarSize, backgroundPosition: identity.avatarPosition };
   const path = memberAvatarPath(memberKey);
   return path === null
     ? { backgroundPosition: memberAvatarPosition(memberKey) }

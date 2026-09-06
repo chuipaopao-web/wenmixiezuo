@@ -7,10 +7,10 @@ describe("editorial department projection", () => {
     const view = editorialDepartmentSchema.parse(createEditorialDepartment());
 
     expect(view.summary).toEqual({
-      memberCount: 23,
+      memberCount: 56,
       readyCount: 0,
       workingCount: 0,
-      leaveCount: 23,
+      leaveCount: 56,
       completedCount: 0
     });
     expect(view.departments.map((department) => department.departmentKey)).toEqual([
@@ -22,7 +22,7 @@ describe("editorial department projection", () => {
       "continuity_editor",
       "visual_renderer"
     ]);
-    expect(view.departments.map((department) => department.members.length)).toEqual([3, 3, 4, 6, 3, 3, 1]);
+    expect(view.departments.map((department) => department.members.length)).toEqual([9, 9, 9, 9, 9, 9, 2]);
     expect(view.departments.flatMap((department) => department.members.map((member) => [member.memberKey, member.displayName]))).toContainEqual([
       "visual-seedream",
       "绘真"

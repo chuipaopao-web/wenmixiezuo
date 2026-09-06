@@ -22,7 +22,7 @@ import { validateSettingEditorialRoster } from '../setting-agent/setting-editori
 
 describe('V7统一成员与模型治理', () => {
   it('23位固定成员有唯一姓名和独立头像，模型切换不改变身份', () => {
-    expect(V7_MEMBER_IDENTITIES).toHaveLength(V7_GLOBAL_MEMBERS.length);
+    expect(V7_MEMBER_IDENTITIES).toHaveLength(56);
     const identities = V7_GLOBAL_MEMBERS.map((member) => publicMemberIdentity(member.memberKey)!);
     expect(new Set(identities.map((identity) => identity.displayName)).size).toBe(23);
     expect(new Set(identities.map((identity) => identity.avatarPosition)).size).toBe(23);

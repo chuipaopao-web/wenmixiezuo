@@ -1,3 +1,4 @@
+import { ROLES, MEMBER_SLOTS } from '@wenmi/agent-catalog';
 import { editorialDepartmentSchema, type EditorialDepartment } from "@wenmi-rebuild/contracts";
 import type { AccountCoreService } from "../accounts/index.js";
 
@@ -80,37 +81,7 @@ const ROLE_CONTRACTS: readonly RoleContract[] = [
   ])
 ] as const;
 
-/*
- * Copied from the legacy V7 global roster public identities in
- * D:/wenmixiezuo/coauthoring-v7/backend/agent-governance/agent-governance-registry.ts.
- * Model providers, model ids, plan names, prompt instructions, credentials, and runtime
- * configuration are intentionally not copied into this rebuild author-facing projection.
- */
-const MEMBERS: readonly EditorialMemberDefinition[] = [
-  member("chief-deepseek-v4-pro", "貂蝉", "chief_editor"),
-  member("chief-glm-5-3", "顾承砚", "chief_editor"),
-  member("chief-kimi-k3", "沈知微", "chief_editor"),
-  member("deputy-glm-5-3", "西施", "deputy_editor"),
-  member("deputy-deepseek-v4-pro", "妙玉", "deputy_editor"),
-  member("deputy-kimi-k3", "谢临川", "deputy_editor"),
-  member("planner-deepseek-v4-pro", "红玉", "planning_writer"),
-  member("planner-glm-5-3", "幼薇", "planning_writer"),
-  member("planner-kimi-k3", "苏映棠", "planning_writer"),
-  member("planner-doubao-turbo", "陆青禾", "planning_writer"),
-  member("writer-deepseek-v4-pro", "司马相如", "lead_writer"),
-  member("writer-kimi-k3", "清照", "lead_writer"),
-  member("writer-deepseek-v4-flash", "谢道韫", "lead_writer"),
-  member("writer-glm-5-3", "曹雪芹", "lead_writer"),
-  member("writer-kimi-2-7", "柳永", "lead_writer"),
-  member("writer-doubao", "蒲松龄", "lead_writer"),
-  member("review-kimi-k3", "周行简", "independent_reviewer"),
-  member("review-glm-5-3", "顾清辞", "independent_reviewer"),
-  member("review-deepseek-v4-pro", "陆观澜", "independent_reviewer"),
-  member("continuity-deepseek-v4-pro", "裴文心", "continuity_editor"),
-  member("continuity-glm-5-3", "宋知遥", "continuity_editor"),
-  member("continuity-kimi-k3", "沈墨", "continuity_editor"),
-  member("visual-seedream", "绘真", "visual_renderer")
-] as const;
+const MEMBERS: readonly EditorialMemberDefinition[] = MEMBER_SLOTS;
 
 export class EditorialDepartmentService {
   public constructor(private readonly accounts: AccountCoreService) {}
@@ -161,9 +132,6 @@ function role(
   publicResponsibility: string,
   capabilities: readonly string[]
 ): RoleContract {
-  return { roleKey, departmentName, publicName, publicResponsibility, capabilities };
-}
-
-function member(memberKey: string, displayName: string, roleKey: EditorialDepartmentRole): EditorialMemberDefinition {
-  return { memberKey, displayName, roleKey };
+  const shared = ROLES.find(role => role.roleKey === roleKey)!;
+  return { ...shared, capabilities };
 }

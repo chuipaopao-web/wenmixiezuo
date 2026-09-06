@@ -278,7 +278,7 @@ export interface V7VisualAgentGovernance {
 
 export interface V7UnifiedAgentGovernance {
   revision: number;
-  summary: { roleCount: number; memberCount: number; onDutyCount: number; leaveCount: number };
+  summary: { roleCount: number; memberCount: number; onDutyCount: number; leaveCount: number; candidateCount?: number; unboundCount?: number };
   credentials: { codingPlan: boolean; agentPlan: boolean; image: boolean };
   modelProfiles: Array<{ profileKey: string; publicName: string }>;
   roles: Array<{
@@ -286,9 +286,10 @@ export interface V7UnifiedAgentGovernance {
     outputContract: string; failureContract: string; authorSelectable: boolean; allowedModelProfileKeys: string[];
     modelCandidates?: Array<{ profileKey: string; publicName: string; status: 'compatible' | 'pending' | 'suspended'; reason: string }>;
     members: Array<{
-      memberKey: string; displayName: string; modelProfileKey: string; modelName: string; provider: string; plan: 'coding' | 'agent' | 'image';
+      memberKey: string; displayName: string; modelProfileKey: string | null; modelName: string; provider: string | null; plan: 'coding' | 'agent' | 'image' | null;
       enabled: boolean; defaultForRole: boolean; fallbackPriority: number; temperatureAdjustment: number;
-      credentialReady: boolean; status: 'on_duty' | 'on_leave';
+      credentialReady: boolean; status: 'on_duty' | 'on_leave' | 'candidate' | 'unbound';
+      configurationOnly?: boolean;
       admission?: { status: 'compatible' | 'pending' | 'suspended'; reason: string };
     }>;
   }>;

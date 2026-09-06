@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { MEMBER_SLOTS, candidateModels } from '@wenmi/agent-catalog';
 import {
   V7_GLOBAL_MEMBERS,
   V7_TASK_TEMPERATURE_POLICIES,
@@ -62,6 +63,11 @@ export class V7AgentGovernanceRepository {
   public constructor(private readonly database: DatabaseSync) {}
 
   public ensureSeeded(now: string): void {
+    const insertSlot = this.database.prepare(`INSERT OR IGNORE INTO v7_agent_member_slots
+      (member_key,role_key,model_profile_key,updated_by,updated_at) VALUES(?,?,?,'system',?)`);
+    for (const slot of MEMBER_SLOTS.filter(member => !member.legacy)) {
+      insertSlot.run(slot.memberKey, slot.roleKey, slot.initialModelProfileKey, now);
+    }
     const beforeCount = (this.database.prepare('SELECT count(*) AS count FROM v7_agent_governance_member_settings').get() as { count: number }).count;
     let rosterChanged = false;
     const insertMember = this.database.prepare(`INSERT OR IGNORE INTO v7_agent_governance_member_settings(
@@ -99,6 +105,37 @@ export class V7AgentGovernanceRepository {
       this.database.prepare(`UPDATE v7_agent_governance_meta
         SET revision=revision+1,updated_by='system',updated_at=? WHERE singleton=1`).run(now);
     }
+  }
+
+  public candidateSlots(): Array<{ memberKey: string; roleKey: string; modelProfileKey: string | null }> {
+    return this.database.prepare(`SELECT member_key AS memberKey, role_key AS roleKey,
+      model_profile_key AS modelProfileKey FROM v7_agent_member_slots ORDER BY member_key`).all() as
+      Array<{ memberKey: string; roleKey: string; modelProfileKey: string | null }>;
+  }
+
+  public updateCandidateSlot(input: {
+    memberKey: string; modelProfileKey: string | null; expectedRevision: number;
+    actorId: string; eventId: string; reason: string; now: string;
+  }): void {
+    const definition = MEMBER_SLOTS.find(member => !member.legacy && member.memberKey === input.memberKey);
+    if (!definition || (input.modelProfileKey !== null && !candidateModels(definition.roleKey).some(model => model.profileKey === input.modelProfileKey))) {
+      throw new Error('成员或候选模型类型无效');
+    }
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      this.assertRevision(input.expectedRevision);
+      const before = this.candidateSlots().find(member => member.memberKey === input.memberKey);
+      if (!before || before.roleKey !== definition.roleKey) throw new Error('成员固定岗位登记不完整');
+      this.database.prepare(`UPDATE v7_agent_member_slots SET model_profile_key=?,updated_by=?,updated_at=?
+        WHERE member_key=?`).run(input.modelProfileKey,input.actorId,input.now,input.memberKey);
+      const revision = input.expectedRevision + 1;
+      this.database.prepare(`UPDATE v7_agent_governance_meta SET revision=?,updated_by=?,updated_at=? WHERE singleton=1`)
+        .run(revision,input.actorId,input.now);
+      this.database.prepare(`INSERT INTO v7_agent_slot_events(event_id,actor_id,member_key,before_model_profile_key,
+        after_model_profile_key,revision,reason,created_at) VALUES(?,?,?,?,?,?,?,?)`)
+        .run(input.eventId,input.actorId,input.memberKey,before.modelProfileKey,input.modelProfileKey,revision,input.reason,input.now);
+      this.database.exec('COMMIT');
+    } catch (error) { this.database.exec('ROLLBACK'); throw error; }
   }
 
   public snapshot(): V7AgentGovernanceSnapshot {

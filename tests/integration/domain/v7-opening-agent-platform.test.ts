@@ -625,7 +625,7 @@ describe('V7开书Agent平台接入', () => {
       expect(department.statusCode).toBe(200);
       const departmentData = department.json().data;
       const visibleMembers = departmentData.departments.flatMap((group: { members: Array<{ displayName: string; capabilities: string[] }> }) => group.members);
-      expect(departmentData.summary).toMatchObject({ memberCount: 23, workingCount: 0 });
+      expect(departmentData.summary).toMatchObject({ memberCount: 56, workingCount: 0 });
       expect(new Set(visibleMembers.map((member: { displayName: string }) => member.displayName)).size).toBe(visibleMembers.length);
       expect(departmentData.departments.map((group: { departmentKey: string }) => group.departmentKey)).toEqual([
         'chief_editor', 'deputy_editor', 'planning_writer', 'lead_writer',
@@ -738,7 +738,7 @@ describe('V7开书Agent平台接入', () => {
       });
       expect(initial.statusCode).toBe(200);
       expect(initial.json().data).toMatchObject({
-        summary: { roleCount: 7, memberCount: 23 },
+        summary: { roleCount: 7, memberCount: 56 },
         credentials: { codingPlan: false, agentPlan: false, image: true }
       });
       expect(initial.json().data.roles[0].members[0]).toEqual(expect.objectContaining({
@@ -791,15 +791,16 @@ describe('V7开书Agent平台接入', () => {
         expectedRevision: 3,
         enabled: false
       });
-      expect(withoutDeepseek.statusCode).toBe(200);
+      expect(withoutDeepseek.statusCode).toBe(400);
+      expect(withoutDeepseek.json().error.message).toContain('异模型交接');
       const lastMemberRejected = await patchMember(app, admin, 'chief-kimi-k3', {
-        expectedRevision: 4,
+        expectedRevision: 3,
         enabled: false
       });
-      expect(lastMemberRejected.statusCode).toBe(409);
+      expect(lastMemberRejected.statusCode).toBe(400);
 
       const promptConfigured = await patchMember(app, admin, 'chief-kimi-k3', {
-        expectedRevision: 4,
+        expectedRevision: 3,
         promptInstruction: '开书时优先提供具体、直给、能看出卖点的商业书名。'
       });
       expect(promptConfigured.statusCode).toBe(400);
@@ -826,19 +827,19 @@ describe('V7开书Agent平台接入', () => {
       `).get(taskId) as { member_roster_json: string };
       const frozenRoster = JSON.parse(frozen.member_roster_json) as Array<{ memberKey: string }>;
       expect(frozenRoster).toContainEqual(expect.objectContaining({
-        memberKey: 'chief-kimi-k3', enabled: true, defaultForRole: true, fallbackPriority: 1,
+        memberKey: 'chief-kimi-k3', enabled: true, defaultForRole: true, fallbackPriority: 2,
         promptInstruction: ''
       }));
       expect(frozenRoster).toContainEqual(expect.objectContaining({ memberKey: 'planner-deepseek-v4-pro' }));
       expect(frozenRoster.some((member) => member.memberKey.startsWith('screenwriter-'))).toBe(false);
 
       const futureDefault = await patchMember(app, admin, 'chief-deepseek-v4-pro', {
-        expectedRevision: 4,
+        expectedRevision: 3,
         defaultForRole: true
       });
       expect(futureDefault.statusCode).toBe(200);
       const futurePrompt = await patchMember(app, admin, 'chief-kimi-k3', {
-        expectedRevision: 5,
+        expectedRevision: 4,
         promptInstruction: '后续任务改用另一套补充要求。'
       });
       expect(futurePrompt.statusCode).toBe(400);
@@ -857,7 +858,7 @@ describe('V7开书Agent平台接入', () => {
       `).get()).toEqual({ count: 0 });
       expect(context.database.prepare(`
         SELECT COUNT(*) AS count FROM v7_agent_governance_events
-      `).get()).toEqual({ count: 4 });
+      `).get()).toEqual({ count: 3 });
     } finally {
       await app.close();
     }

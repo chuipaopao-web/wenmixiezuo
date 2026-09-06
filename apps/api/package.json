@@ -17,6 +17,7 @@
     "@wenmi/v7-backend": "1.0.0",
     "fastify": "5.12.1",
     "sharp": "0.35.4",
-    "undici": "7.29.0"
+    "undici": "7.29.0",
+    "@wenmi/agent-catalog": "1.0.0"
   }
 }

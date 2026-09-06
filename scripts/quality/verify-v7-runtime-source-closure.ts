@@ -25,6 +25,7 @@ const RUNTIME_ENTRIES = [
 ] as const;
 
 const SOURCE_ROOTS = [
+  'rebuild/packages/agent-catalog',
   'apps/contracts/src',
   'apps/api/src',
   'apps/worker/src',
@@ -71,6 +72,8 @@ const BUILD_RESOURCES: ReadonlyArray<{
   productRole: V7ProductRole;
   evidence: V7ClosureEvidence;
 }> = [
+  { path: 'rebuild/packages/agent-catalog/package.json', productRole: 'shared-platform', evidence: { kind: 'package-entry', from: 'shared public agent catalog' } },
+  { path: 'rebuild/packages/agent-catalog/index.d.ts', productRole: 'shared-platform', evidence: { kind: 'package-entry', from: 'shared public agent catalog types' } },
   { path: '.gitattributes', productRole: 'shared-platform', evidence: { kind: 'deploy-allowlist', from: 'source archive normalization' } },
   { path: '.npmrc', productRole: 'shared-platform', evidence: { kind: 'package-entry', from: 'package.json' } },
   { path: 'RELEASE_ID', productRole: 'deployment-operations', evidence: { kind: 'deploy-allowlist', from: 'release identity' } },
@@ -117,7 +120,8 @@ const STANDALONE_OPERATIONAL_RESOURCES = [
 const WORKSPACE_PACKAGES: Readonly<Record<string, string>> = {
   '@wenmi/contracts': 'apps/contracts/src/index.ts',
   '@wenmi/v7-backend': 'coauthoring-v7/backend/index.ts',
-  '@wenmi/opening-runtime': 'rebuild/packages/backend/src/legacy-opening/runtime.ts'
+  '@wenmi/opening-runtime': 'rebuild/packages/backend/src/legacy-opening/runtime.ts',
+  '@wenmi/agent-catalog': 'rebuild/packages/agent-catalog/index.js'
 };
 
 const RETIRED_RUNTIME_PATHS = [
@@ -624,7 +628,7 @@ function listFilesShallow(root: string): string[] {
 }
 
 function isSourceFile(path: string): boolean {
-  return ['.ts', '.tsx', '.mts', '.mjs'].includes(extname(path)) && !path.endsWith('.d.ts') && !path.endsWith('.d.mts');
+  return ['.ts', '.tsx', '.mts', '.mjs', '.js'].includes(extname(path)) && !path.endsWith('.d.ts') && !path.endsWith('.d.mts');
 }
 
 function isExcludedSource(path: string): boolean {
@@ -830,7 +834,8 @@ function validateWorkspaceBuildGraph(root: string, errors: string[]): void {
     'coauthoring-v7/backend',
     'coauthoring-v7/author-app',
     'coauthoring-v7/admin-console',
-    'rebuild/packages/backend/src/legacy-opening'
+    'rebuild/packages/backend/src/legacy-opening',
+    'rebuild/packages/agent-catalog'
   ];
   const expectedPackages: ReadonlyArray<{
     workspace: string;

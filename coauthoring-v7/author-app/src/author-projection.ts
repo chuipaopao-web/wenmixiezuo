@@ -49,7 +49,7 @@ const LEGACY_MEMBER_IDENTITIES: Readonly<Record<string, string>> = {
 
 const PUBLIC_ROLE_BY_KEY: Readonly<Record<string, string>> = {
   chief_editor: '主编',
-  deputy_editor: '副编',
+  deputy_editor: '资料编辑',
   context_editor: '副编',
   structure_deputy: '副编',
   commercial_deputy: '副编',
@@ -59,11 +59,11 @@ const PUBLIC_ROLE_BY_KEY: Readonly<Record<string, string>> = {
   commercial_writer: '策划编剧',
   character_writer: '策划编剧',
   lead_writer: '主笔',
-  independent_reviewer: '独立审查',
+  independent_reviewer: '审查编辑',
   continuity_editor: '记录编辑',
   settlement_editor: '记录编辑',
   planning_maintainer: '记录编辑',
-  visual_renderer: '视觉编剧'
+  visual_renderer: '封面画师'
 };
 
 export type PublicRoleKey =
@@ -127,7 +127,7 @@ export function publicRoleKey(role: string | null | undefined, roleKey?: string 
   const normalized = role?.replace(/\s+/gu, '').trim() ?? '';
   if (PUBLIC_ROLE_KEY_BY_ALIAS[normalized] !== undefined) return PUBLIC_ROLE_KEY_BY_ALIAS[normalized];
   if (/主编/u.test(normalized)) return 'chief_editor';
-  if (/副编|资料编审/u.test(normalized)) return 'deputy_editor';
+  if (/副编|资料编审|资料编辑/u.test(normalized)) return 'deputy_editor';
   if (/封面|画师|视觉/u.test(normalized)) return 'visual_renderer';
   if (/审查|审校|复核/u.test(normalized)) return 'independent_reviewer';
   if (/记录|结算|维护/u.test(normalized)) return 'continuity_editor';
@@ -166,8 +166,8 @@ export function publicStatusCopy(message: string | null | undefined, fallback: s
   const normalized = message?.replace(/\s+/gu, ' ').trim() ?? '';
   if (normalized.length === 0 || TECHNICAL_COPY.test(normalized) || INTERNAL_ROLE_COPY.test(normalized)) return fallback;
   return normalized
-    .replace(/封面画师/gu, '视觉编剧')
-    .replace(/审查编辑/gu, '独立审查')
+    .replace(/视觉编剧/gu, '封面画师')
+    .replace(/独立审查/gu, '审查编辑')
     .replace(/结算编辑|维护编辑/gu, '记录编辑')
     .replace(/上下文编辑/gu, '副编');
 }

@@ -79,7 +79,7 @@ describe("editorial department HTTP routes", () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers["cache-control"]).toBe("no-store");
       const body = JSON.parse(response.body) as { data: { summary: { memberCount: number; readyCount: number; leaveCount: number }; departments: Array<{ departmentKey: string; members: Array<{ presence: string; currentWork: string | null }> }> } };
-      expect(body.data.summary).toMatchObject({ memberCount: 23, readyCount: 0, leaveCount: 23 });
+      expect(body.data.summary).toMatchObject({ memberCount: 56, readyCount: 0, leaveCount: 56 });
       expect(body.data.departments.map((department) => department.departmentKey)).toEqual([
         "chief_editor",
         "deputy_editor",

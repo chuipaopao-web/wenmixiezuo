@@ -635,11 +635,12 @@ describe('V7设定编辑部', () => {
       context.database.prepare(`UPDATE user_accounts SET role='admin' WHERE email_normalized='setting-admin@example.com'`).run();
       const members = await app.inject({ method: 'GET', url: '/api/v1/admin/v7/setting-agent/members', headers: { host: HEADERS.host, cookie: admin } });
       expect(members.statusCode).toBe(200);
-      const writer = members.json().data.find((member: { memberKey: string }) => member.memberKey === 'planner-glm-5-3');
-      const leave = await app.inject({ method: 'PATCH', url: '/api/v1/admin/v7/setting-agent/members/planner-glm-5-3', headers: { ...HEADERS, cookie: admin }, payload: { expectedRevision: writer.revision, enabled: false } });
+      // GLM is suspended after a real timeout probe; use an admitted member to verify leave/return.
+      const writer = members.json().data.find((member: { memberKey: string }) => member.memberKey === 'planner-kimi-k3');
+      const leave = await app.inject({ method: 'PATCH', url: '/api/v1/admin/v7/setting-agent/members/planner-kimi-k3', headers: { ...HEADERS, cookie: admin }, payload: { expectedRevision: writer.revision, enabled: false } });
       expect(leave.statusCode).toBe(200);
       expect(leave.json().data.enabled).toBe(false);
-      const back = await app.inject({ method: 'PATCH', url: '/api/v1/admin/v7/setting-agent/members/planner-glm-5-3', headers: { ...HEADERS, cookie: admin }, payload: { expectedRevision: leave.json().data.revision, enabled: true } });
+      const back = await app.inject({ method: 'PATCH', url: '/api/v1/admin/v7/setting-agent/members/planner-kimi-k3', headers: { ...HEADERS, cookie: admin }, payload: { expectedRevision: leave.json().data.revision, enabled: true } });
       expect(back.statusCode).toBe(200);
       expect(back.json().data.enabled).toBe(true);
     } finally { await app.close(); }

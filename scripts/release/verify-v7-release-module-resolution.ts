@@ -16,11 +16,16 @@ export interface ReleaseClosureManifest {
 }
 
 export interface ResolvedReleaseModule {
-  specifier: '@wenmi/contracts' | '@wenmi/v7-backend' | '@wenmi/opening-runtime';
+  specifier: '@wenmi/contracts' | '@wenmi/v7-backend' | '@wenmi/opening-runtime' | '@wenmi/agent-catalog';
   resolvedPath: string;
 }
 
 const RELEASE_MODULES = [
+  {
+    specifier: '@wenmi/agent-catalog' as const,
+    sourceEntry: 'rebuild/packages/agent-catalog/index.js',
+    compiledEntry: 'rebuild/packages/agent-catalog/index.js'
+  },
   {
     specifier: '@wenmi/contracts' as const,
     sourceEntry: 'apps/contracts/src/index.ts',

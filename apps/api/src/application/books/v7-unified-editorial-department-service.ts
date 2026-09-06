@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { MEMBER_SLOTS, ROLES } from '@wenmi/agent-catalog';
 import {
   V7_ROLE_CONTRACTS,
   type V7EffectiveMember,
@@ -39,6 +40,12 @@ export class V7UnifiedEditorialDepartmentService {
   public get(ownerId: string): V7UnifiedEditorialDepartmentView {
     const activeSince = new Date(Date.now() - ACTIVE_MODEL_CALL_WINDOW_MS).toISOString();
     const members = this.members().map((member) => this.memberView(ownerId, member, activeSince));
+    for (const slot of MEMBER_SLOTS.filter(member => !member.legacy)) {
+      const role = ROLES.find(role => role.roleKey === slot.roleKey)!;
+      members.push({ memberKey: slot.memberKey, displayName: slot.displayName, role: role.publicName,
+        responsibility: role.publicResponsibility, capabilities: [...V7_ROLE_CONTRACTS.find(contract => contract.roleKey === slot.roleKey)!.capabilities], presence: 'leave',
+        statusText: '候选成员，待具体创作任务验证后接单。', currentWork: null, completedCount: 0 });
+    }
     return {
       summary: {
         memberCount: members.length,
@@ -48,7 +55,7 @@ export class V7UnifiedEditorialDepartmentService {
         completedCount: members.reduce((total, member) => total + member.completedCount, 0)
       },
       departments: V7_ROLE_CONTRACTS.map((role) => ({
-        departmentKey: role.roleKey, name: DEPARTMENTS[role.roleKey],
+        departmentKey: role.roleKey, name: ROLES.find(shared => shared.roleKey === role.roleKey)?.departmentName ?? DEPARTMENTS[role.roleKey],
         members: members.filter((member) => member.role === role.publicName)
       })).filter((department) => department.members.length > 0)
     };
@@ -66,7 +73,7 @@ export class V7UnifiedEditorialDepartmentService {
       memberKey: member.memberKey, displayName: member.displayName, role: contract.publicName,
       responsibility: contract.publicResponsibility, capabilities: [...contract.capabilities], presence,
       statusText: presence === 'working' ? `我正在处理${currentWork}，完成后马上交稿。`
-        : presence === 'leave' ? '对不起，我现在请假，工作会自动交给在岗同事。'
+        : presence === 'leave' ? '当前暂不接单，由在岗成员处理任务。'
           : '我现在待命，有任务会马上接手。',
       currentWork,
       completedCount: this.repository.successCount(ownerId, member.memberKey)
