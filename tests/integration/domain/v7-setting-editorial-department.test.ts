@@ -13,7 +13,7 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7设定编辑部', () => {
-  it.each(['normal', 'handoff', 'repair', 'unknown', 'patch'] as const)('精练设定 %s：同人统筹、草案接续与自动独立审查', async (mode) => {
+  it.each(['normal', 'handoff', 'repair', 'unknown', 'patch', 'review_handoff'] as const)('精练设定 %s：同人统筹、草案接续与自动独立审查', async (mode) => {
     context = createTestContext('wenmi-r139-setting-');
     const delegate = new SettingResolver(false);
     const calls: Array<{member: string; model: string; prompt: string}> = [];
@@ -35,6 +35,7 @@ describe('V7设定编辑部', () => {
           first = false;
           return {provider, modelId, output: JSON.stringify(value), inputTokens: 100, outputTokens: 100, cashCostCny: 0, state: 'succeeded'};
         }
+        if (mode === 'review_handoff' && prompt.includes('v7_setting_batch_final_review_v1') && calls.filter(call => call.prompt.includes('v7_setting_batch_final_review_v1')).length === 1) throw new Error('审查成员已知失败');
         if (prompt.includes('v7_setting_batch_final_review_v1')) return {
           provider, modelId, output: JSON.stringify({verdict: 'pass', summary: '渡船人数、禁航条件和例外一致。', unifiedDecisions: [], conflicts: [], patches: mode === 'patch' ? [{itemKey:'world-stage', finalContent:'渡船每次最多12人，夜间停航；只有官署急令可破例。渡口使用铜钱。', summary:'统一货币。', contextSummary:'人数与夜航规则保持不变，使用铜钱。', factEntries:['渡船每次最多12人，夜间停航；只有官署急令可破例。','渡口使用铜钱。'], issues:[], suggestions:[]}] : []}),
           inputTokens: 100, outputTokens: 100, cashCostCny: 0, state: 'succeeded'
@@ -62,8 +63,8 @@ describe('V7设定编辑部', () => {
       }
       expect(completed.status, JSON.stringify(completed)).toBe('awaiting_author');
       expect(completed.leadMemberKey).toBe('planner-deepseek-v4-pro');
-      expect(designCalls).toHaveLength(['normal','patch'].includes(mode) ? 2 : 3);
-      const deliveredCalls = ['normal','patch'].includes(mode) ? designCalls : designCalls.slice(1);
+      expect(designCalls).toHaveLength(['normal','patch','review_handoff'].includes(mode) ? 2 : 3);
+      const deliveredCalls = ['normal','patch','review_handoff'].includes(mode) ? designCalls : designCalls.slice(1);
       expect(new Set(deliveredCalls.map(call => call.member)).size).toBe(1);
       expect(deliveredCalls[1]!.prompt).toContain('当前待确认草案');
       expect(deliveredCalls[1]!.prompt).toContain('渡船每次最多12人，夜间停航；只有官署急令可破例。');
@@ -71,7 +72,10 @@ describe('V7设定编辑部', () => {
       const reviewed = await pollFinalReview(app, cookie, bookId);
       expect(reviewed.status, JSON.stringify(reviewed)).toBe('ready');
       const reviewCalls = calls.filter(call => call.prompt.includes('v7_setting_batch_final_review_v1'));
-      expect(reviewCalls).toHaveLength(1);
+      expect(reviewCalls).toHaveLength(mode === 'review_handoff' ? 2 : 1);
+      expect(reviewed.member.memberKey).toBe(reviewCalls.at(-1)!.member);
+      const reviewState = context.database.prepare('SELECT custom_items_json FROM v7_setting_batches WHERE batch_id=?').get(reviewed.taskId) as {custom_items_json:string};
+      expect(JSON.parse(reviewState.custom_items_json).attemptedMemberKeys).toHaveLength(reviewCalls.length);
       expect(JSON.parse(reviewCalls[0]!.prompt).outputSchema.factLedger).toBeUndefined();
       expect(JSON.parse(reviewCalls[0]!.prompt).delivery).toContain('不要重新抄写');
       const storedReview = context.database.prepare("SELECT content_json FROM v7_setting_outputs WHERE book_id=? AND item_key='__batch_final_review__' ORDER BY created_at DESC LIMIT 1").get(bookId) as {content_json:string};

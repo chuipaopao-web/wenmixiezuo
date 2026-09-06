@@ -1462,12 +1462,13 @@ export class V7SettingEditorialService {
     })) return;
     this.startLeaseHeartbeat(task, token);
     this.reconcileReclaimedBatch(task, started);
-    const state = finalReviewState(task);
+    let state = finalReviewState(task);
     let chiefs: V7SettingMemberDefinition[];
     try {
       chiefs = this.executableSettingRoster(task)
         .filter((member) => member.roleKey === 'chief_editor' && !(state.excludedModelIds ?? []).includes(member.model.modelId))
         .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority);
+      if ((state.excludedModelIds?.length ?? 0) > 0) chiefs = chiefs.slice(0, 3);
     } catch (error) {
       this.repository.failFinalReview({
         ownerId: task.owner_id, bookId: task.book_id, taskId: task.batch_id, token,
@@ -1512,6 +1513,7 @@ export class V7SettingEditorialService {
         ownerId: task.owner_id, bookId: task.book_id, taskId: task.batch_id, token,
         stateJson: JSON.stringify(working), now: this.clock.now().toISOString()
       })) return;
+      state = working;
       const failedAttempt = this.repository.latestModelOutcomeForJob(
         task.owner_id, task.book_id, task.batch_id, '__batch_final_review__', ['failed']
       );
