@@ -260,9 +260,9 @@
 | [RB-46](#rb-46) | 后台创作运行与恢复 | RB-18、RB-29 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | 待建立 |
 | [RB-47](#rb-47) | 后台问题记录与处理 | RB-40、RB-46 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | 待建立 |
 | [RB-47.1](#rb-47-1) | 内容申诉与处置后台 | RB-12、RB-27.1、RB-40、RB-47 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | 待建立 |
-| [RB-48](#rb-48) | 后台成员、模型与任务策略 | RB-16、RB-38 | 已定（本批范围） | 部分实现 | 部分实现 | 本批通过 | 已发布 | [第132批](../coauthoring-v7/docs/worklists/OPENING-MODEL-ADMISSION-20260906-132.md)；56身份/绑定与7模型开书评测已上线，候选完整准入及其他节点后续 |
-| [RB-48.1](#rb-48-1) | 后台Agent工具、执行流程与输出合同 | RB-48 | 已定（本批范围） | 部分实现 | 部分实现 | 本批通过 | 已发布 | [第130批](../coauthoring-v7/docs/worklists/AGENT-POLICY-AND-SKILLS-20260906-130.md)；工位评测与完整治理后续完成 |
-| [RB-49](#rb-49) | 后台提示词管理 | RB-17、RB-48 | 已定（本批范围） | 部分实现 | 部分实现 | 本批通过 | 已发布 | [第130批](../coauthoring-v7/docs/worklists/AGENT-POLICY-AND-SKILLS-20260906-130.md)；工位评测与完整治理后续完成 |
+| [RB-48](#rb-48) | 后台成员、模型与任务策略 | RB-16、RB-38 | 已定 | 开发中 | 开发中 | 验收中 | 已发布 | [第132批](../coauthoring-v7/docs/worklists/OPENING-MODEL-ADMISSION-20260906-132.md)；本批56身份/绑定与7模型开书评测已通过上线；整体未完成，候选完整准入及其他节点后续 |
+| [RB-48.1](#rb-48-1) | 后台Agent工具、执行流程与输出合同 | RB-48 | 已定 | 开发中 | 开发中 | 验收中 | 已发布 | [第130批](../coauthoring-v7/docs/worklists/AGENT-POLICY-AND-SKILLS-20260906-130.md)；本批通过并发布，整体工位评测与完整治理后续完成 |
+| [RB-49](#rb-49) | 后台提示词管理 | RB-17、RB-48 | 已定 | 开发中 | 开发中 | 验收中 | 已发布 | [第130批](../coauthoring-v7/docs/worklists/AGENT-POLICY-AND-SKILLS-20260906-130.md)；本批通过并发布，整体工位评测与完整治理后续完成 |
 | [RB-49.1](#rb-49-1) | 后台上下文管理与编译策略 | RB-17、RB-49 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | [第97批范围核查](../coauthoring-v7/docs/worklists/REBUILD-MANAGEMENT-COVERAGE-20260905-97.md) |
 | [RB-49.2](#rb-49-2) | 后台资料包管理与任务取证 | RB-49.1、RB-46 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | [第97批范围核查](../coauthoring-v7/docs/worklists/REBUILD-MANAGEMENT-COVERAGE-20260905-97.md) |
 | [RB-49.3](#rb-49-3) | 后台检索、切片与索引管理 | RB-49.1、RB-31 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | [第97批范围核查](../coauthoring-v7/docs/worklists/REBUILD-MANAGEMENT-COVERAGE-20260905-97.md) |
