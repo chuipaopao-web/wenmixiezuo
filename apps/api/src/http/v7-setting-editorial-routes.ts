@@ -90,7 +90,7 @@ export async function registerV7SettingEditorialRoutes(
       throw error;
     }
   });
-  app.put<{ Params: { bookId: string }; Body: { selectedItemKeys?: unknown; customItems?: unknown } }>('/api/v1/v7/books/:bookId/setting-selection', async (request) => {
+  app.put<{ Params: { bookId: string }; Body: { designMemberKey?: unknown; selectedItemKeys?: unknown; customItems?: unknown } }>('/api/v1/v7/books/:bookId/setting-selection', async (request) => {
     const resolved = scope(request, request.params.bookId);
     return success(service.resolveSelection(resolved.ownerId, resolved.bookId, request.body ?? {}), request.id);
   });

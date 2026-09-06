@@ -1,5 +1,4 @@
 import { notifyAuthorAuthenticationRequired } from './account-api';
-import { authorApiUrl, authorAssetUrl } from './author-api-origin';
 
 export type OpeningChannel = 'male' | 'female';
 export type OpeningPublishingPlatform = 'fanqie' | 'qidian' | 'mainstream';
@@ -206,14 +205,6 @@ export interface BookRecord {
   updatedAt: string;
 }
 
-interface BookListEnvelope extends AuthorApiErrorEnvelope {
-  data?: unknown;
-  meta?: {
-    requestId?: unknown;
-    nextCursor?: unknown;
-  };
-}
-
 export interface BookProfile {
   title: string;
   channel: '男频' | '女频';
@@ -380,9 +371,7 @@ export class AuthorApiError extends Error {
   }
 }
 
-interface AuthorApiErrorEnvelope {
-  error?: { message?: string; retryable?: boolean };
-}
+const API_ORIGIN = (import.meta.env.VITE_API_ORIGIN as string | undefined)?.replace(/\/$/u, '') ?? '';
 
 function boundedRequestSignal(parent: AbortSignal | null | undefined, timeoutMs: number): {
   signal: AbortSignal; dispose: () => void;
@@ -401,22 +390,11 @@ function boundedRequestSignal(parent: AbortSignal | null | undefined, timeoutMs:
   };
 }
 
-function authorApiErrorForResponse(response: Response, body: AuthorApiErrorEnvelope | null): AuthorApiError {
-  if (response.status === 401) notifyAuthorAuthenticationRequired();
-  return new AuthorApiError(
-    body?.error?.message ?? (response.status >= 500
-      ? '文秘写作暂时没有响应，请稍后重试。'
-      : '这次请求没有完成，请稍后重试。'),
-    body?.error?.retryable ?? response.status >= 500,
-    response.status
-  );
-}
-
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   const bounded = boundedRequestSignal(init?.signal, 60_000);
   try {
-    response = await fetch(authorApiUrl(path), {
+    response = await fetch(`${API_ORIGIN}${path}`, {
       ...init,
       signal: bounded.signal,
       credentials: 'include',
@@ -431,15 +409,25 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } finally {
     bounded.dispose();
   }
-  const body = await response.json().catch(() => null) as ({ data?: T } & AuthorApiErrorEnvelope) | null;
+  const body = await response.json().catch(() => null) as {
+    data?: T;
+    error?: { message?: string; retryable?: boolean };
+  } | null;
   if (!response.ok || body?.data === undefined) {
-    throw authorApiErrorForResponse(response, body);
+    if (response.status === 401) notifyAuthorAuthenticationRequired();
+    throw new AuthorApiError(
+      body?.error?.message ?? (response.status >= 500
+        ? '文秘写作暂时没有响应，请稍后重试。'
+        : '这次请求没有完成，请稍后重试。'),
+      body?.error?.retryable ?? response.status >= 500,
+      response.status
+    );
   }
   return body.data;
 }
 
 export function apiAssetUrl(path: string): string {
-  return authorAssetUrl(path);
+  return path.startsWith('/') ? `${API_ORIGIN}${path}` : path;
 }
 
 export function fetchOpeningTaxonomy(signal?: AbortSignal): Promise<OpeningTaxonomy> {
@@ -563,91 +551,8 @@ export function confirmOpeningBook(input: {
   return request('/api/v1/v7/opening-books', { method: 'POST', body: JSON.stringify(input) });
 }
 
-function bookListProtocolError(): AuthorApiError {
-  return new AuthorApiError('文秘写作暂时没有响应，请稍后重试。', true, 502);
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted !== true) return;
-  throw signal.reason instanceof Error
-    ? signal.reason
-    : new DOMException('请求已取消', 'AbortError');
-}
-
-function assertBookRecord(value: unknown): asserts value is BookRecord {
-  if (value === null || typeof value !== 'object') throw bookListProtocolError();
-  const record = value as Partial<BookRecord>;
-  if (
-    typeof record.bookId !== 'string' || record.bookId.length === 0
-    || typeof record.title !== 'string' || record.title.trim().length === 0
-    || (record.status !== 'active' && record.status !== 'archived')
-    || typeof record.version !== 'number' || !Number.isInteger(record.version) || record.version < 1 || record.version > 2_147_483_647
-    || typeof record.updatedAt !== 'string' || record.updatedAt.trim().length === 0 || Number.isNaN(Date.parse(record.updatedAt))
-  ) {
-    throw bookListProtocolError();
-  }
-}
-
-function normalizeBookListEnvelope(envelope: BookListEnvelope | null): { books: BookRecord[]; nextCursor: string | null } {
-  if (envelope === null || typeof envelope !== 'object' || !Array.isArray(envelope.data)) throw bookListProtocolError();
-  if (envelope.meta === null || typeof envelope.meta !== 'object') throw bookListProtocolError();
-  if (typeof envelope.meta.requestId !== 'string' || envelope.meta.requestId.length === 0) throw bookListProtocolError();
-  if (envelope.meta.nextCursor !== null && typeof envelope.meta.nextCursor !== 'string') throw bookListProtocolError();
-  if (envelope.meta.nextCursor !== null && (envelope.meta.nextCursor.length === 0 || envelope.meta.nextCursor.length > 2_048)) {
-    throw bookListProtocolError();
-  }
-  for (const record of envelope.data) assertBookRecord(record);
-  if (envelope.data.length === 0 && envelope.meta.nextCursor !== null) throw bookListProtocolError();
-  return { books: envelope.data, nextCursor: envelope.meta.nextCursor };
-}
-
-async function fetchBookPage(cursor: string | null, signal: AbortSignal | undefined): Promise<{ books: BookRecord[]; nextCursor: string | null }> {
-  throwIfAborted(signal);
-  const path = cursor === null
-    ? '/api/v1/v7/books'
-    : `/api/v1/v7/books?cursor=${encodeURIComponent(cursor)}`;
-  const bounded = boundedRequestSignal(signal, 60_000);
-  try {
-    let response: Response;
-    try {
-      response = await fetch(authorApiUrl(path), {
-        signal: bounded.signal,
-        credentials: 'include',
-        headers: { 'x-wenmi-author-projection': 'clean-v1' }
-      });
-    } catch {
-      throwIfAborted(signal);
-      throw new AuthorApiError('暂时连接不上文秘写作，请检查网络后重试。', true);
-    }
-    throwIfAborted(signal);
-    const body = await response.json().catch(() => null) as BookListEnvelope | null;
-    throwIfAborted(signal);
-    if (!response.ok) throw authorApiErrorForResponse(response, body);
-    return normalizeBookListEnvelope(body);
-  } finally {
-    bounded.dispose();
-  }
-}
-
-export async function fetchBooks(signal?: AbortSignal): Promise<BookRecord[]> {
-  const books: BookRecord[] = [];
-  const seenBookIds = new Set<string>();
-  const seenCursors = new Set<string>();
-  let cursor: string | null = null;
-  for (let page = 0; page < 1_000; page += 1) {
-    const result = await fetchBookPage(cursor, signal);
-    for (const book of result.books) {
-      if (seenBookIds.has(book.bookId)) throw bookListProtocolError();
-      seenBookIds.add(book.bookId);
-      books.push(book);
-    }
-    throwIfAborted(signal);
-    if (result.nextCursor === null) return books;
-    if (seenCursors.has(result.nextCursor)) throw bookListProtocolError();
-    seenCursors.add(result.nextCursor);
-    cursor = result.nextCursor;
-  }
-  throw bookListProtocolError();
+export function fetchBooks(signal?: AbortSignal): Promise<BookRecord[]> {
+  return request('/api/v1/v7/books', signal === undefined ? undefined : { signal });
 }
 
 export function archiveBook(bookId: string, expectedVersion: number): Promise<BookRecord> {
@@ -742,6 +647,7 @@ export interface SettingItemView {
   storyConsequences: string[]; issues: SettingIssue[]; suggestions: string[]; revision: number;
 }
 export interface SettingBatchView {
+  leadMemberKey?: string;
   batchId: string; status: 'queued' | 'working' | 'awaiting_author' | 'completed' | 'partially_failed';
   statusText: string; progress: { completed: number; total: number; percent: number };
   members: SettingMemberView[]; items: SettingItemView[]; retryable: boolean; restartable: boolean; createdAt: string; updatedAt: string;
@@ -879,7 +785,7 @@ export function retrySettingRecommendation(bookId: string): Promise<SettingCatal
     method: 'POST', body: JSON.stringify({})
   }).then(normalizeSettingCatalogRecommendationView);
 }
-export function createSettingBatch(bookId: string, input: { selectedItemKeys: string[]; customItems: Array<{ label: string; prompt: string }>; authorNotes: Record<string, string>; }): Promise<SettingBatchView> {
+export function createSettingBatch(bookId: string, input: { designMemberKey?: string; selectedItemKeys: string[]; customItems: Array<{ label: string; prompt: string }>; authorNotes: Record<string, string>; }): Promise<SettingBatchView> {
   return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-batches`, { method: 'POST', body: JSON.stringify({ ...input, idempotencyKey: newActionKey('setting-batch') }) });
 }
 export function fetchSettingBatch(bookId: string, batchId: string, signal?: AbortSignal): Promise<SettingBatchView> {

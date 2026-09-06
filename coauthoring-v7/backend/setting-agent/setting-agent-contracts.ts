@@ -26,7 +26,7 @@ export interface V7SettingCatalogItem {
 }
 
 export interface V7SettingContextSource {
-  sourceType: 'opening_profile' | 'confirmed_setting' | 'author_note' | 'catalog_contract';
+  sourceType: 'opening_profile' | 'confirmed_setting' | 'author_note' | 'catalog_contract' | 'setting_candidate';
   sourceId: string;
   version: number;
   hash: string;
@@ -39,6 +39,8 @@ export interface V7SettingContextPack {
   openingVersion: number;
   openingSummary: string;
   confirmedSettings: Array<{ itemKey: string; label: string; content: string; revision: number }>;
+  /** Same-batch working drafts; never formal setting authority. */
+  candidateSettings?: Array<{ itemKey: string; label: string; content: string; revision: number }>;
   authorNote: string;
   itemContract: { label: string; prompt: string };
   sources: V7SettingContextSource[];
@@ -106,6 +108,7 @@ export interface V7SettingItemView {
 }
 
 export interface V7SettingBatchView {
+  leadMemberKey?: string;
   batchId: string;
   status: 'queued' | 'working' | 'awaiting_author' | 'completed' | 'partially_failed';
   statusText: string;

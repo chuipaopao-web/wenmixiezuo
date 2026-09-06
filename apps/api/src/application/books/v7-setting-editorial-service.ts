@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { SETTING_CONCISE_INSTRUCTION, assertConciseSetting } from '@wenmi/opening-runtime';
 import {
   V7_OPENING_MEMBERS,
   V7_SETTING_CATALOG,
@@ -89,6 +90,7 @@ const FINAL_REVIEW_PATCH_PROMPT_LIMIT = 12_000;
 const FINAL_REVIEW_PATCH_GROUP_SIZE = 4;
 
 type BatchRow = V7SettingBatchRow;
+type SettingContextInput = Omit<V7SettingContextPack, 'hash' | 'contextPolicyVersion' | 'characterCount' | 'budgetChars'>;
 type JobRow = V7SettingJobRow;
 type OutputRow = V7SettingOutputRow;
 type CurrentItemRow = V7SettingCurrentItemRow;
@@ -240,6 +242,7 @@ export class V7SettingEditorialService {
       : this.recommendationView(previousRecommendation, recommendationRow === undefined);
     const recommendedKeys = recommendation?.result?.requiredKeys ?? [];
     const batch = this.latestBatch(ownerId, bookId);
+    if (batch?.status === 'awaiting_author' && coherentSettingLead(batch) !== null) this.ensureCoherentReview(batch);
     const confirmedItems = this.currentItems(ownerId, bookId);
     const finalReviewRow = confirmedItems.length === 0
       ? undefined
@@ -378,7 +381,7 @@ export class V7SettingEditorialService {
     return this.retryRecommendation(ownerId, bookId, row.batch_id);
   }
 
-  public createFinalReview(ownerId: string, bookId: string, input: { idempotencyKey?: unknown }): V7SettingFinalReviewView {
+  public createFinalReview(ownerId: string, bookId: string, input: { idempotencyKey?: unknown }, excludedModelIds: readonly string[] = []): V7SettingFinalReviewView {
     const profile = this.profile(ownerId, bookId);
     const items = this.currentItems(ownerId, bookId);
     if (items.length === 0) throw new DomainError(errorCodes.validation, '还没有可以统一整理的设定。');
@@ -415,14 +418,15 @@ export class V7SettingEditorialService {
         return this.finalReviewView(existing);
       }
     }
-    const chief = this.availableFinalReviewChiefs()[0];
-    if (chief === undefined) throw new DomainError(errorCodes.validation, '主编们暂时都无法接单，请稍后再试。', {}, false, 409);
+    const chief = this.availableFinalReviewChiefs().find((member) => !excludedModelIds.includes(member.model.modelId));
+    if (chief === undefined && excludedModelIds.length === 0) throw new DomainError(errorCodes.validation, '主编们暂时都无法接单，请稍后再试。', {}, false, 409);
     const now = this.clock.now().toISOString();
     const taskId = this.ids.next();
     const state: FinalReviewState = {
       taskKind: 'batch_final_review', phase: 'preparing', progress: 5,
-      assignedMemberKey: chief.memberKey, attemptedMemberKeys: [],
-      publicMessage: `${chief.displayName}正在准备统一核对全部设定。`
+      ...(excludedModelIds.length > 0 ? { excludedModelIds: [...excludedModelIds] } : {}),
+      assignedMemberKey: chief?.memberKey ?? null, attemptedMemberKeys: [],
+      publicMessage: chief ? `${chief.displayName}正在准备统一核对全部设定。` : '设计结果已保存，正在查找可独立检查的主编。'
     };
     this.repository.createFinalReviewTask({
       taskId, ownerId, bookId, idempotencyKey, requestHash,
@@ -486,6 +490,7 @@ export class V7SettingEditorialService {
   }
 
   public createBatch(ownerId: string, bookId: string, input: {
+    designMemberKey?: unknown;
     selectedItemKeys?: unknown; customItems?: unknown; authorNotes?: unknown; idempotencyKey?: unknown;
   }): V7SettingBatchView {
     const profile = this.profile(ownerId, bookId);
@@ -495,7 +500,9 @@ export class V7SettingEditorialService {
     const requestedItems = [...selection.selectedItems, ...selection.customItems];
     if (requestedItems.length === 0) throw new DomainError(errorCodes.validation, '请至少选择一项设定。');
     if (requestedItems.length > 40) throw new DomainError(errorCodes.validation, '一次最多设计40项设定。');
-    const requestHash = hash({ itemKeys: requestedItems.map((item) => item.key), notes, openingVersion: profile.version });
+    const coherent = typeof input.designMemberKey === 'string';
+    const selectedMember = typeof input.designMemberKey === 'string' ? input.designMemberKey.trim() : '';
+    const requestHash = hash({ itemKeys: requestedItems.map((item) => item.key), notes, openingVersion: profile.version, ...(coherent ? { designMemberKey: selectedMember } : {}) });
     const existing = this.repository.findBatchByIdempotency(ownerId, bookId, idempotencyKey);
     if (existing !== undefined) {
       if (existing.request_hash !== requestHash) throw new DomainError(errorCodes.validation, '本次操作编号已经用于另一组设定，请重新操作。', {}, false, 409);
@@ -519,6 +526,11 @@ export class V7SettingEditorialService {
     assertMembershipAllowsGeneration(this.database, ownerId, now, minimumSettingReservation(initialItems.length));
     const batchId = this.ids.next();
     const roster = this.effectiveRoster();
+    const writers = roster.filter((member) => member.roleKey === 'screenwriter');
+    const lead = selectedMember ? writers.find((member) => member.memberKey === selectedMember)
+      : writers.find((member) => member.model.modelId !== 'glm-5.3') ?? writers[0];
+    if (coherent && lead === undefined) throw new DomainError(errorCodes.validation, '这位设计成员暂时无法接单，请选择另一位。', {}, false, 409);
+    const frozenRoster = roster.map((member) => ({ ...member, ...(coherent && member.memberKey === lead?.memberKey ? { settingWorkflow: 'single-lead-v139' } : {}) }));
     const openingHash = hash(profile.openingBlueprint);
     const created = this.repository.atomic(() => {
       // 幂等回放、同条目在途检查、来源版本冻结和插入处于同一个
@@ -550,7 +562,7 @@ export class V7SettingEditorialService {
           batchId, ownerId, bookId, idempotencyKey, requestHash,
           selectedItemsJson: JSON.stringify(selection.selectedItems.map((item) => item.key)),
           customItemsJson: JSON.stringify(selection.customItems), openingVersion: profile.version,
-          openingHash, rosterJson: JSON.stringify(roster), now
+          openingHash, rosterJson: JSON.stringify(frozenRoster), now
         },
         jobs: allItems.map((item) => {
           const source = this.repository.currentItem(ownerId, bookId, item.key);
@@ -572,6 +584,7 @@ export class V7SettingEditorialService {
   public getBatch(ownerId: string, bookId: string, batchId: string): V7SettingBatchView {
     const row = this.requireBatch(ownerId, bookId, batchId);
     if (row.status === 'queued' || row.status === 'working') this.start(row);
+    else if (row.status === 'awaiting_author' && coherentSettingLead(row) !== null) this.ensureCoherentReview(row);
     return this.toView(row);
   }
 
@@ -709,6 +722,11 @@ export class V7SettingEditorialService {
     assertMembershipAllowsGeneration(this.database, ownerId, now, minimumSettingReservation(restartJobs.length));
     const newBatchId = this.ids.next();
     const roster = this.effectiveRoster();
+    const priorLead = coherentSettingLead(sourceBatch);
+    const lead = roster.find((member) => member.memberKey === priorLead)
+      ?? roster.find((member) => member.roleKey === 'screenwriter');
+    const frozenRoster = priorLead === null ? roster : roster.map((member) => member.memberKey === lead?.memberKey
+      ? { ...member, settingWorkflow: 'single-lead-v139' } : member);
     const created = this.repository.atomic(() => {
       const concurrentReplay = this.repository.findBatchByIdempotency(ownerId, bookId, idempotencyKey);
       if (concurrentReplay !== undefined) return concurrentReplay;
@@ -736,7 +754,7 @@ export class V7SettingEditorialService {
           customItemsJson: JSON.stringify(itemDefinitions.filter((item) => item.source === '历史未完成设定')),
           openingVersion: profile.version,
           openingHash: hash(profile.openingBlueprint),
-          rosterJson: JSON.stringify(roster),
+          rosterJson: JSON.stringify(frozenRoster),
           now
         },
         jobs: restartJobs.map((job, index) => ({
@@ -1448,7 +1466,7 @@ export class V7SettingEditorialService {
     let chiefs: V7SettingMemberDefinition[];
     try {
       chiefs = this.executableSettingRoster(task)
-        .filter((member) => member.roleKey === 'chief_editor')
+        .filter((member) => member.roleKey === 'chief_editor' && !(state.excludedModelIds ?? []).includes(member.model.modelId))
         .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority);
     } catch (error) {
       this.repository.failFinalReview({
@@ -1509,6 +1527,24 @@ export class V7SettingEditorialService {
           items,
           this.currentSettingProjections(task.owner_id, task.book_id, items)
         );
+        const conciseReview = (state.excludedModelIds?.length ?? 0) > 0;
+        const conciseKeys = new Set(items.filter((item) => item.state !== 'confirmed' && Array.from(item.content ?? '').length <= 600).map((item) => item.itemKey));
+        const checkPatches = (patches: FinalReviewPatch[]): FinalReviewPatch[] => {
+          if (conciseReview) for (const patch of patches) if (conciseKeys.has(patch.itemKey)) assertConciseSetting({
+            content: patch.finalContent, contextSummary: patch.contextSummary, factEntries: patch.factEntries,
+            designRationale: '', storyConsequences: [], dependencies: [], risks: []
+          });
+          return patches;
+        };
+        const compactReviewPrompt = (prompt: string) => conciseReview
+          ? JSON.stringify({ ...JSON.parse(prompt), conciseDelivery: SETTING_CONCISE_INSTRUCTION, conciseItemKeys: [...conciseKeys], preservedContent: '原有较长内容不因篇幅自动改写；只修复有证据的冲突。' })
+          : prompt;
+        reviewPrompt.prompt = compactReviewPrompt(reviewPrompt.prompt);
+        const parseReview = (raw: string) => {
+          const result = parseBatchFinalReview(raw, items, reviewPrompt.allowPatches);
+          checkPatches(result.patches);
+          return result;
+        };
         const raw = await this.model(
           task.owner_id, task.book_id, task.batch_id, '__batch_final_review__', 'batch_final_review', chief,
           reviewPrompt.prompt, 12_000, 0.22, logicalTaskId,
@@ -1521,8 +1557,8 @@ export class V7SettingEditorialService {
         this.requireLeaseOwnership(task, token);
         let detectedReview: FinalReviewModelResult;
         try {
-          detectedReview = parseBatchFinalReview(raw, items, reviewPrompt.allowPatches);
-        } catch {
+          detectedReview = parseReview(raw);
+        } catch (problem) {
           const repairTaskId = `${logicalTaskId}-repair`;
           const technicalRepairTaskId = failedAttempt?.node_key === 'batch_final_review_repair'
             && failedAttempt.member_key === chief.memberKey
@@ -1530,7 +1566,7 @@ export class V7SettingEditorialService {
             : null;
           const repaired = await this.model(
             task.owner_id, task.book_id, task.batch_id, '__batch_final_review__', 'batch_final_review_repair', chief,
-            `${reviewPrompt.prompt}\n上次统一整理结果已经保留，但JSON结构没有通过合同校验。只修复JSON结构和缺失字段，不重新判断、不增加冲突、不改变原有决定：${raw}`,
+            conciseReview ? `${reviewPrompt.prompt}\n交付检查：${problem instanceof Error ? problem.message : '格式不完整'}。只修复结构或删除重复解释，保留条件、例外和数值，不增加冲突、不改变原有决定：${raw}` : `${reviewPrompt.prompt}\n上次统一整理结果已经保留，但JSON结构没有通过合同校验。只修复JSON结构和缺失字段，不重新判断、不增加冲突、不改变原有决定：${raw}`,
             12_000,
             0.1,
             technicalRepairTaskId ?? repairTaskId,
@@ -1541,12 +1577,13 @@ export class V7SettingEditorialService {
               technicalRetryTaskId: technicalRepairTaskId
             })
           );
-          detectedReview = parseBatchFinalReview(repaired, items, reviewPrompt.allowPatches);
+          detectedReview = parseReview(repaired);
         }
         const repairedPatches = [...detectedReview.patches];
         if (!reviewPrompt.allowPatches && detectedReview.conflicts.length > 0) {
           const patchPrompts = compileBatchFinalReviewPatchPrompts(profile, items, detectedReview);
           for (const [index, patchPrompt] of patchPrompts.entries()) {
+            patchPrompt.prompt = compactReviewPrompt(patchPrompt.prompt);
             const patchItemKey = `__batch_final_review_patch__:${index + 1}`;
             const failedPatch = this.repository.latestModelOutcomeForJob(
               task.owner_id, task.book_id, task.batch_id, patchItemKey, ['failed']
@@ -1571,8 +1608,8 @@ export class V7SettingEditorialService {
             );
             this.requireLeaseOwnership(task, token);
             try {
-              repairedPatches.push(...parseBatchFinalReviewPatchGroup(rawPatch, patchPrompt.itemKeys));
-            } catch {
+              repairedPatches.push(...checkPatches(parseBatchFinalReviewPatchGroup(rawPatch, patchPrompt.itemKeys)));
+            } catch (problem) {
               const patchRepairTaskId = `${patchLogicalTaskId}-repair`;
               const technicalPatchRepairTaskId = failedPatch?.node_key === 'batch_final_review_patch_repair'
                 && failedPatch.member_key === chief.memberKey
@@ -1580,7 +1617,7 @@ export class V7SettingEditorialService {
                 : null;
               const repairedPatch = await this.model(
                 task.owner_id, task.book_id, task.batch_id, patchItemKey, 'batch_final_review_patch_repair', chief,
-                `${patchPrompt.prompt}\n上次定向修订结果已经保留，但JSON结构没有通过合同校验。只修复JSON结构与缺失字段，不改变已经作出的统一决定：${rawPatch}`,
+                conciseReview ? `${patchPrompt.prompt}\n交付检查：${problem instanceof Error ? problem.message : '格式不完整'}。修复结构或删去重复解释，保留条件、例外与数值，不改变统一决定：${rawPatch}` : `${patchPrompt.prompt}\n上次定向修订结果已经保留，但JSON结构没有通过合同校验。只修复JSON结构与缺失字段，不改变已经作出的统一决定：${rawPatch}`,
                 12_000,
                 0.1,
                 technicalPatchRepairTaskId ?? patchRepairTaskId,
@@ -1597,7 +1634,7 @@ export class V7SettingEditorialService {
                 })
               );
               this.requireLeaseOwnership(task, token);
-              repairedPatches.push(...parseBatchFinalReviewPatchGroup(repairedPatch, patchPrompt.itemKeys));
+              repairedPatches.push(...checkPatches(parseBatchFinalReviewPatchGroup(repairedPatch, patchPrompt.itemKeys)));
             }
           }
         }
@@ -1930,6 +1967,9 @@ export class V7SettingEditorialService {
       // 能稳定返回结构化内容的成员，避免一个慢失败席位拖住整批设定。
       const stableWriters = writers.filter((member) => member.model.modelId.toLowerCase() !== 'glm-5.3');
       const automaticWriters = stableWriters.length > 0 ? stableWriters : writers;
+      if (coherentSettingLead(batch) !== null) {
+        await this.executeCoherentUnits(batch, jobs, roster, token);
+      } else {
       const units = this.settingWorkUnits(batch, jobs);
       const queues = automaticWriters.map((): JobRow[][] => []);
       units.forEach((unit, index) => queues[index % Math.max(1, automaticWriters.length)]?.push(unit));
@@ -1950,6 +1990,7 @@ export class V7SettingEditorialService {
         }
       }));
       if (executionError !== null) throw executionError;
+      }
       const remaining = this.jobs(batch.owner_id, batch.book_id, batch.batch_id);
       if (remaining.some((job) => job.state === 'failed')) {
         const knownFailure = this.repository.latestModelOutcomeForBatch(
@@ -1969,6 +2010,7 @@ export class V7SettingEditorialService {
         return;
       }
       this.repository.finishBatch({ ownerId: batch.owner_id, bookId: batch.book_id, batchId: batch.batch_id, token, status: 'awaiting_author', now: this.clock.now().toISOString() });
+      if (coherentSettingLead(batch) !== null) this.ensureCoherentReview(batch);
     } catch (error) {
       if (error instanceof SettingLeaseLostError) return;
       const failure = settingBatchFailure(error);
@@ -1980,6 +2022,107 @@ export class V7SettingEditorialService {
         retrySafety: failure.retrySafety,
         now: this.clock.now().toISOString()
       });
+    }
+  }
+
+
+  private requireCoherentSource(batch: BatchRow): void {
+    const profile = this.profile(batch.owner_id, batch.book_id);
+    if (profile.version !== batch.opening_version || hash(profile.openingBlueprint) !== batch.opening_hash) {
+      throw new DomainError(errorCodes.bookVersionConflict, '开书资料已更新。已完成设定已保存，请按新资料继续设计。', {}, false, 409);
+    }
+  }
+
+  private async executeCoherentUnits(batch: BatchRow, jobs: readonly JobRow[], roster: readonly V7SettingMemberDefinition[], token: string): Promise<void> {
+    const writers = roster.filter((member) => member.roleKey === 'screenwriter');
+    let lead = writers.find((member) => member.memberKey === coherentSettingLead(batch)) ?? writers[0]!;
+    // Persisted successful output decides who carries the next unit after a refresh/handoff.
+    const completed = this.jobs(batch.owner_id, batch.book_id, batch.batch_id)
+      .filter((job) => ['needs_author', 'confirmed'].includes(job.state));
+    for (const job of completed) {
+      const output = this.repository.latestOutputForJob(batch.owner_id, batch.book_id, batch.batch_id, job.item_key, 'writer_proposal');
+      lead = writers.find((member) => member.memberKey === output?.member_key) ?? lead;
+    }
+    for (const unit of this.settingWorkUnits(batch, jobs)) {
+      this.requireCoherentSource(batch);
+      if (!this.renewLease(batch, token)) throw new SettingLeaseLostError();
+      await this.runJobGroup(batch, unit, lead, roster, token);
+      const delivered = this.repository.latestOutputForJob(batch.owner_id, batch.book_id, batch.batch_id, unit[0]!.item_key, 'writer_proposal');
+      lead = writers.find((member) => member.memberKey === delivered?.member_key) ?? lead;
+    }
+  }
+
+  private ensureCoherentReview(batch: BatchRow): void {
+    const reviewKey = `setting-review-${batch.batch_id}`;
+    const previous = this.repository.findBatchByIdempotency(batch.owner_id, batch.book_id, reviewKey);
+    if (previous !== undefined) {
+      if (previous.status === 'queued' || previous.status === 'working') this.startFinalReview(previous);
+      return;
+    }
+    const items = this.currentItems(batch.owner_id, batch.book_id);
+    if (items.some((item) => item.content === null || item.state === 'failed')) return;
+    const roster = JSON.parse(batch.roster_json) as V7SettingMemberDefinition[];
+    const used = this.jobs(batch.owner_id, batch.book_id, batch.batch_id).flatMap((job) => {
+      const output = this.repository.latestOutputForJob(batch.owner_id, batch.book_id, batch.batch_id, job.item_key, 'writer_proposal');
+      const member = roster.find((entry) => entry.memberKey === output?.member_key);
+      return member === undefined ? [] : [member.model.modelId];
+    });
+    // A stable idempotency key recovers the handoff to review without restarting a failed review.
+    this.createFinalReview(batch.owner_id, batch.book_id, { idempotencyKey: reviewKey }, [...new Set(used)]);
+  }
+
+  private async coherentContextPack(batch: BatchRow, jobs: readonly JobRow[], items: readonly V7SettingCatalogItem[], lead: V7SettingMemberDefinition, token: string): Promise<V7SettingContextPack> {
+    const input = this.groupContextInput(batch.owner_id, batch.book_id, jobs, items, true);
+    const confirmed = new Set(input.confirmedSettings.map((item) => item.itemKey));
+    input.candidateSettings = [];
+    for (const previous of this.currentItems(batch.owner_id, batch.book_id)) {
+      if (previous.content === null || previous.state === 'confirmed' || confirmed.has(previous.itemKey)
+        || jobs.some((job) => job.item_key === previous.itemKey)) continue;
+      // Only current visible drafts, including author edits and completed restart checkpoints.
+      const draft = { itemKey: previous.itemKey, label: previous.label, content: previous.content, revision: previous.revision };
+      input.candidateSettings.push(draft);
+      input.sources.push({ sourceType: 'setting_candidate', sourceId: draft.itemKey, version: draft.revision, hash: hash(draft.content) });
+    }
+    try { return buildSettingContextPack(input); }
+    catch {
+      // Only the overflow path invokes relevance selection. It selects whole exact facts, never slices text.
+      const facts = [...input.confirmedSettings.map((item) => ({ ...item, authority: 'confirmed' })),
+        ...input.candidateSettings.map((item) => ({ ...item, authority: 'candidate' }))].flatMap((item, itemIndex) =>
+          item.content.split('\n').filter((line) => line.trim()).map((text, factIndex) => ({ id: `${itemIndex}:${factIndex}`, itemKey: item.itemKey, label: item.label, authority: item.authority, text })));
+      const prompt = ['整理本次设定所需事实。只选择事实ID，不改写任何事实。保留作者硬边界、当前任务直接依赖、完整条件和例外；暂不相关的细节不携带。草案只供延续本轮思路，不是正式依据。若必要事实无法容纳，返回blocked说明，不得伪称已经完整。',
+        `【开书资料】${input.openingSummary}`, `【本轮任务】${JSON.stringify(input.itemContract)}`, `【作者要求】${input.authorNote}`,
+        `选中事实总长度请控制在${Math.max(0, 10_000 - Array.from(input.openingSummary + input.authorNote + JSON.stringify(input.itemContract)).length)}字以内。`,
+        `【可选事实】${JSON.stringify(facts)}`, '只返回JSON：{"selectedFactIds":["0:0"],"blocked":false}。'].join('\n');
+      if (Array.from(prompt).length > 60_000) throw new Error('现有设定过多，无法在本轮安全整理。已保存内容保留，请分批调整设定。');
+      const writers = this.executableSettingRoster(batch).filter((member) => member.roleKey === 'screenwriter');
+      const ordered = [lead, ...writers.filter((member) => member.memberKey !== lead.memberKey)];
+      let last: unknown = new Error('本轮必要设定尚未整理完成');
+      for (const member of ordered.slice(0, MAX_HANDOFFS + 1)) {
+        try {
+          this.requireLeaseOwnership(batch, token);
+          const raw = await this.model(batch.owner_id, batch.book_id, batch.batch_id, input.itemKey, 'setting_context_select', member,
+            prompt, 2_000, 0.2, `${batch.batch_id}-context-${input.itemKey}-${member.memberKey}`,
+            settingModelInvocation({ taskKind: 'setting_design', operationMode: 'fresh', sourceTraces: settingContextSourceTraces(input) }));
+          const value = JSON.parse(raw.replace(/^\s*```(?:json)?\s*/u, '').replace(/\s*```\s*$/u, '')) as { selectedFactIds?: unknown; blocked?: boolean };
+          if (value.blocked || !Array.isArray(value.selectedFactIds) || value.selectedFactIds.length === 0) throw new Error('必要事实尚未整理完整');
+          const selected = new Set(value.selectedFactIds);
+          if ([...selected].some((id) => !facts.some((fact) => fact.id === id))) throw new Error('资料整理引用了不存在的事实');
+          const project = (entries: typeof input.confirmedSettings, authority: string) => entries.flatMap((item) => {
+            const content = facts.filter((fact) => selected.has(fact.id) && fact.itemKey === item.itemKey && fact.authority === authority).map((fact) => fact.text).join('\n');
+            return content ? [{ ...item, content }] : [];
+          });
+          const next = { ...input, confirmedSettings: project(input.confirmedSettings, 'confirmed'), candidateSettings: project(input.candidateSettings!, 'candidate') };
+          next.sources = input.sources.filter((source) => source.sourceType === 'confirmed_setting'
+            ? next.confirmedSettings.some((item) => item.itemKey === source.sourceId)
+            : source.sourceType === 'setting_candidate'
+              ? next.candidateSettings.some((item) => item.itemKey === source.sourceId) : true);
+          return buildSettingContextPack(next);
+        } catch (error) {
+          if (error instanceof SettingLeaseLostError || isSettingPreDispatchFailure(error) || settingOutcomeUnknown(error)) throw error;
+          last = error;
+        }
+      }
+      throw last;
     }
   }
 
@@ -2055,7 +2198,10 @@ export class V7SettingEditorialService {
         );
       }
     }
-    const pack = this.groupContextPack(batch.owner_id, batch.book_id, jobs, items);
+    const concise = coherentSettingLead(batch) !== null;
+    const pack = concise
+      ? await this.coherentContextPack(batch, jobs, items, initialWriter, leaseToken)
+      : buildSettingContextPack(this.groupContextInput(batch.owner_id, batch.book_id, jobs, items));
     const manifest = {
       sources: pack.sources,
       openingVersion: pack.openingVersion,
@@ -2087,7 +2233,12 @@ export class V7SettingEditorialService {
       label: items[index]!.label,
       prompt: items[index]!.prompt,
       authorNote: job.author_note
-    })));
+    })), concise) + (concise ? `\n${SETTING_CONCISE_INSTRUCTION}` : '');
+    const delivery = (raw: string) => {
+      const result = parseSettingGroupProposals(raw, jobs.map((job) => job.item_key));
+      if (concise) for (const item of result) assertConciseSetting(item.proposal);
+      return result;
+    };
     for (const candidate of ordered.slice(0, MAX_HANDOFFS + 1)) {
       for (const job of jobs) this.markWorking(job, candidate);
       const logicalTaskId = `${batch.batch_id}-group-${groupKey}-writer-${candidate.memberKey}`;
@@ -2101,12 +2252,12 @@ export class V7SettingEditorialService {
         );
         let parsed: ReturnType<typeof parseSettingGroupProposals>;
         let resultTaskId = logicalTaskId;
-        try { parsed = parseSettingGroupProposals(output, jobs.map((job) => job.item_key)); }
-        catch {
+        try { parsed = delivery(output); }
+        catch (problem) {
           resultTaskId = `${logicalTaskId}-repair`;
           const repaired = await this.model(
             batch.owner_id, batch.book_id, batch.batch_id, `__setting_group__:${groupKey}`, 'writer_group_repair', candidate,
-            `${prompt}\n上次输出格式不完整。只补齐缺失条目和JSON字段，不改变已经设计的内容：${output}`,
+            `${prompt}\n交付检查：${problem instanceof Error ? problem.message : '格式不完整'}。修复结构；若篇幅超限则删除重复解释，保留规则、条件、例外、代价和数值，不新增设定：${output}`,
             10_000, 0.4, resultTaskId,
             settingModelInvocation({
               taskKind: 'setting_design', operationMode: 'repair',
@@ -2114,9 +2265,10 @@ export class V7SettingEditorialService {
               sourceTraces: settingContextSourceTraces(pack)
             })
           );
-          parsed = parseSettingGroupProposals(repaired, jobs.map((job) => job.item_key));
+          parsed = delivery(repaired);
         }
         this.requireLeaseOwnership(batch, leaseToken);
+        if (concise) this.requireCoherentSource(batch);
         this.repository.atomic(() => {
           this.requireLeaseOwnership(batch, leaseToken);
           for (const result of parsed) {
@@ -2155,19 +2307,24 @@ export class V7SettingEditorialService {
         }
       }
     }
+    if (concise) {
+      for (const job of jobs) this.failJob(job, '本组成员已接续尝试，仍未交付合格结果；其他已完成设定已保存。');
+      throw new Error('本组已自动换成员并修订，仍未通过交付检查。已完成内容保留，可继续未完成部分。');
+    }
     // 分组调用已知失败时，保留原有逐项恢复路径，避免整组内容一起丢失。
     for (const [index, job] of jobs.entries()) await this.runJob(batch, job, writers[index % writers.length]!, roster, leaseToken);
   }
 
-  private groupContextPack(
+  private groupContextInput(
     ownerId: string,
     bookId: string,
     jobs: readonly JobRow[],
-    items: readonly V7SettingCatalogItem[]
-  ): V7SettingContextPack {
+    items: readonly V7SettingCatalogItem[],
+    allowExactLegacy = false
+  ): SettingContextInput {
     const profile = this.profile(ownerId, bookId);
     const projections = this.repository.confirmedVersions(ownerId, bookId).map(confirmedSettingProjection);
-    requireUsableSettingProjections(projections);
+    if (!allowExactLegacy) requireUsableSettingProjections(projections);
     const confirmedSettings = projections.map((projection) => ({
       itemKey: projection.itemKey,
       label: projection.label,
@@ -2180,7 +2337,7 @@ export class V7SettingEditorialService {
     const contractText = JSON.stringify(contracts);
     const groupId = `group-${hash(jobs.map((job) => job.item_key)).slice(0, 16)}`;
     const authorNote = jobs.filter((job) => job.author_note.trim()).map((job) => `${job.item_label}：${job.author_note}`).join('\n');
-    return buildSettingContextPack({
+    return {
       ownerId,
       bookId,
       itemKey: groupId,
@@ -2195,7 +2352,7 @@ export class V7SettingEditorialService {
         ...(authorNote ? [{ sourceType: 'author_note' as const, sourceId: groupId, version: 1, hash: hash(authorNote) }] : []),
         { sourceType: 'catalog_contract', sourceId: groupId, version: 1, hash: hash(contractText) }
       ]
-    });
+    };
   }
 
   private renewLease(batch: BatchRow, token: string): boolean {
@@ -3045,6 +3202,7 @@ export class V7SettingEditorialService {
       )?.active_version_id == null);
     return {
       batchId: current.batch_id, status: current.status,
+      ...(coherentSettingLead(current) === null ? {} : { leadMemberKey: coherentSettingLead(current)! }),
       statusText: settingBatchStatusText(current, done),
       progress: { completed: done, total: jobs.length, percent: jobs.length === 0 ? 0 : Math.round(done * 100 / jobs.length) },
       members: this.membersView(batch.owner_id, batch.book_id, batch.batch_id), items: jobs.map((job) => this.jobView(job)),
@@ -3264,12 +3422,14 @@ function settingModelInvocation(input: {
   };
 }
 
-function settingContextSourceTraces(pack: V7SettingContextPack): V7ContextSourceTrace[] {
+function settingContextSourceTraces(pack: SettingContextInput): V7ContextSourceTrace[] {
   return pack.sources.map((source) => {
     const detail = source.sourceType === 'opening_profile'
       ? pack.openingSummary
       : source.sourceType === 'confirmed_setting'
         ? pack.confirmedSettings.find((item) => item.itemKey === source.sourceId)?.content ?? ''
+        : source.sourceType === 'setting_candidate'
+          ? pack.candidateSettings?.find((item) => item.itemKey === source.sourceId)?.content ?? ''
         : source.sourceType === 'author_note'
           ? pack.authorNote
           : pack.itemContract.prompt;
@@ -3280,13 +3440,13 @@ function settingContextSourceTraces(pack: V7SettingContextPack): V7ContextSource
       sourceType: source.sourceType,
       sourceId: source.sourceId,
       sourceVersion: String(source.version),
-      authority: source.sourceType === 'author_note'
+      authority: source.sourceType === 'setting_candidate' ? 'candidate' : source.sourceType === 'author_note'
         ? 'author_source'
         : source.sourceType === 'catalog_contract'
           ? 'reference'
           : 'confirmed',
       decision: 'included',
-      reason: source.sourceType === 'author_note'
+      reason: source.sourceType === 'setting_candidate' ? '本轮已完成但未确认的设计草案，用于跨组一致性；不构成正式设定。' : source.sourceType === 'author_note'
         ? '作者本轮明确补充，必须参与本次设定判断。'
         : source.sourceType === 'catalog_contract'
           ? '当前设定条目的职责边界。'
@@ -3695,6 +3855,7 @@ function finalReviewState(row: BatchRow): FinalReviewState {
   if (parsed.taskKind !== 'batch_final_review') throw new Error('统一整理任务状态损坏');
   return {
     taskKind: 'batch_final_review',
+    ...(Array.isArray(parsed.excludedModelIds) ? { excludedModelIds: parsed.excludedModelIds.filter((id): id is string => typeof id === 'string') } : {}),
     phase: parsed.phase ?? 'preparing',
     progress: Number.isFinite(parsed.progress) ? Number(parsed.progress) : 0,
     assignedMemberKey: typeof parsed.assignedMemberKey === 'string' ? parsed.assignedMemberKey : null,
@@ -3945,9 +4106,14 @@ function settingBatchFailure(error: unknown): SettingBatchFailure {
   };
 }
 
+function coherentSettingLead(batch: BatchRow): string | null {
+  const roster = JSON.parse(batch.roster_json) as Array<{ memberKey?: string; settingWorkflow?: string }>;
+  return roster.find((member) => member.settingWorkflow === 'single-lead-v139')?.memberKey ?? null;
+}
+
 function settingBatchStatusText(batch: BatchRow, completedCount: number): string {
   if (batch.status === 'queued') return '老板稍等，大家正在准备';
-  if (batch.status === 'working') return '亲爱的，编辑部正在加急设计中';
+  if (batch.status === 'working') return '我正在逐组完成设定，做好一组就保存一组。';
   if (batch.status === 'awaiting_author') return '这一轮已经整理好，请老板看看';
   if (batch.status === 'completed') return '这一轮已经确认好啦';
   const failure = settingBatchFailureFromRow(batch);
@@ -3956,12 +4122,12 @@ function settingBatchStatusText(batch: BatchRow, completedCount: number): string
 }
 
 function settingBatchFailureFromRow(batch: BatchRow): string {
-  if (batch.error_code === errorCodes.membershipRequired) return '对不起，当前会员暂不包含这项创作服务；';
-  if (batch.error_code === errorCodes.membershipExpired) return '对不起，会员已经到期；';
-  if (batch.error_code === errorCodes.membershipQuotaExhausted) return '对不起，本期剩余算力不足以继续这一轮；';
-  if (batch.error_code === errorCodes.budgetExhausted) return '对不起，本书当前创作预算不足；';
-  if (batch.retry_safety === 'result_unknown') return '对不起，有一项上次结果还不能确认，系统已停止自动重试；';
-  return '对不起，这一轮没有全部完成；';
+  if (batch.error_code === errorCodes.membershipRequired) return '当前会员暂不包含这项创作服务；';
+  if (batch.error_code === errorCodes.membershipExpired) return '会员已经到期；';
+  if (batch.error_code === errorCodes.membershipQuotaExhausted) return '本期剩余算力不足以继续，补充额度后可接着完成；';
+  if (batch.error_code === errorCodes.budgetExhausted) return '本书当前创作预算不足，调整预算后可继续；';
+  if (batch.retry_safety === 'result_unknown') return '上次调用结果还未确认，为避免重复扣量暂缓新调用；';
+  return '自动接续后仍有条目未完成，可继续处理剩余部分；';
 }
 
 function legacyMembershipGateMemberEvent(reason: string | null): boolean {
@@ -4132,7 +4298,7 @@ function scopedActionKey(scope: 'redesign' | 'fusion' | 'author' | 'restart', va
 function integer(value: unknown, label: string): number { if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) throw new DomainError(errorCodes.validation, `${label}无效。`); return value; }
 function requiredText(value: unknown, label: string, min: number, max: number): string { const text = typeof value === 'string' ? value.trim() : ''; const length = Array.from(text).length; if (length < min || length > max) throw new DomainError(errorCodes.validation, `${label}需要${min}至${max}字。`); return text; }
 function hash(value: unknown): string { return createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex'); }
-function stateText(state: V7SettingItemView['state']): string { return ({ queued: '正在安排人手', working: '亲爱的，我正在加急设计中', chief_review: '老板稍等，主编正在仔细检查', needs_author: '已经整理好，请您看看', confirmed: '已确认', failed: '对不起，这项设定这次没有完成，请重新设计' })[state]; }
+function stateText(state: V7SettingItemView['state']): string { return ({ queued: '等待设计', working: '正在设计', chief_review: '正在核对', needs_author: '已整理好，请您看看', confirmed: '已确认', failed: '这项尚未完成，已完成内容保留，可继续处理剩余条目' })[state]; }
 function authorProposal(proposal: V7WriterProposal): V7WriterProposal {
   return {
     content: projectSettingFinalContent(proposal.content),

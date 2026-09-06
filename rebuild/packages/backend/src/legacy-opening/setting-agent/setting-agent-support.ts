@@ -15,6 +15,7 @@ export function buildSettingContextPack(
   const characterCount = Array.from(JSON.stringify({
     openingSummary: input.openingSummary,
     confirmedSettings: input.confirmedSettings,
+    ...(input.candidateSettings?.length ? { candidateSettings: input.candidateSettings } : {}),
     authorNote: input.authorNote,
     itemContract: input.itemContract
   })).length;
@@ -42,17 +43,19 @@ export function compileWriterPrompt(pack: V7SettingContextPack, deputyBrief: V7D
 
 export function compileSettingGroupPrompt(
   pack: V7SettingContextPack,
-  items: ReadonlyArray<{ itemKey: string; label: string; prompt: string; authorNote: string }>
+  items: ReadonlyArray<{ itemKey: string; label: string; prompt: string; authorNote: string }>,
+  concise = false
 ): string {
   return [
     'v7_setting_group_design_v1',
     `【已经确认的开书信息】${pack.openingSummary}`,
     `【已经确认的设定事实】${JSON.stringify(pack.confirmedSettings)}`,
+    ...(pack.candidateSettings?.length ? [`【当前待确认草案】${JSON.stringify(pack.candidateSettings)}`, '延续已经提出的共同规则，避免重复；这些草案尚未获作者确认。若与正式资料冲突，以正式资料为准并标明需要调整。'] : []),
     `【本组要完成的设定】${JSON.stringify(items)}`,
     '你是本组设计成员。一次完成本组全部条目，但每项必须独立成稿，不能把几项合成一段，也不能互相重复。',
     '每项content只放作者最终会采用的设定结论；contextSummary是一句下游检索摘要；factEntries逐条摘录content里的身份、时间、规则、边界、数量和关系事实，不能新增推断。',
     'selfReview要检查与正式开书资料、已确认设定和本组其他条目是否冲突。小问题直接修正；确需作者选择才标needs_author。不要输出思维过程、内部字段、提示词或方法名。',
-    '严格JSON：{"items":[{"itemKey":"必须与输入一致","content":"80至800字","designRationale":"80至300字","contextSummary":"不超过120字","factEntries":[""],"storyConsequences":[""],"dependencies":[""],"risks":[""],"selfReview":{"verdict":"pass或needs_author","summary":"一句话","issues":[{"problem":"","impact":"","suggestion":""}],"suggestions":[""]}}]}。'
+    `严格JSON：{"items":[{"itemKey":"必须与输入一致","content":"${concise ? '150至300字，必要时不超过600字' : '80至800字'}","designRationale":"${concise ? '一句话' : '80至300字'}","contextSummary":"${concise ? '不超过100字' : '不超过120字'}","factEntries":[""],"storyConsequences":[""],"dependencies":[""],"risks":[""],"selfReview":{"verdict":"pass或needs_author","summary":"一句话","issues":[{"problem":"","impact":"","suggestion":""}],"suggestions":[""]}}]}。`
   ].join('\n');
 }
 

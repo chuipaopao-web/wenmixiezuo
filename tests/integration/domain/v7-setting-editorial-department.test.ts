@@ -13,6 +13,118 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7设定编辑部', () => {
+  it.each(['normal', 'handoff', 'repair', 'unknown'] as const)('精练设定 %s：同人统筹、草案接续与自动独立审查', async (mode) => {
+    context = createTestContext('wenmi-r139-setting-');
+    const delegate = new SettingResolver(false);
+    const calls: Array<{member: string; model: string; prompt: string}> = [];
+    let first = true;
+    const resolver: V7OpeningModelAdapterResolver = { resolve(provider, modelId, purpose) {
+      const adapter = delegate.resolve(provider, modelId, purpose);
+      return { provider, modelId, generate: async (request, signal) => {
+        const prompt = settingStagePrompt(request.prompt);
+        calls.push({member: request.agentId, model: modelId, prompt});
+        if (prompt.includes('v7_setting_group_design_v1')) {
+          if (first && mode === 'unknown') { first = false; throw new ModelAdapterError('probe unknown', 'technical_failure', true, 504, true); }
+          if (first && mode === 'handoff') { first = false; throw new Error('probe known failure'); }
+          const value = JSON.parse(groupedSettingOutput(prompt));
+          for (const item of value.items) {
+            item.content += '渡船每次最多12人，夜间停航；只有官署急令可破例。';
+            item.factEntries.push('渡船每次最多12人，夜间停航；只有官署急令可破例。');
+            if (first && mode === 'repair') item.content += '重复的解释。'.repeat(110);
+          }
+          first = false;
+          return {provider, modelId, output: JSON.stringify(value), inputTokens: 100, outputTokens: 100, cashCostCny: 0, state: 'succeeded'};
+        }
+        if (prompt.includes('v7_setting_batch_final_review_v1')) return {
+          provider, modelId, output: JSON.stringify({verdict: 'pass', summary: '渡船人数、禁航条件和例外一致。', unifiedDecisions: [], conflicts: [], patches: []}),
+          inputTokens: 100, outputTokens: 100, cashCostCny: 0, state: 'succeeded'
+        };
+        return adapter.generate(request, signal);
+      }};
+    }};
+    const app = await createServer(context.config, context.database, {v7OpeningModelAdapters: resolver});
+    try {
+      const cookie = await register(app, 'r139-' + mode + '@example.test', '设定验收作者', 'strong-pass-r139');
+      const bookId = await createBook(app, cookie, '江城渡船', 'r139-book-' + mode, '历史脑洞');
+      const url = '/api/v1/v7/books/' + bookId;
+      const created = await app.inject({method: 'POST', url: url + '/setting-batches', headers: {...HEADERS, cookie},
+        payload: {selectedItemKeys: ['world-stage', 'geography'], designMemberKey: 'planner-deepseek-v4-pro', idempotencyKey: 'r139-batch-' + mode}});
+      expect(created.statusCode, created.body).toBe(200);
+      const batchId = created.json().data.batchId;
+      const completed = await pollBatch(app, cookie, bookId, batchId);
+      const designCalls = calls.filter(call => call.prompt.includes('v7_setting_group_design_v1'));
+      if (mode === 'unknown') {
+        expect(completed.status).toBe('partially_failed');
+        expect(designCalls).toHaveLength(1);
+        expect(completed.retryable).toBe(false);
+        expect(calls.some(call => call.prompt.includes('v7_setting_batch_final_review_v1'))).toBe(false);
+        return;
+      }
+      expect(completed.status, JSON.stringify(completed)).toBe('awaiting_author');
+      expect(completed.leadMemberKey).toBe('planner-deepseek-v4-pro');
+      expect(designCalls).toHaveLength(mode === 'normal' ? 2 : 3);
+      const deliveredCalls = mode === 'normal' ? designCalls : designCalls.slice(1);
+      expect(new Set(deliveredCalls.map(call => call.member)).size).toBe(1);
+      expect(deliveredCalls[1]!.prompt).toContain('当前待确认草案');
+      expect(deliveredCalls[1]!.prompt).toContain('渡船每次最多12人，夜间停航；只有官署急令可破例。');
+      expect(completed.items.every((item: {content: string; state: string}) => item.content.length <= 600 && item.state === 'needs_author')).toBe(true);
+      const reviewed = await pollFinalReview(app, cookie, bookId);
+      expect(reviewed.status, JSON.stringify(reviewed)).toBe('ready');
+      const reviewCalls = calls.filter(call => call.prompt.includes('v7_setting_batch_final_review_v1'));
+      expect(reviewCalls).toHaveLength(1);
+      expect(deliveredCalls.map(call => call.model)).not.toContain(reviewCalls[0]!.model);
+      const count = calls.length;
+      await app.inject({method:'GET', url: url + '/setting-batches/' + batchId, headers:{...HEADERS, cookie}});
+      expect(calls).toHaveLength(count);
+      const rows = context.database.prepare('SELECT context_manifest_json FROM v7_setting_item_jobs WHERE batch_id=?').all(batchId) as Array<{context_manifest_json:string}>;
+      expect(rows.every(row => JSON.parse(row.context_manifest_json).characterCount <= 12000)).toBe(true);
+    } finally { await app.close(); }
+  });
+
+  it('旧长草案超出上下文时选择完整相关事实，保留原文并完成新设定', async () => {
+    context = createTestContext('wenmi-r139-context-');
+    const delegate = new SettingResolver(false);
+    let selectionCalls = 0;
+    const resolver: V7OpeningModelAdapterResolver = {resolve(provider, modelId, purpose) {
+      const adapter = delegate.resolve(provider, modelId, purpose);
+      return {provider, modelId, generate: async (request, signal) => {
+        if (request.prompt.includes('【可选事实】')) {
+          selectionCalls++;
+          return {provider, modelId, output: '{"selectedFactIds":["0:0"],"blocked":false}', inputTokens:100, outputTokens:20, cashCostCny:0, state:'succeeded'};
+        }
+        return adapter.generate(request, signal);
+      }};
+    }};
+    const app = await createServer(context.config, context.database, {v7OpeningModelAdapters:resolver});
+    try {
+      const cookie = await register(app, 'r139-context@example.test', '上下文作者', 'strong-pass-139');
+      const bookId = await createBook(app,cookie,'草案接续','r139-context-book','历史脑洞');
+      const ownerId = (context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as {owner_id:string}).owner_id;
+      for (let index=0; index<20; index++) {
+        const key='r139-draft-'+index, version='r139-version-'+index;
+        context.database.prepare(`INSERT INTO v7_setting_item_versions (version_id,owner_id,book_id,item_key,revision,status,content_json,created_by,created_at)
+          VALUES (?,?,?,?,1,'candidate',?,'author','2026-01-01T00:00:00.000Z')`).run(version,ownerId,bookId,key,JSON.stringify({
+            finalContent: ('渡船最多12人，夜间停航；官署急令例外。旧草案'+index+'：').padEnd(740,'详'),
+            contextSummary:'渡船人数与夜间禁航规则。',factEntries:['渡船最多12人，夜间停航；官署急令例外。']
+          }));
+        context.database.prepare(`INSERT INTO v7_setting_items (owner_id,book_id,item_key,item_label,group_title,item_prompt,state,active_version_id,revision,updated_at)
+          VALUES (?,?,?,?,'草案','保留完整规则','needs_author',?,1,'2026-01-01T00:00:00.000Z')`).run(ownerId,bookId,key,'待确认规则'+index,version);
+      }
+      const original=context.database.prepare('SELECT version_id,content_json FROM v7_setting_item_versions WHERE book_id=?').all(bookId);
+      const created=await app.inject({method:'POST',url:'/api/v1/v7/books/'+bookId+'/setting-batches',headers:{...HEADERS,cookie},
+        payload:{selectedItemKeys:['world-stage'],designMemberKey:'planner-deepseek-v4-pro',idempotencyKey:'r139-context-batch'}});
+      expect(created.statusCode,created.body).toBe(200);
+      const completed=await pollBatch(app,cookie,bookId,created.json().data.batchId);
+      expect(completed.status,JSON.stringify(completed)).toBe('awaiting_author');
+      expect(selectionCalls).toBe(1);
+      const prompt=delegate.prompts.find(prompt=>prompt.includes('v7_setting_group_design_v1'))!;
+      expect(prompt).toContain('渡船最多12人，夜间停航；官署急令例外。');
+      expect(prompt).not.toContain('旧草案19');
+      expect((await pollFinalReview(app,cookie,bookId)).status).toBe('ready');
+      for (const row of original as Array<{version_id:string;content_json:string}>) expect(context.database.prepare('SELECT content_json FROM v7_setting_item_versions WHERE version_id=?').get(row.version_id)).toEqual({content_json:row.content_json});
+    } finally {await app.close();}
+  });
+
   it('资料保存后新设定任务读取新版本，确认设定与旧任务冻结版本保持可追溯', async () => {
     context = createTestContext('wenmi-r138-information-setting-');
     const resolver = new SettingResolver(false);

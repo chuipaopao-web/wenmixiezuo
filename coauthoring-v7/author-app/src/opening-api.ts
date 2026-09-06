@@ -647,6 +647,7 @@ export interface SettingItemView {
   storyConsequences: string[]; issues: SettingIssue[]; suggestions: string[]; revision: number;
 }
 export interface SettingBatchView {
+  leadMemberKey?: string;
   batchId: string; status: 'queued' | 'working' | 'awaiting_author' | 'completed' | 'partially_failed';
   statusText: string; progress: { completed: number; total: number; percent: number };
   members: SettingMemberView[]; items: SettingItemView[]; retryable: boolean; restartable: boolean; createdAt: string; updatedAt: string;
@@ -784,7 +785,7 @@ export function retrySettingRecommendation(bookId: string): Promise<SettingCatal
     method: 'POST', body: JSON.stringify({})
   }).then(normalizeSettingCatalogRecommendationView);
 }
-export function createSettingBatch(bookId: string, input: { selectedItemKeys: string[]; customItems: Array<{ label: string; prompt: string }>; authorNotes: Record<string, string>; }): Promise<SettingBatchView> {
+export function createSettingBatch(bookId: string, input: { designMemberKey?: string; selectedItemKeys: string[]; customItems: Array<{ label: string; prompt: string }>; authorNotes: Record<string, string>; }): Promise<SettingBatchView> {
   return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-batches`, { method: 'POST', body: JSON.stringify({ ...input, idempotencyKey: newActionKey('setting-batch') }) });
 }
 export function fetchSettingBatch(bookId: string, batchId: string, signal?: AbortSignal): Promise<SettingBatchView> {

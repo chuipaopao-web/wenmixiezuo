@@ -25,6 +25,7 @@ export interface V7SettingRecommendationStateRow {
 }
 
 export interface V7SettingFinalReviewStateRow {
+  excludedModelIds?: string[];
   taskKind: 'batch_final_review';
   phase: 'preparing' | 'reviewing' | 'applying' | 'ready' | 'failed';
   progress: number;

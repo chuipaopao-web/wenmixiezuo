@@ -78,25 +78,19 @@ describe('V7设定页面', () => {
     expect(screen.getAllByText('世界舞台').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('设定结果')).toBeInTheDocument();
     expect(screen.queryByText(/model|provider|凭据/iu)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /设计新增1项/ }));
+    fireEvent.click(screen.getByRole('button', { name: /开始设计1项/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/setting-batches'), expect.objectContaining({ method: 'POST' })));
-    expect(await screen.findByText(/貂蝉 · 主编/)).toBeInTheDocument();
-    expect(screen.getByText('亲爱的，编辑部正在加急设计中')).toBeInTheDocument();
-    expect(screen.getByText('本轮 0/2')).toBeInTheDocument();
-    expect(screen.getByText('全书 0/2')).toBeInTheDocument();
-    expect(document.querySelector('.agent-avatar')).toHaveStyle({ backgroundPosition: '0% 0%' });
-    fireEvent.click(screen.getByRole('button', { name: '查看参与成员' }));
-    expect(screen.queryByText('西施')).not.toBeInTheDocument();
-    expect(screen.getByText('老板稍等，我正在检查世界舞台')).toBeInTheDocument();
-    expect(screen.getAllByText('亲爱的，我正在加急设计另一个条目').length).toBeGreaterThanOrEqual(1);
-    const roster = document.querySelector('.editorial-roster');
-    expect(roster).not.toBeNull();
-    expect(roster!.querySelectorAll('article')).toHaveLength(2);
-    expect(within(roster as HTMLElement).getAllByText('红玉')).toHaveLength(1);
+    expect(await screen.findByText('红玉 · 正在设计')).toBeInTheDocument();
+    expect(screen.getByText('0/2')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', {name: '设定设计进度'})).toHaveAttribute('aria-valuenow', '0');
+    expect(screen.queryByRole('button', { name: '查看参与成员' })).not.toBeInTheDocument();
+    const roster = screen.getByLabelText('本轮参与成员');
+    expect(roster.children).toHaveLength(1);
+    expect(within(roster).getByText('红玉 · 策划编剧')).toBeInTheDocument();
+    expect(roster.querySelector('.setting-lead-avatar')?.getAttribute('style')).toContain('background-image');
     expect(document.body.textContent).not.toMatch(/chief_editor|planning_writer|screenwriter/u);
-    fireEvent.click(screen.getByRole('button', { name: '收起成员' }));
-    expect(screen.queryByText('西施')).not.toBeInTheDocument();
-    expect(screen.getByText(/貂蝉 · 主编/)).toBeInTheDocument();
+    const call = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith('/setting-batches') && init?.method === 'POST');
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({designMemberKey: ''});
   });
 
   it('只有作者明确点击才创建一次主编清单任务，并显示可恢复进度', async () => {
@@ -220,8 +214,8 @@ describe('V7设定页面', () => {
     const designedLabel = screen.getAllByText('世界舞台').find((node) => node.closest('label'))?.closest('label');
     expect(designedLabel).toHaveClass('designed');
     expect(designedLabel?.querySelector('input')).toBeDisabled();
-    expect(screen.getByRole('button', { name: /设计新增1项/ })).toBeEnabled();
-    fireEvent.click(screen.getByRole('button', { name: /设计新增1项/ }));
+    expect(screen.getByRole('button', { name: /开始设计1项/ })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: /开始设计1项/ }));
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith('/setting-batches') && init?.method === 'POST');
       expect(call).toBeDefined();
@@ -234,14 +228,14 @@ describe('V7设定页面', () => {
     await screen.findByText('设定结果');
     fireEvent.click(screen.getByRole('button', { name: '打开完整设定库' }));
     const dock = screen.getByRole('group', { name: '新增设定操作' });
-    expect(within(dock).getByRole('button', { name: /设计新增1项/ })).toBeInTheDocument();
+    expect(within(dock).getByRole('button', { name: /开始设计1项/ })).toBeInTheDocument();
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).endsWith('/setting-batches') && init?.method === 'POST') {
         return new Response(JSON.stringify({ error: { message: '本周期创作算力已用完，升级会员或等待额度恢复后再继续。', retryable: false } }), { status: 403, headers: { 'content-type': 'application/json' } });
       }
       return new Response(JSON.stringify({ error: { message: '未模拟请求' } }), { status: 404, headers: { 'content-type': 'application/json' } });
     });
-    fireEvent.click(within(dock).getByRole('button', { name: /设计新增1项/ }));
+    fireEvent.click(within(dock).getByRole('button', { name: /开始设计1项/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('本周期创作算力已用完，升级会员或等待额度恢复后再继续。');
   });
 
@@ -281,7 +275,7 @@ describe('V7设定页面', () => {
     fireEvent.change(screen.getByRole('textbox'), { target: { value: '作者修改后的世界舞台方案。' } });
     fireEvent.click(screen.getByRole('button', { name: '保存并交主编复审' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/setting-items/world-stage/review-tasks'), expect.objectContaining({ method: 'POST' })));
-    expect(await screen.findByText(/貂蝉 · 主编/)).toBeInTheDocument();
+    expect(await screen.findByText('红玉 · 正在设计')).toBeInTheDocument();
     expect(screen.getAllByText('老板稍等，我正在检查世界舞台')).toHaveLength(1);
     expect(document.querySelector('.setting-active-avatar')).not.toBeNull();
   });
