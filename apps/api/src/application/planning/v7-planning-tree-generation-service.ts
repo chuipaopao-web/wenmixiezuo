@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { V7RhythmPolicyStore } from './v7-rhythm-policy-store.js';
 import {
   V7_CREATION_MEMBERS,
   buildPlanningFallbackChain,
@@ -95,7 +96,7 @@ export class V7PlanningTreeGenerationService {
   private readonly activeRuns = new Set<string>();
 
   public constructor(
-    database: DatabaseSync,
+    private readonly database: DatabaseSync,
     adapters: V7PlanningModelAdapterResolver,
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
@@ -456,7 +457,8 @@ export class V7PlanningTreeGenerationService {
       parentDirection: parentTreeVersion(focusedSnapshot) === null ? null
         : `承接冻结资料中sourceId=${parentTreeVersion(focusedSnapshot)}的已确认上层方向。`
     });
-    const referencePack = buildPlanningLayerReferencePack(run.tree_kind, planningTreeGenreFamilies(snapshot));
+    const referencePack = buildPlanningLayerReferencePack(run.tree_kind, planningTreeGenreFamilies(snapshot),
+      new V7RhythmPolicyStore(this.database).snapshot(`tree:${run.owner_id}:${run.book_id}:${run.generation_run_id}`, run.created_at));
     const prompt = planningTreeGenerationPrompt({
       treeKind: run.tree_kind, scopeId: run.scope_id,
       sourceSnapshot: {

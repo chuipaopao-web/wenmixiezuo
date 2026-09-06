@@ -4,7 +4,7 @@ import type { RebuildControlData, RebuildUnit } from '../../backend/admin/rebuil
 import { fetchRebuildControl } from './platform-api';
 import './rebuild-control.css';
 
-type Destination = 'agents' | 'prompt-context' | 'memberships' | 'issues' | 'features';
+type Destination = 'agents' | 'prompt-context' | 'rhythm' | 'memberships' | 'issues' | 'features';
 type Filter = 'all' | 'active' | 'pending' | 'accepted' | 'attention';
 
 export function unitStage(unit: RebuildUnit): string {

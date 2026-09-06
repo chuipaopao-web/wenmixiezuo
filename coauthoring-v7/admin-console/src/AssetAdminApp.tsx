@@ -41,6 +41,7 @@ import { AgentGovernancePage } from './AgentGovernancePage';
 import { CreationOperationsPage } from './CreationOperationsPage';
 import { FeatureCapabilitiesPage } from './FeatureCapabilitiesPage';
 import { RebuildControlCenter } from './RebuildControlCenter';
+import { RhythmAssetsPage } from './RhythmAssetsPage';
 
 const NAVIGATION = [
   { key: 'rebuild', label: '功能地图', icon: GitBranch, group: '产品管理' },
@@ -48,6 +49,7 @@ const NAVIGATION = [
   { key: 'features', label: '现有能力对照', icon: ClipboardText, group: '产品管理' },
   { key: 'overview', label: '资产总览', icon: House, group: '创作资产' },
   { key: 'methods', label: '叙事方法', icon: TextT, group: '创作资产' },
+  { key: 'rhythm', label: '节奏资产', icon: TreeStructure, group: '创作资产' },
   { key: 'patterns', label: '剧情模式', icon: BookOpen, group: '创作资产' },
   { key: 'recipes', label: '剧情配方', icon: List, group: '创作资产' },
   { key: 'planning', label: '分层规划', icon: TreeStructure, group: '创作资产' },
@@ -60,7 +62,7 @@ const NAVIGATION = [
   { key: 'memberships', label: '会员与收入', icon: Crown, group: '平台运营' }
 ] as const;
 
-type AdminSection = AssetSection | PlatformSection | 'agents' | 'prompt-context' | 'creation-ops' | 'features' | 'rebuild' | 'configuration';
+type AdminSection = AssetSection | PlatformSection | 'rhythm' | 'agents' | 'prompt-context' | 'creation-ops' | 'features' | 'rebuild' | 'configuration';
 
 const DEFAULT_METHOD_FILTERS: MethodFilters = { query: '', dimension: 'all', scope: 'all' };
 const DEFAULT_PATTERN_FILTERS: PatternFilters = { query: '', category: 'all', genre: 'all' };
@@ -156,6 +158,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
         {section === 'patterns' && <PatternsPage items={patterns} filters={patternFilters} onFilters={setPatternFilters} onOpen={(value) => setDetail({ kind: 'pattern', value })} onClear={clearFilters} />}
         {section === 'recipes' && <RecipesPage items={recipes} filters={recipeFilters} onFilters={setRecipeFilters} onOpen={(value) => setDetail({ kind: 'recipe', value })} onClear={clearFilters} />}
         {section === 'planning' && <PlanningPage />}
+        {section === 'rhythm' && <RhythmAssetsPage />}
         {section === 'agents' && <AgentGovernancePage />}
         {section === 'creation-ops' && <CreationOperationsPage />}
         {section === 'features' && <FeatureCapabilitiesPage />}
@@ -563,6 +566,7 @@ function sectionFromUrl(): AdminSection {
 }
 
 function sectionCapabilityLabel(section: AdminSection): string {
+  if (section === 'rhythm') return '共用配置 · 版本发布';
   if (section === 'rebuild') return '计划与运行分列';
   if (section === 'configuration') return '统一管理入口';
   if (section === 'agents' || section === 'prompt-context' || section === 'users' || section === 'issues' || section === 'memberships') return '可管理';

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { V7RhythmPolicyStore } from '../planning/v7-rhythm-policy-store.js';
 import type { DatabaseSync } from 'node:sqlite';
 import {
   V7_CREATION_CONTEXT_CHAR_BUDGETS,
@@ -15,6 +16,7 @@ import {
   v7AssetMenuEnabled,
   V7_CREATION_CONTEXT_SCHEMA,
   type PlanningLayerKey,
+  type RhythmPolicySnapshot,
   type V7ContextSourceTrace,
   type V7CreationContextPack,
   type V7CreationMethodPlan,
@@ -108,7 +110,7 @@ export class V7CreationContextCompiler {
   private readonly settingLedger: V7SettingLedgerReader;
 
   public constructor(
-    database: DatabaseSync,
+    private readonly database: DatabaseSync,
     adapters: V7CreationModelAdapterResolver,
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
@@ -385,7 +387,8 @@ export class V7CreationContextCompiler {
         prompt: call.prompt, maxOutputTokens: 2_500, temperature: 0.1
       });
       return result.output;
-    });
+    }, new V7RhythmPolicyStore(this.database).snapshot(`creation:${input.ownerId}:${input.bookId}:${input.workflowId}:${input.taskId}`,
+      this.creation.workflow(input.ownerId, input.bookId, input.workflowId)!.created_at));
     if (this.creation.workflow(input.ownerId, input.bookId, input.workflowId)?.status === 'cancelled') {
       throw gate('这项工作已经停止，已保留完成的内容。');
     }
@@ -749,7 +752,8 @@ export async function compilePack(
   input: V7CreationContextCompileInput,
   candidates: readonly V7CreationSourceCandidate[],
   selection: V7CreationContextSelection,
-  generate: EvidenceGenerate
+  generate: EvidenceGenerate,
+  rhythm?: RhythmPolicySnapshot | null
 ): Promise<V7CreationContextPack> {
   const selectedCandidates = candidates.filter((item) => selection.selectedSourceKeys.includes(item.sourceKey));
   let selected = selectedCandidates.map(exactSource);
@@ -759,7 +763,7 @@ export async function compilePack(
     reason: reasons.get(item.sourceKey) ?? '本次任务不需要这项资料。'
   }));
   const budgetChars = V7_CREATION_CONTEXT_CHAR_BUDGETS[input.taskKind];
-  let methodPlan = compileMethodPlan(selection, input.taskKind, creationGenreFamilies(candidates));
+  let methodPlan = compileMethodPlan(selection, input.taskKind, creationGenreFamilies(candidates), rhythm);
   let characterCount = packedCharacterCount(input, selected, selection, methodPlan);
   // Optional method references yield to author facts before any evidence is reduced.
   if (characterCount > budgetChars) {
@@ -871,10 +875,11 @@ function packedCharacterCount(
 function compileMethodPlan(
   selection: V7CreationContextSelection,
   taskKind: V7CreationContextCompileInput['taskKind'],
-  genreFamilies: ReturnType<typeof inferGenreFamilies>
+  genreFamilies: ReturnType<typeof inferGenreFamilies>,
+  rhythm?: RhythmPolicySnapshot | null
 ): V7CreationMethodPlan {
   const menu = v7AssetMenuEnabled() && selection.methodStrategy.mode !== 'none'
-    ? buildLayerAssetMenu(creationMenuLayer(taskKind), genreFamilies)
+    ? buildLayerAssetMenu(creationMenuLayer(taskKind), genreFamilies, rhythm)
     : null;
   return {
     ...selection.methodStrategy,

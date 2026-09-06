@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { V7RhythmPolicyStore } from './v7-rhythm-policy-store.js';
 import {
   V7_CREATION_MEMBERS,
   V7_LAYER_ASSET_MENU_VERSION,
@@ -188,7 +189,7 @@ export class V7PlanningRouteService {
   private readonly activeRuns = new Set<string>();
 
   public constructor(
-    database: DatabaseSync,
+    private readonly database: DatabaseSync,
     adapters: V7PlanningModelAdapterResolver,
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
@@ -809,7 +810,8 @@ export class V7PlanningRouteService {
         }
         // 第86批：资产菜单由系统按层确定性生成并存档，替代资料策划的语义检索召回。
         // 全书路线涉及主骨架与分卷两层，菜单取两层并集所在的 volume_distribution 供给层。
-        const storedMenu = buildStoredLayerAssetMenu('volume_distribution', planningGenreFamilies(snapshot));
+        const storedMenu = buildStoredLayerAssetMenu('volume_distribution', planningGenreFamilies(snapshot),
+          new V7RhythmPolicyStore(this.database).snapshot(`route:${run.owner_id}:${run.book_id}:${run.run_id}`, run.created_at));
         return this.repository.saveMethodSearch({
           searchId: this.ids.next(), ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
           seatKey: 'chief_editor', memberKey: member.memberKey, memberSnapshot: memberSnapshot(member),

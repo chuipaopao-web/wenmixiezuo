@@ -30,6 +30,8 @@ const TASK_KINDS: Readonly<Record<string, string[]>> = {
 };
 
 const CONFIGURATIONS: RebuildConfiguration[] = [
+  { id: 'rhythm', name: '节奏资产与分层短卡', description: '按全书、分卷、卷、链、章管理候选短卡，预览实际资产片段和字符数。',
+    scope: '共用配置版本化发布；新任务首次编译时生效，已冻结任务保留原版本。', section: 'rhythm', unitIds: ['RB-51.1'] },
   { id: 'agents', name: '成员、模型与任务策略', description: '查看成员启用情况、模型和参数，进入现有治理页面修改。',
     scope: '沿用现有配置校验和任务快照；进入后核对具体生效范围。', section: 'agents', unitIds: ['RB-16', 'RB-48'] },
   { id: 'prompts', name: '提示词与上下文', description: '查看提示资产、版本和任务使用资料，按现有流程预览、发布或恢复草稿。',

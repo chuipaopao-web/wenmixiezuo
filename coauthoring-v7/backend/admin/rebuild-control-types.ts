@@ -38,7 +38,7 @@ export interface RebuildConfiguration {
   name: string;
   description: string;
   scope: string;
-  section: 'agents' | 'prompt-context' | 'memberships' | 'issues' | null;
+  section: 'agents' | 'prompt-context' | 'rhythm' | 'memberships' | 'issues' | null;
   unitIds: string[];
 }
 

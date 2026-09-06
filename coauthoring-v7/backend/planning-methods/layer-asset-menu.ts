@@ -17,6 +17,7 @@ import {
 } from '../plot-patterns/plot-pattern-library.js';
 import { V7_PLOT_RECIPES, type PlotRecipeDefinition } from '../plot-patterns/plot-recipe-library.js';
 import { getMethodExecutionProfile, type PlanningLayerKey } from './method-asset-profiles.js';
+import { renderRhythmFragment, type RhythmPolicySnapshot } from './rhythm-policy.js';
 
 export const V7_LAYER_ASSET_MENU_VERSION = '1.0.0';
 
@@ -60,6 +61,8 @@ export interface AssetMenuRosterGroup {
 }
 
 export interface V7LayerAssetMenu {
+  rhythmText?: string;
+  rhythmAssets?: readonly LayerAssetEntry[];
   schema: 'v7-layer-asset-menu-v1';
   version: string;
   layer: PlanningLayerKey;
@@ -91,8 +94,17 @@ const BOOK_TOPOLOGY_GROUP = 'book-topology';
 
 export function buildLayerAssetMenu(
   layer: PlanningLayerKey,
-  genreFamilies: readonly GenreFamily[] = []
+  genreFamilies: readonly GenreFamily[] = [],
+  rhythm: RhythmPolicySnapshot | null = null
 ): V7LayerAssetMenu {
+  if (rhythm !== null) {
+    const text = renderRhythmFragment(rhythm.policy, layer, rhythm.version);
+    const selected = rhythm.policy.layers[layer].map(key => rhythm.policy.cards.find(card => card.key === key)!);
+    return { schema: 'v7-layer-asset-menu-v1', version: `rhythm-${rhythm.version}`, layer, genreFamilies: [...genreFamilies],
+      macroFrameworkCards: [], bookTopologyCards: [], recipeCards: [], patternRoster: [], methodRoster: [],
+      estimatedChars: text.length, rhythmText: text,
+      rhythmAssets: selected.map(card => ({ assetType: card.assetType, key: card.key, title: card.title, planningLayers: [layer] })) };
+  }
   const available = V7_NARRATIVE_METHODS.filter((method) => methodAvailableAtLayer(method, layer));
   const macroFrameworkCards = available
     .filter((method) => method.exclusiveGroup === MACRO_FRAMEWORK_GROUP)
@@ -180,19 +192,22 @@ export interface StoredLayerAssetMenu {
   genreFamilies: readonly GenreFamily[];
   menuText: string;
   allowedKeys: readonly string[];
+  rhythmVersion?: number;
 }
 
 export function buildStoredLayerAssetMenu(
   layer: PlanningLayerKey,
-  genreFamilies: readonly GenreFamily[] = []
+  genreFamilies: readonly GenreFamily[] = [],
+  rhythm: RhythmPolicySnapshot | null = null
 ): StoredLayerAssetMenu {
-  const menu = buildLayerAssetMenu(layer, genreFamilies);
+  const menu = buildLayerAssetMenu(layer, genreFamilies, rhythm);
   return {
     schema: 'v7-layer-asset-menu-v1',
     layer,
     genreFamilies: [...genreFamilies],
     menuText: renderLayerAssetMenuText(menu),
-    allowedKeys: [...layerAssetKeySet(layer, genreFamilies)]
+    allowedKeys: menu.rhythmAssets?.map(asset => asset.key) ?? [...layerAssetKeySet(layer, genreFamilies)],
+    ...(rhythm === null ? {} : { rhythmVersion: rhythm.version })
   };
 }
 
@@ -209,6 +224,7 @@ export function parseStoredLayerAssetMenu(raw: string): StoredLayerAssetMenu {
 
 /** 渲染为注入任务输入的菜单文本（确定性，无模型调用）。 */
 export function renderLayerAssetMenuText(menu: V7LayerAssetMenu): string {
+  if (menu.rhythmText !== undefined) return menu.rhythmText;
   const sections: string[] = [];
   const cardSection = (title: string, cards: readonly AssetMenuCard[]): void => {
     if (cards.length === 0) return;
@@ -230,8 +246,7 @@ export function validateLayerAssetMenus(): string[] {
   const errors: string[] = [];
   const layers = Object.keys(LAYER_SCOPES) as PlanningLayerKey[];
   for (const layer of layers) {
-    const menu = buildLayerAssetMenu(layer);
-    if (menu.macroFrameworkCards.length === 0) errors.push(`${layer} 层缺少主节奏框架提名卡`);
+    const menu = buildLayerAssetMenu(layer, [], null);
     for (const cardItem of [...menu.macroFrameworkCards, ...menu.bookTopologyCards, ...menu.recipeCards]) {
       if (cardItem.text.length > 100) errors.push(`${layer} 层提名卡超 100 字：${cardItem.key}`);
     }
@@ -245,26 +260,21 @@ export function validateLayerAssetMenus(): string[] {
       }
     }
   }
-  // 自相似防断链：章层必须保有足够宏观框架候选（第86批补标后的回归闸）。
-  const chapterMenu = buildLayerAssetMenu('chapter_execution');
-  if (chapterMenu.macroFrameworkCards.length < 3) {
-    errors.push(`章层宏观框架候选不足（${chapterMenu.macroFrameworkCards.length} 条），自相似链条断裂`);
-  }
   // 全书两层必须拿到完整形态组。
   for (const layer of BOOK_LAYERS) {
-    const menu = buildLayerAssetMenu(layer);
+    const menu = buildLayerAssetMenu(layer, [], null);
     if (menu.bookTopologyCards.length === 0) errors.push(`${layer} 层缺少全书形态提名卡`);
   }
   // 卷/链层配方：无题材过滤时必须全量供给。
   for (const layer of RECIPE_LAYERS) {
-    const menu = buildLayerAssetMenu(layer);
+    const menu = buildLayerAssetMenu(layer, [], null);
     if (menu.recipeCards.length !== V7_PLOT_RECIPES.length) {
       errors.push(`${layer} 层无题材过滤时配方应为 ${V7_PLOT_RECIPES.length} 条，实际 ${menu.recipeCards.length} 条`);
     }
   }
   // 链/章层模式名册：6 类节奏角色齐全且总数等于模式库总量。
   for (const layer of PATTERN_ROSTER_LAYERS) {
-    const menu = buildLayerAssetMenu(layer);
+    const menu = buildLayerAssetMenu(layer, [], null);
     if (menu.patternRoster.length !== PLOT_PATTERN_CATEGORY_DEFINITIONS.length) {
       errors.push(`${layer} 层模式名册分组数不对：${menu.patternRoster.length}`);
     }

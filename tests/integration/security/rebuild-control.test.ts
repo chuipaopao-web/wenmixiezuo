@@ -16,9 +16,10 @@ function withCurrentProgress(text: string): string {
     (heading) => `${heading}- **当前批次**：${expectedCurrentBatch}\n- **当前工作**：${expectedCurrentWork}\n`);
 }
 describe('重构管理后台文档与运行证据', () => {
-  it('完整展示81个重构单元与85来源功能，顺序和说明来自同一文档', () => {
+  it('完整展示82个重构单元与85来源功能，顺序和说明来自同一文档', () => {
     const plan = parseRebuildPlan(source);
-    expect(plan.units).toHaveLength(81);
+    expect(plan.units).toHaveLength(82);
+    expect(plan.units.find(unit => unit.id === 'RB-51.1')?.name).toBe('节奏资产、分层短卡与输入预览');
     expect(plan.sourceFeatures).toHaveLength(85);
     expect(plan.version).toBeTruthy();
     expect(plan.units[0]?.id).toBe('RB-00.1');
@@ -85,7 +86,7 @@ describe('重构管理后台文档与运行证据', () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers['cache-control']).toBe('no-store');
       const data = response.json().data;
-      expect(data.units).toHaveLength(81);
+      expect(data.units).toHaveLength(82);
       expect(data.source).toHaveProperty('version');
       expect(data.runtime).toMatchObject({ taskCount: 0, sampledCount: 0, worker: 'stale_or_missing', taskSignals: [] });
       expect(JSON.stringify(data)).not.toMatch(/fixture-pass|owner-local-boss|session_token/u);

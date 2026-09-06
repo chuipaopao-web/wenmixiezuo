@@ -1,4 +1,9 @@
 import type { RebuildControlData } from '../../backend/admin/rebuild-control-types.js';
+import type { RhythmPolicy } from '../../backend/planning-methods/rhythm-policy.js';
+export interface RhythmPolicyView { version: number; policy: RhythmPolicy; enabled: boolean; history: Array<{version: number; createdAt: string}>; usage: Array<{version: number; tasks: number}> }
+export const fetchRhythmPolicy = (signal?: AbortSignal): Promise<RhythmPolicyView> => platformRequest('/api/v1/admin/v7/rhythm-policy', signal ? { signal } : {});
+export const publishRhythmPolicy = (expectedVersion: number, policy: RhythmPolicy): Promise<RhythmPolicyView> => platformRequest('/api/v1/admin/v7/rhythm-policy', { method: 'PUT', body: JSON.stringify({ expectedVersion, policy }) });
+export const previewRhythmPolicy = (policy: RhythmPolicy): Promise<{layers: Array<{key: string; label: string; text: string; characters: number}>}> => platformRequest('/api/v1/admin/v7/rhythm-policy/preview', { method: 'POST', body: JSON.stringify({ policy }) });
 
 export const fetchRebuildControl = (signal?: AbortSignal): Promise<RebuildControlData> =>
   platformRequest('/api/v1/admin/rebuild-control', signal === undefined ? {} : { signal });

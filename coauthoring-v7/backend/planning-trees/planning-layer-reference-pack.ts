@@ -8,6 +8,7 @@ import {
 } from '../planning-methods/layer-asset-menu.js';
 import type { GenreFamily } from '../plot-patterns/plot-pattern-library.js';
 import type { PlanningTreeKind } from './planning-tree-contracts.js';
+import type { RhythmPolicySnapshot } from '../planning-methods/rhythm-policy.js';
 
 /**
  * 第86批：规划层资产参考包——由名册生成器确定性装配（菜单文本 + 可引用资产名册），
@@ -33,14 +34,15 @@ export interface V7PlanningLayerReferencePack {
 
 export function buildPlanningLayerReferencePack(
   treeKind: PlanningTreeKind,
-  genreFamilies: readonly GenreFamily[] = []
+  genreFamilies: readonly GenreFamily[] = [],
+  rhythm: RhythmPolicySnapshot | null = null
 ): V7PlanningLayerReferencePack {
   const layer = planningLayerForTreeKind(treeKind);
   const libraryUseLimit = treeKind === 'book' ? 3 : treeKind === 'volume' ? 4 : 5;
   // 灰度开关关闭时不注入菜单文本、名册置空：第82批归一逻辑会静默丢弃全部
   // libraryRefs，行为等同"本轮无后台资产"，供对照组使用。
   const enabled = v7AssetMenuEnabled();
-  const menu = enabled ? buildLayerAssetMenu(layer, genreFamilies) : null;
+  const menu = enabled ? buildLayerAssetMenu(layer, genreFamilies, rhythm) : null;
   return {
     schema: 'v7-planning-layer-reference-pack-v2',
     treeKind,
@@ -53,6 +55,6 @@ export function buildPlanningLayerReferencePack(
     menuText: menu === null
       ? '（本轮不注入后台资产菜单；请完全依靠本书人物与处境原创设计。）'
       : renderLayerAssetMenuText(menu),
-    allowedAssets: menu === null ? [] : layerAssetEntries(layer, genreFamilies)
+    allowedAssets: menu === null ? [] : menu.rhythmAssets ?? layerAssetEntries(layer, genreFamilies)
   };
 }

@@ -5,8 +5,23 @@ import { success } from '../contracts/api.js';
 import { SystemClock, UuidGenerator } from '../domain/ids.js';
 import { V7PromptGovernanceRepository } from '../infrastructure/db/repositories/v7-prompt-governance-repository.js';
 import { requireAdministrator } from '../infrastructure/security/auth-context.js';
+import { V7RhythmPolicyStore } from '../application/planning/v7-rhythm-policy-store.js';
 
 export async function registerV7PromptGovernanceRoutes(app: FastifyInstance, database: DatabaseSync): Promise<void> {
+  const rhythm = new V7RhythmPolicyStore(database);
+  rhythm.initialize(new Date().toISOString());
+  app.get('/api/v1/admin/v7/rhythm-policy', async request => {
+    requireAdministrator(request);
+    return success(rhythm.view(), request.id);
+  });
+  app.post<{ Body: { policy: unknown } }>('/api/v1/admin/v7/rhythm-policy/preview', async request => {
+    requireAdministrator(request);
+    return success(rhythm.preview(request.body?.policy), request.id);
+  });
+  app.put<{ Body: { policy: unknown; expectedVersion: unknown } }>('/api/v1/admin/v7/rhythm-policy', async request => {
+    const actor = requireAdministrator(request);
+    return success(rhythm.publish(actor.userId, request.body?.expectedVersion, request.body?.policy, new Date().toISOString()), request.id);
+  });
   const service = new V7PromptGovernanceService(
     new V7PromptGovernanceRepository(database),
     new UuidGenerator(),
