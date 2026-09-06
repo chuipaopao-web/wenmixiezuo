@@ -193,6 +193,7 @@ export interface StoredLayerAssetMenu {
   menuText: string;
   allowedKeys: readonly string[];
   rhythmVersion?: number;
+  allowedAssets?: readonly LayerAssetEntry[];
 }
 
 export function buildStoredLayerAssetMenu(
@@ -207,7 +208,7 @@ export function buildStoredLayerAssetMenu(
     genreFamilies: [...genreFamilies],
     menuText: renderLayerAssetMenuText(menu),
     allowedKeys: menu.rhythmAssets?.map(asset => asset.key) ?? [...layerAssetKeySet(layer, genreFamilies)],
-    ...(rhythm === null ? {} : { rhythmVersion: rhythm.version })
+    ...(rhythm === null ? {} : { rhythmVersion: rhythm.version, allowedAssets: menu.rhythmAssets })
   };
 }
 

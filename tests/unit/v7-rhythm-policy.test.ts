@@ -36,6 +36,9 @@ it('新候选只可引用本轮提供的卡，开关关闭不注入，存档可�
   process.env.WENMI_V7_ASSET_MENU='1'; const snapshot={version:2,policy:DEFAULT_RHYTHM_POLICY};
   expect(buildPlanningLayerReferencePack('volume',[],snapshot).allowedAssets.map(a=>a.key)).toEqual(DEFAULT_RHYTHM_POLICY.layers.volume);
   const stored=buildStoredLayerAssetMenu('volume',[],snapshot); expect(parseStoredLayerAssetMenu(JSON.stringify(stored))).toEqual(stored);
+  expect(stored.allowedAssets?.map(a=>a.key)).toEqual(DEFAULT_RHYTHM_POLICY.layers.volume);
+  expect(stored.allowedAssets?.some(a=>a.key==='three-act')).toBe(false);
+  expect(buildStoredLayerAssetMenu('volume').allowedAssets).toBeUndefined();
   process.env.WENMI_V7_ASSET_MENU='0'; expect(buildPlanningLayerReferencePack('volume',[],snapshot).allowedAssets).toEqual([]);
 });
 it('历史菜单不变，已开始任务冻结版本，新任务取新配置，重复初始化安全', () => {

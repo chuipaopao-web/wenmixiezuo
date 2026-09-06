@@ -1604,7 +1604,7 @@ function routeAssetMenuText(menu: StoredLayerAssetMenu): string {
 /** 菜单开启时按名册校验引用：key 存在且本层已标注；关闭时跳过（对照组不限制）。 */
 function validateRouteBriefAssets(brief: V7ProgressivePlanningBrief, menu: StoredLayerAssetMenu): void {
   if (!v7AssetMenuEnabled()) return;
-  validateProgressivePlanningBriefCandidates(brief, layerAssetEntries(menu.layer, menu.genreFamilies));
+  validateProgressivePlanningBriefCandidates(brief, menu.allowedAssets ?? layerAssetEntries(menu.layer, menu.genreFamilies));
 }
 
 /** 从冻结快照的正式开书资料推断题材族，用于配方菜单的确定性过滤。 */
