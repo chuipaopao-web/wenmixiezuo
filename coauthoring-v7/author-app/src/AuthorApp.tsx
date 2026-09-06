@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArchiveBoxIcon,
   BookOpenTextIcon,
   BooksIcon,
-  CaretRightIcon,
   FileTextIcon,
   GearSixIcon,
+  GiftIcon,
+  InfoIcon,
   ListIcon,
   MapTrifoldIcon,
   PlusIcon,
@@ -21,7 +22,6 @@ import { TimeMachinePage } from './TimeMachinePage';
 import { CreationWorkspacePage } from './CreationWorkspacePage';
 import { LibraryPage } from './LibraryPage';
 import {
-  AUTHOR_NAV_ITEMS,
   authorViewFromSearch,
   bookIdFromSearch,
   informationSectionFromSearch,
@@ -40,17 +40,6 @@ import { bookCoverTitle, bookCoverTone, bookStatusLabel } from './book-shelf-pre
 import { AuthorAccountCenter, useAuthorAccount } from './AuthorAccountBoundary';
 import { clearOpeningDraft } from './opening-draft-storage';
 import type { AuthorMembershipStatus } from './account-api';
-
-const NAV_ICONS = [
-  TreeStructureIcon,
-  BookOpenTextIcon,
-  MapTrifoldIcon,
-  CaretRightIcon,
-  FileTextIcon,
-  BooksIcon,
-  FileTextIcon,
-  UsersThreeIcon
-] as const;
 
 type OpeningEntry = 'ai' | 'manual';
 type BookShelfStatus = 'loading' | 'ready' | 'error';
@@ -120,6 +109,30 @@ type OpeningRecoveryNavigation = {
   membershipRetry?: OpeningMembershipRetryGrant;
 };
 
+type MainNavKey = 'information' | 'time-machine' | 'planning' | 'status' | 'benefits';
+
+const MAIN_NAV_ITEMS: Array<{
+  key: MainNavKey;
+  label: string;
+  icon: React.ElementType;
+  requiresBook: boolean;
+}> = [
+  { key: 'information', label: '信息', icon: InfoIcon, requiresBook: true },
+  { key: 'time-machine', label: '时光机', icon: BookOpenTextIcon, requiresBook: true },
+  { key: 'planning', label: '规划', icon: MapTrifoldIcon, requiresBook: true },
+  { key: 'status', label: '状态', icon: FileTextIcon, requiresBook: false },
+  { key: 'benefits', label: '福利', icon: GiftIcon, requiresBook: false }
+];
+
+function mainNavKeyForView(view: AuthorView): MainNavKey | null {
+  if (view === 'information') return 'information';
+  if (view === 'time-machine' || view === 'library') return 'time-machine';
+  if (view === 'volume' || view === 'chain' || view === 'chapter') return 'planning';
+  if (view === 'status' || view === 'tasks' || view === 'team') return 'status';
+  if (view === 'benefits') return 'benefits';
+  return null;
+}
+
 function HomePage({ onCreateNovel }: { onCreateNovel: (entry: OpeningEntry) => void }): React.JSX.Element {
   return (
     <section className="home-surface" aria-labelledby="home-title">
@@ -159,6 +172,49 @@ function HomePage({ onCreateNovel }: { onCreateNovel: (entry: OpeningEntry) => v
   );
 }
 
+function StatusPage(props: {
+  section: 'tasks' | 'team';
+  onSectionChange: (section: 'tasks' | 'team') => void;
+  onOpenTask: (taskId: string) => void;
+  onOpenBook: (bookId: string) => void;
+  onOpenSetting: (bookId: string, focus?: SettingRecoveryFocus | null) => void;
+  onOpenPlanning: (bookId: string) => void;
+  onOpenCreation: (bookId: string, focus: 'volume' | 'chain' | 'chapter') => void;
+}): React.JSX.Element {
+  const { section, onSectionChange, ...taskLogProps } = props;
+  return (
+    <section className="author-status-page" aria-labelledby="author-status-title">
+      <header className="status-page-heading">
+        <span>
+          <p className="eyebrow">状态</p>
+          <h2 id="author-status-title">创作状态</h2>
+        </span>
+        <div className="status-section-tabs" role="tablist" aria-label="状态分区">
+          <button type="button" role="tab" aria-selected={section === 'tasks'} className={section === 'tasks' ? 'active' : ''} onClick={() => onSectionChange('tasks')}>任务</button>
+          <button type="button" role="tab" aria-selected={section === 'team'} className={section === 'team' ? 'active' : ''} onClick={() => onSectionChange('team')}>团队</button>
+        </div>
+      </header>
+      {section === 'tasks'
+        ? <TaskLogPage {...taskLogProps} />
+        : <TeamPage />}
+    </section>
+  );
+}
+
+function BenefitsPage(): React.JSX.Element {
+  return (
+    <section className="benefits-page" aria-labelledby="benefits-title">
+      <p className="eyebrow">福利</p>
+      <h2 id="benefits-title">福利中心</h2>
+      <p>活动与创作福利将在这里公布。敬请期待。</p>
+      <div className="benefits-placeholder" role="status">
+        <GiftIcon aria-hidden="true" />
+        <span>当前没有可领取活动。</span>
+      </div>
+    </section>
+  );
+}
+
 export function AuthorApp(): React.JSX.Element {
   const accountSession = useAuthorAccount();
   const [view, setView] = useState<AuthorView>(() => authorViewFromSearch(window.location.search));
@@ -171,6 +227,9 @@ export function AuthorApp(): React.JSX.Element {
   const [bookShelfStatus, setBookShelfStatus] = useState<BookShelfStatus>('loading');
   const [bookShelfRequest, setBookShelfRequest] = useState(0);
   const [leftOpen, setLeftOpen] = useState(false);
+  const [rightOpen, setRightOpen] = useState(false);
+  const leftToggleRef = useRef<HTMLButtonElement>(null);
+  const rightToggleRef = useRef<HTMLButtonElement>(null);
   const [archiveConfirmation, setArchiveConfirmation] = useState<string | null>(null);
   const [lifecycleBusy, setLifecycleBusy] = useState<string | null>(null);
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
@@ -189,6 +248,8 @@ export function AuthorApp(): React.JSX.Element {
       setMembershipRetryGrant(openingMembershipRetryGrantFromSearch(window.location.search));
       setInformationSection(informationSectionFromSearch(window.location.search));
       setSettingRecoveryFocus(settingRecoveryFocusFromSearch(window.location.search));
+      setLeftOpen(false);
+      setRightOpen(false);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -210,6 +271,7 @@ export function AuthorApp(): React.JSX.Element {
         setInformationSection('profile');
         setSettingRecoveryFocus(null);
         setLeftOpen(false);
+        setRightOpen(false);
       }
     }).catch(() => {
       if (!controller.signal.aborted) setBookShelfStatus('error');
@@ -228,7 +290,20 @@ export function AuthorApp(): React.JSX.Element {
     let search = nextView === 'new-novel'
       ? `${searchForAuthorView(nextView, nextBookId, nextTaskId)}&entry=${nextEntry}`
       : searchForAuthorView(nextView, nextBookId);
-    if (['volume', 'chain', 'chapter', 'account'].includes(nextView) && nextBookId !== null && nextBookId === bookId) {
+    const preservesBookScope = [
+      'information',
+      'time-machine',
+      'library',
+      'volume',
+      'chain',
+      'chapter',
+      'status',
+      'tasks',
+      'team',
+      'benefits',
+      'account'
+    ].includes(nextView);
+    if (preservesBookScope && nextBookId !== null && nextBookId === bookId) {
       search = preserveCreationScopeInSearch(window.location.search, search, creationScope);
     }
     if (openingRecovery.accountReturn !== undefined || openingRecovery.membershipRetry !== undefined) {
@@ -258,16 +333,67 @@ export function AuthorApp(): React.JSX.Element {
     if (nextView === 'information') setInformationSection('profile');
     setSettingRecoveryFocus(null);
     setLeftOpen(false);
+    setRightOpen(false);
   };
 
   const openSettings = (nextBookId: string, focus: SettingRecoveryFocus | null = null): void => {
-    window.history.pushState({}, '', searchForInformationSection(nextBookId, 'setting', focus));
+    const targetSearch = searchForInformationSection(nextBookId, 'setting', focus);
+    const search = nextBookId === bookId
+      ? preserveCreationScopeInSearch(window.location.search, targetSearch)
+      : targetSearch;
+    window.history.pushState({}, '', search);
     setView('information');
     setBookId(nextBookId);
     setOpeningTaskId(null);
     setInformationSection('setting');
     setSettingRecoveryFocus(focus);
     setLeftOpen(false);
+    setRightOpen(false);
+  };
+
+  useEffect(() => {
+    if (!leftOpen && !rightOpen) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      if (leftOpen) {
+        setLeftOpen(false);
+        leftToggleRef.current?.focus();
+      }
+      if (rightOpen) {
+        setRightOpen(false);
+        rightToggleRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [leftOpen, rightOpen]);
+
+  const openLeftMenu = (): void => {
+    setLeftOpen(true);
+    setRightOpen(false);
+  };
+
+  const openRightMenu = (): void => {
+    setRightOpen((current) => !current);
+    setLeftOpen(false);
+  };
+
+  const closeLeftMenu = (): void => {
+    setLeftOpen(false);
+    leftToggleRef.current?.focus();
+  };
+
+  const closeRightMenu = (): void => {
+    setRightOpen(false);
+    rightToggleRef.current?.focus();
+  };
+
+  const navigateMain = (target: MainNavKey): void => {
+    if (target === 'planning') {
+      navigate('volume', bookId);
+      return;
+    }
+    navigate(target, bookId);
   };
 
   const beginNewNovel = (entry: OpeningEntry) => {
@@ -367,13 +493,34 @@ export function AuthorApp(): React.JSX.Element {
 
   return (
     <div className="app-shell unified-desk">
-      <aside className={`left-rail ios-book-sidebar ${leftOpen ? 'drawer-open' : ''}`} aria-label="书籍栏">
+      <header className="author-topbar">
+        <button ref={leftToggleRef} className="topbar-menu-button" type="button" aria-label="打开书架" aria-expanded={leftOpen} onClick={openLeftMenu}>
+          <BooksIcon aria-hidden="true" />
+          <span>书架</span>
+        </button>
+        <div className="topbar-brand" aria-label="文秘写作作者端">
+          <span className="brand-mark" aria-hidden="true">文</span>
+          <span>文秘写作</span>
+        </div>
+        <button ref={rightToggleRef} className="topbar-menu-button" type="button" aria-label="打开功能导航" aria-expanded={rightOpen} onClick={openRightMenu}>
+          <ListIcon aria-hidden="true" />
+          <span>功能</span>
+        </button>
+      </header>
+
+      <aside
+        className={`left-rail ios-book-sidebar ${leftOpen ? 'drawer-open' : ''}`}
+        aria-label="书架"
+        aria-hidden={!leftOpen}
+        inert={leftOpen ? undefined : true}
+        style={{ visibility: leftOpen ? 'visible' : 'hidden' }}
+      >
         <div className="sidebar-brand">
           <button className="brand-lockup" type="button" onClick={() => navigate('home')} aria-label="返回文秘写作首页">
             <span className="brand-mark" aria-hidden="true">文</span>
             <span><strong>文秘写作</strong><small>长篇创作台</small></span>
           </button>
-          <button className="icon-button mobile-only" type="button" aria-label="关闭书籍栏" onClick={() => setLeftOpen(false)}><XIcon /></button>
+          <button className="icon-button" type="button" aria-label="关闭书架" onClick={closeLeftMenu}><XIcon /></button>
         </div>
 
         <div className="rail-book-switcher unified-book-switcher" aria-label="书籍切换">
@@ -405,30 +552,45 @@ export function AuthorApp(): React.JSX.Element {
         </div>
       </aside>
 
-      {leftOpen && <button className="drawer-scrim" type="button" aria-label="关闭书籍栏" onClick={() => setLeftOpen(false)} />}
+      {leftOpen && <button className="drawer-scrim" type="button" aria-label="关闭书架" onClick={closeLeftMenu} />}
 
-      <nav className="ios-function-bar" aria-label="功能栏">
-        <button className="icon-button mobile-only function-book-toggle" type="button" aria-label="打开书籍栏" onClick={() => setLeftOpen(true)}><ListIcon /></button>
+      {rightOpen && <button className="function-scrim" type="button" aria-label="关闭功能导航" onClick={closeRightMenu} />}
+
+      <nav
+        className={`ios-function-bar ${rightOpen ? 'drawer-open' : ''}`}
+        aria-label="功能导航"
+        aria-hidden={!rightOpen}
+        inert={rightOpen ? undefined : true}
+        style={{ visibility: rightOpen ? 'visible' : 'hidden' }}
+      >
+        <div className="function-panel-heading">
+          <strong>功能导航</strong>
+          <button className="icon-button" type="button" aria-label="关闭功能导航" onClick={closeRightMenu}><XIcon /></button>
+        </div>
         <div className="function-nav-primary">
-          {AUTHOR_NAV_ITEMS.map((label, index) => {
-            const Icon = NAV_ICONS[index]!;
-            const information = index === 0;
-            const timeMachine = index === 1;
-            const volume = index === 2;
-            const chain = index === 3;
-            const chapter = index === 4;
-            const library = index === 5;
-            const tasks = index === 6;
-            const team = index === 7;
-            const enabled = tasks || team || ((information || timeMachine || volume || chain || chapter || library) && bookId !== null);
-            const targetView: AuthorView = tasks ? 'tasks' : team ? 'team' : library ? 'library' : chapter ? 'chapter' : chain ? 'chain' : volume ? 'volume' : timeMachine ? 'time-machine' : 'information';
-            const active = enabled && view === targetView;
-            return <button className={active ? 'active' : ''} type="button" disabled={!enabled} aria-disabled={!enabled} key={label} title={enabled ? label : '请先创建并选择一本书'} onClick={() => { if (enabled) navigate(targetView, information || timeMachine || volume || chain || chapter || library ? bookId : null); }}><Icon /><span>{label}</span></button>;
+          {MAIN_NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const enabled = !item.requiresBook || bookId !== null;
+            const active = mainNavKeyForView(view) === item.key;
+            return <button className={active ? 'active' : ''} type="button" disabled={!enabled} aria-disabled={!enabled} key={item.key} title={enabled ? item.label : '请先创建并选择一本书'} onClick={() => { if (enabled) navigateMain(item.key); }}><Icon aria-hidden="true" /><span>{item.label}</span></button>;
           })}
         </div>
       </nav>
 
       <main className="workspace-main">
+        {(view === 'time-machine' || view === 'library') && bookId !== null && (
+          <div className="workspace-secondary-tabs" aria-label="时光机二级入口">
+            <button type="button" className={view === 'time-machine' ? 'active' : ''} onClick={() => navigate('time-machine', bookId)}>时光机</button>
+            <button type="button" className={view === 'library' ? 'active' : ''} onClick={() => navigate('library', bookId)}>库</button>
+          </div>
+        )}
+        {(view === 'volume' || view === 'chain' || view === 'chapter') && bookId !== null && (
+          <div className="workspace-secondary-tabs planning-tabs" aria-label="规划二级入口">
+            <button type="button" className={view === 'volume' ? 'active' : ''} onClick={() => navigate('volume', bookId)}>卷</button>
+            <button type="button" className={view === 'chain' ? 'active' : ''} onClick={() => navigate('chain', bookId)}>链</button>
+            <button type="button" className={view === 'chapter' ? 'active' : ''} onClick={() => navigate('chapter', bookId)}>章</button>
+          </div>
+        )}
         {view === 'home' && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'new-novel' && <NewNovelPage key={`${accountSession.account.userId}-${openingEntry}-${openingTaskId ?? 'new'}`} entryMode={openingEntry} onBack={() => navigate('home')} onCreated={(createdBookId) => navigate('information', createdBookId)} onAuthenticationRequired={accountSession.requireSignIn} onOpenAccount={openAccountFromOpening} membershipRetryReady={openingTaskId !== null && membershipRetryGrant?.taskId === openingTaskId && accountSession.membershipState === 'ready' && membershipAllowsOpeningRetry(accountSession.account.role, accountSession.membership, membershipRetryGrant.recoveryAction)} onMembershipRetryConsumed={consumeMembershipRecovery} />}
         {view === 'information' && bookId !== null && <InformationPage key={`${bookId}-${informationSection}-${settingRecoveryFocus ?? 'default'}`} bookId={bookId} initialSection={informationSection} settingRecoveryFocus={settingRecoveryFocus} onOpenTimeMachine={() => navigate('time-machine', bookId)} />}
@@ -442,8 +604,9 @@ export function AuthorApp(): React.JSX.Element {
         {view === 'chapter' && bookId !== null && <CreationWorkspacePage bookId={bookId} focus="chapter" onNavigate={(next, scope) => navigate(next, bookId, openingEntry, null, scope)} />}
         {['volume', 'chain', 'chapter'].includes(view) && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'library' && bookId !== null && <LibraryPage bookId={bookId} />}
-        {view === 'tasks' && <TaskLogPage onOpenTask={(taskId) => navigate('new-novel', null, 'ai', taskId)} onOpenBook={(nextBookId) => navigate('information', nextBookId)} onOpenSetting={openSettings} onOpenPlanning={(nextBookId) => navigate('time-machine', nextBookId)} onOpenCreation={(nextBookId, focus) => navigate(focus, nextBookId)} />}
-        {view === 'team' && <TeamPage />}
+        {view === 'library' && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
+        {(view === 'status' || view === 'tasks' || view === 'team') && <StatusPage section={view === 'team' ? 'team' : 'tasks'} onSectionChange={(section) => navigate(section === 'team' ? 'team' : 'tasks', bookId)} onOpenTask={(taskId) => navigate('new-novel', null, 'ai', taskId)} onOpenBook={(nextBookId) => navigate('information', nextBookId)} onOpenSetting={openSettings} onOpenPlanning={(nextBookId) => navigate('time-machine', nextBookId)} onOpenCreation={(nextBookId, focus) => navigate(focus, nextBookId)} />}
+        {view === 'benefits' && <BenefitsPage />}
         {view === 'account' && <section className="v7-account-page"><AuthorAccountCenter {...(openingAccountReturn === null ? {} : { onClose: returnToOpeningFromAccount, closeLabel: membershipReturnRefresh === 'running' ? '正在确认会员状态…' : '返回这次开书' })} /></section>}
       </main>
     </div>

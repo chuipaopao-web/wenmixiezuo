@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthorApp } from './AuthorApp';
 import { AuthorAccountSessionProvider, type AuthorAccountSession } from './AuthorAccountBoundary';
 import {
-  AUTHOR_NAV_ITEMS, authorViewFromSearch, bookIdFromSearch, informationSectionFromSearch,
+  authorViewFromSearch, bookIdFromSearch, informationSectionFromSearch,
   preserveCreationScopeInSearch, searchForAuthorView, searchForInformationSection,
   settingRecoveryFocusFromSearch
 } from './navigation';
@@ -165,6 +165,30 @@ function installFetch(overrides?: (url: string, init?: RequestInit) => Response 
   return mock;
 }
 
+function openFunctionMenu(): HTMLElement {
+  fireEvent.click(screen.getByRole('button', { name: '打开功能导航' }));
+  return screen.getByLabelText('功能导航');
+}
+
+function openBookShelf(): HTMLElement {
+  fireEvent.click(screen.getByRole('button', { name: '打开书架' }));
+  return screen.getByLabelText('书架');
+}
+
+function openMainNav(label: '信息' | '时光机' | '规划' | '状态' | '福利'): void {
+  const menu = openFunctionMenu();
+  fireEvent.click(within(menu).getByRole('button', { name: label }));
+}
+
+function openTaskStatus(): void {
+  openMainNav('状态');
+}
+
+function openTeamStatus(): void {
+  openMainNav('状态');
+  fireEvent.click(screen.getByRole('tab', { name: '团队' }));
+}
+
 describe('V7 author opening flow', () => {
   beforeEach(() => {
     testSession = createTestSession();
@@ -177,14 +201,33 @@ describe('V7 author opening flow', () => {
   it('keeps the confirmed navigation and presents both creation entries', async () => {
     installFetch();
     render(<AuthorApp />);
-    for (const label of AUTHOR_NAV_ITEMS.slice(0, 6)) expect(screen.getByRole('button', { name: label })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '任务' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: '团队' })).toBeEnabled();
+    expect(within(screen.getByRole('banner')).getAllByRole('button')).toHaveLength(2);
+    const menu = openFunctionMenu();
+    for (const label of ['信息', '时光机', '规划'] as const) {
+      expect(within(menu).getByRole('button', { name: label })).toBeDisabled();
+    }
+    expect(within(menu).getByRole('button', { name: '状态' })).toBeEnabled();
+    expect(within(menu).getByRole('button', { name: '福利' })).toBeEnabled();
     expect(screen.getByText('创作小说')).toBeVisible();
     expect(screen.getByRole('button', { name: /团队设计/ })).toBeEnabled();
     expect(screen.getByRole('button', { name: /自己设计/ })).toBeEnabled();
     expect(screen.getByRole('button', { name: /创作剧本/ })).toBeDisabled();
     expect(screen.getByText('专业网文剧本设计平台：创作团队帮您设计骨架、大纲、剧情，书写正文，订制化设计原创作品。')).toBeVisible();
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+  });
+
+  it('switches mutually between the bookshelf and function menu', async () => {
+    installFetch();
+    render(<AuthorApp />);
+
+    const shelf = openBookShelf();
+
+    fireEvent.click(screen.getByRole('button', { name: '打开功能导航' }));
+
+    expect(screen.getByRole('button', { name: '打开书架' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: '打开功能导航' })).toHaveAttribute('aria-expanded', 'true');
+    expect(shelf).not.toHaveClass('drawer-open');
+    expect(screen.getByLabelText('功能导航')).toHaveClass('drawer-open');
     await waitFor(() => expect(fetch).toHaveBeenCalled());
   });
 
@@ -288,7 +331,8 @@ describe('V7 author opening flow', () => {
     installFetch();
     render(<AuthorApp />);
 
-    const accountButton = screen.getByRole('button', { name: /林老师.*个人中心.*作者/ });
+    const shelf = openBookShelf();
+    const accountButton = within(shelf).getByRole('button', { name: /林老师.*个人中心.*作者/ });
     expect(accountButton).toBeVisible();
     expect(screen.queryByText('本地开发')).not.toBeInTheDocument();
     fireEvent.click(accountButton);
@@ -305,7 +349,8 @@ describe('V7 author opening flow', () => {
     installFetch();
     render(<AuthorApp />);
 
-    expect(screen.getByRole('status')).toHaveTextContent('正在加载书架…');
+    const shelf = openBookShelf();
+    expect(within(shelf).getByRole('status')).toHaveTextContent('正在加载书架…');
     expect(screen.queryByText('创建后会显示在这里')).not.toBeInTheDocument();
     expect(await screen.findByText('创建后会显示在这里')).toBeVisible();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -332,16 +377,19 @@ describe('V7 author opening flow', () => {
     });
     render(<AuthorApp />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '归档当前书籍' }));
+    let shelf = openBookShelf();
+    fireEvent.click(await within(shelf).findByRole('button', { name: '归档当前书籍' }));
     expect(screen.getByText('归档后可以随时恢复，正文和资料都会保留。')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '确认归档' }));
-    expect(await screen.findByText('已归档 · 2')).toBeVisible();
+    await screen.findByRole('heading', { name: '今天，想创作什么？' });
+    shelf = openBookShelf();
+    expect(await within(shelf).findByText('已归档 · 2')).toBeVisible();
     expect(screen.queryByText('永久删除')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('已归档 · 2'));
+    fireEvent.click(within(shelf).getByText('已归档 · 2'));
     const oldBookCard = screen.getByText('暂时收起的书').closest('article');
     fireEvent.click(within(oldBookCard!).getByRole('button', { name: '恢复' }));
-    await waitFor(() => expect(screen.getByText('已归档 · 1')).toBeVisible());
+    await waitFor(() => expect(within(shelf).getByText('已归档 · 1')).toBeVisible());
     expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith('/api/v1/v7/books/book-active/archive')
       && JSON.parse(String(init?.body)).expectedVersion === 1)).toBe(true);
     expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith('/api/v1/v7/books/book-old/restore')
@@ -360,13 +408,14 @@ describe('V7 author opening flow', () => {
     });
     render(<AuthorApp />);
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('抱歉，书架暂时没有加载出来。');
+    const shelf = openBookShelf();
+    expect(await within(shelf).findByRole('alert')).toHaveTextContent('抱歉，书架暂时没有加载出来。');
     expect(screen.queryByText('创建后会显示在这里')).not.toBeInTheDocument();
     expect(window.location.search).toBe('?view=library&bookId=book-still-there');
 
-    fireEvent.click(screen.getByRole('button', { name: '重新加载' }));
-    expect(await screen.findByRole('button', { name: /仍在创作的书.*当前书籍/ })).toBeVisible();
-    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    fireEvent.click(within(shelf).getByRole('button', { name: '重新加载' }));
+    expect(await within(shelf).findByRole('button', { name: /仍在创作的书.*当前书籍/ })).toBeVisible();
+    await waitFor(() => expect(within(shelf).queryByRole('alert')).not.toBeInTheDocument());
     expect(bookRequests).toBe(2);
     expect(window.location.search).toBe('?view=library&bookId=book-still-there');
   });
@@ -381,7 +430,8 @@ describe('V7 author opening flow', () => {
     expect(await screen.findByRole('heading', { name: '今天，想创作什么？' })).toBeVisible();
     expect(window.location.pathname).toBe('/');
     expect(window.location.search).toBe('?view=home');
-    expect(screen.getByRole('button', { name: '信息' })).toBeDisabled();
+    const menu = openFunctionMenu();
+    expect(within(menu).getByRole('button', { name: '信息' })).toBeDisabled();
   });
 
   it('uses the retained cover strategy for V7 books without reading the old bookshelf', async () => {
@@ -389,7 +439,8 @@ describe('V7 author opening flow', () => {
       { bookId: 'v7-book-shelf-1', title: '穿越三国从边军小卒开始问鼎天下第一', status: 'active', updatedAt: '2026-08-25T00:00:00Z' }
     ]) : null);
     render(<AuthorApp />);
-    const book = await screen.findByRole('button', { name: /穿越三国从边军小卒开始问鼎天下第一.*创作中/ });
+    const shelf = openBookShelf();
+    const book = await within(shelf).findByRole('button', { name: /穿越三国从边军小卒开始问鼎天下第一.*创作中/ });
     expect(book.querySelector('.book-rail-cover')).not.toBeNull();
     expect(book.querySelector('.book-cover-title')).toHaveTextContent('…');
     expect(book.querySelector('.book-cover-status')).toHaveTextContent('创作中');
@@ -401,8 +452,9 @@ describe('V7 author opening flow', () => {
       { bookId: 'v7-book-tree-1', title: '汉末小卒', status: 'active', updatedAt: '2026-08-26T00:00:00Z' }
     ]) : null);
     render(<AuthorApp />);
-    expect(screen.getByRole('button', { name: '时光机' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: '时光机' })).toHaveClass('active');
+    const menu = openFunctionMenu();
+    expect(within(menu).getByRole('button', { name: '时光机' })).toBeEnabled();
+    expect(within(menu).getByRole('button', { name: '时光机' })).toHaveClass('active');
     expect(await screen.findByRole('heading', { name: '先准备全书方向' })).toBeVisible();
     expect(screen.getByRole('button', { name: '开始规划全书' })).toBeEnabled();
     expect(screen.queryByText('v7-book-tree-1')).not.toBeInTheDocument();
@@ -1258,7 +1310,7 @@ describe('V7 author opening flow', () => {
     render(<AuthorApp />);
     expect(await screen.findByText('资料已经审查通过')).toBeVisible();
 
-    fireEvent.click(screen.getByRole('button', { name: '新建书籍' }));
+    fireEvent.click(within(openBookShelf()).getByRole('button', { name: '新建书籍' }));
     fireEvent.click(await screen.findByRole('button', { name: /团队设计/ }));
 
     expect(await screen.findByLabelText('说说您想写什么')).toHaveValue('');
@@ -1507,7 +1559,7 @@ describe('V7 author opening flow', () => {
       return null;
     });
     render(<AuthorApp />);
-    fireEvent.click(screen.getByRole('button', { name: '任务' }));
+    openTaskStatus();
     expect(await screen.findByText('进行中与待确认')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '查看进度' }));
     expect(await screen.findByLabelText('确认开书资料')).toBeVisible();
@@ -1524,7 +1576,7 @@ describe('V7 author opening flow', () => {
       return null;
     });
     render(<AuthorApp />);
-    fireEvent.click(screen.getByRole('button', { name: '任务' }));
+    openTaskStatus();
     expect(await screen.findByText('书名与封面制作中')).toBeVisible();
     expect(screen.getByText('书名与封面历史')).toBeVisible();
     expect(screen.getByText('主编和视觉编剧正在制作封面。')).toBeVisible();
@@ -1541,7 +1593,7 @@ describe('V7 author opening flow', () => {
       return null;
     });
     render(<AuthorApp />);
-    fireEvent.click(screen.getByRole('button', { name: '任务' }));
+    openTaskStatus();
     expect(await screen.findByText('部分工作记录暂时没有加载出来，编辑部会自动重试。')).toBeVisible();
     expect(screen.getByText('乱世问鼎')).toBeVisible();
     expect(screen.getByText('部分工作记录正在重新整理')).toBeVisible();
@@ -1558,7 +1610,7 @@ describe('V7 author opening flow', () => {
       return null;
     });
     render(<AuthorApp />);
-    fireEvent.click(screen.getByRole('button', { name: '任务' }));
+    openTaskStatus();
     expect(await screen.findByRole('button', { name: '放弃任务' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '放弃任务' }));
     expect(screen.getByText('任务会移出列表，历史资料不会永久删除。')).toBeVisible();
@@ -1578,7 +1630,7 @@ describe('V7 author opening flow', () => {
       return null;
     });
     render(<AuthorApp />);
-    fireEvent.click(screen.getByRole('button', { name: '任务' }));
+    openTaskStatus();
     expect(await screen.findByRole('button', { name: '清理未完成任务' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '清理未完成任务' }));
     expect(screen.getByText('只移走尚未建成书籍的未完成任务，书籍与历史方案都会保留。')).toBeVisible();
@@ -1599,7 +1651,7 @@ describe('V7 author opening flow', () => {
       ? response([archivedFromOldApi])
       : null);
     render(<AuthorApp />);
-    fireEvent.click(screen.getByRole('button', { name: '任务' }));
+    openTaskStatus();
     expect(await screen.findByText('还没有工作记录')).toBeVisible();
     expect(screen.queryByText(archivedFromOldApi.idea)).not.toBeInTheDocument();
   });
@@ -1627,7 +1679,7 @@ describe('V7 author opening flow', () => {
       ]
     }) : null);
     render(<AuthorApp />);
-    fireEvent.click(screen.getByRole('button', { name: '团队' }));
+    openTeamStatus();
     expect(await screen.findByText('主编室')).toBeVisible();
     expect(screen.getAllByText('审查开书资料')).toHaveLength(1);
     expect(screen.getByText('策划编剧组')).toBeVisible();

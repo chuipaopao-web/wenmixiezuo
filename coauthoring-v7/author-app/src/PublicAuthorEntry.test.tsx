@@ -193,6 +193,7 @@ describe('public author homepage entry', () => {
     fireEvent.click(screen.getByRole('button', { name: '创建账号并登录' }));
     expect(await screen.findByLabelText('说说您想写什么')).toBeVisible();
 
+    fireEvent.click(screen.getByRole('button', { name: '打开书架' }));
     fireEvent.click(screen.getByRole('button', { name: /林老师.*个人中心.*作者/ }));
     fireEvent.click(await screen.findByRole('button', { name: '退出登录' }));
 

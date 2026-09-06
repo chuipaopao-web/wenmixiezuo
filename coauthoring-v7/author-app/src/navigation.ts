@@ -1,4 +1,17 @@
-export type AuthorView = 'home' | 'new-novel' | 'information' | 'time-machine' | 'volume' | 'chain' | 'chapter' | 'library' | 'tasks' | 'team' | 'account';
+export type AuthorView =
+  | 'home'
+  | 'new-novel'
+  | 'information'
+  | 'time-machine'
+  | 'volume'
+  | 'chain'
+  | 'chapter'
+  | 'library'
+  | 'tasks'
+  | 'team'
+  | 'status'
+  | 'benefits'
+  | 'account';
 
 export const AUTHOR_NAV_ITEMS = [
   '信息',
@@ -31,6 +44,8 @@ export function authorViewFromSearch(search: string): AuthorView {
   if (view === 'library') return 'library';
   if (view === 'tasks') return 'tasks';
   if (view === 'team') return 'team';
+  if (view === 'status') return 'status';
+  if (view === 'benefits' || view === 'welfare') return 'benefits';
   if (view === 'account') return 'account';
   return 'home';
 }
