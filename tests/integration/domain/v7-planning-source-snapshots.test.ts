@@ -70,6 +70,7 @@ describe('V7规划正式资料快照', () => {
 
       for (const requestId of ['planning-genre-lazy-0001', 'planning-genre-lazy-0002']) {
         await gateway.generate({
+          directPlanning: requestId.endsWith('0002'),
           requestId, ownerId, bookId, runId: `run-${requestId}`, runKind: 'recipe', nodeKey: requestId,
           taskKind: 'planning_review', workstationKey: 'full_book_route', operationMode: 'fresh',
           basedOnTaskId: null, authorInstructionVersion: null, sourceTraces: [], member: chief,
@@ -79,6 +80,8 @@ describe('V7规划正式资料快照', () => {
       }
 
       expect(resolver.genreProfileCalls).toBe(1);
+      expect(resolver.purposes['planning-genre-lazy-0001']).toBe('structured_planning');
+      expect(resolver.purposes['planning-genre-lazy-0002']).toBe('interactive_planning');
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
         WHERE owner_id=? AND book_id=? AND node_key='genre_profile'`).get(ownerId, bookId)).toEqual({ count: 1 });
       const active = context.database.prepare(`SELECT profile_id,version,status FROM v7_book_genre_profiles
@@ -702,7 +705,8 @@ describe('V7设定总账门禁只校验导航投影', () => {
 
 class SuccessfulPlanningResolver {
   public genreProfileCalls = 0;
-  public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
+  public purposes: Record<string,ModelPurpose> = {};
+  public resolve(provider: string, modelId: string, purpose: ModelPurpose): ModelAdapter {
     const resolver = this;
     return {
       provider,
@@ -713,6 +717,7 @@ class SuccessfulPlanningResolver {
           resolver.genreProfileCalls += 1;
           return genreProfile;
         }
+        resolver.purposes[request.requestId] = purpose;
         return {
           provider, modelId, output: JSON.stringify({ requestId: request.requestId, ok: true }),
           inputTokens: 10, outputTokens: 5, cashCostCny: 0, state: 'succeeded'

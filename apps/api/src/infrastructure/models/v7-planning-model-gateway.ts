@@ -40,6 +40,8 @@ export type V7PlanningWorkstationKey = Extract<
 >;
 
 export interface V7PlanningModelRequest {
+  /** New versioned blueprint tasks use the existing direct-output adapter route. */
+  directPlanning?: boolean;
   requestId: string;
   /** Stable task identity; execution retries receive a new requestId only. */
   logicalTaskId?: string;
@@ -162,7 +164,10 @@ export class V7PlanningModelGateway {
       createdAt: now,
       retrySnapshot: retrySnapshot ?? undefined
     });
-    const reasoningTokens = thinkingTokenAllowance(request.member.model.modelId, 'structured_planning', request.maxOutputTokens, compiled.manifest.compiledPrompt.length);
+    const purpose = request.directPlanning === true
+      && ['deepseek-v4-pro', 'doubao-seed-2.1-turbo'].includes(request.member.model.modelId)
+      ? 'interactive_planning' : 'structured_planning';
+    const reasoningTokens = thinkingTokenAllowance(request.member.model.modelId, purpose, request.maxOutputTokens, compiled.manifest.compiledPrompt.length);
     const reservedTokens = Math.max(8_000, compiled.manifest.compiledPrompt.length + request.maxOutputTokens + reasoningTokens);
     let claimed = false;
     let winner: ReturnType<V7PlanningRuntimeRepository['modelCall']> = undefined;
@@ -187,7 +192,7 @@ export class V7PlanningModelGateway {
     }
     try {
       promptGovernance.saveRuntimeBundle(compiled);
-      const adapter = this.adapters.resolve(request.member.model.provider, request.member.model.modelId, 'structured_planning');
+      const adapter = this.adapters.resolve(request.member.model.provider, request.member.model.modelId, purpose);
       let result: ModelResult;
       try {
         result = await adapter.generate({
