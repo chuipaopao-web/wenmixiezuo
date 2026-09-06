@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   bookLifecycleRequestSchema,
   bookListQuerySchema,
+  bookProfileSchema,
+  bookProfileUpdateRequestSchema,
   bookRecordSchema
 } from "@wenmi-rebuild/contracts";
 import {
@@ -42,6 +44,20 @@ export async function registerBookshelfRoutes(app: FastifyInstance, books: BookS
       const result = await books.restoreBook(token, readBookId(request.params.bookId), parseLifecycleRequest(request.body));
       return envelope(bookRecordSchema.parse(result), request);
     });
+
+    booksApp.get<{ Params: { bookId?: unknown } }>("/:bookId/book-profile", async (request) => {
+      const token = requireSessionToken(request);
+      const result = await books.getBookProfileFromSession(token, readBookId(request.params.bookId));
+      return envelope(bookProfileSchema.parse(result), request);
+    });
+
+    booksApp.put<{ Params: { bookId?: unknown }; Body: unknown }>("/:bookId/book-profile", {
+      bodyLimit: 2 * 1024 * 1024
+    }, async (request) => {
+      const token = requireSessionToken(request);
+      const result = await books.updateBookProfileFromSession(token, readBookId(request.params.bookId), parseProfileUpdate(request.body));
+      return envelope(bookProfileSchema.parse(result), request);
+    });
   }, { prefix: "/v1/v7/books" });
 }
 
@@ -54,6 +70,12 @@ function parseListQuery(value: unknown) {
 function parseLifecycleRequest(value: unknown) {
   const parsed = bookLifecycleRequestSchema.safeParse(value);
   if (!parsed.success) throw new DomainError("BOOK_INPUT_INVALID", "书籍操作请求没有通过检查。");
+  return parsed.data;
+}
+
+function parseProfileUpdate(value: unknown) {
+  const parsed = bookProfileUpdateRequestSchema.safeParse(value);
+  if (!parsed.success) throw new DomainError("BOOK_INPUT_INVALID", "书籍资料没有通过检查。");
   return parsed.data;
 }
 

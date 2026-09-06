@@ -205,6 +205,153 @@ export const manualBookReadSchema = z.object({
   })
 });
 
+export const openingTaxonomySchema = z.strictObject({
+  version: z.string().min(1),
+  categories: z.array(z.strictObject({
+    key: z.string().min(1),
+    name: z.string().min(1),
+    channel: z.enum(["male", "female"]),
+    description: z.string(),
+    recommendedMainTags: z.array(z.string()),
+    tagPackKeys: z.array(z.string())
+  })),
+  subjects: z.array(z.strictObject({ name: z.string(), packKeys: z.array(z.string()) })),
+  mainTags: z.array(z.string()),
+  personalityGroups: z.array(z.strictObject({
+    key: z.string(),
+    name: z.string(),
+    description: z.string(),
+    options: z.array(z.string())
+  })).optional(),
+  boundaryGroups: z.array(z.strictObject({
+    name: z.string(),
+    description: z.string(),
+    options: z.array(z.string())
+  })).optional(),
+  tagGroups: z.array(z.strictObject({
+    key: z.string(),
+    name: z.string(),
+    description: z.string(),
+    packKeys: z.array(z.string()),
+    mainTags: z.array(z.string()),
+    auxiliaryTags: z.array(z.string()),
+    storyTraits: z.array(z.string())
+  }))
+});
+
+const bookProfileProtagonistSchema = z.strictObject({
+  role: openingTextSchema(120).optional(),
+  name: openingTextSchema(120),
+  age: openingTextSchema(80),
+  background: openingTextSchema(2_000).optional(),
+  familyBackground: openingTextSchema(2_000).optional(),
+  careerBackground: openingTextSchema(2_000).optional(),
+  goldenFinger: openingTextSchema(2_000).optional(),
+  visualIdentity: z.strictObject({
+    appearance: openingTextSchema(1_000),
+    build: openingTextSchema(500),
+    signatureFeature: openingTextSchema(500)
+  }).optional(),
+  personalities: z.array(openingTextSchema(240)).max(50)
+});
+
+export const bookOpeningBlueprintSchema = z.strictObject({
+  creationMode: z.enum(["new", "continuation"]).optional(),
+  openingIdea: openingTextSchema(5_000).optional(),
+  taxonomyVersion: openingTextSchema(80).optional(),
+  channel: openingChannelSchema.optional(),
+  categoryKey: openingTextSchema(160).optional(),
+  auxiliaryCategoryKeys: z.array(openingTextSchema(160)).max(50).optional(),
+  targetAudience: openingTextSchema(1_000).optional(),
+  planningProfile: z.strictObject({
+    publishingPlatform: openingPublishingPlatformSchema,
+    expectedTotalWords: z.number().int().min(0).max(50_000_000),
+    volumePlan: z.strictObject({
+      minimum: z.number().int().min(0).max(500),
+      recommended: z.number().int().min(0).max(500),
+      maximum: z.number().int().min(0).max(500)
+    }).optional(),
+    commercialAudience: openingTextSchema(1_000).optional(),
+    retentionPositioning: openingTextSchema(2_000).optional()
+  }).optional(),
+  protagonists: z.array(bookProfileProtagonistSchema).max(12).optional(),
+  storyDirection: openingTextSchema(2_000).optional(),
+  openingStart: openingTextSchema(2_000).optional(),
+  storyEnding: openingTextSchema(2_000).optional(),
+  stylePrimary: openingTextSchema(500).optional(),
+  styleSecondary: openingTextSchema(500).optional(),
+  worldBackground: openingTextSchema(10_000),
+  openingBackground: openingTextSchema(10_000),
+  stageOne: z.strictObject({
+    start: openingTextSchema(10_000),
+    development: openingTextSchema(10_000),
+    end: openingTextSchema(10_000)
+  }).optional(),
+  fullBookOutline: openingTextSchema(20_000).optional(),
+  mainTags: z.array(openingTextSchema(240)).max(50).optional(),
+  auxiliaryTags: z.array(openingTextSchema(240)).max(50).optional(),
+  storyTraits: z.array(openingTextSchema(2_000)).max(50).optional(),
+  styleIntent: z.strictObject({
+    languageTones: z.array(openingTextSchema(240)).max(50),
+    emotionalTones: z.array(openingTextSchema(240)).max(50),
+    pacingAndPayoff: z.array(openingTextSchema(240)).max(50),
+    atmospheres: z.array(openingTextSchema(240)).max(50),
+    custom: z.array(openingTextSchema(240)).max(50)
+  }).optional(),
+  customTags: z.array(openingTextSchema(240)).max(50).optional(),
+  initialMap: openingTextSchema(4_000).optional(),
+  mustFollow: z.array(openingTextSchema(2_000)).max(50).optional()
+});
+
+export const bookProfileSchema = z.strictObject({
+  title: bookTitleSchema,
+  channel: z.enum(["男频", "女频"]),
+  category: openingTextSchema(120),
+  subjects: z.array(openingTextSchema(240)).max(50),
+  mainTags: z.array(openingTextSchema(240)).max(50),
+  customTags: z.array(openingTextSchema(240)).max(50).optional(),
+  protagonists: z.array(bookProfileProtagonistSchema).max(12),
+  synopsis: openingTextSchema(20_000).optional(),
+  storyDirection: openingTextSchema(2_000),
+  openingStart: openingTextSchema(2_000),
+  storyEnding: openingTextSchema(2_000),
+  stylePrimary: openingTextSchema(500).optional(),
+  styleSecondary: openingTextSchema(500).optional(),
+  mustFollow: z.array(openingTextSchema(2_000)).max(50).optional(),
+  style: z.strictObject({
+    languageTones: z.array(openingTextSchema(240)).max(50),
+    emotionalTones: z.array(openingTextSchema(240)).max(50),
+    pacingAndPayoff: z.array(openingTextSchema(240)).max(50),
+    atmospheres: z.array(openingTextSchema(240)).max(50),
+    custom: z.array(openingTextSchema(240)).max(50)
+  }).optional(),
+  source: openingTextSchema(120).optional(),
+  version: z.number().int().positive().max(2_147_483_647).optional(),
+  openingBlueprint: bookOpeningBlueprintSchema
+});
+
+export const openingBookCreateRequestSchema = z.strictObject({
+  openingPackage: openingPackageSchema,
+  openingIdea: openingTextSchema(5_000).optional(),
+  idempotencyKey: z.string().refine((value) => {
+    const trimmed = value.trim();
+    return Array.from(trimmed).length >= 1 && Array.from(trimmed).length <= 160 && safePostgresJsonText(value);
+  })
+});
+
+export const openingBookCreateResultSchema = z.strictObject({
+  bookId: z.uuid(),
+  title: bookTitleSchema,
+  status: z.literal("active"),
+  nextView: z.literal("information")
+});
+
+export const bookProfileUpdateRequestSchema = z.strictObject({
+  expectedVersion: z.number().int().positive().max(2_147_483_647),
+  title: bookTitleSchema,
+  openingBlueprint: bookOpeningBlueprintSchema
+});
+
 export type ServiceName = z.infer<typeof serviceNameSchema>;
 export type FoundationStatus = z.infer<typeof foundationStatusSchema>;
 export type SafeErrorResponse = z.infer<typeof safeErrorResponseSchema>;
@@ -218,6 +365,11 @@ export type BookLifecycleRequest = z.infer<typeof bookLifecycleRequestSchema>;
 export type OpeningPackage = z.infer<typeof openingPackageSchema>;
 export type ManualBookCreate = z.infer<typeof manualBookCreateSchema>;
 export type ManualBookRead = z.infer<typeof manualBookReadSchema>;
+export type OpeningTaxonomy = z.infer<typeof openingTaxonomySchema>;
+export type BookProfile = z.infer<typeof bookProfileSchema>;
+export type BookOpeningBlueprint = z.infer<typeof bookOpeningBlueprintSchema>;
+export type OpeningBookCreateRequest = z.infer<typeof openingBookCreateRequestSchema>;
+export type BookProfileUpdateRequest = z.infer<typeof bookProfileUpdateRequestSchema>;
 
 function safePostgresJsonText(value: string): boolean {
   if (value.includes("\u0000")) return false;

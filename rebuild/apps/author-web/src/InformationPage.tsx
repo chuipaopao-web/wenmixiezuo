@@ -8,9 +8,10 @@ import { SettingPage } from './SettingPage';
 import { WorkflowActionDock } from './WorkflowActionDock';
 import type { InformationSection, SettingRecoveryFocus } from './navigation';
 
-export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'profile', settingRecoveryFocus = null }: {
+export function InformationPage({ bookId, onOpenTimeMachine, onProfileSaved, initialSection = 'profile', settingRecoveryFocus = null }: {
   bookId: string;
   onOpenTimeMachine?: () => void;
+  onProfileSaved?: () => void;
   initialSection?: InformationSection;
   settingRecoveryFocus?: SettingRecoveryFocus | null;
 }): React.JSX.Element {
@@ -82,11 +83,13 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
         if (profile.version === undefined) throw new Error('开书资料版本缺失，请刷新后重试。');
         const updated = await updateBookProfile(bookId, { expectedVersion: profile.version, title, openingBlueprint });
         setProfile(updated); setProfileOpen(false);
+        onProfileSaved?.();
       }}/>} 
       {titleOpen && profile !== null && <BookTitleDesignDialog bookId={bookId} currentTitle={profile.title} onClose={() => setTitleOpen(false)} onApply={async (title) => {
         if (profile.version === undefined) throw new Error('开书资料版本缺失，请刷新后重试。');
         const updated = await updateBookProfile(bookId, { expectedVersion: profile.version, title, openingBlueprint: profile.openingBlueprint });
         setProfile(updated); setTitleOpen(false);
+        onProfileSaved?.();
       }}/>} 
       {coverOpen && profile !== null && <BookCoverDesignDialog bookId={bookId} currentTitle={profile.title} onClose={() => setCoverOpen(false)} />}
     </section>

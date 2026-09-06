@@ -377,7 +377,7 @@ describe("real PostgreSQL account core", () => {
 
 async function truncateAccounts(pool: PgPool): Promise<void> {
   await pool.query(
-    "TRUNCATE manual_book_chapter_directories, manual_book_opening_sources, bookshelf_book_audit_events, bookshelf_books, account_security_audit_events, account_rate_limits, account_one_time_tokens, account_sessions, account_users RESTART IDENTITY CASCADE"
+    "TRUNCATE book_profile_versions, manual_book_chapter_directories, manual_book_opening_sources, bookshelf_book_audit_events, bookshelf_books, account_security_audit_events, account_rate_limits, account_one_time_tokens, account_sessions, account_users RESTART IDENTITY CASCADE"
   );
 }
 

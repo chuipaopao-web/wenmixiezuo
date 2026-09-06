@@ -60,6 +60,15 @@ type ManualBookChapterDirectoryRow = {
   updated_at: Date | string;
 };
 
+type BookProfileVersionRow = {
+  profile_version_id: string;
+  owner_id: string;
+  book_id: string;
+  version: number;
+  profile: unknown;
+  created_at: Date | string;
+};
+
 export class PostgresBookshelfRepository {
   public constructor(private readonly pool: PgPool) {}
 
@@ -151,6 +160,18 @@ export class PostgresBookshelfRepository {
     return result.rows[0] === undefined ? null : mapManualDirectory(result.rows[0]);
   }
 
+  public async findLatestBookProfileVersion(client: PgClient, ownerId: string, bookId: string): Promise<{ readonly version: number; readonly profile: unknown } | null> {
+    const result = await client.query<BookProfileVersionRow>(
+      `SELECT ${profileVersionColumns()} FROM book_profile_versions
+       WHERE owner_id = $1 AND book_id = $2
+       ORDER BY version DESC
+       LIMIT 1`,
+      [ownerId, bookId]
+    );
+    const row = result.rows[0];
+    return row === undefined ? null : { version: Number(row.version), profile: row.profile };
+  }
+
   public async listBooks(client: PgClient, input: BookListQuery): Promise<readonly BookRecord[]> {
     const values: unknown[] = [input.ownerId];
     const where = ["owner_id = $1"];
@@ -186,6 +207,34 @@ export class PostgresBookshelfRepository {
       [ownerId, bookId, status]
     );
     return mapBook(result.rows[0]!);
+  }
+
+  public async updateBookTitle(client: PgClient, ownerId: string, bookId: string, title: string): Promise<BookRecord> {
+    const result = await client.query<BookRow>(
+      `UPDATE bookshelf_books
+       SET title = $3, version = version + 1, updated_at = clock_timestamp()
+       WHERE owner_id = $1 AND book_id = $2
+       RETURNING ${bookColumns()}`,
+      [ownerId, bookId, title]
+    );
+    return mapBook(result.rows[0]!);
+  }
+
+  public async insertBookProfileVersion(
+    client: PgClient,
+    input: {
+      readonly profileVersionId: string;
+      readonly ownerId: string;
+      readonly bookId: string;
+      readonly version: number;
+      readonly profile: unknown;
+    }
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO book_profile_versions (profile_version_id, owner_id, book_id, version, profile)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [input.profileVersionId, input.ownerId, input.bookId, input.version, input.profile]
+    );
   }
 
   public async recordAudit(
@@ -250,6 +299,18 @@ function manualDirectoryColumns(alias?: string): string {
     "entry_count",
     "created_at",
     "updated_at"
+  ].map((column) => `${prefix}${column}`).join(", ");
+}
+
+function profileVersionColumns(alias?: string): string {
+  const prefix = alias === undefined ? "" : `${alias}.`;
+  return [
+    "profile_version_id",
+    "owner_id",
+    "book_id",
+    "version",
+    "profile",
+    "created_at"
   ].map((column) => `${prefix}${column}`).join(", ");
 }
 

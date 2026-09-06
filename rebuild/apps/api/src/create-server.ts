@@ -16,6 +16,7 @@ import {
 import { foundationStatusSchema } from "@wenmi-rebuild/contracts";
 import { registerAccountRoutes } from "./account-routes.js";
 import { registerBookshelfRoutes } from "./bookshelf-routes.js";
+import { registerOpeningRoutes } from "./opening-routes.js";
 
 export interface ApiServerOptions {
   readonly accountService?: AccountCoreService;
@@ -38,15 +39,15 @@ export async function createApiServer(options: ApiServerOptions = {}) {
   await server.register(cors, {
     origin: [/^http:\/\/127\.0\.0\.1:4328[01]$/],
     credentials: true,
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST", "PUT"]
   });
 
   server.setErrorHandler((error, request, reply) => {
-    const safe = toSafeErrorResponse(error);
+    const safe = safeRequestBodyError(error) ?? toSafeErrorResponse(error);
     logger.error("request-failed", safe);
-    const statusCode = statusForSafeCode(safe.code);
+    const statusCode = statusForError(error, safe.code);
     reply.header("Cache-Control", "no-store");
-    reply.status(statusCode).send(safe);
+    reply.status(statusCode).send({ ...safe, error: { message: safe.message, retryable: safe.retryable } });
   });
 
   server.addHook("onClose", async () => {
@@ -54,6 +55,7 @@ export async function createApiServer(options: ApiServerOptions = {}) {
   });
 
   await registerAccountRoutes(server, accountService);
+  await registerOpeningRoutes(server, bookShelfService);
   await registerBookshelfRoutes(server, bookShelfService);
 
   server.get("/health", async (_request, reply) => {
@@ -81,7 +83,21 @@ export async function createApiServer(options: ApiServerOptions = {}) {
   return server;
 }
 
-function statusForSafeCode(code: string): number {
+function safeRequestBodyError(error: unknown): { readonly code: string; readonly message: string; readonly retryable: boolean } | null {
+  const fastifyCode = typeof error === "object" && error !== null && "code" in error ? String((error as { code: unknown }).code) : "";
+  if (fastifyCode === "FST_ERR_CTP_BODY_TOO_LARGE") {
+    return { code: "REQUEST_BODY_TOO_LARGE", message: "请求内容过大，请删减后重试。", retryable: false };
+  }
+  if (fastifyCode === "FST_ERR_CTP_INVALID_JSON_BODY") {
+    return { code: "REQUEST_JSON_INVALID", message: "请求JSON格式无效，请检查后重试。", retryable: false };
+  }
+  return null;
+}
+
+function statusForError(error: unknown, code: string): number {
+  const fastifyCode = typeof error === "object" && error !== null && "code" in error ? String((error as { code: unknown }).code) : "";
+  if (fastifyCode === "FST_ERR_CTP_BODY_TOO_LARGE") return 413;
+  if (fastifyCode === "FST_ERR_CTP_INVALID_JSON_BODY") return 400;
   if (code === "CONFIGURATION_INVALID" || code === "DATABASE_GUARD_FAILED" || code === "ACCOUNT_PASSWORD_HASH_BUSY") return 503;
   if (code === "AUTHENTICATION_REQUIRED" || code === "ACCOUNT_CREDENTIALS_INVALID") return 401;
   if (code === "AUTHORIZATION_REQUIRED" || code === "ACCOUNT_EMAIL_NOT_VERIFIED" || code === "ACCOUNT_DISABLED" ||

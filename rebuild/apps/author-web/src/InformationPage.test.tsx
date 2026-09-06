@@ -104,7 +104,8 @@ describe('V7开书资料页', () => {
   });
 
   it('主编可以随时设计书名，作者采用后走版本化开书资料接口', async () => {
-    render(<InformationPage bookId="book-1" />);
+    const onProfileSaved = vi.fn();
+    render(<InformationPage bookId="book-1" onProfileSaved={onProfileSaved} />);
     await screen.findByRole('heading', { name: '边军起势' });
     fireEvent.click(screen.getByRole('button', { name: /设计书名/ }));
     fireEvent.click(await screen.findByRole('button', { name: '开始设计书名' }));
@@ -113,6 +114,7 @@ describe('V7开书资料页', () => {
     fireEvent.click(screen.getByText('汉末执棋人').closest('article')!.querySelector('button')!);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/book-profile'), expect.objectContaining({ method: 'PUT' })));
     expect(await screen.findByRole('heading', { name: '汉末执棋人' })).toBeInTheDocument();
+    expect(onProfileSaved).toHaveBeenCalledTimes(1);
   });
 
   it('封面编辑部明确展示主编工单与视觉编剧，采用封面不修改开书资料', async () => {

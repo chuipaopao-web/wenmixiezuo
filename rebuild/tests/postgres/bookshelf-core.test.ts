@@ -11,6 +11,7 @@ import {
   type BookShelfService,
   type PgPool
 } from "@wenmi-rebuild/backend";
+import { OPENING_TAXONOMY, SOURCE_TAXONOMY_USED_FIELDS } from "../../packages/backend/src/application/bookshelf/opening-taxonomy.js";
 
 let appPool: PgPool;
 let migratorPool: PgPool;
@@ -302,6 +303,158 @@ describe("real PostgreSQL bookshelf core", () => {
     expect(retry.book).toMatchObject({ bookId: created.book.bookId, status: "archived", version: 2 });
   });
 
+  it("serves the complete copied opening taxonomy used by the existing form", async () => {
+    const login = await createVerifiedLogin("taxonomy@example.com", "分类作者");
+    const taxonomy = await books.getOpeningTaxonomy(login.token);
+    expect(taxonomy).toEqual({
+      version: SOURCE_TAXONOMY_USED_FIELDS.version,
+      categories: SOURCE_TAXONOMY_USED_FIELDS.categories,
+      subjects: SOURCE_TAXONOMY_USED_FIELDS.subjects,
+      mainTags: SOURCE_TAXONOMY_USED_FIELDS.mainTags,
+      personalityGroups: SOURCE_TAXONOMY_USED_FIELDS.personalityGroups,
+      boundaryGroups: SOURCE_TAXONOMY_USED_FIELDS.boundaryGroups,
+      tagGroups: SOURCE_TAXONOMY_USED_FIELDS.tagGroups
+    });
+    expect(taxonomy).toEqual(OPENING_TAXONOMY);
+    expect(taxonomy.categories.length).toBeGreaterThan(20);
+    expect(taxonomy.tagGroups.length).toBeGreaterThan(10);
+    expect(taxonomy.subjects.length).toBeGreaterThan(50);
+  });
+
+  it("preserves the author's explicit protagonist role instead of inferring it from the channel", async () => {
+    const login = await createVerifiedLogin("profile-role@example.com", "角色作者");
+    const roles = { "男主": "male_lead", "女主": "female_lead", "共同主角": "co_lead", "群像主角": "ensemble", "非人主角": "non_human" };
+    for (const [identity, role] of Object.entries(roles)) {
+      const openingPackage = minimalManualPackage();
+      openingPackage.protagonists[0]!.identity = identity;
+      const created = await books.confirmManualOpeningBookFromSession(login.token, { openingPackage, idempotencyKey: `role-${role}` });
+      const profile = await books.getBookProfileFromSession(login.token, created.bookId);
+      expect(profile.protagonists[0]!.role).toBe(role);
+    }
+  });
+
+  it("creates opening profile version 1 with manual create and preserves long source projection", async () => {
+    const login = await createVerifiedLogin("profile-create@example.com", "资料作者");
+    const coreAppeal = "🌟".repeat(1_800);
+    const created = await books.confirmManualOpeningBookFromSession(login.token, {
+      openingPackage: minimalManualPackage({
+        title: "长梗小书",
+        positioning: { ...minimalManualPackage().positioning, coreAppeal }
+      }),
+      openingIdea: "原始想法",
+      idempotencyKey: "profile-create"
+    });
+    expect(created).toMatchObject({ title: "长梗小书", status: "active", nextView: "information" });
+
+    const profile = await books.getBookProfileFromSession(login.token, created.bookId);
+    expect(profile).toMatchObject({ title: "长梗小书", version: 1, source: "manual_opening_package" });
+    expect(profile.openingBlueprint.storyTraits).toEqual([coreAppeal]);
+    expect(profile.openingBlueprint.openingIdea).toBe("原始想法");
+    const versions = await migratorPool.query<{ count: string }>("SELECT count(*) FROM book_profile_versions WHERE book_id = $1", [created.bookId]);
+    expect(versions.rows[0]!.count).toBe("1");
+  });
+
+  it("rejects public manual creation rules before opening a transaction", async () => {
+    const login = await createVerifiedLogin("profile-public-invalid@example.com", "公开校验");
+    await expect(books.confirmManualOpeningBookFromSession(login.token, {
+      openingPackage: minimalManualPackage({ title: "短" }),
+      idempotencyKey: "public-invalid"
+    })).rejects.toMatchObject({ code: "BOOK_INPUT_INVALID" });
+    const counts = await migratorPool.query<{ books: string; profiles: string; audits: string }>(
+      `SELECT
+         (SELECT count(*) FROM bookshelf_books) AS books,
+         (SELECT count(*) FROM book_profile_versions) AS profiles,
+         (SELECT count(*) FROM bookshelf_book_audit_events) AS audits`
+    );
+    expect(counts.rows[0]).toEqual({ books: "0", profiles: "0", audits: "0" });
+  });
+
+  it("keeps archived idempotent public opening retries as a conflict instead of a fake active success", async () => {
+    const login = await createVerifiedLogin("profile-archive-retry@example.com", "归档公开");
+    const input = {
+      openingPackage: minimalManualPackage({ title: "归档入口" }),
+      idempotencyKey: "public-archive-retry"
+    };
+    const created = await books.confirmManualOpeningBookFromSession(login.token, input);
+    await books.archiveBook(login.token, created.bookId, { expectedVersion: 1 });
+    await expect(books.confirmManualOpeningBookFromSession(login.token, input))
+      .rejects.toMatchObject({ code: "BOOK_VERSION_CONFLICT" });
+  });
+
+  it("reads old 0006 manual books without writing and preserves original v1 on first profile edit", async () => {
+    const login = await createVerifiedLogin("profile-old-0006@example.com", "旧书资料");
+    const sourceIdea = "服务器保存的原始想法";
+    const created = await books.createManualBookFromSession(login.token, {
+      openingPackage: minimalManualPackage({ title: "旧资料书" }),
+      openingIdea: sourceIdea,
+      idempotencyKey: "old-profile"
+    });
+    await migratorPool.query("DELETE FROM book_profile_versions WHERE book_id = $1", [created.book.bookId]);
+
+    const read = await books.getBookProfileFromSession(login.token, created.book.bookId);
+    expect(read).toMatchObject({ title: "旧资料书", version: 1 });
+    expect(read.openingBlueprint.openingIdea).toBe(sourceIdea);
+    let versions = await migratorPool.query<{ count: string }>("SELECT count(*) FROM book_profile_versions WHERE book_id = $1", [created.book.bookId]);
+    expect(versions.rows[0]!.count).toBe("0");
+
+    const noOp = await books.updateBookProfileFromSession(login.token, created.book.bookId, {
+      expectedVersion: 1,
+      title: read.title,
+      openingBlueprint: read.openingBlueprint
+    });
+    expect(noOp).toEqual(read);
+    versions = await migratorPool.query<{ count: string }>("SELECT count(*) FROM book_profile_versions WHERE book_id = $1", [created.book.bookId]);
+    expect(versions.rows[0]!.count).toBe("0");
+
+    const updated = await books.updateBookProfileFromSession(login.token, created.book.bookId, {
+      expectedVersion: 1,
+      title: "新版资料书",
+      openingBlueprint: {
+        ...read.openingBlueprint,
+        openingIdea: "客户端试图改原始想法",
+        fullBookOutline: "全书简介".repeat(1_000)
+      }
+    });
+    expect(updated).toMatchObject({ title: "新版资料书", version: 2, synopsis: "全书简介".repeat(1_000) });
+    expect(updated.openingBlueprint.openingIdea).toBe(sourceIdea);
+
+    const stored = await migratorPool.query<{ version: number; profile: unknown }>(
+      "SELECT version, profile FROM book_profile_versions WHERE book_id = $1 ORDER BY version",
+      [created.book.bookId]
+    );
+    expect(stored.rows).toHaveLength(2);
+    expect(stored.rows[0]!.version).toBe(1);
+    expect(stored.rows[0]!.profile).toEqual(read);
+    expect(stored.rows[1]!.version).toBe(2);
+
+    await expect(books.updateBookProfileFromSession(login.token, created.book.bookId, {
+      expectedVersion: 1,
+      title: "冲突资料书",
+      openingBlueprint: updated.openingBlueprint
+    })).rejects.toMatchObject({ code: "BOOK_VERSION_CONFLICT" });
+  });
+
+  it("keeps profile versions independent from archive and restore book versions", async () => {
+    const login = await createVerifiedLogin("profile-lifecycle@example.com", "资料生命周期");
+    const created = await books.confirmManualOpeningBookFromSession(login.token, {
+      openingPackage: minimalManualPackage({ title: "资料生命周期" }),
+      idempotencyKey: "profile-lifecycle"
+    });
+    const profile = await books.getBookProfileFromSession(login.token, created.bookId);
+    const updated = await books.updateBookProfileFromSession(login.token, created.bookId, {
+      expectedVersion: 1,
+      title: "资料生命周期改名",
+      openingBlueprint: { ...profile.openingBlueprint, fullBookOutline: "新简介" }
+    });
+    expect(updated.version).toBe(2);
+    const archived = await books.archiveBook(login.token, created.bookId, { expectedVersion: 2 });
+    expect(archived.version).toBe(3);
+    const restored = await books.restoreBook(login.token, created.bookId, { expectedVersion: 3 });
+    expect(restored.version).toBe(4);
+    const afterRestore = await books.getBookProfileFromSession(login.token, created.bookId);
+    expect(afterRestore.version).toBe(2);
+  });
+
   it("rolls back manual source and directory creation when audit insertion fails and keeps sources immutable for the app role", async () => {
     const login = await createVerifiedLogin("manual-audit@example.com", "手动审计");
     const repository = new PostgresBookshelfRepository(appPool);
@@ -462,7 +615,7 @@ async function createVerifiedLogin(email: string, displayName: string): Promise<
 
 async function truncateAll(pool: PgPool): Promise<void> {
   await pool.query(
-    "TRUNCATE manual_book_chapter_directories, manual_book_opening_sources, bookshelf_book_audit_events, bookshelf_books, account_security_audit_events, account_rate_limits, account_one_time_tokens, account_sessions, account_users RESTART IDENTITY CASCADE"
+    "TRUNCATE book_profile_versions, manual_book_chapter_directories, manual_book_opening_sources, bookshelf_book_audit_events, bookshelf_books, account_security_audit_events, account_rate_limits, account_one_time_tokens, account_sessions, account_users RESTART IDENTITY CASCADE"
   );
 }
 
@@ -472,7 +625,7 @@ function minimalManualPackage(overrides: Record<string, unknown> = {}) {
     positioning: {
       publishingPlatform: "fanqie",
       channel: "male",
-      category: "历史",
+      category: "历史脑洞",
       genres: ["历史古代"],
       tags: [],
       coreAppeal: "",

@@ -157,6 +157,117 @@ describe("bookshelf HTTP routes", () => {
       await server.close();
     }
   });
+
+  it("serves opening taxonomy and creates manual opening books with frontend-compatible envelopes", async () => {
+    const login = await createVerifiedLogin("opening-api@example.com", "开书接口");
+    const server = await createApiServer({ accountPool: appPool });
+    try {
+      const taxonomy = await server.inject({
+        method: "GET",
+        url: "/v1/v7/opening-taxonomy",
+        headers: { host: "127.0.0.1:43280", cookie: `wenmi_rebuild_session=${login.token}` }
+      });
+      expect(taxonomy.statusCode).toBe(200);
+      const taxonomyBody = JSON.parse(taxonomy.body);
+      expect(taxonomyBody.data.categories.length).toBeGreaterThan(20);
+      expect(taxonomyBody.data.tagGroups.length).toBeGreaterThan(10);
+      expect(taxonomyBody.data.subjects.length).toBeGreaterThan(50);
+
+      const created = await server.inject({
+        method: "POST",
+        url: "/v1/v7/opening-books",
+        headers: jsonWriteHeaders(`wenmi_rebuild_session=${login.token}`),
+        payload: {
+          openingIdea: "接口原始想法",
+          openingPackage: minimalManualPackage({ title: "接口开书" }),
+          idempotencyKey: "opening-api"
+        }
+      });
+      expect(created.statusCode).toBe(200);
+      expect(created.headers["cache-control"]).toBe("no-store");
+      const createdBody = JSON.parse(created.body);
+      expect(createdBody).toMatchObject({
+        data: { bookId: expect.any(String), title: "接口开书", status: "active", nextView: "information" },
+        meta: { requestId: expect.any(String) }
+      });
+
+      const profile = await server.inject({
+        method: "GET",
+        url: `/v1/v7/books/${createdBody.data.bookId}/book-profile`,
+        headers: { host: "127.0.0.1:43280", cookie: `wenmi_rebuild_session=${login.token}` }
+      });
+      expect(profile.statusCode).toBe(200);
+      expect(JSON.parse(profile.body)).toMatchObject({
+        data: { title: "接口开书", version: 1, openingBlueprint: { openingIdea: "接口原始想法" } }
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("updates book profiles, reports frontend-readable errors, and rejects invalid public opening input without writes", async () => {
+    const login = await createVerifiedLogin("profile-api@example.com", "资料接口");
+    const manual = await books.confirmManualOpeningBookFromSession(login.token, {
+      openingPackage: minimalManualPackage({ title: "资料接口" }),
+      idempotencyKey: "profile-api"
+    });
+    const profile = await books.getBookProfileFromSession(login.token, manual.bookId);
+    const server = await createApiServer({ accountPool: appPool });
+    try {
+      const invalid = await server.inject({
+        method: "POST",
+        url: "/v1/v7/opening-books",
+        headers: jsonWriteHeaders(`wenmi_rebuild_session=${login.token}`),
+        payload: {
+          openingPackage: minimalManualPackage({ title: "短" }),
+          idempotencyKey: "bad-public"
+        }
+      });
+      expect(invalid.statusCode).toBe(400);
+      expect(JSON.parse(invalid.body)).toMatchObject({ error: { message: expect.any(String), retryable: false } });
+      const invalidCounts = await migratorPool.query<{ count: string }>("SELECT count(*) FROM bookshelf_books WHERE idempotency_key = 'bad-public'");
+      expect(invalidCounts.rows[0]!.count).toBe("0");
+
+      const updated = await server.inject({
+        method: "PUT",
+        url: `/v1/v7/books/${manual.bookId}/book-profile`,
+        headers: jsonWriteHeaders(`wenmi_rebuild_session=${login.token}`),
+        payload: {
+          expectedVersion: 1,
+          title: "资料接口二",
+          openingBlueprint: { ...profile.openingBlueprint, fullBookOutline: "保存后的完整简介" }
+        }
+      });
+      expect(updated.statusCode).toBe(200);
+      expect(JSON.parse(updated.body)).toMatchObject({
+        data: { title: "资料接口二", version: 2, synopsis: "保存后的完整简介" }
+      });
+
+      const stale = await server.inject({
+        method: "PUT",
+        url: `/v1/v7/books/${manual.bookId}/book-profile`,
+        headers: jsonWriteHeaders(`wenmi_rebuild_session=${login.token}`),
+        payload: {
+          expectedVersion: 1,
+          title: "资料接口三",
+          openingBlueprint: profile.openingBlueprint
+        }
+      });
+      expect(stale.statusCode).toBe(409);
+      expect(JSON.parse(stale.body)).toMatchObject({ error: { message: expect.any(String), retryable: false } });
+
+      const badJson = await server.inject({
+        method: "PUT",
+        url: `/v1/v7/books/${manual.bookId}/book-profile`,
+        headers: jsonWriteHeaders(`wenmi_rebuild_session=${login.token}`),
+        payload: "{"
+      });
+      expect(badJson.statusCode).toBe(400);
+      expect(JSON.parse(badJson.body)).toMatchObject({ code: "REQUEST_JSON_INVALID", error: { message: expect.any(String) } });
+    } finally {
+      await server.close();
+    }
+  });
 });
 
 async function createVerifiedLogin(email: string, displayName: string): Promise<{ readonly token: string }> {
@@ -172,7 +283,7 @@ async function createVerifiedLogin(email: string, displayName: string): Promise<
 
 async function truncateAll(pool: PgPool): Promise<void> {
   await pool.query(
-    "TRUNCATE manual_book_chapter_directories, manual_book_opening_sources, bookshelf_book_audit_events, bookshelf_books, account_security_audit_events, account_rate_limits, account_one_time_tokens, account_sessions, account_users RESTART IDENTITY CASCADE"
+    "TRUNCATE book_profile_versions, manual_book_chapter_directories, manual_book_opening_sources, bookshelf_book_audit_events, bookshelf_books, account_security_audit_events, account_rate_limits, account_one_time_tokens, account_sessions, account_users RESTART IDENTITY CASCADE"
   );
 }
 
@@ -182,5 +293,41 @@ function jsonWriteHeaders(cookie: string) {
     origin: "http://127.0.0.1:43280",
     "content-type": "application/json",
     cookie
+  };
+}
+
+function minimalManualPackage(overrides: Record<string, unknown> = {}) {
+  return {
+    title: "汉末小卒",
+    positioning: {
+      publishingPlatform: "fanqie",
+      channel: "male",
+      category: "历史脑洞",
+      genres: ["历史古代"],
+      tags: [],
+      coreAppeal: "",
+      expectedTotalWords: 100_000
+    },
+    backgrounds: { eraAndWorld: "", openingSituation: "" },
+    protagonists: [{
+      name: "刘成",
+      age: "十八",
+      identity: "",
+      background: "边军小卒",
+      familyBackground: "",
+      careerBackground: "",
+      goldenFinger: "",
+      visualIdentity: { appearance: "", build: "", signatureFeature: "" },
+      goal: "",
+      dilemma: "",
+      personality: ["谨慎"],
+      boundary: ""
+    }],
+    opening: { startingSituation: "", incitingIncident: "", immediateConflict: "", readerPromise: "" },
+    longTermDirection: { centralConflict: "", progression: "", relationshipDirection: "", storyPotential: "" },
+    possibleEnding: { direction: "", price: "", openness: "" },
+    authorNotes: [],
+    mustFollow: ["不写后宫"],
+    ...overrides
   };
 }

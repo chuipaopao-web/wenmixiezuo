@@ -546,7 +546,7 @@ export function AuthorApp(): React.JSX.Element {
         )}
         {view === 'home' && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'new-novel' && <NewNovelPage key={`${accountSession.account.userId}-${openingEntry}-${openingTaskId ?? 'new'}`} entryMode={openingEntry} onBack={() => navigate('home')} onCreated={(createdBookId) => navigate('information', createdBookId)} onAuthenticationRequired={accountSession.requireSignIn} onOpenAccount={openAccountFromOpening} membershipRetryReady={openingTaskId !== null && membershipRetryGrant?.taskId === openingTaskId && accountSession.membershipState === 'ready' && membershipAllowsOpeningRetry(accountSession.account.role, accountSession.membership, membershipRetryGrant.recoveryAction)} onMembershipRetryConsumed={consumeMembershipRecovery} />}
-        {view === 'information' && bookId !== null && <InformationPage key={`${bookId}-${informationSection}-${settingRecoveryFocus ?? 'default'}`} bookId={bookId} initialSection={informationSection} settingRecoveryFocus={settingRecoveryFocus} onOpenTimeMachine={() => navigate('time-machine', bookId)} />}
+        {view === 'information' && bookId !== null && <InformationPage key={`${bookId}-${informationSection}-${settingRecoveryFocus ?? 'default'}`} bookId={bookId} initialSection={informationSection} settingRecoveryFocus={settingRecoveryFocus} onOpenTimeMachine={() => navigate('time-machine', bookId)} onProfileSaved={() => setBookShelfRequest((current) => current + 1)} />}
         {view === 'information' && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'time-machine' && bookId !== null && <TimeMachinePage key={bookId} bookId={bookId} onOpenSettings={() => {
           openSettings(bookId);
