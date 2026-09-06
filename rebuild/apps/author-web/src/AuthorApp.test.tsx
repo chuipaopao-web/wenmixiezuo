@@ -136,7 +136,17 @@ function render(ui: ReactElement): ReturnType<typeof testingRender> {
 }
 
 function response<T>(data: T, status = 200): Response {
-  return { ok: status >= 200 && status < 300, status, json: async () => ({ data, meta: { requestId: 'test', version: 1 } }) } as Response;
+  return { ok: status >= 200 && status < 300, status, json: async () => ({ data, meta: { requestId: 'test', nextCursor: null, version: 1 } }) } as Response;
+}
+
+function bookListResponse(data: unknown, nextCursor: string | null, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => status >= 400
+      ? { error: { message: '本地验证：暂时不可用' } }
+      : { data, meta: { requestId: 'books-test', nextCursor } }
+  } as Response;
 }
 
 function installFetch(overrides?: (url: string, init?: RequestInit) => Response | Promise<Response> | null): ReturnType<typeof vi.fn> {
@@ -346,10 +356,12 @@ describe('V7 author opening flow', () => {
     let activeStatus: 'active' | 'archived' = 'active';
     let oldStatus: 'active' | 'archived' = 'archived';
     const fetchMock = installFetch((url, init) => {
-      if (url.endsWith('/api/v1/v7/books')) return response([
-        { bookId: 'book-active', title: '正在写的书', status: activeStatus, version: activeStatus === 'active' ? 1 : 2, updatedAt: '2026-08-30T00:00:00Z' },
+      if (url === '/api/v1/v7/books') return bookListResponse([
+        { bookId: 'book-active', title: '正在写的书', status: activeStatus, version: activeStatus === 'active' ? 1 : 2, updatedAt: '2026-08-30T00:00:00Z' }
+      ], 'archived-page');
+      if (url === '/api/v1/v7/books?cursor=archived-page') return bookListResponse([
         { bookId: 'book-old', title: '暂时收起的书', status: oldStatus, version: oldStatus === 'archived' ? 3 : 4, updatedAt: '2026-08-29T00:00:00Z' }
-      ]);
+      ], null);
       if (url.endsWith('/api/v1/v7/books/book-active/archive') && init?.method === 'POST') {
         activeStatus = 'archived';
         return response({ bookId: 'book-active', title: '正在写的书', status: 'archived', version: 2, updatedAt: '2026-08-30T00:01:00Z' });
@@ -389,7 +401,7 @@ describe('V7 author opening flow', () => {
       bookRequests += 1;
       return bookRequests === 1
         ? response(null, 500)
-        : response([{ bookId: 'book-still-there', title: '仍在创作的书', status: 'active', updatedAt: '2026-08-30T00:00:00Z' }]);
+        : response([{ bookId: 'book-still-there', title: '仍在创作的书', status: 'active', version: 1, updatedAt: '2026-08-30T00:00:00Z' }]);
     });
     render(<AuthorApp />);
 
@@ -408,7 +420,7 @@ describe('V7 author opening flow', () => {
   it('returns home and clears the whole book scope only after a successful list confirms the URL book was deleted', async () => {
     window.history.replaceState({}, '', '/?view=library&bookId=deleted-book&volumeId=volume-2&chainId=chain-5&chapter=17');
     installFetch((url) => url.endsWith('/api/v1/v7/books') ? response([
-      { bookId: 'another-book', title: '另一部作品', status: 'active', updatedAt: '2026-08-30T00:00:00Z' }
+      { bookId: 'another-book', title: '另一部作品', status: 'active', version: 1, updatedAt: '2026-08-30T00:00:00Z' }
     ]) : null);
     render(<AuthorApp />);
 
@@ -419,9 +431,28 @@ describe('V7 author opening flow', () => {
     expect(within(menu).getByRole('button', { name: '信息' })).toBeDisabled();
   });
 
+  it('keeps the selected book when it is returned from a later bookshelf page', async () => {
+    window.history.replaceState({}, '', '/?view=library&bookId=book-late&volumeId=volume-2&chainId=chain-5&chapter=17');
+    installFetch((url) => {
+      if (url === '/api/v1/v7/books') return bookListResponse([
+        { bookId: 'book-first', title: '第一页的书', status: 'active', version: 1, updatedAt: '2026-08-30T00:00:00Z' }
+      ], 'late-page');
+      if (url === '/api/v1/v7/books?cursor=late-page') return bookListResponse([
+        { bookId: 'book-late', title: '后页里的书', status: 'active', version: 7, updatedAt: '2026-08-31T00:00:00Z' }
+      ], null);
+      return null;
+    });
+    render(<AuthorApp />);
+
+    const shelf = openBookShelf();
+    expect(await within(shelf).findByRole('button', { name: /后页里的书.*当前书籍/ })).toBeVisible();
+    expect(window.location.search).toBe('?view=library&bookId=book-late&volumeId=volume-2&chainId=chain-5&chapter=17');
+    expect(screen.queryByRole('heading', { name: '今天，想创作什么？' })).not.toBeInTheDocument();
+  });
+
   it('uses the retained cover strategy for V7 books without reading the old bookshelf', async () => {
     installFetch((url) => url.endsWith('/api/v1/v7/books') ? response([
-      { bookId: 'v7-book-shelf-1', title: '穿越三国从边军小卒开始问鼎天下第一', status: 'active', updatedAt: '2026-08-25T00:00:00Z' }
+      { bookId: 'v7-book-shelf-1', title: '穿越三国从边军小卒开始问鼎天下第一', status: 'active', version: 1, updatedAt: '2026-08-25T00:00:00Z' }
     ]) : null);
     render(<AuthorApp />);
     const shelf = openBookShelf();
@@ -434,7 +465,7 @@ describe('V7 author opening flow', () => {
   it('enables the time machine for a selected V7 book and opens its honest framework state', async () => {
     window.history.replaceState({}, '', '/?view=time-machine&bookId=v7-book-tree-1');
     installFetch((url) => url.endsWith('/api/v1/v7/books') ? response([
-      { bookId: 'v7-book-tree-1', title: '汉末小卒', status: 'active', updatedAt: '2026-08-26T00:00:00Z' }
+      { bookId: 'v7-book-tree-1', title: '汉末小卒', status: 'active', version: 1, updatedAt: '2026-08-26T00:00:00Z' }
     ]) : null);
     render(<AuthorApp />);
     expect(screen.getByRole('button', { name: '时光机' })).toBeEnabled();
@@ -450,8 +481,8 @@ describe('V7 author opening flow', () => {
     let resolveOldRetry!: (value: Response) => void;
     installFetch((url) => {
       if (url.endsWith('/api/v1/v7/books')) return response([
-        { bookId: 'book-a', title: 'A书', status: 'active', updatedAt: '2026-08-26T00:00:00Z' },
-        { bookId: 'book-b', title: 'B书', status: 'active', updatedAt: '2026-08-26T00:00:00Z' }
+        { bookId: 'book-a', title: 'A书', status: 'active', version: 1, updatedAt: '2026-08-26T00:00:00Z' },
+        { bookId: 'book-b', title: 'B书', status: 'active', version: 1, updatedAt: '2026-08-26T00:00:00Z' }
       ]);
       if (url.endsWith('/api/v1/v7/books/book-a/planning-trees/book/book-a?version=confirmed')) {
         bookATreeCalls += 1;
@@ -487,7 +518,7 @@ describe('V7 author opening flow', () => {
         return response({ bookId: 'v7-book-manual-0001', title: '八方姻缘', status: 'active', nextView: 'information' });
       }
       if (url.endsWith('/api/v1/v7/books')) return response(bookCreated
-        ? [{ bookId: 'v7-book-manual-0001', title: '八方姻缘', status: 'active', updatedAt: '2026-08-30T00:00:00Z' }]
+        ? [{ bookId: 'v7-book-manual-0001', title: '八方姻缘', status: 'active', version: 1, updatedAt: '2026-08-30T00:00:00Z' }]
         : []);
       if (url.endsWith('/api/v1/v7/books/v7-book-manual-0001/book-profile')) return response({
         title: '八方姻缘', channel: '男频', category: '历史脑洞', subjects: [], mainTags: [], protagonists: [{ name: '张三', age: '青年', personalities: ['谨慎'] }],
@@ -1364,7 +1395,7 @@ describe('V7 author opening flow', () => {
         return response({ bookId: 'v7-book-0001', title: PACKAGE.title, status: 'active', nextView: 'information' });
       }
       if (url.endsWith('/api/v1/v7/books')) return response(bookCreated
-        ? [{ bookId: 'v7-book-0001', title: PACKAGE.title, status: 'active', updatedAt: '2026-08-30T00:00:00Z' }]
+        ? [{ bookId: 'v7-book-0001', title: PACKAGE.title, status: 'active', version: 1, updatedAt: '2026-08-30T00:00:00Z' }]
         : []);
       if (url.endsWith('/api/v1/v7/books/v7-book-0001/book-profile')) return response({
         title: PACKAGE.title, channel: '男频', category: '历史脑洞', subjects: ['秦汉三国', '穿越'], mainTags: PACKAGE.positioning.tags,
@@ -1508,7 +1539,7 @@ describe('V7 author opening flow', () => {
 
   it('链页打开历史章节时由父级一次写入章节范围再切到章页', async () => {
     installFetch((url) => url.endsWith('/api/v1/v7/books') ? response([
-      { bookId: 'book-1', title: '历史测试书', status: 'active', updatedAt: '2026-08-30T00:00:00Z' }
+      { bookId: 'book-1', title: '历史测试书', status: 'active', version: 1, updatedAt: '2026-08-30T00:00:00Z' }
     ]) : null);
     window.history.replaceState({}, '', '/?view=chain&bookId=book-1&volumeId=volume-1&chainId=chain-2');
     render(<AuthorApp />);

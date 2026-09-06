@@ -4,6 +4,7 @@ import { AUTHOR_AUTHENTICATION_REQUIRED_EVENT } from './account-api';
 import {
   createSettingFinalReview,
   createSettingRecommendation,
+  fetchBooks,
   fetchOpeningTask,
   fetchPlanningTasks,
   fetchSettingDepartment,
@@ -144,4 +145,113 @@ it('框架失败恢复调用原运行的续跑接口，不创建新的生成任�
     '/api/v1/v7/books/book-1/planning-tree-generation-runs/generation-1/retry',
     expect.objectContaining({ method: 'POST', body: '{}', credentials: 'include' })
   );
+});
+
+function bookEnvelope(data: unknown, nextCursor: string | null, status = 200): Response {
+  return new Response(JSON.stringify(status >= 200 && status < 300
+    ? { data, meta: { requestId: 'books-test', nextCursor } }
+    : { error: { message: '本地验证：暂时不可用' } }), {
+    status,
+    headers: { 'content-type': 'application/json' }
+  });
+}
+
+function bookRecord(index: number) {
+  return {
+    bookId: `book-${index}`,
+    title: `第${index}本书`,
+    status: index % 2 === 0 ? 'archived' : 'active',
+    version: index,
+    updatedAt: '2026-09-06T00:00:00.000Z'
+  };
+}
+
+it('书架读取完整分页包络并保持 BookRecord[] 返回合同', async () => {
+  const firstPage = Array.from({ length: 50 }, (_, index) => bookRecord(index + 1));
+  const secondPage = Array.from({ length: 5 }, (_, index) => bookRecord(index + 51));
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path === '/api/v1/v7/books') return bookEnvelope(firstPage, 'after/50?next');
+    if (path === '/api/v1/v7/books?cursor=after%2F50%3Fnext') return bookEnvelope(secondPage, null);
+    throw new Error(`unexpected ${path}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  await expect(fetchBooks()).resolves.toEqual([...firstPage, ...secondPage]);
+  expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+    '/api/v1/v7/books',
+    '/api/v1/v7/books?cursor=after%2F50%3Fnext'
+  ]);
+});
+
+it('书架后页失败时不把已累计第一页当作成功列表', async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path === '/api/v1/v7/books') return bookEnvelope([bookRecord(1)], 'next-page');
+    if (path === '/api/v1/v7/books?cursor=next-page') return bookEnvelope(null, null, 503);
+    throw new Error(`unexpected ${path}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  await expect(fetchBooks()).rejects.toMatchObject({
+    message: '本地验证：暂时不可用',
+    retryable: true,
+    status: 503
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it('书架分页拒绝缺失包络、重复游标、重复书籍与空页继续', async () => {
+  const cases: Array<{ name: string; responses: Response[] }> = [
+    { name: 'missing meta', responses: [new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'content-type': 'application/json' } })] },
+    { name: 'repeated cursor', responses: [bookEnvelope([bookRecord(1)], 'again'), bookEnvelope([bookRecord(2)], 'again')] },
+    { name: 'duplicate book', responses: [bookEnvelope([bookRecord(1)], 'next'), bookEnvelope([bookRecord(1)], null)] },
+    { name: 'empty page continues', responses: [bookEnvelope([], 'next')] },
+    { name: 'oversized cursor', responses: [bookEnvelope([bookRecord(1)], 'x'.repeat(2_049))] },
+    { name: 'invalid id', responses: [bookEnvelope([{ ...bookRecord(1), bookId: '' }], null)] },
+    { name: 'invalid title', responses: [bookEnvelope([{ ...bookRecord(1), title: '   ' }], null)] },
+    { name: 'invalid version', responses: [bookEnvelope([{ ...bookRecord(1), version: 0 }], null)] },
+    { name: 'invalid updatedAt', responses: [bookEnvelope([{ ...bookRecord(1), updatedAt: 'not-a-date' }], null)] }
+  ];
+
+  for (const item of cases) {
+    const responses = [...item.responses];
+    vi.stubGlobal('fetch', vi.fn(async () => responses.shift()!));
+    await expect(fetchBooks(), item.name).rejects.toMatchObject({
+      message: '文秘写作暂时没有响应，请稍后重试。',
+      retryable: true,
+      status: 502
+    });
+    vi.unstubAllGlobals();
+  }
+});
+
+it('书架分页取消后不继续请求后续页', async () => {
+  const controller = new AbortController();
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path !== '/api/v1/v7/books') throw new Error(`unexpected ${path}`);
+    controller.abort();
+    return bookEnvelope([bookRecord(1)], 'next-page');
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  await expect(fetchBooks(controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it('书架分页在响应正文解析期间取消后不交付最后一页', async () => {
+  const controller = new AbortController();
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => {
+      controller.abort();
+      return { data: [bookRecord(1)], meta: { requestId: 'books-test', nextCursor: null } };
+    }
+  } as Response));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await expect(fetchBooks(controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });

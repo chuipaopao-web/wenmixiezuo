@@ -17,7 +17,7 @@ const ACCOUNT: AuthorAccount = {
 };
 
 function response(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(status >= 200 && status < 300 ? { data } : data), {
+  return new Response(JSON.stringify(status >= 200 && status < 300 ? { data, meta: { requestId: 'test', nextCursor: null } } : data), {
     status,
     headers: { 'content-type': 'application/json' }
   });
@@ -121,7 +121,7 @@ describe('public author homepage entry', () => {
 
   it('preserves an old protected deep link for anonymous visitors and restores it after login', async () => {
     installFetch(null, (url) => url.endsWith('/api/v1/v7/books')
-      ? response([{ bookId: 'book-deep', title: '深链书籍', status: 'active', updatedAt: '2026-09-06T00:00:00Z' }])
+      ? response([{ bookId: 'book-deep', title: '深链书籍', status: 'active', version: 1, updatedAt: '2026-09-06T00:00:00Z' }])
       : null);
     window.history.replaceState({}, '', '/?view=information&bookId=book-deep');
     render(<PublicAuthorEntry />);

@@ -76,7 +76,7 @@ function jsonResponse<T>(data: T, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
-    json: async () => status >= 400 ? { error: { message: '本地验证：暂时不可用' } } : { data }
+    json: async () => status >= 400 ? { error: { message: '本地验证：暂时不可用' } } : { data, meta: { requestId: 'test', nextCursor: null } }
   } as Response;
 }
 
