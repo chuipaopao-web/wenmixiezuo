@@ -2525,7 +2525,8 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 }
 
 .author-topbar {
-  z-index: 50;
+  position: relative;
+  z-index: 90;
   grid-area: topbar;
   min-width: 0;
   display: grid;
@@ -2563,7 +2564,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .ios-book-sidebar {
   position: fixed;
   z-index: 80;
-  top: 0;
+  top: 58px;
   bottom: 0;
   left: 0;
   width: min(318px, calc(100vw - 34px));
