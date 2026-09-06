@@ -1,11 +1,17 @@
-.novel-create-surface .opening-member-choice {
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-choice {
   margin-top: 16px;
   border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
   border-radius: 16px;
   background: color-mix(in srgb, var(--accent) 6%, white);
 }
 
-.novel-create-surface .opening-member-choice > h3 {
+.opening-redesign-choice > .opening-member-choice {
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-choice > h3 {
   min-height: 48px;
   display: flex;
   align-items: center;
@@ -16,18 +22,18 @@
   font-weight: 800;
 }
 
-.novel-create-surface .opening-member-identity {
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-identity {
   min-width: 0;
   display: grid;
   gap: 3px;
 }
 
-.novel-create-surface .opening-member-identity small {
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-identity small {
   font-size: 12px;
   color: var(--ink-soft);
 }
 
-.novel-create-surface .opening-member-options {
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-options {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 10px;
@@ -37,7 +43,7 @@
   padding: 12px 14px 14px;
 }
 
-.novel-create-surface .opening-member-options legend {
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-options legend {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -46,7 +52,7 @@
   white-space: nowrap;
 }
 
-.novel-create-surface .opening-member-options label {
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-options label {
   min-height: 58px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -62,32 +68,32 @@
   transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
 }
 
-.novel-create-surface .opening-member-options label:hover,
-.novel-create-surface .opening-member-options label:focus-within {
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-options label:hover,
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-options label:focus-within {
   border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
-.novel-create-surface .opening-member-options label.selected {
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-options label.selected {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, white);
   box-shadow: 0 12px 28px rgb(39 73 62 / 12%);
 }
 
-.novel-create-surface .opening-member-options input {
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-options input {
   position: absolute;
   opacity: 0;
   pointer-events: none;
 }
 
-.novel-create-surface .opening-member-avatar,
-.novel-create-surface .opening-member-auto {
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-avatar,
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-auto {
   width: 42px;
   height: 42px;
   border-radius: 50%;
 }
 
-.novel-create-surface .opening-member-avatar {
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-avatar {
   border: 3px solid #fff;
   background-image: url('/avatars/editorial-women-v130.png');
   background-repeat: no-repeat;
@@ -95,7 +101,7 @@
   box-shadow: 0 6px 16px rgb(44 74 66 / 16%);
 }
 
-.novel-create-surface .opening-member-auto {
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-auto {
   display: grid;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
@@ -105,7 +111,7 @@
   font-weight: 900;
 }
 
-.novel-create-surface .opening-member-options strong {
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-options strong {
   min-width: 0;
   overflow: hidden;
   font-size: 14px;
@@ -113,7 +119,7 @@
   white-space: nowrap;
 }
 
-.novel-create-surface .opening-member-options b {
+:is(.novel-create-surface, .opening-redesign-choice) .opening-member-options b {
   border-radius: 999px;
   padding: 3px 7px;
   background: var(--accent);
@@ -192,7 +198,7 @@
 }
 
 @media (max-width: 640px) {
-  .novel-create-surface .opening-member-options {
+  :is(.novel-create-surface, .opening-redesign-choice) .opening-member-options {
     grid-template-columns: 1fr;
     padding: 10px 12px 12px;
   }
