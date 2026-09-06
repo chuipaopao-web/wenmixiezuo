@@ -13,6 +13,46 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7设定编辑部', () => {
+  it('资料保存后新设定任务读取新版本，确认设定与旧任务冻结版本保持可追溯', async () => {
+    context = createTestContext('wenmi-r138-information-setting-');
+    const resolver = new SettingResolver(false);
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'r138@example.test', '资料设定作者', 'strong-pass-r138');
+      const bookId = await createBook(app, cookie, '资料设定接入', 'r138-book-0001', '历史脑洞');
+      const url = `/api/v1/v7/books/${bookId}`;
+      const first = await app.inject({ method: 'POST', url: `${url}/setting-batches`, headers: { ...HEADERS, cookie }, payload: { selectedItemKeys: ['world-stage'], idempotencyKey: 'r138-first-0001' } });
+      expect(first.statusCode).toBe(200);
+      const firstId = first.json().data.batchId as string;
+      const completed = await pollBatch(app, cookie, bookId, firstId);
+      const candidate = completed.items.find((item: {itemKey:string}) => item.itemKey === 'world-stage');
+      const accepted = await app.inject({ method: 'POST', url: `${url}/setting-items/world-stage/confirm`, headers: { ...HEADERS, cookie }, payload: { expectedRevision: candidate.revision } });
+      expect(accepted.statusCode).toBe(200);
+      const frozen = context.database.prepare('SELECT manifest_id,compiled_prompt_hash FROM v7_prompt_manifests WHERE book_id=? ORDER BY manifest_id').all(bookId) as Array<{manifest_id:string;compiled_prompt_hash:string}>;
+      expect(frozen.length).toBeGreaterThan(0);
+      const profile = (await app.inject({ method: 'GET', url: `${url}/book-profile`, headers: { ...HEADERS, cookie } })).json().data;
+      const boundary = '作者本轮边界：城中没有传送术';
+      const revised = await app.inject({ method: 'PUT', url: `${url}/book-profile`, headers: { ...HEADERS, cookie }, payload: { expectedVersion: profile.version, title: '新资料设定接入', openingBlueprint: { ...profile.openingBlueprint, mustFollow: [...profile.mustFollow, boundary] } } });
+      expect(revised.statusCode).toBe(200);
+      expect(revised.json().data.version).toBe(profile.version + 1);
+      const refreshed = await app.inject({ method: 'GET', url: `${url}/book-profile`, headers: { ...HEADERS, cookie } });
+      expect(refreshed.json().data).toMatchObject({ title: '新资料设定接入', version: profile.version + 1, mustFollow: expect.arrayContaining([boundary]) });
+      const callOffset = resolver.prompts.length;
+      const second = await app.inject({ method: 'POST', url: `${url}/setting-batches`, headers: { ...HEADERS, cookie }, payload: { selectedItemKeys: ['social-order'], idempotencyKey: 'r138-second-0001' } });
+      expect(second.statusCode).toBe(200);
+      const secondId = second.json().data.batchId as string;
+      expect((await pollBatch(app, cookie, bookId, secondId)).status).toBe('awaiting_author');
+      expect(resolver.prompts.slice(callOffset).join('\n')).toContain(boundary);
+      expect(context.database.prepare('SELECT opening_version FROM v7_setting_batches WHERE batch_id=?').get(firstId)).toEqual({ opening_version: profile.version });
+      expect(context.database.prepare('SELECT opening_version FROM v7_setting_batches WHERE batch_id=?').get(secondId)).toEqual({ opening_version: profile.version + 1 });
+      for (const row of frozen) expect(context.database.prepare('SELECT compiled_prompt_hash FROM v7_prompt_manifests WHERE manifest_id=?').get(row.manifest_id)).toEqual({ compiled_prompt_hash: row.compiled_prompt_hash });
+      const department = (await app.inject({ method: 'GET', url: `${url}/setting-department`, headers: { ...HEADERS, cookie } })).json().data;
+      expect(department.confirmedItems.find((item: {itemKey:string}) => item.itemKey === 'world-stage')).toMatchObject({ state: 'confirmed', revision: accepted.json().data.revision });
+      const sources = context.database.prepare(`SELECT s.source_type,s.source_version FROM v7_context_source_traces s JOIN v7_context_pack_traces p ON p.context_pack_id=s.context_pack_id WHERE p.book_id=? AND s.source_type='confirmed_setting'`).all(bookId);
+      expect(sources.length).toBeGreaterThan(0);
+    } finally { await app.close(); }
+  });
+
   it('固定三名强模型主编、三名强模型副编和三名强模型策划，Kimi K3只走Agent Plan', () => {
     expect(validateSettingEditorialRoster()).toEqual([]);
     expect(V7_SETTING_MEMBERS.filter((member) => member.roleKey === 'chief_editor')).toHaveLength(3);
