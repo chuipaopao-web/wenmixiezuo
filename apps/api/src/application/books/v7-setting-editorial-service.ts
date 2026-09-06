@@ -472,7 +472,7 @@ export class V7SettingEditorialService {
     }
     const next: FinalReviewState = {
       ...state, phase: 'preparing', progress: 5,
-      publicMessage: '对不起，刚才没有整理完成。主编正在从已保存的资料继续。'
+      publicMessage: '主编正在从已保存的资料继续核对。'
     };
     if (!this.repository.resetFinalReview({ ownerId, bookId, taskId, stateJson: JSON.stringify(next), now: this.clock.now().toISOString() })) {
       throw new DomainError(errorCodes.validation, '任务状态已经变化，请刷新后再试。', {}, true, 409);
@@ -1522,12 +1522,10 @@ export class V7SettingEditorialService {
         : null;
       let committing = false;
       try {
-        const reviewPrompt = compileBatchFinalReviewPrompt(
-          profile,
-          items,
-          this.currentSettingProjections(task.owner_id, task.book_id, items)
-        );
         const conciseReview = (state.excludedModelIds?.length ?? 0) > 0;
+        const projections = this.currentSettingProjections(task.owner_id, task.book_id, items);
+        const reviewPrompt = compileBatchFinalReviewPrompt(profile, items, projections, conciseReview ? 11_000 : 12_000);
+        const reviewTokens = conciseReview ? 6_000 : 12_000;
         const conciseKeys = new Set(items.filter((item) => item.state !== 'confirmed' && Array.from(item.content ?? '').length <= 600).map((item) => item.itemKey));
         const checkPatches = (patches: FinalReviewPatch[]): FinalReviewPatch[] => {
           if (conciseReview) for (const patch of patches) if (conciseKeys.has(patch.itemKey)) assertConciseSetting({
@@ -1536,9 +1534,22 @@ export class V7SettingEditorialService {
           });
           return patches;
         };
-        const compactReviewPrompt = (prompt: string) => conciseReview
-          ? JSON.stringify({ ...JSON.parse(prompt), conciseDelivery: SETTING_CONCISE_INSTRUCTION, conciseItemKeys: [...conciseKeys], preservedContent: '原有较长内容不因篇幅自动改写；只修复有证据的冲突。' })
-          : prompt;
+        const compactReviewPrompt = (prompt: string) => {
+          if (!conciseReview) return prompt;
+          const payload = JSON.parse(prompt);
+          if (payload.outputSchema) {
+            delete payload.outputSchema.factLedger;
+            delete payload.outputSchema.groupSummaries;
+            delete payload.outputSchema.contextSummary;
+          }
+          if (Array.isArray(payload.compactModeRules)) payload.compactModeRules = payload.compactModeRules.filter((rule: string) => !rule.includes('factLedger'));
+          payload.delivery = '只检查明确冲突并返回必要修订；没有冲突则pass、简短summary、空patches即可。不要重新抄写所有条目。事实账本和分组索引由系统从已保存版本及本次有效修订组装，不输出factLedger、groupSummaries、contextSummary。';
+          payload.conciseDelivery = SETTING_CONCISE_INSTRUCTION;
+          payload.preservedContent = '原来600字以内的待确认条目修订后仍保持精练；原有较长内容不因篇幅自动改写。';
+          const result = JSON.stringify(payload);
+          if (Array.from(result).length > 12_000) throw new Error('统一核对所需资料超过安全预算，已完成设定保留。');
+          return result;
+        };
         reviewPrompt.prompt = compactReviewPrompt(reviewPrompt.prompt);
         const parseReview = (raw: string) => {
           const result = parseBatchFinalReview(raw, items, reviewPrompt.allowPatches);
@@ -1547,7 +1558,7 @@ export class V7SettingEditorialService {
         };
         const raw = await this.model(
           task.owner_id, task.book_id, task.batch_id, '__batch_final_review__', 'batch_final_review', chief,
-          reviewPrompt.prompt, 12_000, 0.22, logicalTaskId,
+          reviewPrompt.prompt, reviewTokens, 0.22, logicalTaskId,
           settingModelInvocation({
             taskKind: 'setting_review', operationMode: technicalRetryTaskId === null ? 'fresh' : 'retry',
             sourceTraces: batchFinalReviewSourceTraces(task.owner_id, task.book_id, profile, items),
@@ -1567,7 +1578,7 @@ export class V7SettingEditorialService {
           const repaired = await this.model(
             task.owner_id, task.book_id, task.batch_id, '__batch_final_review__', 'batch_final_review_repair', chief,
             conciseReview ? `${reviewPrompt.prompt}\n交付检查：${problem instanceof Error ? problem.message : '格式不完整'}。只修复结构或删除重复解释，保留条件、例外和数值，不增加冲突、不改变原有决定：${raw}` : `${reviewPrompt.prompt}\n上次统一整理结果已经保留，但JSON结构没有通过合同校验。只修复JSON结构和缺失字段，不重新判断、不增加冲突、不改变原有决定：${raw}`,
-            12_000,
+            reviewTokens,
             0.1,
             technicalRepairTaskId ?? repairTaskId,
             settingModelInvocation({
@@ -1581,7 +1592,7 @@ export class V7SettingEditorialService {
         }
         const repairedPatches = [...detectedReview.patches];
         if (!reviewPrompt.allowPatches && detectedReview.conflicts.length > 0) {
-          const patchPrompts = compileBatchFinalReviewPatchPrompts(profile, items, detectedReview);
+          const patchPrompts = compileBatchFinalReviewPatchPrompts(profile, items, detectedReview, conciseReview ? 11_000 : 12_000);
           for (const [index, patchPrompt] of patchPrompts.entries()) {
             patchPrompt.prompt = compactReviewPrompt(patchPrompt.prompt);
             const patchItemKey = `__batch_final_review_patch__:${index + 1}`;
@@ -1591,7 +1602,7 @@ export class V7SettingEditorialService {
             const patchLogicalTaskId = `${task.batch_id}-batch-final-${chief.memberKey}-patch-${index + 1}`;
             const rawPatch = await this.model(
               task.owner_id, task.book_id, task.batch_id, patchItemKey, 'batch_final_review_patch', chief,
-              patchPrompt.prompt, 12_000, 0.18, patchLogicalTaskId,
+              patchPrompt.prompt, reviewTokens, 0.18, patchLogicalTaskId,
               settingModelInvocation({
                 taskKind: 'setting_review', operationMode: failedPatch === undefined ? 'fresh' : 'retry',
                 sourceTraces: batchFinalReviewSourceTraces(
@@ -1618,7 +1629,7 @@ export class V7SettingEditorialService {
               const repairedPatch = await this.model(
                 task.owner_id, task.book_id, task.batch_id, patchItemKey, 'batch_final_review_patch_repair', chief,
                 conciseReview ? `${patchPrompt.prompt}\n交付检查：${problem instanceof Error ? problem.message : '格式不完整'}。修复结构或删去重复解释，保留条件、例外与数值，不改变统一决定：${rawPatch}` : `${patchPrompt.prompt}\n上次定向修订结果已经保留，但JSON结构没有通过合同校验。只修复JSON结构与缺失字段，不改变已经作出的统一决定：${rawPatch}`,
-                12_000,
+                reviewTokens,
                 0.1,
                 technicalPatchRepairTaskId ?? patchRepairTaskId,
                 settingModelInvocation({
@@ -1639,6 +1650,14 @@ export class V7SettingEditorialService {
           }
         }
         const review: FinalReviewModelResult = { ...detectedReview, patches: repairedPatches };
+        if (conciseReview) {
+          // Keep exact saved facts for unchanged items; never regenerate a second competing ledger.
+          review.factLedger = items.map((item) => {
+            const patch = repairedPatches.find((entry) => entry.itemKey === item.itemKey);
+            const source = projections.find((entry) => entry.itemKey === item.itemKey);
+            return { itemKey: item.itemKey, label: item.label, facts: patch?.factEntries ?? source?.factEntries ?? [item.content ?? ''] };
+          });
+        }
         const applying: FinalReviewState = {
           ...working, phase: 'applying', progress: 80,
           publicMessage: `${chief.displayName}正在把统一后的结果放回对应条目。`
@@ -3496,7 +3515,8 @@ function finalReviewRequestHash(profile: BookProfileView, items: readonly V7Sett
 function compileBatchFinalReviewPrompt(
   profile: BookProfileView,
   items: readonly V7SettingItemView[],
-  projections: readonly ReturnType<typeof confirmedSettingProjection>[]
+  projections: readonly ReturnType<typeof confirmedSettingProjection>[],
+  budgetChars = 12_000
 ): { prompt: string; allowPatches: boolean } {
   const common = {
     operation: 'v7_setting_batch_final_review_v1',
@@ -3548,7 +3568,7 @@ function compileBatchFinalReviewPrompt(
     }))
   };
   const exactPrompt = JSON.stringify(exactPayload);
-  if (Array.from(exactPrompt).length <= 12_000) return { prompt: exactPrompt, allowPatches: true };
+  if (Array.from(exactPrompt).length <= budgetChars) return { prompt: exactPrompt, allowPatches: true };
 
   const projectionByKey = new Map(projections.map((projection) => [projection.itemKey, projection]));
   const compactPayload = {
@@ -3575,7 +3595,7 @@ function compileBatchFinalReviewPrompt(
   };
   const compactPrompt = JSON.stringify(compactPayload);
   const compactCharacters = Array.from(compactPrompt).length;
-  if (compactCharacters > 12_000) {
+  if (compactCharacters > budgetChars) {
     // 语义索引仍超限时按固定上限缩短每条语义摘要并去掉待决定问题附件，
     // 全部条目标识、分组与解析合同保持不变。本轮继续禁止改原文。
     const minimalPayload = {
@@ -3601,7 +3621,7 @@ function compileBatchFinalReviewPrompt(
     };
     const minimalPrompt = JSON.stringify(minimalPayload);
     const minimalCharacters = Array.from(minimalPrompt).length;
-    if (minimalCharacters > 12_000) {
+    if (minimalCharacters > budgetChars) {
       throw new Error(`设定总审最小条目索引仍有${minimalCharacters}字，超过12000字安全范围`);
     }
     return { prompt: minimalPrompt, allowPatches: false };
@@ -3612,7 +3632,8 @@ function compileBatchFinalReviewPrompt(
 function compileBatchFinalReviewPatchPrompts(
   profile: BookProfileView,
   items: readonly V7SettingItemView[],
-  review: FinalReviewModelResult
+  review: FinalReviewModelResult,
+  budgetChars = FINAL_REVIEW_PATCH_PROMPT_LIMIT
 ): Array<{ itemKeys: string[]; prompt: string }> {
   const affectedKeys = [...new Set(review.conflicts.flatMap((conflict) => conflict.itemKeys))];
   const affected = affectedKeys.map((itemKey) => {
@@ -3659,13 +3680,13 @@ function compileBatchFinalReviewPatchPrompts(
   for (const item of affected) {
     const candidate = [...current, item];
     if (current.length > 0 && (candidate.length > FINAL_REVIEW_PATCH_GROUP_SIZE
-      || Array.from(build(candidate)).length > FINAL_REVIEW_PATCH_PROMPT_LIMIT)) {
+      || Array.from(build(candidate)).length > budgetChars)) {
       groups.push(current);
       current = [item];
     } else {
       current = candidate;
     }
-    if (Array.from(build(current)).length > FINAL_REVIEW_PATCH_PROMPT_LIMIT) {
+    if (Array.from(build(current)).length > budgetChars) {
       throw new Error(`设定“${item.label}”的定向修订资料仍超过${FINAL_REVIEW_PATCH_PROMPT_LIMIT}字安全范围`);
     }
   }
