@@ -241,15 +241,14 @@ function WorkStatus({ task }: { task: OpeningTaskView }): React.JSX.Element {
       </div>
       <p className="editorial-live-message">{statusText}</p>
       <div className="honest-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress.percent}><span style={{ width: `${task.progress.percent}%` }} /></div>
-      {members.length > 0 && <details className="editorial-live-members" aria-label="团队详情">
-        <summary>团队详情</summary>
+      {members.length > 0 && <section className="editorial-live-members" aria-label="开书团队成员">
         <div>
           {members.map((member) => <span key={member.memberKey}>
             <i className="agent-avatar" style={memberAvatarStyle(member.memberKey)} aria-hidden="true" />
             <b>{memberDisplayName(member.memberKey, member.displayName)} · {member.memberKey === reviewer?.memberKey ? '审查主编' : '设计成员'}</b>
           </span>)}
         </div>
-      </details>}
+      </section>}
       <details className="editorial-brief"><summary>看看本轮开书想法</summary><p>{task.idea}</p></details>
       <p className="safe-leave-copy">任务已保存，可以放心离开或刷新。</p>
     </div>
