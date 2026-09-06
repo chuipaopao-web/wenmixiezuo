@@ -25,6 +25,15 @@ export {
   type CreateManualBookFromSessionInput
 } from "./application/bookshelf/index.js";
 export {
+  UsageCoreService,
+  createUsageCoreService,
+  type UsageEntitlementSnapshotInput,
+  type UsageReleaseInput,
+  type UsageReservationInput,
+  type UsageReservationScope,
+  type UsageSettlementInput
+} from "./application/usage/index.js";
+export {
   EditorialDepartmentService,
   createEditorialDepartment,
   createEditorialDepartmentService
@@ -58,6 +67,15 @@ export type {
   ManualBookSourceRecord,
   PublicBookRecord
 } from "./domain/bookshelf/index.js";
+export {
+  COMPUTE_VALUE_MULTIPLIER,
+  type UsageCommitmentTotals,
+  type UsageEntitlementSnapshot,
+  type UsageEntitlementSourceKind,
+  type UsageOperationKind,
+  type UsageReservationRecord,
+  type UsageReservationState
+} from "./domain/usage/index.js";
 export { hashSyntheticTaskPayload, normalizeSyntheticJson } from "./domain/synthetic-tasks/index.js";
 export { createSyntheticTaskService, type SyntheticTaskRepository, type SyntheticTaskService } from "./application/synthetic-tasks/index.js";
 export type {
@@ -75,3 +93,4 @@ export { runMigrations, verifyRuntimeDatabase, type MigrationResult } from "./in
 export { PostgresSyntheticTaskRepository } from "./infrastructure/postgres/repositories/synthetic-task-repository.js";
 export { PostgresAccountRepository } from "./infrastructure/postgres/repositories/account-repository.js";
 export { PostgresBookshelfRepository } from "./infrastructure/postgres/repositories/bookshelf-repository.js";
+export { PostgresUsageRepository, usageComputeFromRealTokens } from "./infrastructure/postgres/repositories/usage-repository.js";
