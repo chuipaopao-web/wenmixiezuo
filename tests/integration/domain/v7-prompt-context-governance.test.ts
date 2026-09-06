@@ -65,7 +65,7 @@ describe('V7提示词与上下文治理持久化', () => {
       content: { ...base.content, responsibility: '主持任务、派单、审查并给出最终判断。' },
       reason: '验证主编岗位草稿'
     });
-    expect(draft).toMatchObject({ status: 'draft', version: 2, basedOnAssetId: base.assetId });
+    expect(draft).toMatchObject({ status: 'draft', version: base.version + 1, basedOnAssetId: base.assetId });
     expect(() => service.createDraft('admin', base.assetKey, { expectedRevision: 1, basedOnAssetId: base.assetId }))
       .toThrow('刚刚被其他操作更新');
     const preview = service.preview('admin', base.assetKey, { assetId: draft.assetId }) as {
@@ -97,7 +97,7 @@ describe('V7提示词与上下文治理持久化', () => {
       sourceAssetId: base.assetId,
       reason: '从历史版本恢复为新草稿'
     });
-    expect(restored).toMatchObject({ status: 'draft', version: 3, basedOnAssetId: base.assetId });
+    expect(restored).toMatchObject({ status: 'draft', version: base.version + 2, basedOnAssetId: base.assetId });
     expect(repository.assetById(base.assetId)?.status).toBe('retired');
     expect(() => service.createDraft('admin', base.assetKey, {
       expectedRevision: 4,
@@ -237,7 +237,7 @@ describe('V7提示词与上下文治理持久化', () => {
         headers: { ...BROWSER_HEADERS, cookie }, payload: { expectedRevision: 3, sourceAssetId: base.assetId }
       });
       expect(restore.statusCode).toBe(200);
-      expect(restore.json().data.version).toBe(3);
+      expect(restore.json().data.version).toBe(base.version + 2);
       const manifests = await app.inject({
         method: 'GET', url: '/api/v1/admin/v7/prompt-context/manifests', headers: { ...BROWSER_HEADERS, cookie }
       });

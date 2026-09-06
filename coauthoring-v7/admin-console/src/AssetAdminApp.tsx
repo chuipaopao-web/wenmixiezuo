@@ -68,12 +68,6 @@ const DEFAULT_METHOD_FILTERS: MethodFilters = { query: '', dimension: 'all', sco
 const DEFAULT_PATTERN_FILTERS: PatternFilters = { query: '', category: 'all', genre: 'all' };
 const DEFAULT_RECIPE_FILTERS: RecipeFilters = { query: '', genre: 'all' };
 
-const STRONG_PLANNING_SEATS = [
-  { member: '貂蝉', model: 'DeepSeek V4 Pro' },
-  { member: '顾承砚', model: 'GLM 5.3' },
-  { member: '沈知微', model: 'Kimi K3' }
-] as const;
-
 const CURRENT_PLANNING_FLOW = [
   '每个新任务先由资料策划 Agent 理解本层目标，从作者确认资料中挑选最小必要范围，并签发本任务临时题材身份和候选方法。',
   '时光机由三名强模型主编读取同一资料范围，各自完成一套全案路线、设计理由、受众定位和卷数安排。',
@@ -345,8 +339,8 @@ function PlanningPage(): React.JSX.Element {
         <div><article><strong>系统负责</strong><ul><li>身份、权限和书籍隔离</li><li>版本、来源、幂等和格式校验</li><li>树结构、篇幅加总和审计记录</li></ul></article><article><strong>成员负责</strong><ul><li>理解作者意图和作品语义</li><li>判断方法相关性并提出创意</li><li>发现文学冲突、漂移和兑现风险</li></ul></article></div>
       </section>
       <section className="asset-panel planning-seat-panel">
-        <header><div><h2>全书路线三席</h2><p>三席只用于全书路线独立比较；卷和链按作者需要生成一至三套，不强制每轮都跑三次。</p></div></header>
-        <div>{STRONG_PLANNING_SEATS.map((seat) => <details key={seat.member}><summary><strong>{seat.member}</strong><span>{seat.model}</span></summary><h3>独立交付</h3><BulletList values={['完整全书粗路线与卷数安排', '商业受众、追读承诺与阶段回报', '人物选择、因果推进和作品辨识度', '本方案采用的方法及本书具体用法']} /><h3>共同边界</h3><BulletList values={['读取相同的冻结资料范围', '不查看另外两人的答案', '方法卡只是少量参考，允许提出本书临时方法', '未来细节保持粗粒度，不冒充已经发生']} /></details>)}</div>
+        <header><div><h2>成员与模型配置</h2><p>固定岗位、全部成员、模型绑定和节点准入统一在“创作成员”管理，本页不再维护静态成员名单。</p></div></header>
+        <a href="?section=agents">打开创作成员</a>
       </section>
     </div>
 

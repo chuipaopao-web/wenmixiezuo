@@ -75,6 +75,10 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
       publishingPlatform: input.publishingPlatform,
       instruction: '作者原话是最高优先级硬来源；明确姓名、主角动作、时代、地点和目标不得被任务书、模板、历史名人知名度或模型推断覆盖。若句式为“A穿越或重生到某处，遇到B”，A是主角，B只是遇到的角色，除非作者明确说B也是主角。'
     },
+    authorAdjustment: {
+      instructions: input.openingPackage?.authorInstructions ?? [],
+      instruction: '这些是作者后续明确提出的调整意见，优先于最初想法中被明确修改的同一内容；未涉及的原始要求继续保留。设计成员据此修订，主编按修订后的作者意图审查，不得以旧想法否决作者的新决定。'
+    },
     publishingStyle: publishingStyle(input.publishingPlatform),
     memberSupplement: {
       instruction: input.memberInstruction,

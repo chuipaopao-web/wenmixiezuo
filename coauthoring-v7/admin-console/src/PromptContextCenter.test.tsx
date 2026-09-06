@@ -115,6 +115,7 @@ describe('提示词与上下文中心', () => {
 
   it('按真实资产键动作契约完成草稿保存、预览和发布，不打开弹窗', async () => {
     render(<PromptContextCenter />);
+    fireEvent.click(await screen.findByRole('tab', { name: '配置来源' }));
     expect(await screen.findByRole('tab', { name: '配置来源' })).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByRole('heading', { name: '全书路线工位' })).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -165,6 +166,7 @@ describe('提示词与上下文中心', () => {
 
   it('历史发布版本只能恢复成新草稿，不直接覆盖当前版本', async () => {
     render(<PromptContextCenter />);
+    fireEvent.click(await screen.findByRole('tab', { name: '配置来源' }));
     fireEvent.click(await screen.findByText(/查看版本记录/));
     fireEvent.click(screen.getByRole('button', { name: '恢复为草稿' }));
     expect(await screen.findByText(/已把第 1 版恢复成新草稿/)).toBeVisible();
@@ -192,6 +194,7 @@ describe('提示词与上下文中心', () => {
     currentVersions = [currentDraft, secondVersion, firstVersion];
 
     render(<PromptContextCenter />);
+    fireEvent.click(await screen.findByRole('tab', { name: '配置来源' }));
     fireEvent.click(await screen.findByText(/查看版本记录/));
 
     expect(await screen.findByRole('region', { name: '版本并排比较' })).toBeVisible();
@@ -228,6 +231,7 @@ describe('提示词与上下文中心', () => {
     vi.stubGlobal('fetch', scopedFetch);
 
     render(<PromptContextCenter />);
+    fireEvent.click(await screen.findByRole('tab', { name: '配置来源' }));
     expect(await screen.findByRole('heading', { name: '全书路线工位' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '固定岗位提示词' }));
     expect(await screen.findByRole('heading', { name: '全案策划主编' })).toBeVisible();
@@ -238,6 +242,15 @@ describe('提示词与上下文中心', () => {
     const cancelledBadge = await screen.findByText('已取消', { selector: 'em' });
     expect(cancelledBadge.closest('button')).toHaveClass('active');
     expect(screen.queryByText('状态未知')).not.toBeInTheDocument();
+  });
+  it('重复查询同一开书记录仍显示详情，并按开书任务归集全部调用', async () => {
+    render(<PromptContextCenter />);
+    fireEvent.click(await screen.findByRole('tab', { name: '运行追溯' }));
+    expect(await screen.findByText('本次 PromptManifest')).toBeVisible();
+    fireEvent.change(screen.getByLabelText('按任务编号查询'), { target: { value: 'opening-test-1' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询记录' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes('bookId=v7-prebook%3Aopening-test-1'))).toBe(true));
+    expect(screen.getByText('本次 PromptManifest')).toBeVisible();
   });
 });
 

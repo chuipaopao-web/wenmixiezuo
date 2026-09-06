@@ -316,7 +316,7 @@ describe('V7 author opening flow', () => {
     expect(await screen.findByText('资料已经审查通过')).toBeVisible();
     expect(screen.getByRole('button', { name: /2\s*边界与角色/ })).toHaveClass('active');
     expect(screen.getByLabelText('角色1姓名')).toHaveValue('作者改过的主角');
-    const adjustment = screen.getByLabelText('给主编的开书资料调整意见（可选）');
+    const adjustment = screen.getByLabelText(/开书资料调整意见（可选）/);
     expect(adjustment).toHaveAttribute('data-max-chars', '2000');
     expect(adjustment).toHaveValue(longAdjustmentNote);
     expect(screen.getByRole('button', { name: '请主编按选择更新资料' })).toBeEnabled();
@@ -1283,7 +1283,7 @@ describe('V7 author opening flow', () => {
     expect(await screen.findByText('资料已经审查通过')).toBeVisible();
 
     fireEvent.click(screen.getByText('换成员重新设计整份开书资料'));
-    fireEvent.change(screen.getByLabelText('重新设计成员'), { target: { value: 'planner-glm-5-3' } });
+    fireEvent.click(screen.getByRole('radio', { name: /幼薇/ }));
     fireEvent.click(screen.getByRole('button', { name: '重新设计' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('对不起，这次操作没有完成');
@@ -1323,7 +1323,7 @@ describe('V7 author opening flow', () => {
     expect(await screen.findByText('资料已经审查通过')).toBeVisible();
 
     fireEvent.click(screen.getByText('换成员重新设计整份开书资料'));
-    fireEvent.change(screen.getByLabelText('重新设计成员'), { target: { value: 'planner-glm-5-3' } });
+    fireEvent.click(screen.getByRole('radio', { name: /幼薇/ }));
     fireEvent.click(screen.getByRole('button', { name: '重新设计' }));
 
     expect(await screen.findByText('编剧正在设计新的开书资料包')).toBeVisible();
@@ -1373,7 +1373,7 @@ describe('V7 author opening flow', () => {
     expect(screen.queryByText('当前工位')).not.toBeInTheDocument();
     expect(screen.queryByText('直接设计')).not.toBeInTheDocument();
     expect(screen.queryByText('审查点评')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText('团队详情'));
+    expect(screen.getByRole('region', { name: '开书团队成员' })).toBeVisible();
     expect(screen.getByText('总编·月衡 · 审查主编')).toBeVisible();
     expect(screen.getByText('看看本轮开书想法')).toBeVisible();
     expect(screen.queryByText('主编理解')).not.toBeInTheDocument();
@@ -1616,7 +1616,7 @@ describe('V7 author opening flow', () => {
     openTaskStatus();
     expect(await screen.findByText('书名与封面制作中')).toBeVisible();
     expect(screen.getByText('书名与封面历史')).toBeVisible();
-    expect(screen.getByText('主编和视觉编剧正在制作封面。')).toBeVisible();
+    expect(screen.getByText('主编和封面画师正在制作封面。')).toBeVisible();
     expect(screen.getByText('这轮书名设计没有完成，工作记录已经保留。')).toBeVisible();
     expect(screen.getAllByText('边军起势')).toHaveLength(2);
   });

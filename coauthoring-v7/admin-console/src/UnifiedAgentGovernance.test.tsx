@@ -50,11 +50,16 @@ describe('V7统一成员治理后台', () => {
     expect(await screen.findByRole('heading', { name: 'V7创作团队' })).toBeVisible();
     expect(screen.getByText('林黛玉')).toBeVisible();
     expect(screen.getByText('陆婉宁')).toBeVisible();
+    fireEvent.change(screen.getByLabelText('查找成员或模型'), { target: { value: 'DeepSeek' } });
+    expect(screen.queryByText('林黛玉')).not.toBeInTheDocument();
+    expect(screen.getByText('陆婉宁')).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: '任务参数' }));
     expect(screen.getByText('性能与温度')).toBeVisible();
   });
 
   it('将节点耗时、结构、内容和上岗边界分别显示', async () => {
     render(<AgentGovernancePage/>);
+    fireEvent.click(await screen.findByRole('tab', { name: '开书速度与准入' }));
     const report=await screen.findByRole('region',{name:'开书节点评测'});
     expect(within(report).getByText('开书设计 · 64秒')).toBeVisible();
     expect(within(report).getByText('开书审查 · 180秒')).toBeVisible();

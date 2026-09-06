@@ -192,23 +192,25 @@ function errorMessage(error: unknown): string {
 
 type OpeningDesignerMember = EditorialDepartmentView['departments'][number]['members'][number];
 
-function DesignerMemberPicker({ members, value, onChange }: {
+function DesignerMemberPicker({ members, value, onChange, redesign = false, disabled = false }: {
   members: OpeningDesignerMember[];
   value: string;
   onChange: (memberKey: string) => void;
+  redesign?: boolean;
+  disabled?: boolean;
 }): React.JSX.Element | null {
   if (members.length === 0) return null;
   return (
-    <section className="opening-member-choice" aria-label="选择开书设计成员（可不选）">
-      <h3>选择开书设计成员（可不选）</h3>
-      <fieldset className="opening-member-options">
+    <section className="opening-member-choice" aria-label={redesign ? '选择重新设计成员' : '选择开书设计成员（可不选）'}>
+      <h3>{redesign ? '换成员重新设计整份开书资料' : '选择开书设计成员（可不选）'}</h3>
+      <fieldset className="opening-member-options" disabled={disabled}>
         <legend>开书设计成员</legend>
-        <label className={value === '' ? 'selected' : ''}>
+        {!redesign && <label className={value === '' ? 'selected' : ''}>
           <input type="radio" name="opening-designer-member" value="" checked={value === ''} onChange={() => onChange('')} />
           <span className="opening-member-auto" aria-hidden="true">✓</span>
           <strong>自动安排</strong>
           {value === '' && <b aria-hidden="true">已选</b>}
-        </label>
+        </label>}
         {members.map((member) => {
           const selected = value === member.memberKey;
           return (
@@ -909,8 +911,12 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
           ...Object.fromEntries(decisions.map((item) => [item.decisionId, { decisionId: item.decisionId, action: 'accept' as const }]))
         }))} />}
         <ManualOpeningForm value={openingPackage} taxonomy={taxonomy} onChange={setOpeningPackage} step={manualStep} onStepChange={setManualStep} />
-        {mode === 'ai' && designMembers.length > 0 && <details className="opening-redesign-choice"><summary>换成员重新设计整份开书资料</summary><div><select aria-label="重新设计成员" value={selectedDesignerMemberKey} onChange={(event) => setSelectedDesignerMemberKey(event.target.value)}><option value="">请选择成员</option>{designMembers.map((member) => <option key={member.memberKey} value={member.memberKey}>{member.displayName}</option>)}</select></div><p>当前方案会移入任务记录，不会污染新方案；新方案仍由不同底模的主编审查。</p><WorkflowActionDock mode="card" ariaLabel="整份开书资料重新设计" title="已选成员后" primary={<button className="secondary-action" type="button" disabled={busy || selectedDesignerMemberKey.length === 0} onClick={() => void redesignWithMember()}>{busy ? '正在重新安排…' : '重新设计'}</button>} /></details>}
-        {mode === 'ai' && manualStep === 2 && <label className="adjustment-field" htmlFor="adjustment-note"><span>给主编的开书资料调整意见（可选）</span><ImeTextarea id="adjustment-note" rows={3} maxChars={2_000} value={adjustmentNote} onChange={setAdjustmentNote} placeholder="例如：主角必须是张三；年龄改成二十岁；书名更直白吸睛。只调整本页开书资料。" /><output>{Array.from(adjustmentNote).length}/2000</output></label>}
+        {mode === 'ai' && designMembers.length > 0 && <section className="opening-redesign-choice" aria-label="换成员重新设计">
+          <DesignerMemberPicker members={designMembers} value={selectedDesignerMemberKey} onChange={setSelectedDesignerMemberKey} redesign disabled={busy} />
+          <p>按最初的开书想法重新设计，不带入当前方案和下方调整意见；原方案保留在任务记录中。</p>
+          <WorkflowActionDock mode="card" ariaLabel="整份开书资料重新设计" title="选择头像后重新设计" primary={<button className="secondary-action" type="button" disabled={busy || selectedDesignerMemberKey.length === 0} onClick={() => void redesignWithMember()}>{busy ? '正在重新安排…' : '重新设计'}</button>} />
+        </section>}
+        {mode === 'ai' && manualStep === 2 && <label className="adjustment-field" htmlFor="adjustment-note"><span>开书资料调整意见（可选）</span><ImeTextarea id="adjustment-note" rows={3} maxChars={2_000} value={adjustmentNote} onChange={setAdjustmentNote} placeholder="例如：主角必须是张三；年龄改成二十岁；书名更直白吸睛。只调整本页开书资料。" /><small>设计成员按意见修改当前资料，再由主编审查。</small><output>{Array.from(adjustmentNote).length}/2000</output></label>}
         {currentErrors.length > 0 && <details className="validation-summary"><summary>还需完成 {currentErrors.length} 项</summary><ul>{currentErrors.map((item) => <li key={item}>{item}</li>)}</ul></details>}
         {error !== null && <div className="error-notice" role="alert">{error}</div>}
         {resetConfirmationOpen && <div className="error-notice" role="alert">当前页未提交的修改会被清空；已保存的历史版本不会删除。</div>}

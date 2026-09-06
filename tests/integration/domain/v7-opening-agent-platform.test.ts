@@ -1206,6 +1206,32 @@ describe('V7开书Agent平台接入', () => {
     }
   });
 
+  it('同时处理八条决定时，作者自由输入的调整意见仍进入修订与审查', async () => {
+    context = createTestContext('wenmi-v7-opening-note-priority-');
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new ScriptedResolver('decision') });
+    try {
+      const cookie = await register(app, 'note-priority@example.com', '调整作者', 'strong-pass-881');
+      const started = await app.inject({ method: 'POST', url: '/api/v1/v7/opening-agent/tasks', headers: { ...BROWSER_HEADERS, cookie },
+        payload: { idea: '张三穿越到三国乱世，从流民开始统一天下。', idempotencyKey: 'note-priority-task-0001' } });
+      const taskId = started.json().data.taskId as string;
+      const waiting = await poll(app, cookie, taskId, ['awaiting_author_decision']);
+      const base = latestCandidate(waiting, 'opening_package');
+      const review = latestCandidate(waiting, 'opening_review');
+      const decisions = Array.from({ length: 8 }, (_, index) => ({ ...review.content.decisions[0], decisionId: 'note-decision-' + index }));
+      context.database.prepare('UPDATE v7_opening_agent_candidates SET content_json=? WHERE candidate_id=?').run(JSON.stringify({ ...review.content, decisions }), review.candidateId);
+      const note = '年龄改成二十岁；未提及的资料保持原样。';
+      const result = await app.inject({ method: 'POST', url: '/api/v1/v7/opening-agent/tasks/' + taskId + '/revisions', headers: { ...BROWSER_HEADERS, cookie },
+        payload: { baseCandidateId: base.candidateId, openingPackage: base.content, adjustmentNote: note,
+          decisionResolutions: decisions.map(item => ({ decisionId: item.decisionId, action: 'reject' })), idempotencyKey: 'note-priority-revision-0001' } });
+      expect(result.statusCode).toBe(200);
+      const completed = await poll(app, cookie, taskId, ['awaiting_author_confirmation']);
+      expect(latestCandidate(completed, 'opening_package').content.authorInstructions[0]).toBe(note);
+      const calls = context.database.prepare('SELECT prompt_manifest_json FROM v7_opening_agent_model_calls WHERE task_id=?').all(taskId) as Array<{ prompt_manifest_json: string }>;
+      const payloads = calls.map(call => JSON.parse(JSON.parse(call.prompt_manifest_json).compiledPrompt).contextPack.content.stageTaskPayload);
+      expect(payloads.filter(payload => payload.authorAdjustment?.instructions?.includes(note)).length).toBeGreaterThanOrEqual(2);
+    } finally { await app.close(); }
+  });
+
   it('候选把空作者说明存为数组时，原样确认不会被误判为未复审修改', async () => {
     context = createTestContext('wenmi-v7-opening-empty-instructions-confirm-');
     const resolver = new ScriptedResolver();

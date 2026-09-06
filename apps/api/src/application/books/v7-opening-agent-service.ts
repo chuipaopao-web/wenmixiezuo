@@ -260,10 +260,16 @@ export class V7OpeningAgentService {
       ...decisionFields,
       ...(adjustmentNote.length === 0 && !legacySemanticRevision ? [] : REVISION_EDITABLE_FIELDS)
     ])];
-    const authorMessages = [
-      ...resolutions.map(decisionInstruction),
-      ...(adjustmentNote.length === 0 ? [] : [adjustmentNote])
-    ].slice(0, 8);
+    // Keep the free-form note intact and pack all decision text without dropping
+    // later decisions to fit the existing eight-entry / 2,000-character contract.
+    const authorMessages = adjustmentNote.length === 0 ? [] : [adjustmentNote];
+    const decisionText = Array.from(resolutions.map(decisionInstruction).join('\n'));
+    if (decisionText.length > (8 - authorMessages.length) * 2_000) {
+      throw new DomainError(errorCodes.validation, '本轮决定与调整意见过长，请缩短自定义决定后再提交；当前资料未修改。');
+    }
+    for (let offset = 0; offset < decisionText.length; offset += 2_000) {
+      authorMessages.push(decisionText.slice(offset, offset + 2_000).join(''));
+    }
     if (allowedFields.length === 0 && authorMessages.length === 0) {
       throw new DomainError(errorCodes.validation, '请先处理主编决定，或修改一项开书资料后再提交。');
     }

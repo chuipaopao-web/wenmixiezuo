@@ -32,7 +32,8 @@ describe('V7 分层规划后台', () => {
     />);
 
     expect(screen.getByText(/每个新任务先由资料策划 Agent/)).toBeVisible();
-    expect(screen.getByRole('heading', { name: '全书路线三席' })).toBeVisible();
+    expect(screen.getByRole('link', { name: '打开创作成员' })).toHaveAttribute('href', '?section=agents');
+    expect(screen.queryByRole('heading', { name: '全书路线三席' })).not.toBeInTheDocument();
     expect(screen.getByText(/卷和链默认只请一名强模型成员设计/)).toBeVisible();
     expect(screen.getByText(/其他层级的资料包和临时身份在“创作运行”查看/)).toBeVisible();
     expect(screen.queryByRole('heading', { name: '三名强模型全案主编' })).not.toBeInTheDocument();

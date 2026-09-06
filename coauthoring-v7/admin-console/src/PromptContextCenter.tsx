@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { OpeningContextGuide, OpeningContextSnapshot, PromptRuleFields } from './OpeningContextGuide';
+import { publicMemberIdentity } from '../../backend/agent-governance/member-identities';
 import { ArrowClockwise, CheckCircle, ClockCounterClockwise, FloppyDisk, WarningCircle } from '@phosphor-icons/react';
 import {
   fetchV7PromptAssets,
@@ -22,7 +24,7 @@ import {
   type V7PromptManifestSummary
 } from './platform-api';
 
-type CenterTab = 'sources' | 'traces';
+type CenterTab = 'opening' | 'sources' | 'traces';
 type BusyState = 'loading' | 'saving' | 'previewing' | 'publishing' | 'restoring' | null;
 
 const KIND_LABELS: Record<V7PromptAssetKind, string> = {
@@ -39,7 +41,7 @@ const STATUS_LABELS: Record<V7PromptAssetStatus, string> = {
 };
 
 export function PromptContextCenter(): React.JSX.Element {
-  const [tab, setTab] = useState<CenterTab>('sources');
+  const [tab, setTab] = useState<CenterTab>('opening');
   const [summary, setSummary] = useState<V7PromptContextSummary | null>(null);
   const [assets, setAssets] = useState<V7PromptAssetSummary[]>([]);
   const [manifests, setManifests] = useState<V7PromptManifestSummary[]>([]);
@@ -58,6 +60,38 @@ export function PromptContextCenter(): React.JSX.Element {
   const [busy, setBusy] = useState<BusyState>('loading');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [traceWorkstation, setTraceWorkstation] = useState('all');
+  const [traceMode, setTraceMode] = useState('all');
+  const [taskQuery, setTaskQuery] = useState('');
+  const [queryKind, setQueryKind] = useState('opening');
+  const [traceLoading, setTraceLoading] = useState(false);
+  const [example, setExample] = useState<V7PromptManifestDetail | null>(null);
+  const [exampleLoading, setExampleLoading] = useState(false);
+
+  async function sampleOpening(): Promise<void> {
+    setExampleLoading(true); setError(null);
+    try {
+      const recent = await fetchV7PromptManifests({ limit: 100 });
+      const opening = recent.filter(item => item.workstationKey === 'opening');
+      const alternatives = opening.filter(item => item.manifestId !== example?.manifest.manifestId);
+      const choices = alternatives.length ? alternatives : opening;
+      if (!choices.length) { setNotice('最近100条调用中没有开书样例，通用配置仍可正常编辑。'); return; }
+      const selected = choices[Math.floor(Math.random() * choices.length)]!;
+      setExample(await fetchV7PromptManifest(selected.manifestId));
+    } catch (reason) { setError(readError(reason, '样例暂时无法读取，通用配置不受影响。')); }
+    finally { setExampleLoading(false); }
+  }
+
+  async function searchTask(): Promise<void> {
+    setTraceLoading(true); setError(null);
+    try {
+      const query = taskQuery.trim();
+      const rows = await fetchV7PromptManifests({ ...(query ? queryKind === 'opening' ? { bookId: 'v7-prebook:' + query } : { taskId: query } : {}), limit: 100 });
+      setManifests(rows);
+      setSelectedManifestId(rows[0]?.manifestId ?? null);
+    } catch (reason) { setError(readError(reason, '调用记录暂时无法读取。')); }
+    finally { setTraceLoading(false); }
+  }
 
   const loadOverview = useCallback(async (signal?: AbortSignal): Promise<void> => {
     setBusy('loading');
@@ -103,8 +137,9 @@ export function PromptContextCenter(): React.JSX.Element {
   useEffect(() => {
     if (tab !== 'traces' || selectedManifestId === null) { setManifestDetail(null); return; }
     const controller = new AbortController();
+    setManifestDetail(null);
     setError(null);
-    void fetchV7PromptManifest(selectedManifestId, controller.signal).then(setManifestDetail).catch((reason: unknown) => {
+    void fetchV7PromptManifest(selectedManifestId, controller.signal).then(detail => { if (!controller.signal.aborted) setManifestDetail(detail); }).catch((reason: unknown) => {
       if (!controller.signal.aborted) setError(readError(reason, '运行详情暂时无法读取。'));
     });
     return () => controller.abort();
@@ -112,8 +147,10 @@ export function PromptContextCenter(): React.JSX.Element {
 
   const filteredAssets = useMemo(() => assets.filter((item) => kind === 'all' || item.kind === kind), [assets, kind]);
   const filteredManifests = useMemo(
-    () => manifests.filter((item) => manifestState === 'all' || item.execution.state === manifestState),
-    [manifests, manifestState]
+    () => manifests.filter((item) => (manifestState === 'all' || item.execution.state === manifestState)
+      && (traceWorkstation === 'all' || item.workstationKey === traceWorkstation)
+      && (traceMode === 'all' || (traceMode === 'review' ? item.taskKind === 'opening_review' : item.taskKind === 'opening_design' && item.operationMode === traceMode))),
+    [manifests, manifestState, traceWorkstation, traceMode]
   );
   const selectedAsset = filteredAssets.find((item) => item.assetKey === selectedAssetKey);
   const selectedVersion = assetVersions?.find((item) => item.assetId === selectedVersionId);
@@ -291,25 +328,35 @@ export function PromptContextCenter(): React.JSX.Element {
     </div>}
 
     <div className="prompt-context-tabs" role="tablist" aria-label="提示词与上下文管理">
+      <button type="button" role="tab" aria-selected={tab === 'opening'} className={tab === 'opening' ? 'active' : ''} onClick={() => setTab('opening')}>基础通用配置与样例</button>
       <button type="button" role="tab" aria-selected={tab === 'sources'} className={tab === 'sources' ? 'active' : ''} onClick={() => setTab('sources')}>配置来源</button>
       <button type="button" role="tab" aria-selected={tab === 'traces'} className={tab === 'traces' ? 'active' : ''} onClick={() => setTab('traces')}>运行追溯</button>
     </div>
 
-    {tab === 'sources'
+    {tab === 'opening' ? <OpeningContextGuide assets={assets} sample={example} sampleLoading={exampleLoading} onSample={() => void sampleOpening()} onEdit={key => {
+      if (dirty) { setError('请先保存当前配置草稿，再切换。'); return; }
+      setKind('all'); setSelectedAssetKey(key); setAssetVersions(null); setTab('sources');
+    }} onTraces={() => { setTraceWorkstation('opening'); setTraceMode('all'); setManifestState('all'); setTab('traces'); }} /> : tab === 'sources'
       ? <SourcesPanel
           assets={filteredAssets} kind={kind} onKind={selectKind} selectedAssetKey={selectedAssetKey}
-          onSelectAsset={setSelectedAssetKey} selectedAsset={selectedAsset} assetVersions={assetVersions} selectedVersion={selectedVersion}
+          onSelectAsset={key => { if (dirty) { setError('请先保存当前配置草稿，再切换。'); return; } setSelectedAssetKey(key); }} selectedAsset={selectedAsset} assetVersions={assetVersions} selectedVersion={selectedVersion}
           title={title} summary={assetSummary} contentText={contentText} dirty={dirty} busy={busy} preview={preview}
           onTitle={(value) => markChanged(() => setTitle(value))}
           onSummary={(value) => markChanged(() => setAssetSummary(value))}
           onContent={(value) => markChanged(() => setContentText(value))}
-          onSelectVersion={selectVersion} onSave={saveDraft} onPreview={previewVersion} onPublish={publishVersion} onRestore={restoreVersion}
+          onSelectVersion={version => { if (dirty) { setError('请先保存当前配置草稿，再切换版本。'); return; } selectVersion(version); }} onSave={saveDraft} onPreview={previewVersion} onPublish={publishVersion} onRestore={restoreVersion}
         />
-      : <TracesPanel
+      : <><form className="admin-context-filters" onSubmit={event => { event.preventDefault(); void searchTask(); }}>
+          <label>编号类型<select value={queryKind} onChange={e => setQueryKind(e.target.value)}><option value="opening">开书任务编号（全部环节）</option><option value="call">单次调用编号</option></select></label>
+          <label>按任务编号查询<input value={taskQuery} onChange={e => setTaskQuery(e.target.value)} placeholder="输入完整任务编号；留空查最近100条" /></label>
+          <button type="submit" disabled={traceLoading}>{traceLoading ? '查询中…' : '查询记录'}</button>
+          <label>工位<select value={traceWorkstation} onChange={e => { setTraceWorkstation(e.target.value); setTraceMode('all'); }}><option value="all">全部工位</option>{[...new Set(['opening', ...manifests.map(item => item.workstationKey)])].map(key => <option key={key} value={key}>{key === 'opening' ? '开书' : key}</option>)}</select></label>
+          <label>开书环节<select value={traceMode} onChange={e => setTraceMode(e.target.value)}><option value="all">全部环节</option><option value="fresh">首次设计 / 换成员重做</option><option value="revise">作者调整</option><option value="repair">结构修复</option><option value="review">主编审查</option></select></label>
+        </form><p>显示本次查询最近100条调用。换成员会建立新任务；未开始模型调用的任务没有下发快照。历史输入只读。</p><TracesPanel
           manifests={filteredManifests} state={manifestState} onState={selectManifestState}
           states={manifestStates}
           selectedManifestId={selectedManifestId} onSelectManifest={setSelectedManifestId} detail={manifestDetail}
-        />}
+        /></>}
   </div>;
 }
 
@@ -385,7 +432,8 @@ function SourcesPanel(props: {
           <div className="prompt-editor-fields">
             <label><span>后台名称</span><input value={props.title} maxLength={80} onChange={(event) => props.onTitle(event.target.value)} /></label>
             <label><span>用途说明</span><textarea value={props.summary} maxLength={500} rows={3} onChange={(event) => props.onSummary(event.target.value)} /></label>
-            <label><span>结构化规则</span><textarea className="prompt-rule-editor" value={props.contentText} rows={18} spellCheck={false} onChange={(event) => props.onContent(event.target.value)} /><small>只写这个来源负责的规则；作者资料、任务目标和执行结果不在这里保存。</small></label>
+            <PromptRuleFields value={props.contentText} onChange={props.onContent} />
+            <details><summary>高级：完整结构化规则</summary><label><span>结构化规则</span><textarea className="prompt-rule-editor" value={props.contentText} rows={18} spellCheck={false} onChange={(event) => props.onContent(event.target.value)} /><small>只写这个来源负责的规则；作者资料、任务目标和执行结果不在这里保存。</small></label></details>
           </div>
 
           <div className="prompt-editor-actions">
@@ -581,7 +629,7 @@ function TracesPanel(props: {
         ? <p className="prompt-empty-copy">当前筛选下没有运行记录。</p>
         : props.manifests.map((manifest) => <button type="button" key={manifest.manifestId} className={props.selectedManifestId === manifest.manifestId ? 'active' : ''} onClick={() => props.onSelectManifest(manifest.manifestId)}>
           <span><strong>书籍 {displayIdentifier(manifest.bookId)}</strong><em className={`state-${safeCssToken(manifest.execution.state)}`}>{executionStateLabel(manifest.execution.state)}</em></span>
-          <p>{manifest.workstationKey} · {manifest.memberKey}</p><small>提示快照已留档</small><time>{formatTime(manifest.createdAt)}</time>
+          <p>{manifest.workstationKey === 'opening' ? '开书' : manifest.workstationKey} · {publicMemberIdentity(manifest.memberKey)?.displayName ?? manifest.memberKey}</p><small>{manifest.taskKind === 'opening_review' ? '主编审查' : manifest.operationMode === 'revise' ? '作者调整' : manifest.operationMode === 'repair' ? '结构修复' : '设计'} · {manifest.taskId}</small><time>{formatTime(manifest.createdAt)}</time>
         </button>)}</div>
     </aside>
 
@@ -614,6 +662,7 @@ function ManifestDetail({ detail }: { detail: V7PromptManifestDetail }): React.J
       <div><dt>产物类型</dt><dd>{detail.execution.artifactType}</dd></div>
       <div><dt>完成时间</dt><dd>{detail.execution.completedAt === null ? '尚无完成时间' : formatTime(detail.execution.completedAt)}</dd></div>
     </dl></section>
+    <OpeningContextSnapshot detail={detail} />
 
     <section className="prompt-trace-section"><h3>本次 PromptManifest</h3><dl>
       <div><dt>运行清单</dt><dd>{detail.manifest.manifestId}</dd></div>

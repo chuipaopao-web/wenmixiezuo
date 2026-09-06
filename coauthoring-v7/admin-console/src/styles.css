@@ -1015,3 +1015,26 @@ button { color: inherit; }
   .feature-ledger-capabilities { padding: 8px 0; }
   .feature-ledger-capabilities > article { border-inline: 0; padding: 13px 14px; }
 }
+.admin-context-filters { display:flex; flex-wrap:wrap; align-items:end; gap:14px; margin:18px 0; }
+.admin-context-filters label { display:grid; gap:7px; flex:1 1 190px; min-width:0; }
+.admin-context-filters input,.admin-context-filters select,.admin-context-filters button { min-height:44px; font-size:16px; max-width:100%; }
+.opening-context-guide { padding:24px; background:white; border:1px solid #dce5e0; border-radius:20px; color:var(--asset-text); font-size:14px; line-height:1.75; }
+.opening-context-guide h2 { margin:0 0 10px; font-size:23px; }
+.opening-context-guide h3,.opening-context-snapshot h3 { font-size:17px; margin:8px 0 12px; }
+.opening-context-guide p { color:var(--asset-muted); }
+.opening-context-guide button { border:1px solid #cbdad3; border-radius:12px; padding:10px 16px; min-height:44px; background:#fff; color:var(--asset-text); font:inherit; cursor:pointer; }
+.opening-context-guide button.primary { background:var(--asset-green-700); color:#fff; }
+.opening-context-guide button:disabled { opacity:.5; cursor:default; }
+.opening-context-guide button:focus-visible { outline:3px solid #82afa0; outline-offset:3px; }
+.opening-context-assets small { color:var(--asset-muted); }
+.opening-context-stages,.opening-context-assets { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin:18px 0; }
+.opening-context-stages article { padding:18px; border-radius:14px; background:#f3f7f4; }
+.opening-context-assets button { display:grid; gap:8px; padding:16px; text-align:left; min-height:70px; }
+.opening-context-snapshot pre { max-height:480px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
+.opening-context-snapshot summary { padding:12px 0; cursor:pointer; }
+.prompt-readable-fields { display:grid; gap:16px; }
+.opening-context-example { margin:24px 0; padding:18px; background:#f3f7f4; border-radius:14px; }
+.opening-context-sizes { display:grid; gap:12px; }
+.opening-context-sizes > div { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px 12px; }
+.opening-context-sizes meter { width:100%; grid-column:1 / -1; height:12px; accent-color:#347761; }
+@media(max-width:640px) { .opening-context-stages,.opening-context-assets { grid-template-columns:1fr; } .opening-context-guide { padding:16px; } }

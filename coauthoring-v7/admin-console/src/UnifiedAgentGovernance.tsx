@@ -14,6 +14,10 @@ export function UnifiedAgentGovernance(): React.JSX.Element {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [tab, setTab] = useState<'members' | 'evaluation' | 'policies'>('members');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [memberFilter, setMemberFilter] = useState('all');
+  const [search, setSearch] = useState('');
   const load = useCallback(async (signal?: AbortSignal) => {
     try { setData(await fetchV7UnifiedAgentGovernance(signal)); setError(null); }
     catch (reason) { if (!signal?.aborted) setError(reason instanceof Error ? reason.message : '成员配置暂时无法读取。'); }
@@ -45,14 +49,32 @@ export function UnifiedAgentGovernance(): React.JSX.Element {
     <div className="agent-team-metrics"><Metric label="岗位" value={`${data.summary.roleCount}`} detail="职责互不混用"/><Metric label="成员" value={`${data.summary.memberCount}`} detail="全局唯一身份"/><Metric label="在岗" value={`${data.summary.onDutyCount}`} detail="可以接新任务"/><Metric label="请假" value={`${data.summary.leaveCount}`} detail="自动交接" warning={data.summary.leaveCount > 0}/></div>
     {(notice || error) && <div className={`agent-team-notice ${error ? 'error' : 'success'}`}>{error ? <WarningCircle/> : <CheckCircle/>}<span>{error ?? notice}</span></div>}
     <section className="agent-credential-strip"><Credential label="Coding Plan" ready={data.credentials.codingPlan}/><Credential label="Agent Plan" ready={data.credentials.agentPlan}/><Credential label="图片能力" ready={data.credentials.image}/><p>配置版本 {data.revision}。执行中的任务保留创建时的成员与参数快照。</p></section>
-    <OpeningEvaluation data={data}/>
-    <p>文字岗位各9位，封面画师2位。待验证 {data.summary.candidateCount ?? 0} 位，未绑定 {data.summary.unboundCount ?? 0} 位。新增组合仅保存配置，按具体业务节点验证后接单。</p><div className="agent-role-grid">{data.roles.map((role) => <section className="agent-role-panel" key={role.roleKey}>
+    <div className="prompt-context-tabs" role="tablist" aria-label="成员管理">
+      <button role="tab" aria-selected={tab === 'members'} onClick={() => setTab('members')}>全部成员（{data.summary.memberCount}）</button>
+      <button role="tab" aria-selected={tab === 'evaluation'} onClick={() => setTab('evaluation')}>开书速度与准入</button>
+      <button role="tab" aria-selected={tab === 'policies'} onClick={() => setTab('policies')}>任务参数</button>
+    </div>
+    {tab === 'evaluation' && <OpeningEvaluation data={data}/>}
+    {tab === 'members' && <>
+    <p>文字岗位各9位，封面画师2位。待验证 {data.summary.candidateCount ?? 0} 位，未绑定 {data.summary.unboundCount ?? 0} 位。成员身份已建立不代表所有节点都已准入；开书接单单独标注。</p>
+    <div className="admin-context-filters">
+      <label>岗位<select aria-label="岗位" value={roleFilter} onChange={e => setRoleFilter(e.target.value)}><option value="all">全部岗位</option>{data.roles.map(role => <option key={role.roleKey} value={role.roleKey}>{role.publicName}（{role.members.length}）</option>)}</select></label>
+      <label>成员状态<select aria-label="成员状态" value={memberFilter} onChange={e => setMemberFilter(e.target.value)}><option value="all">全部状态</option><option value="opening">开书接单</option><option value="on_duty">在岗</option><option value="candidate">待验证</option><option value="unbound">未绑定</option><option value="off">停岗</option></select></label>
+      <label>查找成员或模型<input value={search} onChange={e => setSearch(e.target.value)} placeholder="姓名、模型名称或编号" /></label>
+    </div>
+    <div className="agent-role-grid">{data.roles.filter(role => roleFilter === 'all' || role.roleKey === roleFilter).map((role) => {
+      const members = role.members.filter(member => {
+        const statusMatch = memberFilter === 'all' || (memberFilter === 'opening' ? Boolean(member.openingNode) : memberFilter === 'off' ? !member.enabled && !member.configurationOnly : member.status === memberFilter);
+        return statusMatch && [member.displayName, member.modelName, member.memberKey, member.modelProfileKey ?? ''].join(' ').toLowerCase().includes(search.trim().toLowerCase());
+      });
+      return <section className="agent-role-panel" key={role.roleKey}>
       <header><div className="agent-role-icon"><Robot/></div><div><span>固定岗位</span><h2>{role.publicName}</h2><p>{role.publicResponsibility}</p></div><strong>{role.members.filter((m) => m.status === 'on_duty').length}/{role.members.length} 在岗</strong></header>
       <details className="agent-prompt-editor"><summary>查看岗位能力与交付标准</summary><div className="agent-prompt-body"><p><strong>能力：</strong>{role.capabilities.join('；')}</p><p><strong>工具：</strong>{role.tools.join('；')}</p><p><strong>交付：</strong>{role.outputContract}</p><p><strong>失败：</strong>{role.failureContract}</p></div></details>
       {role.modelCandidates && <details className="agent-prompt-editor"><summary>候选模型与上岗条件</summary><div className="agent-prompt-body"><p>通道兼容不等于文学质量通过。待验证模型可在成员停岗后保存；复测准入完成后才能接新任务。</p>{role.modelCandidates.map((candidate) => <p key={candidate.profileKey}><strong>{candidate.publicName} · {admissionLabel(candidate.status)}</strong>：{candidate.reason}</p>)}</div></details>}
-      <div className="agent-member-list">{role.members.map((member) => <MemberCard key={member.memberKey} data={data} role={role} member={member} busy={busy === member.memberKey} update={updateMember}/>)}</div>
-    </section>)}</div>
-    <section className="agent-role-panel"><header><div className="agent-role-icon"><Robot/></div><div><span>按任务控制</span><h2>性能与温度</h2><p>不同任务使用不同温度区间，不再给所有成员套同一个数值。</p></div></header><div className="agent-member-list">{data.taskPolicies.map((policy) => <PolicyCard key={policy.taskKind} policy={policy} busy={busy === `policy:${policy.taskKind}`} update={updatePolicy}/>)}</div></section>
+      <p>当前显示 {members.length} / {role.members.length} 位</p>
+      <div className="agent-member-list">{members.map((member) => <MemberCard key={member.memberKey} data={data} role={role} member={member} busy={busy !== null} update={updateMember}/>)}</div>
+    </section>})}</div></>}
+    {tab === 'policies' && <section className="agent-role-panel"><header><div className="agent-role-icon"><Robot/></div><div><span>按任务控制</span><h2>性能与温度</h2><p>不同任务使用不同温度区间，不再给所有成员套同一个数值。</p></div></header><div className="agent-member-list">{data.taskPolicies.map((policy) => <PolicyCard key={policy.taskKind} policy={policy} busy={busy !== null} update={updatePolicy}/>)}</div></section>}
   </div>;
 }
 
