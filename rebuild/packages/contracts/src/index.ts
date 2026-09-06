@@ -239,6 +239,43 @@ export const openingTaxonomySchema = z.strictObject({
   }))
 });
 
+export const editorialDepartmentRoleSchema = z.enum([
+  "chief_editor",
+  "deputy_editor",
+  "planning_writer",
+  "lead_writer",
+  "independent_reviewer",
+  "continuity_editor",
+  "visual_renderer"
+]);
+
+export const editorialMemberPresenceSchema = z.enum(["ready", "working", "leave"]);
+
+export const editorialDepartmentSchema = z.strictObject({
+  summary: z.strictObject({
+    memberCount: z.number().int().min(0),
+    readyCount: z.number().int().min(0),
+    workingCount: z.number().int().min(0),
+    leaveCount: z.number().int().min(0),
+    completedCount: z.number().int().min(0)
+  }),
+  departments: z.array(z.strictObject({
+    departmentKey: editorialDepartmentRoleSchema,
+    name: z.string().min(1),
+    members: z.array(z.strictObject({
+      memberKey: z.string().min(1),
+      displayName: z.string().min(1),
+      role: z.string().min(1),
+      responsibility: z.string().min(1),
+      capabilities: z.array(z.string().min(1)),
+      presence: editorialMemberPresenceSchema,
+      statusText: z.string().min(1),
+      currentWork: z.string().min(1).nullable(),
+      completedCount: z.number().int().min(0)
+    }))
+  }))
+});
+
 const bookProfileProtagonistSchema = z.strictObject({
   role: openingTextSchema(120).optional(),
   name: openingTextSchema(120),
@@ -366,6 +403,7 @@ export type OpeningPackage = z.infer<typeof openingPackageSchema>;
 export type ManualBookCreate = z.infer<typeof manualBookCreateSchema>;
 export type ManualBookRead = z.infer<typeof manualBookReadSchema>;
 export type OpeningTaxonomy = z.infer<typeof openingTaxonomySchema>;
+export type EditorialDepartment = z.infer<typeof editorialDepartmentSchema>;
 export type BookProfile = z.infer<typeof bookProfileSchema>;
 export type BookOpeningBlueprint = z.infer<typeof bookOpeningBlueprintSchema>;
 export type OpeningBookCreateRequest = z.infer<typeof openingBookCreateRequestSchema>;

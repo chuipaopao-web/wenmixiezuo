@@ -27,6 +27,7 @@
 .rebuild-now > div { flex: 1; min-width: 0; }
 .rebuild-now strong { font-size: 15px; }
 .rebuild-now p { margin: 5px 0 0; color: #657b6e; font-size: 12px; }
+.rebuild-now p + p { color: #789084; }
 .rebuild-now button { flex: 0 0 auto; }
 .rebuild-toolbar { display: flex; flex-wrap: wrap; gap: 12px; }
 .rebuild-search { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 220px; padding: 0 14px; background: white; border: 1px solid var(--asset-line); border-radius: 10px; }

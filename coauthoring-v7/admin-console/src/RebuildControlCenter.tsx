@@ -117,20 +117,21 @@ export function RebuildControlCenter({ mode, onNavigate }: {
     {mode === 'configuration' ? <ConfigurationCenter data={data} onNavigate={onNavigate} /> : <>
       <section className="rebuild-summary" aria-label="重构进度">
         <article><span>计划工作单元</span><strong>{data.units.length}<small>项</small></strong><p>覆盖 {data.sourceFeatures.length} 项来源功能</p></article>
-        <article><span>正在推进</span><strong>{active.length}<small>项</small></strong><p>{active[0]?.name ?? '当前没有进行中的单元'}</p></article>
+        <article><span>已开始待完成</span><strong>{active.length}<small>项</small></strong><p>{active[0]?.name ?? '当前没有已开始待完成的单元'}</p></article>
         <article><span>本地验收通过</span><strong>{data.units.filter((unit) => unit.acceptance === '通过').length}<small>项</small></strong><p>按单元合同核对，未验证不计入</p></article>
         <article><span>已发布</span><strong>{data.units.filter((unit) => unit.deployment === '已发布').length}<small>项</small></strong><p>上线状态与开发进度分开</p></article>
       </section>
       <section className="rebuild-now" aria-label="当前工作"><GitBranch aria-hidden="true" /><div>
-        <strong>{active.length ? `当前：${active.map((unit) => `${unit.id} ${unit.name}`).join('、')}` : `下一项：${next ? `${next.id} ${next.name}` : '全部单元已验收或暂缓'}`}</strong>
-        <p>按下方顺序逐项推进。开发完成、验收通过、已发布是不同状态。</p></div>
-        {(active[0] ?? next) && <button type="button" onClick={() => choose((active[0] ?? next)!.id)}>查看工作<ArrowRight aria-hidden="true" /></button>}
+        <strong>当前批次：{data.source.currentBatch ?? '未登记'}</strong>
+        <p>当前工作：{data.source.currentWork ?? '未登记'}</p>
+        <p>下方“已开始待完成”是计划累计状态；开发完成、验收通过、已发布是不同状态。</p></div>
+        {(active[0] ?? next) && <button type="button" onClick={() => choose((active[0] ?? next)!.id)}>查看待完成单元<ArrowRight aria-hidden="true" /></button>}
       </section>
       <div className="rebuild-toolbar">
         <label className="rebuild-search"><MagnifyingGlass aria-hidden="true" /><input aria-label="搜索功能地图" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索功能、说明或编号…" /></label>
         <select aria-label="按开发阶段筛选" value={stage} onChange={(event) => setStage(event.target.value)}><option value="all">全部开发阶段</option>{stages.map((item) => <option key={item}>{item}</option>)}</select>
         <select aria-label="按重构进度筛选" value={filter} onChange={(event) => setFilter(event.target.value as Filter)}>
-          <option value="all">全部进度</option><option value="active">正在推进</option><option value="pending">待讨论 / 待开发</option><option value="accepted">验收通过</option><option value="attention">验收未通过 / 阻塞</option>
+          <option value="all">全部进度</option><option value="active">已开始待完成</option><option value="pending">待讨论 / 待开发</option><option value="accepted">验收通过</option><option value="attention">验收未通过 / 阻塞</option>
         </select>
       </div>
       <div className="rebuild-workspace">

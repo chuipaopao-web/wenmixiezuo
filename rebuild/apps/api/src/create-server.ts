@@ -4,6 +4,7 @@ import {
   createAccountCoreService,
   createBookShelfService,
   createFoundationStatus,
+  createEditorialDepartmentService,
   createLogger,
   createPostgresPool,
   loadPostgresRuntimeConfig,
@@ -11,6 +12,7 @@ import {
   verifyRuntimeDatabase,
   type AccountCoreService,
   type BookShelfService,
+  type EditorialDepartmentService,
   type PgPool
 } from "@wenmi-rebuild/backend";
 import { foundationStatusSchema } from "@wenmi-rebuild/contracts";
@@ -21,6 +23,7 @@ import { registerOpeningRoutes } from "./opening-routes.js";
 export interface ApiServerOptions {
   readonly accountService?: AccountCoreService;
   readonly bookShelfService?: BookShelfService;
+  readonly editorialDepartmentService?: EditorialDepartmentService;
   readonly accountPool?: PgPool;
 }
 
@@ -31,6 +34,7 @@ export async function createApiServer(options: ApiServerOptions = {}) {
   const accountPool = options.accountPool ?? createPostgresPool(config);
   const accountService = options.accountService ?? createAccountCoreService(accountPool, { secureCookies: false });
   const bookShelfService = options.bookShelfService ?? createBookShelfService(accountPool, accountService);
+  const editorialDepartmentService = options.editorialDepartmentService ?? createEditorialDepartmentService(accountService);
   const server = Fastify({
     logger: false,
     bodyLimit: 16 * 1024
@@ -55,7 +59,7 @@ export async function createApiServer(options: ApiServerOptions = {}) {
   });
 
   await registerAccountRoutes(server, accountService);
-  await registerOpeningRoutes(server, bookShelfService);
+  await registerOpeningRoutes(server, bookShelfService, editorialDepartmentService);
   await registerBookshelfRoutes(server, bookShelfService);
 
   server.get("/health", async (_request, reply) => {

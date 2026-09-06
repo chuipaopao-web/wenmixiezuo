@@ -49,8 +49,9 @@ function invalidPlan(): never {
 }
 
 /** Parse only our fixed table/card contract. Never execute or render document HTML. */
-export function parseRebuildPlan(markdown: string): Pick<RebuildControlData, 'units' | 'sourceFeatures'> & { version: string } {
+export function parseRebuildPlan(markdown: string): Pick<RebuildControlData, 'units' | 'sourceFeatures'> & { version: string; currentBatch?: string; currentWork?: string } {
   const version = markdown.match(/^> 版本([^\s·]+)/mu)?.[1];
+  const currentProgress = parseCurrentProgress(markdown);
   const table = markdown.match(/^## 5\.[\s\S]*?(?=^## 6\.)/mu)?.[0];
   const cards = markdown.match(/^## 6\.[\s\S]*?(?=^## 7\.)/mu)?.[0];
   const coverage = markdown.match(/^## 11\.[\s\S]*/mu)?.[0];
@@ -107,11 +108,27 @@ export function parseRebuildPlan(markdown: string): Pick<RebuildControlData, 'un
     sourceFeatures.push(feature);
   }
   if (!sourceFeatures.length) invalidPlan();
-  return { version, units, sourceFeatures };
+  return { version, ...currentProgress, units, sourceFeatures };
 }
 
 function plainText(value: string): string {
   return value.replace(/\[([^\]]+)\]\([^)]*\)/gu, '$1').replace(/\*\*|`/gu, '').trim();
+}
+
+function parseCurrentProgress(markdown: string): { currentBatch?: string; currentWork?: string } {
+  const section = markdown.match(/^## 3\.[\s\S]*?(?=^## \d+\.|$(?![\s\S]))/mu)?.[0];
+  if (!section) return {};
+  const result: { currentBatch?: string; currentWork?: string } = {};
+  for (const [label, field] of [['当前批次', 'currentBatch'], ['当前工作', 'currentWork']] as const) {
+    const matches = [...section.matchAll(new RegExp(`^- \\*\\*${label}\\*\\*：(.+)$`, 'gmu'))];
+    if (matches.length > 1) invalidPlan();
+    const value = matches[0]?.[1];
+    if (value === undefined) continue;
+    const text = plainText(value);
+    if (!text) invalidPlan();
+    result[field] = text;
+  }
+  return result;
 }
 
 function coverageUnitIds(value: string, units: RebuildUnit[]): string[] {
@@ -154,8 +171,12 @@ export async function readRebuildControl(config: RuntimeConfig, database: Databa
   const age = heartbeat ? now.getTime() - Date.parse(heartbeat.heartbeat_at) : NaN;
   const openIssueCount = audit.issuePage({ status: 'open', offset: 0, limit: 1 }).total
     + audit.issuePage({ status: 'in_progress', offset: 0, limit: 1 }).total;
+  const sourceProgress = {
+    ...(plan.currentBatch === undefined ? {} : { currentBatch: plan.currentBatch }),
+    ...(plan.currentWork === undefined ? {} : { currentWork: plan.currentWork })
+  };
   return {
-    source: { version: plan.version, digest: createHash('sha256').update(snapshot[0]).digest('hex'),
+    source: { version: plan.version, ...sourceProgress, digest: createHash('sha256').update(snapshot[0]).digest('hex'),
       updatedAt: snapshot[1].mtime.toISOString(), path: REBUILD_PLAN_PATH },
     units: plan.units, sourceFeatures: plan.sourceFeatures, configurations: CONFIGURATIONS,
     runtime: { checkedAt: now.toISOString(), origin: config.publicOrigin ?? '本地或隔离服务', releaseId: config.releaseId,

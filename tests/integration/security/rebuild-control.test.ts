@@ -6,13 +6,23 @@ import { createTestContext } from '../../helpers/test-context.js';
 import type { V7TaskAuditRow } from '../../../apps/api/src/infrastructure/db/repositories/v7-task-audit-repository.js';
 
 const source = readFileSync(REBUILD_PLAN_PATH, 'utf8');
+const expectedCurrentBatch = '第122批：保留功能接入与分批发布';
+const expectedCurrentWork = '接入团队开书所需成员目录，核对任务与用量依赖；发布后台功能地图及真实进度。新后端账号、权益与旧书兼容未完成，作者入口暂不切换。';
+function withoutCurrentProgress(text: string): string {
+  return text.replace(/^- \*\*当前(?:批次|工作)\*\*：.+\r?\n/gmu, '');
+}
+function withCurrentProgress(text: string): string {
+  return withoutCurrentProgress(text).replace(/^## 3\.[^\n]*\r?\n/mu,
+    (heading) => `${heading}- **当前批次**：${expectedCurrentBatch}\n- **当前工作**：${expectedCurrentWork}\n`);
+}
 describe('重构管理后台文档与运行证据', () => {
-  it('完整展示79个重构单元与85来源功能，顺序和说明来自同一文档', () => {
+  it('完整展示81个重构单元与85来源功能，顺序和说明来自同一文档', () => {
     const plan = parseRebuildPlan(source);
-    expect(plan.units).toHaveLength(79);
+    expect(plan.units).toHaveLength(81);
     expect(plan.sourceFeatures).toHaveLength(85);
+    expect(plan.version).toBeTruthy();
     expect(plan.units[0]?.id).toBe('RB-00.1');
-    expect(plan.units.slice(1, 4).map((unit) => unit.id)).toEqual(['RB-00', 'RB-01', 'RB-02']);
+    expect(plan.units.slice(1, 5).map((unit) => unit.id)).toEqual(['RB-00.2', 'RB-00', 'RB-01', 'RB-02']);
     for (let index = 0; index <= 61; index++) {
       expect(plan.units.some((unit) => unit.id === `RB-${String(index).padStart(2, '0')}`)).toBe(true);
     }
@@ -28,11 +38,21 @@ describe('重构管理后台文档与运行证据', () => {
     expect(plan.units.find((item) => item.id === 'RB-43')?.sourceFeatures.some((item) => item.id === 'F-1205')).toBe(true);
   });
 
+  it('当前批次和当前工作只读取第3节明确登记，缺字段不推导', () => {
+    const plan = parseRebuildPlan(withCurrentProgress(source));
+    expect(plan.currentBatch).toBe(expectedCurrentBatch);
+    expect(plan.currentWork).toBe(expectedCurrentWork);
+    const oldPlan = parseRebuildPlan(withoutCurrentProgress(source));
+    expect(oldPlan.currentBatch).toBeUndefined();
+    expect(oldPlan.currentWork).toBeUndefined();
+  });
+
   it.each([
     ['丢失卡片', (text: string) => text.replace('### RB-01 注册页', '### 注册页已误删编号')],
     ['未知进度', (text: string) => text.replace('| 待讨论 | 未开始 | 未开始 | 未验证 |', '| 待讨论 | 完美完成 | 未开始 | 未验证 |')],
     ['无效依赖', (text: string) => text.replace('| 注册页 | RB-00 |', '| 注册页 | RB-61 |')],
     ['未开发却验收通过', (text: string) => text.replace('| 待讨论 | 未开始 | 未开始 | 未验证 |', '| 待讨论 | 未开始 | 未开始 | 通过 |')],
+    ['重复当前批次', (text: string) => withCurrentProgress(text).replace(`- **当前工作**：${expectedCurrentWork}`, '- **当前批次**：第122批：重复登记')],
     ['丢失来源章节', (text: string) => text.replace('## 11. 85项来源功能覆盖与处理', '## 功能覆盖')],
     ['重复单元', (text: string) => text.replace('## 6. 每个单元具体讨论什么、开发什么、怎样验收', `${text.match(/^\| \[RB-01\].+$/mu)![0]}\n\n## 6. 每个单元具体讨论什么、开发什么、怎样验收`)]
   ])('%s 时明确拒绝，不能退化成空的正常地图', (_label, corrupt) => {
@@ -65,7 +85,8 @@ describe('重构管理后台文档与运行证据', () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers['cache-control']).toBe('no-store');
       const data = response.json().data;
-      expect(data.units).toHaveLength(79);
+      expect(data.units).toHaveLength(81);
+      expect(data.source).toHaveProperty('version');
       expect(data.runtime).toMatchObject({ taskCount: 0, sampledCount: 0, worker: 'stale_or_missing', taskSignals: [] });
       expect(JSON.stringify(data)).not.toMatch(/fixture-pass|owner-local-boss|session_token/u);
       context.config.projectRoot = context.root;

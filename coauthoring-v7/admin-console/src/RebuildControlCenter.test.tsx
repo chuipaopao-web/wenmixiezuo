@@ -11,7 +11,8 @@ const unit: RebuildUnit = { id: 'RB-01', name: '注册页', order: 2, stage: '�
   design: '待讨论', frontend: '未开始', backend: '未开始', acceptance: '未验证', deployment: '未发布', evidence: '待建立',
   details: [{ label: '讨论', text: '注册账号，保留已有用户身份。' }, { label: '后端逐项实现', text: '验证并发唯一身份。' }], sourceFeatures: [], taskKinds: [] };
 const data: RebuildControlData = {
-  source: { version: '1.2', updatedAt: '2026-09-05T01:00:00Z', digest: 'a'.repeat(64), path: 'docs/REBUILD_EXECUTION_PLAN.md' },
+  source: { version: '1.2', updatedAt: '2026-09-05T01:00:00Z', digest: 'a'.repeat(64), path: 'docs/REBUILD_EXECUTION_PLAN.md',
+    currentBatch: '第122批：保留功能接入与分批发布', currentWork: '后台路线状态与发布闭包更新' },
   units: [{ ...unit, id: 'RB-00.1', order: 1, name: '后台功能地图与配置中心', stage: '先做后台', design: '已定', frontend: '开发中' }, unit,
     { ...unit, id: 'RB-02', name: '登录页', order: 3, dependencies: ['RB-01'] }],
   sourceFeatures: [], configurations: [
@@ -31,9 +32,12 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('功能地图与配置中心', () => {
-  it('显示当前工作，按开发顺序筛选、查看技术路线与前置功能', async () => {
+  it('显示登记的当前批次，按开发顺序筛选、查看技术路线与前置功能', async () => {
     render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);
-    expect(await screen.findByText('当前：RB-00.1 后台功能地图与配置中心')).toBeVisible();
+    expect(await screen.findByText('当前批次：第122批：保留功能接入与分批发布')).toBeVisible();
+    expect(screen.getByText('当前工作：后台路线状态与发布闭包更新')).toBeVisible();
+    expect(within(screen.getByRole('region', { name: '重构进度' })).getByText('已开始待完成')).toBeVisible();
+    expect(screen.queryByText(/当前：RB-00\.1/u)).not.toBeInTheDocument();
     expect(screen.getByText('Worker心跳缺失或过期')).toBeVisible();
     expect(screen.getByText('尚无本功能的完整运行证据，未验证。')).toBeVisible();
     fireEvent.change(screen.getByLabelText('搜索功能地图'), { target: { value: '登录页' } });
@@ -68,7 +72,15 @@ describe('功能地图与配置中心', () => {
     mockedFetch.mockRejectedValueOnce(new Error('offline'));
     fireEvent.click(screen.getByRole('button', { name: '刷新状态' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('保留上次读取结果');
-    expect(screen.getByText('当前：RB-00.1 后台功能地图与配置中心')).toBeVisible();
+    expect(screen.getByText('当前批次：第122批：保留功能接入与分批发布')).toBeVisible();
+  });
+
+  it('旧接口未返回当前批次字段时明确显示未登记，不按开发中推导', async () => {
+    mockedFetch.mockResolvedValueOnce({ ...data, source: { version: '1.2', updatedAt: '2026-09-05T01:00:00Z', digest: 'a'.repeat(64), path: 'docs/REBUILD_EXECUTION_PLAN.md' } });
+    render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);
+    expect(await screen.findByText('当前批次：未登记')).toBeVisible();
+    expect(screen.getByText('当前工作：未登记')).toBeVisible();
+    expect(screen.queryByText(/当前：RB-00\.1/u)).not.toBeInTheDocument();
   });
 
   it('离开页面取消请求，配置按钮只打开真实入口', async () => {

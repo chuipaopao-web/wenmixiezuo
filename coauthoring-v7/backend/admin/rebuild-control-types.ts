@@ -43,7 +43,7 @@ export interface RebuildConfiguration {
 }
 
 export interface RebuildControlData {
-  source: { version: string; digest: string; updatedAt: string; path: string };
+  source: { version: string; digest: string; updatedAt: string; path: string; currentBatch?: string; currentWork?: string };
   units: RebuildUnit[];
   sourceFeatures: RebuildSourceFeature[];
   configurations: RebuildConfiguration[];

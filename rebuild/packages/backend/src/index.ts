@@ -25,6 +25,11 @@ export {
   type CreateManualBookFromSessionInput
 } from "./application/bookshelf/index.js";
 export {
+  EditorialDepartmentService,
+  createEditorialDepartment,
+  createEditorialDepartmentService
+} from "./application/editorial-department/service.js";
+export {
   hashNewPassword,
   hashVerifiedPassword,
   hashToken,
