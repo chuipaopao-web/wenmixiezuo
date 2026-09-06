@@ -165,9 +165,8 @@ function installFetch(overrides?: (url: string, init?: RequestInit) => Response 
   return mock;
 }
 
-function openFunctionMenu(): HTMLElement {
-  fireEvent.click(screen.getByRole('button', { name: '打开功能导航' }));
-  return screen.getByLabelText('功能导航');
+function getMainNavigation(): HTMLElement {
+  return screen.getByRole('navigation', { name: '主导航' });
 }
 
 function openBookShelf(): HTMLElement {
@@ -176,8 +175,7 @@ function openBookShelf(): HTMLElement {
 }
 
 function openMainNav(label: '信息' | '时光机' | '创作' | '状态' | '福利'): void {
-  const menu = openFunctionMenu();
-  fireEvent.click(within(menu).getByRole('button', { name: label }));
+  fireEvent.click(within(getMainNavigation()).getByRole('button', { name: label }));
 }
 
 function openTaskStatus(): void {
@@ -201,13 +199,16 @@ describe('V7 author opening flow', () => {
   it('keeps the confirmed navigation and presents both creation entries', async () => {
     installFetch();
     render(<AuthorApp />);
-    expect(within(screen.getByRole('banner')).getAllByRole('button')).toHaveLength(2);
-    const menu = openFunctionMenu();
+    const topbar = screen.getByRole('banner');
+    expect(within(topbar).getAllByRole('button')).toHaveLength(6);
+    expect(within(topbar).queryByText('文秘写作')).not.toBeInTheDocument();
+    const mainNavigation = getMainNavigation();
+    expect(within(mainNavigation).getAllByRole('button').map((button) => button.textContent)).toEqual(['信息', '时光机', '创作', '状态', '福利']);
     for (const label of ['信息', '时光机', '创作'] as const) {
-      expect(within(menu).getByRole('button', { name: label })).toBeDisabled();
+      expect(within(mainNavigation).getByRole('button', { name: label })).toBeDisabled();
     }
-    expect(within(menu).getByRole('button', { name: '状态' })).toBeEnabled();
-    expect(within(menu).getByRole('button', { name: '福利' })).toBeEnabled();
+    expect(within(mainNavigation).getByRole('button', { name: '状态' })).toBeEnabled();
+    expect(within(mainNavigation).getByRole('button', { name: '福利' })).toBeEnabled();
     expect(screen.getByText('创作小说')).toBeVisible();
     expect(screen.getByRole('button', { name: /团队设计/ })).toBeEnabled();
     expect(screen.getByRole('button', { name: /自己设计/ })).toBeEnabled();
@@ -216,21 +217,22 @@ describe('V7 author opening flow', () => {
     await waitFor(() => expect(fetch).toHaveBeenCalled());
   });
 
-  it('switches mutually between the bookshelf and function menu', async () => {
+  it('keeps the main navigation visible while the bookshelf drawer opens and closes', async () => {
     installFetch();
     render(<AuthorApp />);
 
     const shelf = openBookShelf();
+    const mainNavigation = getMainNavigation();
 
-    fireEvent.click(screen.getByRole('button', { name: '打开功能导航' }));
-
+    expect(screen.getByRole('button', { name: '打开书架' })).toHaveAttribute('aria-expanded', 'true');
+    expect(mainNavigation).toBeVisible();
+    expect(within(mainNavigation).getByRole('button', { name: '状态' })).toBeEnabled();
+    fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.getByRole('button', { name: '打开书架' })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('button', { name: '打开功能导航' })).toHaveAttribute('aria-expanded', 'true');
     expect(shelf).not.toHaveClass('drawer-open');
-    expect(screen.getByLabelText('功能导航')).toHaveClass('drawer-open');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '打开书架' }));
     await waitFor(() => expect(fetch).toHaveBeenCalled());
   });
-
   it('按 userId 隔离开书草稿，退出后切换账号不会看见前一位作者输入', async () => {
     const firstUserId = 'author-first';
     const secondUserId = 'author-second';
@@ -430,8 +432,8 @@ describe('V7 author opening flow', () => {
     expect(await screen.findByRole('heading', { name: '今天，想创作什么？' })).toBeVisible();
     expect(window.location.pathname).toBe('/');
     expect(window.location.search).toBe('?view=home');
-    const menu = openFunctionMenu();
-    expect(within(menu).getByRole('button', { name: '信息' })).toBeDisabled();
+    const mainNavigation = getMainNavigation();
+    expect(within(mainNavigation).getByRole('button', { name: '信息' })).toBeDisabled();
   });
 
   it('uses the retained cover strategy for V7 books without reading the old bookshelf', async () => {
@@ -452,9 +454,9 @@ describe('V7 author opening flow', () => {
       { bookId: 'v7-book-tree-1', title: '汉末小卒', status: 'active', updatedAt: '2026-08-26T00:00:00Z' }
     ]) : null);
     render(<AuthorApp />);
-    const menu = openFunctionMenu();
-    expect(within(menu).getByRole('button', { name: '时光机' })).toBeEnabled();
-    expect(within(menu).getByRole('button', { name: '时光机' })).toHaveClass('active');
+    const mainNavigation = getMainNavigation();
+    expect(within(mainNavigation).getByRole('button', { name: '时光机' })).toBeEnabled();
+    expect(within(mainNavigation).getByRole('button', { name: '时光机' })).toHaveClass('active');
     expect(await screen.findByRole('heading', { name: '先准备全书方向' })).toBeVisible();
     expect(screen.getByRole('button', { name: '开始规划全书' })).toBeEnabled();
     expect(screen.queryByText('v7-book-tree-1')).not.toBeInTheDocument();
@@ -1401,7 +1403,7 @@ describe('V7 author opening flow', () => {
     expect(screen.getByRole('heading', { name: PACKAGE.title })).toBeVisible();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
-    fireEvent.click(screen.getByRole('button', { name: '取名助手' }));
+    fireEvent.click(screen.getByRole('button', { name: '取名' }));
     expect(screen.getByRole('heading', { name: '取名助手' })).toBeVisible();
     for (const group of ['人物', '地点', '势力', '物品', '生灵', '能力']) {
       expect(screen.getByRole('tab', { name: group })).toBeVisible();
@@ -1688,3 +1690,4 @@ describe('V7 author opening flow', () => {
     expect(document.body.textContent).not.toMatch(/structure_planner|outline_writer|opening|setting|route/u);
   });
 });
+
