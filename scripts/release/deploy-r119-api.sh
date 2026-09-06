@@ -4,7 +4,7 @@ umask 077
 FIX=$1 SHA=$2 MODE=$3
 [[ $FIX =~ ^[a-f0-9]{8}$ && $SHA =~ ^[a-f0-9]{64}$ && $MODE =~ ^(stage|cutover)$ && $EUID == 0 ]]
 BASE=wm-v7-20260906-003247-ce17325
-NEW=wm-v7-20260906-r119-$FIX
+NEW=wm-v7-20260906-105500-$FIX
 ROOT=/opt/wenmi-releases/$NEW
 SRC=$ROOT/source
 OLD=/opt/wenmi-releases/$BASE/source
