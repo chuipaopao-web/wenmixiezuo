@@ -13,6 +13,37 @@ const request = {
 };
 
 describe('火山方舟严格套餐适配器', () => {
+  it.each(['glm-5.2', 'kimi-k2.7-code'])('%s短结构审查省略不支持的关闭思考参数', async modelId => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body).not.toHaveProperty('thinking');
+      expect(body.max_tokens).toBe(3000);
+      return Response.json({content:[{type:'text',text:'{}'}]});
+    });
+    const adapter = new ArkPlanModelAdapter({plan:'coding',provider:'volcengine-ark-coding-plan',modelId,
+      baseUrl:'https://ark.cn-beijing.volces.com/api/coding',apiKey:'test',purpose:'structured_planning'},fetchImpl);
+    await adapter.generate({...request,maxOutputTokens:3000});
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it.each(['deadline','caller'])('响应头成功后%s仍能中断正文读取并保持未知结果保护', async mode => {
+    vi.useFakeTimers();
+    try {
+      const caller=new AbortController();
+      let reading!:()=>void;
+      const bodyStarted=new Promise<void>(resolve=>{reading=resolve;});
+      const fetchImpl:typeof fetch=async (_url,init)=>new Response(new ReadableStream({start(controller){
+        reading();init!.signal!.addEventListener('abort',()=>controller.error(init!.signal!.reason),{once:true});
+      }}),{status:200});
+      const adapter=new ArkPlanModelAdapter({plan:'coding',provider:'volcengine-ark-coding-plan',modelId:'deepseek-v4-pro',
+        baseUrl:'https://ark.cn-beijing.volces.com/api/coding',apiKey:'test',purpose:'structured_planning',timeoutMs:1000},fetchImpl);
+      const result=adapter.generate(request,caller.signal).catch(error=>error);
+      await bodyStarted;
+      if(mode==='caller')caller.abort();else await vi.advanceTimersByTimeAsync(1001);
+      expect(await result).toMatchObject({outcomeUnknown:true,retryable:false,statusCode:200});
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {vi.useRealTimers();}
+  });
   it.each(['deepseek-v4-pro', 'doubao-seed-2.1-turbo'])('快速方案%s禁用额外思考并保留完整可见输出额度', async (modelId) => {
     const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
       expect(JSON.parse(String(init?.body))).toMatchObject({

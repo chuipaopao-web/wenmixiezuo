@@ -277,6 +277,7 @@ export interface V7VisualAgentGovernance {
 }
 
 export interface V7UnifiedAgentGovernance {
+  openingEvaluation?: import('@wenmi/agent-catalog').OpeningEvaluationReport;
   revision: number;
   summary: { roleCount: number; memberCount: number; onDutyCount: number; leaveCount: number; candidateCount?: number; unboundCount?: number };
   credentials: { codingPlan: boolean; agentPlan: boolean; image: boolean };

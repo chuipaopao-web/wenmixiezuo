@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentGovernancePage } from './AgentGovernancePage';
 
 const governance = {
+  openingEvaluation: {version:'fixture',testedAt:'2026-09-06T14:00:00Z',scope:'合成开书样本，不能代替上岗验证。',rows:[
+    {profileKey:'deepseek-v4-pro',node:'design',milliseconds:64000,structurePassed:true,quality:'passed',assessment:'保留作者明确约束。',outputTokens:3600},
+    {profileKey:'glm-5.3',node:'review',milliseconds:180000,structurePassed:false,quality:'unverified',assessment:'超时，暂不上岗。',outputTokens:null}
+  ]},
   revision: 7,
   summary: { roleCount: 7, memberCount: 22, onDutyCount: 22, leaveCount: 0 },
   credentials: { codingPlan: true, agentPlan: true, image: true },
@@ -47,6 +51,16 @@ describe('V7统一成员治理后台', () => {
     expect(screen.getByText('林黛玉')).toBeVisible();
     expect(screen.getByText('陆婉宁')).toBeVisible();
     expect(screen.getByText('性能与温度')).toBeVisible();
+  });
+
+  it('将节点耗时、结构、内容和上岗边界分别显示', async () => {
+    render(<AgentGovernancePage/>);
+    const report=await screen.findByRole('region',{name:'开书节点评测'});
+    expect(within(report).getByText('开书设计 · 64秒')).toBeVisible();
+    expect(within(report).getByText('开书审查 · 180秒')).toBeVisible();
+    expect(within(report).getByText('字段结构通过 · 内容样本通过')).toBeVisible();
+    expect(within(report).getByText('未正常交付 · 内容未验证')).toBeVisible();
+    expect(within(report).getByText(/不自动改变成员上岗状态/)).toBeVisible();
   });
 
   it('成员页只管理身份模型与可用性，并携带全局版本保存模型', async () => {

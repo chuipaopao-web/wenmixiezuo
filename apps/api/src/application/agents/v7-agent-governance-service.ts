@@ -1,4 +1,4 @@
-import { MEMBER_SLOTS, publicMemberIdentity } from '@wenmi/agent-catalog';
+import { MEMBER_SLOTS, OPENING_EVALUATION_REPORT, publicMemberIdentity } from '@wenmi/agent-catalog';
 import {
   V7_MODEL_PROFILE_LABELS,
   V7_ROLE_CONTRACTS,
@@ -103,6 +103,7 @@ export class V7AgentGovernanceService {
     });
     return {
       revision: snapshot.revision,
+      openingEvaluation: OPENING_EVALUATION_REPORT,
       summary: {
         roleCount: V7_ROLE_CONTRACTS.length,
         memberCount: MEMBER_SLOTS.length,

@@ -68,6 +68,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
       controller.abort(new DOMException(`${planDisplayName(this.options.plan)}模型调用超时`, 'TimeoutError'));
     }, timeoutMs);
     const temperature = temperatureField(request.temperature);
+    try {
     let response: Response;
     try {
       response = await this.fetchImpl(this.#endpoint, {
@@ -107,9 +108,6 @@ export class ArkPlanModelAdapter implements ModelAdapter {
         `${planDisplayName(this.options.plan)}请求中断，供应商结果状态未知${error instanceof Error && error.name.length > 0 ? `：${error.name}` : ''}`,
         'technical_failure', false, undefined, true
       );
-    } finally {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', forwardAbort);
     }
     if (!response.ok) {
       const detail = sanitize(await response.text().catch(() => ''), this.options.apiKey).slice(0, 240);
@@ -148,6 +146,12 @@ export class ArkPlanModelAdapter implements ModelAdapter {
       cashCostCny: 0,
       state: 'succeeded'
     };
+    } finally {
+      // Headers are not completion: keep both the deadline and caller abort
+      // connected until the response body has been consumed as well.
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', forwardAbort);
+    }
   }
 }
 
@@ -228,6 +232,9 @@ function thinkingField(
   // 都曾耗尽全部输出额度后返回空文字。
   if (usesGlmVisibleOutputRoute(modelId, purpose, maxOutputTokens)) return {};
   if (purpose === 'structured_planning' && maxOutputTokens <= 5_000) {
+    // These subscription channels reject explicit disabled (R132 review 400).
+    // Omit it as for the GLM visible route; do not silently switch providers.
+    if (modelId === 'glm-5.2' || modelId === 'kimi-k2.7-code') return {};
     return { thinking: { type: 'disabled' } };
   }
   return { thinking: { type: 'enabled', budget_tokens: thinkingTokenAllowance(modelId, purpose, maxOutputTokens) } };

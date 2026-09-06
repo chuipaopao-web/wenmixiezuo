@@ -11,3 +11,19 @@ export const V7_MEMBER_AVATAR_SPRITE: string;
 export const V7_MEMBER_AVATAR_SIZE: string;
 export function publicMemberIdentity(memberKey: string): MemberSlot|undefined;
 export function candidateModels(roleKey: string): readonly CatalogModel[];
+export interface OpeningEvaluationRow {
+  readonly profileKey: string;
+  readonly node: 'design'|'review';
+  readonly milliseconds: number;
+  readonly structurePassed: boolean;
+  readonly quality: 'passed'|'failed'|'unverified';
+  readonly assessment: string;
+  readonly outputTokens: number|null;
+}
+export interface OpeningEvaluationReport {
+  readonly version: string;
+  readonly testedAt: string;
+  readonly scope: string;
+  readonly rows: readonly OpeningEvaluationRow[];
+}
+export const OPENING_EVALUATION_REPORT: OpeningEvaluationReport;

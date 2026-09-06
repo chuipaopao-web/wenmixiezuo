@@ -21,6 +21,7 @@
     "rebuild/packages/agent-catalog"
   ],
   "scripts": {
+    "benchmark:opening": "node scripts/quality/opening-model-benchmark.mjs",
     "acceptance": "vitest run tests/acceptance",
     "build": "npm run build -w @wenmi/contracts && npm run build -w @wenmi/v7-backend && npm run build -w @wenmi/api && npm run build -w @wenmi/worker && npm run build:v7:static-release",
     "build:v7:web": "npm run build -w @wenmi/v7-author-app && npm run build -w @wenmi/v7-admin-console",

@@ -1,4 +1,5 @@
 // Public identities and supported channel names only; no credentials, user data or task state.
+export { OPENING_EVALUATION_REPORT } from './opening-evaluations.js';
 export const TEXT_MODELS = Object.freeze([
   ['deepseek-v4-pro', 'DeepSeek V4 Pro'], ['deepseek-v4-flash', 'DeepSeek V4 Flash'],
   ['glm-5.2', 'GLM 5.2'], ['glm-5.3', 'GLM 5.3'], ['kimi-k2.7-code', 'Kimi 2.7'],
