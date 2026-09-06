@@ -100,6 +100,12 @@ admin.wenmixiezuo.com {
     reverse_proxy 127.0.0.1:43111
   }
 
+  # 后台与作者端共享公开成员头像；缺失图片直接404，不回退为HTML。
+  handle /avatars/* {
+    root * /opt/wenmi/releases/current
+    file_server
+  }
+
   # V7 独立管理后台。保留 /v7 前缀，避免历史 SPA 回退到已停止的根入口。
   handle /v7 {
     redir * /v7/ 308

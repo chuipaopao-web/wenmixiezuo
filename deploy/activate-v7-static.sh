@@ -11,7 +11,8 @@ case "$release_id" in
   *[!a-f0-9]*|'') echo "invalid release id" >&2; exit 64 ;;
 esac
 
-project_root="/opt/wenmi/current"
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+project_root="$(CDPATH= cd -- "$script_dir/.." && pwd -P)"
 release_root="/opt/wenmi/releases"
 release_dir="$release_root/versions/$release_id"
 current_link="$release_root/current"
