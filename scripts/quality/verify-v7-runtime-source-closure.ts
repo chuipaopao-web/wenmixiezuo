@@ -89,6 +89,8 @@ const STANDALONE_OPERATIONAL_RESOURCES = [
   'scripts/release/deploy-r119-api.sh',
   'scripts/release/r119-active-count.py',
   'scripts/release/r119-compiled-probe.mjs',
+  'scripts/release/deploy-r122-admin.sh',
+  'scripts/release/r122-admin-probe.mjs',
   'scripts/create-desktop-shortcut.ps1',
   'scripts/start-desktop.ps1',
   'scripts/stop-desktop.ps1',
