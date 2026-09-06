@@ -172,7 +172,7 @@ async function createVerifiedLogin(email: string, displayName: string): Promise<
 
 async function truncateAll(pool: PgPool): Promise<void> {
   await pool.query(
-    "TRUNCATE bookshelf_book_audit_events, bookshelf_books, account_security_audit_events, account_rate_limits, account_one_time_tokens, account_sessions, account_users RESTART IDENTITY CASCADE"
+    "TRUNCATE manual_book_chapter_directories, manual_book_opening_sources, bookshelf_book_audit_events, bookshelf_books, account_security_audit_events, account_rate_limits, account_one_time_tokens, account_sessions, account_users RESTART IDENTITY CASCADE"
   );
 }
 

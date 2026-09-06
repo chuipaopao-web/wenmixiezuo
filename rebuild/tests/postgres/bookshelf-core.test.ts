@@ -141,6 +141,220 @@ describe("real PostgreSQL bookshelf core", () => {
       .rejects.toMatchObject({ code: "BOOK_INPUT_INVALID" });
   });
 
+  it("creates and reads a manual book source while preserving raw form strings", async () => {
+    const login = await createVerifiedLogin("manual-create@example.com", "手动作者");
+    const openingPackage = minimalManualPackage({
+      title: "  双城旧梦  ",
+      possibleEnding: { direction: "", price: "  代价\n保留空格  ", openness: "" }
+    });
+    const created = await books.createManualBookFromSession(login.token, {
+      openingIdea: "  一个带空格和换行的想法\n第二行  ",
+      openingPackage,
+      idempotencyKey: "manual-raw"
+    });
+
+    expect(created.book).toMatchObject({ title: "双城旧梦", status: "active", version: 1 });
+    expect(created.source).toMatchObject({
+      sourceVersion: 1,
+      sourceType: "manual_opening_package",
+      openingIdea: "  一个带空格和换行的想法\n第二行  "
+    });
+    expect(created.source.openingPackage).toEqual(openingPackage);
+    expect(created.chapterDirectory).toMatchObject({ directoryVersion: 1, entryCount: 0 });
+
+    await expect(books.readManualBookFromSession(login.token, created.book.bookId)).resolves.toEqual(created);
+    const rows = await migratorPool.query<{ sources: string; directories: string; books: string }>(
+      `SELECT
+         (SELECT count(*) FROM manual_book_opening_sources) AS sources,
+         (SELECT count(*) FROM manual_book_chapter_directories) AS directories,
+         (SELECT count(*) FROM bookshelf_books) AS books`
+    );
+    expect(rows.rows[0]).toEqual({ sources: "1", directories: "1", books: "1" });
+  });
+
+  it("keeps idempotency on complete manual input, ignores object key order, and treats array or text changes as conflict", async () => {
+    const login = await createVerifiedLogin("manual-idempotency@example.com", "幂等作者");
+    const openingPackage = minimalManualPackage({ mustFollow: ["不写后宫", "保留成长线"] });
+    const created = await books.createManualBookFromSession(login.token, {
+      openingIdea: "原始想法",
+      openingPackage,
+      idempotencyKey: "manual-same"
+    });
+    const reorderedPackage = {
+      possibleEnding: openingPackage.possibleEnding,
+      longTermDirection: openingPackage.longTermDirection,
+      opening: openingPackage.opening,
+      protagonists: openingPackage.protagonists,
+      backgrounds: openingPackage.backgrounds,
+      positioning: {
+        tags: openingPackage.positioning.tags,
+        genres: openingPackage.positioning.genres,
+        category: openingPackage.positioning.category,
+        channel: openingPackage.positioning.channel,
+        publishingPlatform: openingPackage.positioning.publishingPlatform,
+        coreAppeal: openingPackage.positioning.coreAppeal,
+        expectedTotalWords: openingPackage.positioning.expectedTotalWords
+      },
+      title: openingPackage.title,
+      mustFollow: openingPackage.mustFollow,
+      authorNotes: openingPackage.authorNotes
+    };
+    await expect(books.createManualBookFromSession(login.token, {
+      openingPackage: reorderedPackage,
+      openingIdea: "原始想法",
+      idempotencyKey: "manual-same"
+    })).resolves.toEqual(created);
+
+    await expect(books.createManualBookFromSession(login.token, {
+      openingPackage: { ...openingPackage, mustFollow: [...openingPackage.mustFollow!].reverse() },
+      openingIdea: "原始想法",
+      idempotencyKey: "manual-same"
+    })).rejects.toMatchObject({ code: "BOOK_IDEMPOTENCY_CONFLICT" });
+    await expect(books.createManualBookFromSession(login.token, {
+      openingPackage,
+      openingIdea: "原始想法改动",
+      idempotencyKey: "manual-same"
+    })).rejects.toMatchObject({ code: "BOOK_IDEMPOTENCY_CONFLICT" });
+
+    const second = await books.createManualBookFromSession(login.token, {
+      openingPackage,
+      openingIdea: "原始想法",
+      idempotencyKey: "manual-same-content-new-key"
+    });
+    expect(second.book.bookId).not.toBe(created.book.bookId);
+  });
+
+  it("does not treat an earlier metadata-only idempotency key as a completed manual book", async () => {
+    const login = await createVerifiedLogin("manual-metadata@example.com", "元数据作者");
+    await books.createBookFromSession(login.token, { title: "元数据书", idempotencyKey: "metadata-key" });
+    await expect(books.createManualBookFromSession(login.token, {
+      openingPackage: minimalManualPackage({ title: "元数据书" }),
+      idempotencyKey: "metadata-key"
+    })).rejects.toMatchObject({ code: "BOOK_IDEMPOTENCY_CONFLICT" });
+  });
+
+  it("rejects invalid manual package fields without replacing unsafe text", async () => {
+    const login = await createVerifiedLogin("manual-invalid@example.com", "非法作者");
+    await expect(books.createManualBookFromSession(login.token, {
+      openingPackage: { ...minimalManualPackage(), ownerId: login.ownerId },
+      idempotencyKey: "bad-top"
+    } as never)).rejects.toMatchObject({ code: "BOOK_INPUT_INVALID" });
+    await expect(books.createManualBookFromSession(login.token, {
+      openingPackage: minimalManualPackage({ title: "坏\u0000书" }),
+      idempotencyKey: "bad-nul"
+    })).rejects.toMatchObject({ code: "BOOK_INPUT_INVALID" });
+    await expect(books.createManualBookFromSession(login.token, {
+      openingPackage: minimalManualPackage({ backgrounds: { eraAndWorld: "孤立\ud800", openingSituation: "" } }),
+      idempotencyKey: "bad-surrogate"
+    })).rejects.toMatchObject({ code: "BOOK_INPUT_INVALID" });
+  });
+
+  it("hides manual sources across owners and from metadata-only books", async () => {
+    const first = await createVerifiedLogin("manual-owner-a@example.com", "手动甲");
+    const second = await createVerifiedLogin("manual-owner-b@example.com", "手动乙");
+    const manual = await books.createManualBookFromSession(first.token, {
+      openingPackage: minimalManualPackage(),
+      idempotencyKey: "manual-owner"
+    });
+    await expect(books.readManualBookFromSession(second.token, manual.book.bookId))
+      .rejects.toMatchObject({ code: "BOOK_NOT_FOUND" });
+
+    const metadataOnly = await books.createBookFromSession(first.token, { title: "只有元数据", idempotencyKey: "metadata-only" });
+    await expect(books.readManualBookFromSession(first.token, metadataOnly.bookId))
+      .rejects.toMatchObject({ code: "BOOK_NOT_FOUND" });
+  });
+
+  it("rejects manual reads and creates after session revocation, password change, or suspension", async () => {
+    const first = await createVerifiedLogin("manual-session@example.com", "手动失效");
+    const second = await accounts.login({ email: "manual-session@example.com", password: "verified password value", ipAddress: "127.0.0.1" });
+    const manual = await books.createManualBookFromSession(first.token, {
+      openingPackage: minimalManualPackage(),
+      idempotencyKey: "manual-session"
+    });
+
+    await accounts.revokeOtherSessions(first.token);
+    await expect(books.readManualBookFromSession(second.token, manual.book.bookId))
+      .rejects.toMatchObject({ code: "AUTHENTICATION_REQUIRED" });
+
+    await accounts.changePassword({
+      sessionToken: first.token,
+      currentPassword: "verified password value",
+      nextPassword: "changed password value",
+      ipAddress: "127.0.0.1"
+    });
+    await expect(books.createManualBookFromSession(first.token, {
+      openingPackage: minimalManualPackage({ title: "失效创建" }),
+      idempotencyKey: "after-password"
+    })).rejects.toMatchObject({ code: "AUTHENTICATION_REQUIRED" });
+
+    const fresh = await accounts.login({ email: "manual-session@example.com", password: "changed password value", ipAddress: "127.0.0.1" });
+    await migratorPool.query("UPDATE account_users SET status = 'suspended' WHERE email_normalized = 'manual-session@example.com'");
+    await expect(books.readManualBookFromSession(fresh.token, manual.book.bookId))
+      .rejects.toMatchObject({ code: "AUTHENTICATION_REQUIRED" });
+  });
+
+  it("does not restore an archived manual book on idempotent retry", async () => {
+    const login = await createVerifiedLogin("manual-archive@example.com", "归档手动");
+    const input = { openingPackage: minimalManualPackage({ title: "归档后重试" }), idempotencyKey: "archive-retry" };
+    const created = await books.createManualBookFromSession(login.token, input);
+    await books.archiveBook(login.token, created.book.bookId, { expectedVersion: 1 });
+    const retry = await books.createManualBookFromSession(login.token, input);
+    expect(retry.book).toMatchObject({ bookId: created.book.bookId, status: "archived", version: 2 });
+  });
+
+  it("rolls back manual source and directory creation when audit insertion fails and keeps sources immutable for the app role", async () => {
+    const login = await createVerifiedLogin("manual-audit@example.com", "手动审计");
+    const repository = new PostgresBookshelfRepository(appPool);
+    await expect(accounts.withAuthenticatedSessionTransaction(login.token, async (client, session) => {
+      const book = await repository.insertBook(client, {
+        bookId: randomUUID(),
+        ownerId: session.account.ownerId,
+        title: "审计失败书",
+        idempotencyKey: "audit-fail",
+        idempotencyInputHash: "a".repeat(64)
+      });
+      await repository.insertManualOpeningSource(client, {
+        sourceId: randomUUID(),
+        ownerId: session.account.ownerId,
+        bookId: book.bookId,
+        openingIdea: null,
+        openingPackage: minimalManualPackage({ title: "审计失败书" }),
+        inputHash: "a".repeat(64)
+      });
+      await repository.insertManualChapterDirectory(client, {
+        directoryId: randomUUID(),
+        ownerId: session.account.ownerId,
+        bookId: book.bookId
+      });
+      await repository.recordAudit(client, {
+        auditId: randomUUID(),
+        bookId: book.bookId,
+        ownerId: session.account.ownerId,
+        actorUserId: session.account.userId,
+        eventType: "manual_book_created",
+        result: "succeeded",
+        detail: { secret: "blocked" }
+      });
+    })).rejects.toBeTruthy();
+    const counts = await migratorPool.query<{ books: string; sources: string; directories: string }>(
+      `SELECT
+         (SELECT count(*) FROM bookshelf_books WHERE idempotency_key = 'audit-fail') AS books,
+         (SELECT count(*) FROM manual_book_opening_sources WHERE input_hash = $1) AS sources,
+         (SELECT count(*) FROM manual_book_chapter_directories d JOIN bookshelf_books b ON b.book_id = d.book_id WHERE b.idempotency_key = 'audit-fail') AS directories`,
+      ["a".repeat(64)]
+    );
+    expect(counts.rows[0]).toEqual({ books: "0", sources: "0", directories: "0" });
+
+    const created = await books.createManualBookFromSession(login.token, {
+      openingPackage: minimalManualPackage({ title: "不可变来源" }),
+      idempotencyKey: "immutable-source"
+    });
+    await expect(appPool.query("UPDATE manual_book_opening_sources SET opening_idea = 'changed' WHERE book_id = $1", [created.book.bookId]))
+      .rejects.toMatchObject({ code: "42501" });
+    await expect(appPool.query("DELETE FROM manual_book_opening_sources WHERE book_id = $1", [created.book.bookId]))
+      .rejects.toMatchObject({ code: "42501" });
+  });
+
   it("archives and restores with optimistic versions, no-op semantics, and owner isolation", async () => {
     const first = await createVerifiedLogin("life-a@example.com", "生命周期甲");
     const second = await createVerifiedLogin("life-b@example.com", "生命周期乙");
@@ -248,6 +462,42 @@ async function createVerifiedLogin(email: string, displayName: string): Promise<
 
 async function truncateAll(pool: PgPool): Promise<void> {
   await pool.query(
-    "TRUNCATE bookshelf_book_audit_events, bookshelf_books, account_security_audit_events, account_rate_limits, account_one_time_tokens, account_sessions, account_users RESTART IDENTITY CASCADE"
+    "TRUNCATE manual_book_chapter_directories, manual_book_opening_sources, bookshelf_book_audit_events, bookshelf_books, account_security_audit_events, account_rate_limits, account_one_time_tokens, account_sessions, account_users RESTART IDENTITY CASCADE"
   );
+}
+
+function minimalManualPackage(overrides: Record<string, unknown> = {}) {
+  return {
+    title: "汉末小卒",
+    positioning: {
+      publishingPlatform: "fanqie",
+      channel: "male",
+      category: "历史",
+      genres: ["历史古代"],
+      tags: [],
+      coreAppeal: "",
+      expectedTotalWords: 100_000
+    },
+    backgrounds: { eraAndWorld: "", openingSituation: "" },
+    protagonists: [{
+      name: "刘成",
+      age: "十八",
+      identity: "",
+      background: "边军小卒",
+      familyBackground: "",
+      careerBackground: "",
+      goldenFinger: "",
+      visualIdentity: { appearance: "", build: "", signatureFeature: "" },
+      goal: "",
+      dilemma: "",
+      personality: ["谨慎"],
+      boundary: ""
+    }],
+    opening: { startingSituation: "", incitingIncident: "", immediateConflict: "", readerPromise: "" },
+    longTermDirection: { centralConflict: "", progression: "", relationshipDirection: "", storyPotential: "" },
+    possibleEnding: { direction: "", price: "", openness: "" },
+    authorNotes: [],
+    mustFollow: ["不写后宫"],
+    ...overrides
+  };
 }

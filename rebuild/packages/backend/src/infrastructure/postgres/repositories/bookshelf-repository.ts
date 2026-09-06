@@ -1,6 +1,13 @@
 import type { PgClient, PgPool } from "../client.js";
 import { withTransaction } from "../client.js";
-import type { BookRecord, BookListCursor, BookListStatusFilter, BookStatus } from "../../../domain/bookshelf/index.js";
+import type {
+  BookRecord,
+  BookListCursor,
+  BookListStatusFilter,
+  BookStatus,
+  ManualBookChapterDirectoryRecord,
+  ManualBookSourceRecord
+} from "../../../domain/bookshelf/index.js";
 
 export interface BookInsert {
   readonly bookId: string;
@@ -27,6 +34,28 @@ type BookRow = {
   engine: "rebuild";
   idempotency_key: string;
   idempotency_input_hash: string;
+  created_at: Date | string;
+  updated_at: Date | string;
+};
+
+type ManualBookSourceRow = {
+  source_id: string;
+  owner_id: string;
+  book_id: string;
+  source_version: 1;
+  source_type: "manual_opening_package";
+  opening_idea: string | null;
+  opening_package: unknown;
+  input_hash: string;
+  created_at: Date | string;
+};
+
+type ManualBookChapterDirectoryRow = {
+  directory_id: string;
+  owner_id: string;
+  book_id: string;
+  directory_version: 1;
+  entry_count: 0;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -58,12 +87,68 @@ export class PostgresBookshelfRepository {
     return mapBook(result.rows[0]!);
   }
 
+  public async insertManualOpeningSource(
+    client: PgClient,
+    input: {
+      readonly sourceId: string;
+      readonly ownerId: string;
+      readonly bookId: string;
+      readonly openingIdea: string | null;
+      readonly openingPackage: unknown;
+      readonly inputHash: string;
+    }
+  ): Promise<ManualBookSourceRecord> {
+    const result = await client.query<ManualBookSourceRow>(
+      `INSERT INTO manual_book_opening_sources
+         (source_id, owner_id, book_id, source_version, source_type, opening_idea, opening_package, input_hash)
+       VALUES ($1, $2, $3, 1, 'manual_opening_package', $4, $5, $6)
+       RETURNING ${manualSourceColumns()}`,
+      [input.sourceId, input.ownerId, input.bookId, input.openingIdea, input.openingPackage, input.inputHash]
+    );
+    return mapManualSource(result.rows[0]!);
+  }
+
+  public async insertManualChapterDirectory(
+    client: PgClient,
+    input: {
+      readonly directoryId: string;
+      readonly ownerId: string;
+      readonly bookId: string;
+    }
+  ): Promise<ManualBookChapterDirectoryRecord> {
+    const result = await client.query<ManualBookChapterDirectoryRow>(
+      `INSERT INTO manual_book_chapter_directories
+         (directory_id, owner_id, book_id, directory_version, entry_count)
+       VALUES ($1, $2, $3, 1, 0)
+       RETURNING ${manualDirectoryColumns()}`,
+      [input.directoryId, input.ownerId, input.bookId]
+    );
+    return mapManualDirectory(result.rows[0]!);
+  }
+
   public async findByOwnerAndBookId(client: PgClient, ownerId: string, bookId: string, lock = false): Promise<BookRecord | null> {
     const result = await client.query<BookRow>(
       `SELECT ${bookColumns()} FROM bookshelf_books WHERE owner_id = $1 AND book_id = $2${lock ? " FOR UPDATE" : ""}`,
       [ownerId, bookId]
     );
     return result.rows[0] === undefined ? null : mapBook(result.rows[0]);
+  }
+
+  public async findManualOpeningSource(client: PgClient, ownerId: string, bookId: string): Promise<ManualBookSourceRecord | null> {
+    const result = await client.query<ManualBookSourceRow>(
+      `SELECT ${manualSourceColumns()} FROM manual_book_opening_sources
+       WHERE owner_id = $1 AND book_id = $2 AND source_type = 'manual_opening_package'`,
+      [ownerId, bookId]
+    );
+    return result.rows[0] === undefined ? null : mapManualSource(result.rows[0]);
+  }
+
+  public async findManualChapterDirectory(client: PgClient, ownerId: string, bookId: string): Promise<ManualBookChapterDirectoryRecord | null> {
+    const result = await client.query<ManualBookChapterDirectoryRow>(
+      `SELECT ${manualDirectoryColumns()} FROM manual_book_chapter_directories WHERE owner_id = $1 AND book_id = $2`,
+      [ownerId, bookId]
+    );
+    return result.rows[0] === undefined ? null : mapManualDirectory(result.rows[0]);
   }
 
   public async listBooks(client: PgClient, input: BookListQuery): Promise<readonly BookRecord[]> {
@@ -140,6 +225,34 @@ function bookColumns(alias?: string): string {
   ].map((column) => `${prefix}${column}`).join(", ");
 }
 
+function manualSourceColumns(alias?: string): string {
+  const prefix = alias === undefined ? "" : `${alias}.`;
+  return [
+    "source_id",
+    "owner_id",
+    "book_id",
+    "source_version",
+    "source_type",
+    "opening_idea",
+    "opening_package",
+    "input_hash",
+    "created_at"
+  ].map((column) => `${prefix}${column}`).join(", ");
+}
+
+function manualDirectoryColumns(alias?: string): string {
+  const prefix = alias === undefined ? "" : `${alias}.`;
+  return [
+    "directory_id",
+    "owner_id",
+    "book_id",
+    "directory_version",
+    "entry_count",
+    "created_at",
+    "updated_at"
+  ].map((column) => `${prefix}${column}`).join(", ");
+}
+
 function mapBook(row: BookRow): BookRecord {
   return {
     bookId: row.book_id,
@@ -148,6 +261,32 @@ function mapBook(row: BookRow): BookRecord {
     status: row.status,
     version: Number(row.version),
     engine: row.engine,
+    createdAt: toDate(row.created_at),
+    updatedAt: toDate(row.updated_at)
+  };
+}
+
+function mapManualSource(row: ManualBookSourceRow): ManualBookSourceRecord {
+  return {
+    sourceId: row.source_id,
+    ownerId: row.owner_id,
+    bookId: row.book_id,
+    sourceVersion: Number(row.source_version) as 1,
+    sourceType: row.source_type,
+    openingIdea: row.opening_idea,
+    openingPackage: row.opening_package,
+    inputHash: row.input_hash,
+    createdAt: toDate(row.created_at)
+  };
+}
+
+function mapManualDirectory(row: ManualBookChapterDirectoryRow): ManualBookChapterDirectoryRecord {
+  return {
+    directoryId: row.directory_id,
+    ownerId: row.owner_id,
+    bookId: row.book_id,
+    directoryVersion: Number(row.directory_version) as 1,
+    entryCount: Number(row.entry_count) as 0,
     createdAt: toDate(row.created_at),
     updatedAt: toDate(row.updated_at)
   };

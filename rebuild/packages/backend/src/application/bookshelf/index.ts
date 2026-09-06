@@ -1,5 +1,6 @@
 export {
   BookShelfService,
   createBookShelfService,
-  type CreateBookFromSessionInput
+  type CreateBookFromSessionInput,
+  type CreateManualBookFromSessionInput
 } from "./service.js";

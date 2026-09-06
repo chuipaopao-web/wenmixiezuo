@@ -2,10 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   bookLifecycleRequestSchema,
   bookListQuerySchema,
+  manualBookCreateSchema,
+  manualBookReadSchema,
   bookRecordSchema,
   type BookLifecycleRequest,
   type BookListQuery,
-  type BookRecord as PublicBookContract
+  type BookRecord as PublicBookContract,
+  type ManualBookCreate,
+  type ManualBookRead
 } from "@wenmi-rebuild/contracts";
 import { DomainError } from "../../domain/errors.js";
 import type {
@@ -14,6 +18,8 @@ import type {
   BookListResult,
   BookListStatusFilter,
   BookRecord,
+  ManualBookChapterDirectoryRecord,
+  ManualBookSourceRecord,
   NormalizedBookListInput,
   PublicBookRecord
 } from "../../domain/bookshelf/index.js";
@@ -25,6 +31,8 @@ export interface CreateBookFromSessionInput {
   readonly title: string;
   readonly idempotencyKey: string;
 }
+
+export type CreateManualBookFromSessionInput = ManualBookCreate;
 
 export class BookShelfService {
   private readonly repository: PostgresBookshelfRepository;
@@ -60,6 +68,67 @@ export class BookShelfService {
     });
     if (result.kind === "conflict") throw new DomainError("BOOK_IDEMPOTENCY_CONFLICT", "这次建书请求和上次同编号请求内容不同。");
     return result.book;
+  }
+
+  public async createManualBookFromSession(sessionToken: string, input: CreateManualBookFromSessionInput): Promise<ManualBookRead> {
+    const parsed = parseManualCreate(input);
+    const title = normalizeBookTitle(parsed.openingPackage.title);
+    const idempotencyKey = normalizeIdempotencyKey(parsed.idempotencyKey);
+    const openingIdea = parsed.openingIdea ?? null;
+    const inputHash = hashIdempotencyInput({
+      kind: "manual_opening_package",
+      openingIdea,
+      openingPackage: parsed.openingPackage
+    });
+    const result = await this.accounts.withAuthenticatedSessionTransaction(sessionToken, async (client, session) => {
+      const existing = await this.repository.findByOwnerAndIdempotencyKey(client, session.account.ownerId, idempotencyKey, true);
+      if (existing !== null) {
+        if (existing.idempotencyInputHash !== inputHash) {
+          await this.audit(client, "manual_book_create_idempotency_conflict", "rejected", session, existing.bookId, {
+            reason: "idempotency_input_conflict"
+          });
+          return { kind: "conflict" as const };
+        }
+        const read = await this.readManualBookInsideTransaction(client, session, existing.bookId);
+        return read === null ? { kind: "conflict" as const } : { kind: "ok" as const, value: read };
+      }
+      const book = await this.repository.insertBook(client, {
+        bookId: randomUUID(),
+        ownerId: session.account.ownerId,
+        title,
+        idempotencyKey,
+        idempotencyInputHash: inputHash
+      });
+      const source = await this.repository.insertManualOpeningSource(client, {
+        sourceId: randomUUID(),
+        ownerId: session.account.ownerId,
+        bookId: book.bookId,
+        openingIdea,
+        openingPackage: parsed.openingPackage,
+        inputHash
+      });
+      const directory = await this.repository.insertManualChapterDirectory(client, {
+        directoryId: randomUUID(),
+        ownerId: session.account.ownerId,
+        bookId: book.bookId
+      });
+      await this.audit(client, "manual_book_created", "succeeded", session, book.bookId, {
+        sourceVersion: source.sourceVersion,
+        directoryVersion: directory.directoryVersion
+      });
+      return { kind: "ok" as const, value: manualBookRead(book, source, directory) };
+    });
+    if (result.kind === "conflict") throw new DomainError("BOOK_IDEMPOTENCY_CONFLICT", "这次手动建书请求和上次同编号请求内容不同。");
+    return result.value;
+  }
+
+  public async readManualBookFromSession(sessionToken: string, bookId: string): Promise<ManualBookRead> {
+    const normalizedBookId = parseBookId(bookId);
+    const result = await this.accounts.withAuthenticatedSessionTransaction(sessionToken, async (client, session) =>
+      this.readManualBookInsideTransaction(client, session, normalizedBookId)
+    );
+    if (result === null) throw new DomainError("BOOK_NOT_FOUND", "没有找到这本书。");
+    return result;
   }
 
   public async listBooks(sessionToken: string, input: BookListInput): Promise<BookListResult> {
@@ -127,6 +196,19 @@ export class BookShelfService {
     if (result.kind === "not-found") throw new DomainError("BOOK_NOT_FOUND", "没有找到这本书。");
     if (result.kind === "conflict") throw new DomainError("BOOK_VERSION_CONFLICT", "书籍已经更新，请刷新后重试。");
     return result.book;
+  }
+
+  private async readManualBookInsideTransaction(
+    client: PgClient,
+    session: AuthenticatedAccountSession,
+    bookId: string
+  ): Promise<ManualBookRead | null> {
+    const book = await this.repository.findByOwnerAndBookId(client, session.account.ownerId, bookId, false);
+    if (book === null) return null;
+    const source = await this.repository.findManualOpeningSource(client, session.account.ownerId, book.bookId);
+    const directory = await this.repository.findManualChapterDirectory(client, session.account.ownerId, book.bookId);
+    if (source === null || directory === null) return null;
+    return manualBookRead(book, source, directory);
   }
 
   private async audit(
@@ -202,8 +284,51 @@ function publicBook(book: BookRecord): PublicBookRecord {
   }) satisfies PublicBookContract;
 }
 
-function hashIdempotencyInput(input: { readonly title: string }): string {
-  return createHash("sha256").update(JSON.stringify(input)).digest("hex");
+function manualBookRead(
+  book: BookRecord,
+  source: ManualBookSourceRecord,
+  directory: ManualBookChapterDirectoryRecord
+): ManualBookRead {
+  return manualBookReadSchema.parse({
+    book: publicBook(book),
+    source: {
+      sourceVersion: source.sourceVersion,
+      sourceType: source.sourceType,
+      openingIdea: source.openingIdea,
+      openingPackage: source.openingPackage,
+      createdAt: source.createdAt.toISOString()
+    },
+    chapterDirectory: {
+      directoryVersion: directory.directoryVersion,
+      entryCount: directory.entryCount,
+      updatedAt: directory.updatedAt.toISOString()
+    }
+  });
+}
+
+function parseManualCreate(input: CreateManualBookFromSessionInput): ManualBookCreate {
+  const parsed = manualBookCreateSchema.safeParse(input);
+  if (!parsed.success) throw new DomainError("BOOK_INPUT_INVALID", "手动建书内容没有通过检查。");
+  if (Array.from(stableStringify({
+    openingIdea: parsed.data.openingIdea ?? null,
+    openingPackage: parsed.data.openingPackage
+  })).length > 256_000) {
+    throw new DomainError("BOOK_INPUT_INVALID", "手动建书内容过大。");
+  }
+  return parsed.data;
+}
+
+function hashIdempotencyInput(input: unknown): string {
+  return createHash("sha256").update(stableStringify(input)).digest("hex");
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, entryValue]) => entryValue !== undefined)
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+  return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`).join(",")}}`;
 }
 
 function encodeCursor(cursor: BookListCursor): string {

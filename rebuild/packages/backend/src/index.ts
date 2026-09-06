@@ -21,7 +21,8 @@ export {
 export {
   BookShelfService,
   createBookShelfService,
-  type CreateBookFromSessionInput
+  type CreateBookFromSessionInput,
+  type CreateManualBookFromSessionInput
 } from "./application/bookshelf/index.js";
 export {
   hashNewPassword,
@@ -47,6 +48,9 @@ export type {
   BookListStatusFilter,
   BookRecord,
   BookStatus,
+  ManualBookChapterDirectoryRecord,
+  ManualBookReadRecord,
+  ManualBookSourceRecord,
   PublicBookRecord
 } from "./domain/bookshelf/index.js";
 export { hashSyntheticTaskPayload, normalizeSyntheticJson } from "./domain/synthetic-tasks/index.js";
