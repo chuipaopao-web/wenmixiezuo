@@ -61,10 +61,10 @@ export const PLANNING_LAYERS: readonly PlanningLayerDefinition[] = [
     key: 'chain',
     publicName: '单元链规划',
     shortName: '单链',
-    responsibility: '用一组前后相接的章节完成一次明确推进、回报和状态变化。',
-    recommendedScale: '通常约 4—8 章；特殊高潮链需要主编说明延长理由。',
+    responsibility: '用前后相接的章节承担当前阶段的叙事作用，回报与变化时机依本书目标安排。',
+    recommendedScale: '篇幅按内容需要与当前执行容量安排；不设通用回报间隔。',
     requiredInputs: ['当前卷目标', '当前链进入状态', '相关人物、故事线和伏笔', '最近正式正文结果'],
-    outputChecklist: ['读者期待', '人物行动', '阻力与升级', '明确兑现', '不可逆状态变化', '下一链触发'],
+    outputChecklist: ['读者期待', '人物行动', '当前叙事作用', '已兑现或待后续的承诺', '有依据的变化或延续', '下一链接口'],
     defers: '不重做全书和本卷方向，只执行当前链责任。'
   },
   {

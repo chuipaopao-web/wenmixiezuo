@@ -2,6 +2,8 @@ import {
   V7_MODEL_PROFILE_LABELS,
   V7_ROLE_CONTRACTS,
   allowedModelProfilesForRole,
+  candidateModelProfilesForRole,
+  modelAdmissionForRole,
   effectiveTemperature,
   independentReviewers,
   modelBindingForProfile,
@@ -38,7 +40,9 @@ export class V7AgentGovernanceService {
   }
 
   public members(roleKey?: V7FixedRoleKey): V7EffectiveMember[] {
-    return this.snapshot().members.filter((member) => member.enabled && (roleKey === undefined || member.fixedRoleKey === roleKey))
+    return this.snapshot().members.filter((member) => member.enabled
+      && allowedModelProfilesForRole(member.fixedRoleKey).includes(member.modelProfileKey)
+      && (roleKey === undefined || member.fixedRoleKey === roleKey))
       .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority);
   }
 
@@ -86,14 +90,18 @@ export class V7AgentGovernanceService {
       summary: {
         roleCount: V7_ROLE_CONTRACTS.length,
         memberCount: snapshot.members.length,
-        onDutyCount: snapshot.members.filter((member) => member.enabled && this.credentialReady(member)).length,
-        leaveCount: snapshot.members.filter((member) => !member.enabled || !this.credentialReady(member)).length
+        onDutyCount: snapshot.members.filter((member) => this.onDuty(member)).length,
+        leaveCount: snapshot.members.filter((member) => !this.onDuty(member)).length
       },
       credentials: this.credentials,
       modelProfiles: Object.entries(V7_MODEL_PROFILE_LABELS).map(([profileKey, publicName]) => ({ profileKey, publicName })),
       roles: V7_ROLE_CONTRACTS.map((role) => ({
         ...role,
         allowedModelProfileKeys: allowedModelProfilesForRole(role.roleKey),
+        modelCandidates: candidateModelProfilesForRole(role.roleKey).map((profileKey) => ({
+          profileKey, publicName: V7_MODEL_PROFILE_LABELS[profileKey],
+          ...modelAdmissionForRole(role.roleKey, profileKey)
+        })),
         members: snapshot.members.filter((member) => member.fixedRoleKey === role.roleKey)
           .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority)
           .map((member) => ({
@@ -108,7 +116,8 @@ export class V7AgentGovernanceService {
             fallbackPriority: member.fallbackPriority,
             temperatureAdjustment: member.temperatureAdjustment,
             credentialReady: this.credentialReady(member),
-            status: member.enabled && this.credentialReady(member) ? 'on_duty' : 'on_leave'
+            admission: modelAdmissionForRole(role.roleKey, member.modelProfileKey),
+            status: this.onDuty(member) ? 'on_duty' : 'on_leave'
           }))
       })),
       taskPolicies: snapshot.taskPolicies
@@ -121,8 +130,8 @@ export class V7AgentGovernanceService {
     if (target === undefined) throw new DomainError(errorCodes.validation, '成员不存在。');
     const expectedRevision = requiredInteger(body.expectedRevision, '配置版本无效');
     const modelProfileKey = optionalText(body.modelProfileKey, 100);
-    if (modelProfileKey !== undefined && !allowedModelProfilesForRole(target.fixedRoleKey).includes(modelProfileKey)) {
-      throw new DomainError(errorCodes.validation, '这个模型不适合当前固定岗位。');
+    if (modelProfileKey !== undefined && !candidateModelProfilesForRole(target.fixedRoleKey).includes(modelProfileKey)) {
+      throw new DomainError(errorCodes.validation, '这个模型类型不适合当前固定岗位。');
     }
     const temperatureAdjustment = optionalNumber(body.temperatureAdjustment, -.2, .2);
     const fallbackPriority = optionalInteger(body.fallbackPriority, 1, 100);
@@ -134,6 +143,25 @@ export class V7AgentGovernanceService {
     }
     const enabled = optionalBoolean(body.enabled);
     const defaultForRole = optionalBoolean(body.defaultForRole);
+    const nextProfile = modelProfileKey ?? target.modelProfileKey;
+    const nextEnabled = defaultForRole === true || (enabled ?? target.enabled);
+    const admission = modelAdmissionForRole(target.fixedRoleKey, nextProfile);
+    if (nextEnabled && (modelProfileKey !== undefined || enabled === true || defaultForRole === true)
+      && admission.status !== 'compatible') {
+      throw new DomainError(errorCodes.validation, admission.reason + ' 请先停岗，再保存候选模型，验证后方可启用。');
+    }
+    // A mutable model binding must not silently remove the last independent
+    // handoff/review option or leave a configured default absent from runtime.
+    const roleMembers = snapshot.members.filter((member) => member.fixedRoleKey === target.fixedRoleKey);
+    const executableProfiles = (members: typeof roleMembers) => new Set(members.filter((member) =>
+      member.enabled && allowedModelProfilesForRole(member.fixedRoleKey).includes(member.modelProfileKey))
+      .map((member) => member.modelProfileKey));
+    const projected = roleMembers.map((member) => member.memberKey === memberKey
+      ? { ...member, enabled: nextEnabled, modelProfileKey: nextProfile } : member);
+    const minimum = Math.min(2, executableProfiles(roleMembers).size);
+    if (executableProfiles(projected).size < minimum) {
+      throw new DomainError(errorCodes.validation, '此次调整会使当前岗位失去必要的异模型交接；请先为另一位固定成员配置可用模型。');
+    }
     const reason = optionalText(body.reason, 1000) ?? '管理员调整V7成员';
     try {
       const patch: Parameters<V7AgentGovernanceRepository['updateMember']>[0] = {
@@ -172,6 +200,11 @@ export class V7AgentGovernanceService {
     if (member.model.plan === 'coding') return this.credentials.codingPlan;
     if (member.model.plan === 'image') return this.credentials.image;
     return this.credentials.agentPlan;
+  }
+
+  private onDuty(member: V7EffectiveMember): boolean {
+    return member.enabled && this.credentialReady(member)
+      && allowedModelProfilesForRole(member.fixedRoleKey).includes(member.modelProfileKey);
   }
 }
 

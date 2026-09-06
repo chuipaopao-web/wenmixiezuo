@@ -248,14 +248,14 @@ export function planningOptionPrompt(input: {
     '资料包里的方法候选由资料策划按当前任务召回，只是共享工具箱。你可以采用、组合改写、全部忽略或自主设计；必须保留只属于本书人物与局势的创意，不要背诵专业方法名。designRationale用大白话说明这套方案为什么这样安排以及保留了什么创意空间。',
     '已确认上层规划中的designStrategy、伏笔和开放问题是交接责任，不是要求照抄上层结构。同一种方法可以再次采用，但必须按当前层的时间跨度、人物选择、冲突形态和回报位置重新落地，并说明这一层如何承接或兑现上层留下的钩子。',
     input.kind === 'volume'
-      ? '卷方案只负责把已确认全书方向展开成若干短单元链：交代本卷目标、起点到卷末的可见变化、核心矛盾、每条链的推进与回报、人物变化、卷末接口和容量。详细情绪曲线、伏笔、事件因果和逐章安排留到链层，不在卷层重复设计。每链连续4—8章、通常约1万—2.8万字；整卷链数由实际字数反推并覆盖完整字数责任。'
+      ? '卷方案把已确认全书方向展开成单元链：交代本卷目标、核心矛盾、人物选择、卷末接口和容量。详细事件与逐章安排留到链层。链的篇幅和回报时机根据本书目标设计，不套固定节拍；覆盖本卷完整字数责任。'
       : '链方案负责具体设计：触发、目标、阻力、升级、关键选择、代价、兑现、结果、情绪变化、信息揭示、人物与关系变化、伏笔埋设或回收、合理章节容量和下一链接口；只到章纲责任，不写正文。',
     '树是未来规划，不能冒充已经发生；正式资料不可改写。方法只作软参考，必须保留人物合理选择和创意空间。',
     `输出字段：schema="${schema}",optionKind="${input.kind}",publicName,publicSummary,designRationale,readerExperience,coreConflict,protagonistChoice,priceAndChange,payoff,strengths,risks,tree。strengths和risks必须是字符串数组，不能写成一段字符串。`,
     `tree顶层必须完整包含schema="v7-planning-tree-v1",treeKind="${treeKind}",scopeId="${input.scopeId}",title,root；根节点kind="${treeKind}"，直接子节点只能是${childKind}。`,
     '每个节点包括key（唯一字符串）、kind、sequence（从1开始的整数）、title（简短中文标题）。budget必须为对象：wordTarget是正整数或null（例如22500，不得写成“2.25万字”），chapterRange是两个整数的数组或null（例如[1,8]，不得写成“1-8章”）。',
     input.kind === 'volume'
-      ? '每条链的章节数=end-start+1。先按总章数和总字数计算需要多少条链，再设计各链；例如64章18万字至少需要8条链，不能缩成4条16章长链。'
+      ? '每条链的章节数=end-start+1，分配应符合因果和叙事需要。当前章纲接口单次支持2至30章，这只是执行容量，不是回报周期或文学评价；更长阶段拆成可交接的执行单元，允许跨单元继续铺垫。'
       : '仅展开本链的事件，不扩写整卷，不扩大已确认的本链章节范围。',
     '每个树节点都必须包含对象字段：story={summary,majorEvents,protagonistChange,outcome,nextStep}；emotion={publicSummary,openingEmotion,pressureMovement,releaseEmotion,intensity}；experience={publicSummary,pressureRhythm,payoffCadence,informationRhythm,contrastWithPrevious,designReason}；causality={trigger,causes,coreConflict,turningPoint,consequences}；threads={foreshadowing,openQuestions}；budget={wordTarget,chapterRange}；以及linkedTree和children。majorEvents、causes、consequences、foreshadowing、openQuestions都只能是简短字符串数组，不要输出stableKey/state等对象。不得把其余对象缩写成字符串或数组。每个说明只写一两句，不要在多个字段重复同一段话。',
     input.kind === 'volume'
@@ -282,7 +282,7 @@ export function planningOptionRepairPrompt(input: {
     '把每个节点原有story、emotion、experience、causality和threads内容无损整理为合同对象：story={summary,majorEvents,protagonistChange,outcome,nextStep}；emotion={publicSummary,openingEmotion,pressureMovement,releaseEmotion,intensity}；experience={publicSummary,pressureRhythm,payoffCadence,informationRhythm,contrastWithPrevious,designReason}；causality={trigger,causes,coreConflict,turningPoint,consequences}；threads={foreshadowing,openQuestions}。majorEvents、causes、consequences、foreshadowing、openQuestions必须是字符串数组，不要输出对象。',
     'emotion.intensity必须保留原有非空强弱说明；budget.chapterRange只能是null或[start,end]数字数组；strengths和risks必须是字符串数组。不能删除原有实质内容来规避字段。',
     input.kind === 'volume'
-      ? '如果问题是单元链过长或覆盖不完整，请沿既有事件因果把长阶段拆成多条连续短链：每链4—8章、通常约1万—2.8万字，从第1章连续编号，各链wordTarget之和覆盖本卷根节点字数。拆分只能细化既有推进与回报，不能另造主线事实。'
+      ? '如果问题是执行容量或覆盖不完整，请沿既有因果调整连续单元：当前每单元支持2至30章，从第1章连续编号，各链wordTarget之和覆盖本卷字数；不为拆分强造回报或新主线。'
       : '保留当前单元链的有限章节责任，不要扩写成新的卷级方向。',
     `校验问题：${input.validationMessage}`,
     `待修复原文：${input.invalidOutput}`
@@ -391,13 +391,14 @@ export function chapterSequencePrompt(input: {
   ].join('\n');
   return [
     '你是文秘写作章纲编剧。只返回JSON，不要Markdown，不要思维过程。',
-    '把确认单元链拆成紧凑、可直接写正文的章纲。每章必须发生真实变化或兑现一部分期待，不能用重复解释和无效过场拖字数。',
+    '把确认单元链拆成可直接写正文的章纲。每章可以承担推进、铺垫、氛围或人物交流，不强制发生变化或兑现期待；避免重复解释和无效过场。',
     '章数由当前链的内容容量决定；本次给出的chapterCount是上限目标，不足以自然承载时应减少，但不得少于2章。',
     '未来章纲不能冒充正文实际。人物选择、阻力、代价和下一章接口必须具体。',
     revision,
     `输出字段：schema="${V7_CHAPTER_SEQUENCE_SCHEMA}",chainScopeId,publicSummary,chapterStart,chapterEnd,chapters,sourceRefs。`,
     '每章的openQuestions必须是字符串数组；没有开放问题时返回空数组，不要返回单个字符串。',
     '每章字段：chapterNumber,title,objective,openingHook,sceneSetup,protagonistChoice,opposition,turn,emotionalMovement,payoff,continuity,openQuestions,nextChapterInterface。',
+    '字段是表达本章作用的容器，不是强制情节清单；没有转折或即时回报时如实说明延续、铺垫或留待后续，不为填字段虚构变化。',
     `chainScopeId固定为${input.chainScopeId}，chapterStart固定为${input.chapterStart}，最多${input.chapterCount}章。`,
     `任务资料：${JSON.stringify(creationPromptContext(input.contextPack))}`
   ].join('\n\n');
@@ -733,8 +734,8 @@ function normalizeOptionIntensity(tree: unknown): void {
 }
 
 /**
- * 卷方案的语义由规划成员负责；服务端只校验作者已经确认的节奏硬边界。
- * 这避免“18万字只有四条长链”通过结构校验后，把拖沓一路传给章纲。
+ * Only validate coverage and the existing chapter-outline API capacity.
+ * Chapter counts and word counts do not establish literary payoff or pacing.
  */
 function assertVolumeChainCadence(tree: PlanningTreeDocument): void {
   const chains = tree.root.children;
@@ -747,10 +748,10 @@ function assertVolumeChainCadence(tree: PlanningTreeDocument): void {
     const [start, end] = range;
     const chapterCount = end - start + 1;
     if (start !== expectedStart) throw new Error('单元链章节区间必须从第1章起连续且不能重叠');
-    if (chapterCount < 4 || chapterCount > 8) throw new Error('每条单元链必须在4至8章内完成一次明确回报');
+    if (chapterCount < 2 || chapterCount > 30) throw new Error('单元链超出当前章纲接口2至30章的执行容量');
     const wordTarget = chain.budget.wordTarget;
-    if (wordTarget === null || wordTarget < 10_000 || wordTarget > 28_000) {
-      throw new Error('每条单元链字数应与4至8章的紧凑容量一致');
+    if (wordTarget === null || wordTarget <= 0) {
+      throw new Error('每条单元链必须有正整数字数目标');
     }
     expectedStart = end + 1;
     chainWords += wordTarget;

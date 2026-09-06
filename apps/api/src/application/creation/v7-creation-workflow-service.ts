@@ -812,7 +812,7 @@ export class V7CreationWorkflowService {
     const selectedMembers = this.outlineCandidateMembers(rawMemberKeys, requestedCount);
     const context = await this.contexts.compile({
       ownerId, bookId, workflowId, taskKind: 'outline', taskId: run.chain_scope_id,
-      taskBrief: '把已确认单元链拆成紧凑、可执行、每章有变化和回报的章纲。', firstVolume: run.first_volume === 1,
+      taskBrief: '把已确认单元链拆成可执行、叙事作用清楚的章纲；节奏依本书需要，不强制每章变化或回报。', firstVolume: run.first_volume === 1,
       authorInput: run.author_goal, requiredTree: { treeKind: 'chain', scopeId: run.chain_scope_id }
     });
     const replaceCandidateId = optionalKey(input.replaceCandidateId, '待替换章纲方案编号');

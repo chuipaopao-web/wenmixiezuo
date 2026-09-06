@@ -1,89 +1,5 @@
 import { canonicalMemberIdentityKey } from './author-projection';
-
-const MEMBER_AVATAR_POSITION: Record<string, string> = {
-  'deputy-glm-5-3': '50% 0%',
-  'deputy-deepseek-v4-flash': '0% 100%',
-  'deputy-kimi-k3': '100% 0%',
-  'planner-deepseek-v4-pro': '0% 50%',
-  'planner-glm-5-3': '50% 50%',
-  'planner-glm-5-2': '0% 100%',
-  'planner-kimi-k3': '100% 50%',
-  'planner-kimi-2-7': '50% 100%',
-  'planner-doubao': '100% 100%',
-  'writer-kimi-k3': '100% 50%',
-  'writer-deepseek-v4-pro': '0% 50%',
-  'writer-deepseek-v4-flash': '0% 100%',
-  'writer-glm-5-3': '50% 50%',
-  'writer-kimi-2-7': '50% 100%',
-  'writer-doubao': '100% 100%',
-  'review-glm-5-3': '50% 0%',
-  'review-deepseek-v4-pro': '0% 100%',
-  'review-deepseek-v4-flash': '50% 100%',
-  'review-kimi-k3': '100% 0%',
-  'continuity-glm-5-3': '50% 0%',
-  'continuity-deepseek-v4-flash': '0% 100%',
-  'continuity-kimi-2-7': '100% 0%',
-  'visual-minimax-m3': '0% 100%',
-  'visual-seedream': '100% 100%',
-  'chief-deepseek-v4-pro': '0% 0%',
-  'chief-glm-5-3': '50% 0%',
-  'chief-kimi-k3': '100% 0%',
-  'screenwriter-deepseek-v4-pro': '0% 50%',
-  'screenwriter-doubao-seed-2-1-turbo': '50% 50%',
-  'screenwriter-kimi-k3': '100% 50%',
-  'setting-chief-1': '0% 0%',
-  'setting-deputy-1': '50% 0%',
-  'setting-writer-1': '100% 0%',
-  'setting-writer-2': '0% 50%',
-  'setting-writer-3': '50% 50%',
-  'setting-writer-4': '100% 50%',
-  'setting-writer-5': '0% 100%',
-  'setting-writer-6': '50% 100%',
-  'setting-writer-7': '100% 100%',
-  'visual-huizhen': '100% 100%',
-  'planning-chief-deepseek-v4-pro': '0% 0%',
-  'planning-chief-glm-5-3': '50% 0%',
-  'planning-chief-kimi-k3': '100% 0%',
-  'planning-structure-glm-5-3': '50% 0%',
-  'planning-structure-deepseek-v4-pro': '0% 50%',
-  'planning-structure-doubao': '50% 50%',
-  'planning-commercial-kimi-k3': '100% 50%',
-  'planning-commercial-deepseek-v4-pro': '0% 100%',
-  'planning-commercial-glm-5-3': '50% 100%',
-  'planning-writer-deepseek-v4-pro': '0% 50%',
-  'planning-writer-glm-5-3': '50% 50%',
-  'planning-writer-kimi-k3': '100% 50%',
-  'planning-maintainer-glm-5-3': '50% 0%',
-  'planning-maintainer-deepseek-v4-pro': '0% 100%',
-  'planning-maintainer-kimi-k3': '100% 0%',
-  'creation-context-glm-5-3': '50% 0%',
-  'creation-context-deepseek-v4-pro': '0% 100%',
-  'creation-context-kimi-k3': '100% 0%',
-  'creation-chief-deepseek-v4-pro': '0% 0%',
-  'creation-chief-glm-5-3': '50% 0%',
-  'creation-chief-kimi-k3': '100% 0%',
-  'creation-structure-glm-5-3': '50% 0%',
-  'creation-structure-deepseek-v4-pro': '0% 50%',
-  'creation-structure-kimi-k3': '100% 50%',
-  'creation-commercial-kimi-k3': '100% 50%',
-  'creation-commercial-deepseek-v4-pro': '0% 100%',
-  'creation-commercial-glm-5-3': '50% 100%',
-  'creation-character-deepseek-v4-pro': '0% 50%',
-  'creation-character-glm-5-3': '50% 50%',
-  'creation-character-kimi-k3': '100% 50%',
-  'creation-outline-glm-5-3': '50% 50%',
-  'creation-outline-deepseek-v4-pro': '0% 50%',
-  'creation-outline-kimi-k3': '100% 50%',
-  'creation-writer-kimi-k3': '100% 50%',
-  'creation-writer-deepseek-v4-pro': '0% 50%',
-  'creation-writer-glm-5-3': '50% 50%',
-  'creation-review-glm-5-3': '50% 100%',
-  'creation-review-deepseek-v4-pro': '0% 100%',
-  'creation-review-kimi-k3': '100% 0%',
-  'creation-settlement-glm-5-3': '50% 0%',
-  'creation-settlement-deepseek-v4-pro': '0% 100%',
-  'creation-settlement-kimi-k3': '100% 0%'
-};
+import { publicMemberIdentity } from './member-identities';
 
 const MEMBER_DISPLAY_NAME: Record<string, string> = {
   'chief-deepseek-v4-pro': '貂蝉',
@@ -131,12 +47,13 @@ const MEMBER_AVATAR_PATH: Record<string, string> = {
 };
 
 export function memberAvatarPosition(memberKey: string): string {
-  return MEMBER_AVATAR_POSITION[canonicalMemberIdentityKey(memberKey)] ?? MEMBER_AVATAR_POSITION[memberKey] ?? '50% 50%';
+  return publicMemberIdentity(canonicalMemberIdentityKey(memberKey))?.avatarPosition ?? '100% 100%';
 }
 
 /** 兼容已保存的 V7 任务快照；编号名只保留在内部历史记录中。 */
 export function memberDisplayName(memberKey: string, storedName: string): string {
-  return MEMBER_DISPLAY_NAME[canonicalMemberIdentityKey(memberKey)] ?? MEMBER_DISPLAY_NAME[memberKey] ?? storedName;
+  return publicMemberIdentity(canonicalMemberIdentityKey(memberKey))?.displayName
+    ?? MEMBER_DISPLAY_NAME[canonicalMemberIdentityKey(memberKey)] ?? MEMBER_DISPLAY_NAME[memberKey] ?? storedName;
 }
 
 export function memberAvatarPath(memberKey: string): string | null {

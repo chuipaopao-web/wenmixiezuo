@@ -213,9 +213,10 @@ export class V7PromptGovernanceRepository {
       if (inserted > 0) {
         this.database.prepare(`INSERT OR IGNORE INTO v7_prompt_governance_events(
           event_id,actor_id,event_type,target_kind,target_key,before_json,after_json,reason,created_at
-        ) VALUES('seed:v7-prompt-source-registry-v2','system','seeded','registry','v7-prompt-source-registry-v2',NULL,?,
+        ) VALUES(?,'system','seeded','registry','v7-prompt-source-registry',NULL,?,
           '登记V7岗位、工位、题材与Skill提示资产的当前发布版本',?)`)
-          .run(JSON.stringify({ inserted, promoted }), now);
+          .run(`seed:v7-prompt-source-registry:${sha256(stableStringify(V7_PROMPT_SOURCE_ASSETS.map((asset) => asset.assetId)))}`,
+            JSON.stringify({ inserted, promoted, versions: V7_PROMPT_SOURCE_ASSETS.map((asset) => asset.assetId) }), now);
       }
       this.database.exec('COMMIT');
     } catch (error) {

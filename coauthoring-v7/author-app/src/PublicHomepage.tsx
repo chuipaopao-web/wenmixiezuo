@@ -11,7 +11,7 @@ import {
   UsersThreeIcon
 } from '@phosphor-icons/react';
 import type { AuthorAccount } from './account-api';
-import { memberAvatarPosition } from './member-avatars';
+import { memberAvatarPosition, memberDisplayName } from './member-avatars';
 
 type PublicIcon = typeof LightbulbIcon;
 
@@ -195,7 +195,7 @@ export function PublicHomepage({
             <span className="public-editorial-avatar" style={{ backgroundPosition: memberAvatarPosition(member.memberKey) }} aria-hidden="true" />
             <span>
               <small>{member.role}</small>
-              <strong>{member.name}</strong>
+              <strong>{memberDisplayName(member.memberKey, member.name)}</strong>
               <p>{member.responsibility}</p>
             </span>
           </article>)}

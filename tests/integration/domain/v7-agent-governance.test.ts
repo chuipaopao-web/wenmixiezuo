@@ -8,6 +8,22 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7统一岗位、模型与任务参数', () => {
+  it('默认成员可以真正停岗；更换模型保留身份和已有任务快照', () => {
+    context = createTestContext();
+    const service = new V7AgentGovernanceService(new V7AgentGovernanceRepository(context.database), new SequenceIds(), new FixedClock(),
+      { codingPlan: true, agentPlan: true, image: true });
+    const before = service.snapshot().members.find((member) => member.memberKey === 'chief-deepseek-v4-pro')!;
+    const frozen = service.taskSnapshot(before, 'opening_review');
+    service.updateMember('admin', before.memberKey, { expectedRevision: service.snapshot().revision, enabled: false });
+    expect(service.snapshot().members.find((member) => member.memberKey === before.memberKey)?.enabled).toBe(false);
+    expect(service.snapshot().members.filter((member) => member.fixedRoleKey === 'chief_editor' && member.defaultForRole)).toHaveLength(1);
+    service.updateMember('admin', before.memberKey, { expectedRevision: service.snapshot().revision, modelProfileKey: 'kimi-k3' });
+    const after = service.snapshot().members.find((member) => member.memberKey === before.memberKey)!;
+    expect(after.displayName).toBe(before.displayName);
+    expect(after.fixedRoleKey).toBe(before.fixedRoleKey);
+    expect(frozen.modelProfileKey).toBe('deepseek-v4-pro');
+    expect(after.modelProfileKey).toBe('kimi-k3');
+  });
   it('登记23名全局唯一成员，新增豆包方案成员，主笔保留六种模型', () => {
     context = createTestContext();
     const service = new V7AgentGovernanceService(new V7AgentGovernanceRepository(context.database), new SequenceIds(), new FixedClock(),
@@ -16,7 +32,7 @@ describe('V7统一岗位、模型与任务参数', () => {
     expect(snapshot.members).toHaveLength(23);
     expect(new Set(snapshot.members.map((member) => member.displayName)).size).toBe(23);
     expect(service.members('planning_writer').map((member) => member.modelProfileKey)).toEqual([
-      'deepseek-v4-pro', 'glm-5.3', 'kimi-k3', 'doubao-seed-2.1-turbo'
+      'deepseek-v4-pro', 'glm-5.3', 'kimi-k3'
     ]);
     expect(service.members('lead_writer').map((member) => member.modelProfileKey)).toEqual([
       'deepseek-v4-pro', 'kimi-k3', 'deepseek-v4-flash', 'glm-5.3', 'kimi-k2.7-code', 'doubao-seed-2.1-turbo'
@@ -27,21 +43,30 @@ describe('V7统一岗位、模型与任务参数', () => {
     expect(service.reviewersFor(writer).every((reviewer) => reviewer.modelProfileKey !== writer.modelProfileKey)).toBe(true);
   });
 
-  it('豆包可用于策划但不越权进入主编，MiniMax不再进入当前V7成员表', () => {
+  it('候选可停岗保存，未验证的岗位组合及暂停模型不能直接上岗', () => {
     context = createTestContext();
     const service = new V7AgentGovernanceService(new V7AgentGovernanceRepository(context.database), new SequenceIds(), new FixedClock(),
       { codingPlan: true, agentPlan: true, image: true });
-    service.updateMember('admin', 'planner-glm-5-3', {
+    expect(() => service.updateMember('admin', 'planner-glm-5-3', {
       expectedRevision: service.snapshot().revision, modelProfileKey: 'doubao-seed-2.1-turbo'
+    })).toThrow('尚未完成');
+    service.updateMember('admin', 'planner-glm-5-3', {
+      expectedRevision: service.snapshot().revision, enabled: false, modelProfileKey: 'doubao-seed-2.1-turbo'
     });
+    expect(() => service.updateMember('admin', 'planner-glm-5-3', {
+      expectedRevision: service.snapshot().revision, enabled: true
+    })).toThrow('尚未完成');
     expect(() => service.updateMember('admin', 'chief-glm-5-3', {
       expectedRevision: service.snapshot().revision,
       modelProfileKey: 'doubao-seed-2.1-turbo'
-    })).toThrow('这个模型不适合当前固定岗位');
+    })).toThrow('尚未完成');
+    expect(() => service.updateMember('admin', 'writer-glm-5-3', {
+      expectedRevision: service.snapshot().revision, enabled: true
+    })).toThrow('复测');
     expect(service.snapshot().members.some((member) => member.modelProfileKey === 'minimax-m3')).toBe(false);
   });
 
-  it('已有数据库中的退役成员停岗，越岗模型恢复为批准配置', () => {
+  it('已有数据库的退役成员停岗，候选模型不被启动种子改回旧模型', () => {
     context = createTestContext();
     const repository = new V7AgentGovernanceRepository(context.database);
     new V7AgentGovernanceService(repository, new SequenceIds(), new FixedClock(),
@@ -63,7 +88,8 @@ describe('V7统一岗位、模型与任务参数', () => {
     const service = new V7AgentGovernanceService(repository, new SequenceIds(), new FixedClock(),
       { codingPlan: true, agentPlan: true, image: true });
     expect(service.snapshot().members).toHaveLength(23);
-    expect(service.snapshot().members.find((member) => member.memberKey === 'planner-glm-5-3')?.modelProfileKey).toBe('glm-5.3');
+    expect(service.snapshot().members.find((member) => member.memberKey === 'planner-glm-5-3')?.modelProfileKey).toBe('deepseek-v4-flash');
+    expect(service.members('planning_writer').some((member) => member.memberKey === 'planner-glm-5-3')).toBe(false);
     expect(context.database.prepare(`SELECT enabled,default_for_role FROM v7_agent_governance_member_settings
       WHERE member_key='visual-minimax-m3'`).get()).toEqual({ enabled: 0, default_for_role: 0 });
     expect(context.database.prepare(`SELECT enabled,default_for_role FROM v7_agent_governance_member_settings

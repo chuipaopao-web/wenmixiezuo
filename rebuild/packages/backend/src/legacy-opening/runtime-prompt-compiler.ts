@@ -136,10 +136,10 @@ export function compileV7RuntimePrompt(
     ? defaultSkillAssets(request.taskKind)
     : promptAssets.filter((candidate) => candidate.kind === 'skill'
       && (candidate.content as { triggerTaskKinds?: readonly string[] }).triggerTaskKinds?.includes(request.taskKind));
-  const requestedSkillKeys = request.skillKeys ?? compatibleSkills.map((skill) => skill.assetKey);
-  if (requestedSkillKeys.length === 0 || new Set(requestedSkillKeys).size !== requestedSkillKeys.length) {
-    throw new Error('V7任务必须明确选择至少一个不重复的Skill');
-  }
+  // The manifest always carries the data boundary. Do not repeat it as a
+  // default Skill; explicit [] is valid for a self-contained task contract.
+  const requestedSkillKeys = request.skillKeys ?? compatibleSkills
+    .filter((skill) => skill.assetKey !== 'skill.data-boundary').map((skill) => skill.assetKey);
   const skills = requestedSkillKeys.map((skillKey) => {
     const selected = compatibleSkills.find((candidate) => candidate.assetKey === skillKey
       || candidate.assetKey === `skill.${skillKey}`
@@ -150,6 +150,9 @@ export function compileV7RuntimePrompt(
   const selectedSkillKeys = skills.map((skill) => String(
     (skill.content as { skillKey?: string }).skillKey ?? skill.assetKey
   ));
+  if (new Set(selectedSkillKeys).size !== selectedSkillKeys.length) {
+    throw new Error('V7任务不能重复选择同一个Skill，包括不同别名');
+  }
   const roleContent = rolePrompt.content as { permissions?: readonly string[] };
   const allowedTools = [...new Set([
     ...(roleContent.permissions ?? []),

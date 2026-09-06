@@ -1,4 +1,5 @@
 import type { V7MemberModelBinding } from '../agents/agent-roster.js';
+import { publicMemberIdentity } from './member-identities.js';
 import type {
   V7AgentTaskKind,
   V7EffectiveMember,
@@ -123,8 +124,30 @@ export const V7_MODEL_PROFILE_LABELS: Readonly<Record<string, string>> = {
 export function allowedModelProfilesForRole(roleKey: V7FixedRoleKey): readonly string[] {
   if (roleKey === 'visual_renderer') return ['doubao-seedream'];
   if (roleKey === 'lead_writer') return V7_TEXT_MODEL_PROFILE_KEYS;
-  if (roleKey === 'planning_writer') return [...V7_STRONG_MODEL_PROFILE_KEYS, 'doubao-seed-2.1-turbo'];
   return V7_STRONG_MODEL_PROFILE_KEYS;
+}
+
+/** Candidate inventory is not permission to serve an author task. Identity is
+ * independent of this matrix; historical task bindings remain immutable. */
+export function candidateModelProfilesForRole(roleKey: V7FixedRoleKey): readonly string[] {
+  return roleKey === 'visual_renderer' ? ['doubao-seedream'] : V7_TEXT_MODEL_PROFILE_KEYS;
+}
+
+export function modelAdmissionForRole(roleKey: V7FixedRoleKey, profileKey: string): {
+  status: 'compatible' | 'pending' | 'suspended'; reason: string;
+} {
+  if (!candidateModelProfilesForRole(roleKey).includes(profileKey)) {
+    return { status: 'pending', reason: '模型类型与岗位不匹配。' };
+  }
+  if (profileKey === 'glm-5.3') {
+    return { status: 'suspended', reason: '9月6日实测出现长等待及无可见输出；复测通过前不接新配置返岗。' };
+  }
+  if (!allowedModelProfilesForRole(roleKey).includes(profileKey)) {
+    return { status: 'pending', reason: '候选模型；尚未完成该岗位的完整执行与交接验证，不能直接上岗。' };
+  }
+  return { status: 'compatible', reason: profileKey === 'doubao-seedream'
+    ? '保留现有图片通道；本批未重新评测图片质量。'
+    : '现有执行通道兼容；不代表全部题材或长篇质量已经通过。' };
 }
 
 export function modelBindingForProfile(profileKey: string): V7GlobalModelBinding {
@@ -237,7 +260,7 @@ function member(
   defaultForRole = false
 ): V7GlobalMemberDefinition {
   const model = modelBindingForProfile(modelProfileKey);
-  return { memberKey, displayName, fixedRoleKey, modelProfileKey, model, fallbackPriority, defaultForRole, enabledByDefault: true, promptInstruction: '' };
+  return { memberKey, displayName: publicMemberIdentity(memberKey)?.displayName ?? displayName, fixedRoleKey, modelProfileKey, model, fallbackPriority, defaultForRole, enabledByDefault: true, promptInstruction: '' };
 }
 
 function visual(
@@ -250,7 +273,7 @@ function visual(
 ): V7GlobalMemberDefinition {
   const modelId = 'doubao-seedream-5-0-260128';
   return {
-    memberKey, displayName, fixedRoleKey, modelProfileKey,
+    memberKey, displayName: publicMemberIdentity(memberKey)?.displayName ?? displayName, fixedRoleKey, modelProfileKey,
     model: { provider: 'volcengine-ark-image', modelId, plan: 'image' },
     fallbackPriority, defaultForRole, enabledByDefault: true, promptInstruction: ''
   };

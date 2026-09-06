@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { V7_MEMBER_IDENTITIES, publicMemberIdentity } from './member-identities.js';
 import {
   V7_GLOBAL_MEMBERS,
   V7_ROLE_CONTRACTS,
@@ -20,6 +21,13 @@ import { validateCharacterRoster } from '../character-memory/character-memory-ru
 import { validateSettingEditorialRoster } from '../setting-agent/setting-editorial-roster.js';
 
 describe('V7统一成员与模型治理', () => {
+  it('23位固定成员有唯一姓名和独立头像，模型切换不改变身份', () => {
+    expect(V7_MEMBER_IDENTITIES).toHaveLength(V7_GLOBAL_MEMBERS.length);
+    const identities = V7_GLOBAL_MEMBERS.map((member) => publicMemberIdentity(member.memberKey)!);
+    expect(new Set(identities.map((identity) => identity.displayName)).size).toBe(23);
+    expect(new Set(identities.map((identity) => identity.avatarPosition)).size).toBe(23);
+    for (const member of V7_GLOBAL_MEMBERS) expect(member.displayName).toBe(publicMemberIdentity(member.memberKey)?.displayName);
+  });
   it('GLM停岗后各运行名册可用，方案槽仍完整且交接不选停岗模型', () => {
     const members = effectiveGlobalMembers().map((member) => ({
       ...member,

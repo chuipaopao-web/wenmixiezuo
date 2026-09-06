@@ -4,7 +4,7 @@ import type { V7PlanningMemberDefinition, V7PlanningRoleKey } from '../planning-
 import type { V7CreationMemberDefinition } from '../creation-runtime/creation-runtime-contracts.js';
 import type { V7CharacterMemberDefinition } from '../character-memory/character-memory-contracts.js';
 import type { V7EffectiveMember, V7FixedRoleKey, V7GlobalMemberDefinition } from './agent-governance-contracts.js';
-import { V7_GLOBAL_MEMBERS } from './agent-governance-registry.js';
+import { V7_GLOBAL_MEMBERS, allowedModelProfilesForRole } from './agent-governance-registry.js';
 import type { V7VisualMemberDefinition } from '../agents/visual-agent-roster.js';
 
 type V7RosterSourceMember = V7EffectiveMember | V7GlobalMemberDefinition;
@@ -22,7 +22,7 @@ export function openingRosterFromGlobal(
   return [
     ...structuredOutputMembers(textMembers(members, 'chief_editor'))
       .map((member, index) => opening(member, 'chief_editor', index + 1)),
-    ...structuredOutputMembers(strongMembers(textMembers(members, 'planning_writer')))
+    ...structuredOutputMembers(textMembers(members, 'planning_writer'))
       .map((member, index) => opening(member, 'screenwriter', index + 1))
   ];
 }
@@ -30,8 +30,8 @@ export function openingRosterFromGlobal(
 export function settingRosterFromGlobal(
   members: readonly V7RosterSourceMember[] = V7_GLOBAL_MEMBERS
 ): V7SettingMemberDefinition[] {
-  const chiefs = structuredOutputMembers(strongMembers(textMembers(members, 'chief_editor')));
-  const deputies = structuredOutputMembers(strongMembers(textMembers(members, 'deputy_editor')));
+  const chiefs = structuredOutputMembers(textMembers(members, 'chief_editor'));
+  const deputies = structuredOutputMembers(textMembers(members, 'deputy_editor'));
   if (chiefs.length < 2 || deputies.length === 0) throw new Error('设定编辑部至少需要两名强模型主编和一名强模型副编');
   return [
     ...chiefs.map((member, index) => setting(
@@ -40,7 +40,7 @@ export function settingRosterFromGlobal(
     ...deputies.map((member, index) => setting(
       member, 'deputy_editor', index + 1, '只在作者明确要求核实资料时整理依据和不确定处，不参与重复设计。'
     )),
-    ...structuredOutputMembers(strongMembers(textMembers(members, 'planning_writer'))).map((member, index) => setting(
+    ...structuredOutputMembers(textMembers(members, 'planning_writer')).map((member, index) => setting(
       member, 'screenwriter', index + 1, '依据开书资料和已确认设定，设计简洁、可检索、可继续创作的设定条目。'
     ))
   ];
@@ -50,7 +50,7 @@ export function planningRosterFromGlobal(
   members: readonly V7RosterSourceMember[] = V7_GLOBAL_MEMBERS
 ): V7PlanningMemberDefinition[] {
   const chiefs = textMembers(members, 'chief_editor');
-  const planners = strongMembers(textMembers(members, 'planning_writer'));
+  const planners = textMembers(members, 'planning_writer');
   // Planning maintenance is an unattended JSON contract.  Keep the configured
   // three-person handoff pool, but place models proven to return visible
   // structured output before GLM 5.3.  GLM remains selectable and the final
@@ -67,12 +67,12 @@ export function planningRosterFromGlobal(
 export function creationRosterFromGlobal(
   members: readonly V7RosterSourceMember[] = V7_GLOBAL_MEMBERS
 ): V7CreationMemberDefinition[] {
-  const deputies = structuredOutputMembers(strongMembers(textMembers(members, 'deputy_editor')));
+  const deputies = structuredOutputMembers(textMembers(members, 'deputy_editor'));
   const chiefs = structuredOutputMembers(textMembers(members, 'chief_editor'));
   const planners = structuredOutputMembers(textMembers(members, 'planning_writer'));
   const writers = textMembers(members, 'lead_writer');
-  const reviewers = reviewOutputMembers(strongMembers(textMembers(members, 'independent_reviewer')));
-  const continuity = structuredOutputMembers(strongMembers(textMembers(members, 'continuity_editor')));
+  const reviewers = reviewOutputMembers(textMembers(members, 'independent_reviewer'));
+  const continuity = structuredOutputMembers(textMembers(members, 'continuity_editor'));
   return [
     ...mapCreation(deputies, 'context_editor'),
     ...mapCreation(chiefs, 'chief_editor'),
@@ -176,13 +176,9 @@ function planning(member: V7RosterSourceMember, roleKey: V7PlanningRoleKey, fall
 }
 
 function textMembers(members: readonly V7RosterSourceMember[], roleKey: V7FixedRoleKey): V7RosterSourceMember[] {
-  return members.filter((member) => member.fixedRoleKey === roleKey && memberEnabled(member) && member.model.plan !== 'image')
+  return members.filter((member) => member.fixedRoleKey === roleKey && memberEnabled(member) && member.model.plan !== 'image'
+      && allowedModelProfilesForRole(roleKey).includes(member.modelProfileKey))
     .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority);
-}
-
-function strongMembers(members: readonly V7RosterSourceMember[]): V7RosterSourceMember[] {
-  const approved = new Set(['kimi-k3', 'deepseek-v4-pro', 'glm-5.3']);
-  return members.filter((member) => approved.has(member.model.modelId));
 }
 
 /**

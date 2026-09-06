@@ -20,6 +20,13 @@ const base = {
 };
 
 describe('V7运行时提示词分层编译', () => {
+  it('空Skill仍保留事实边界；别名重复及跨任务Skill均被拒绝', () => {
+    const result = compileV7RuntimePrompt({ ...base, skillKeys: [] });
+    expect(result.taskContract.selectedSkillKeys).toEqual([]);
+    expect(result.manifest.compiledPrompt).toContain('任何候选不得冒充正文实际');
+    expect(() => compileV7RuntimePrompt({ ...base, skillKeys: ['data-boundary', 'skill.data-boundary'] })).toThrow('重复');
+    expect(() => compileV7RuntimePrompt({ ...base, skillKeys: ['natural-prose'] })).toThrow('不适用');
+  });
   it('把全局成员固定岗位与当前工位分开冻结，不使用永久成员倾向', () => {
     const result = compileV7RuntimePrompt(base);
     expect(result.fixedRoleKey).toBe('planning_writer');
@@ -31,7 +38,8 @@ describe('V7运行时提示词分层编译', () => {
     expect(result.manifest.compiledPrompt).toContain('本章让张三第一次独立带队');
     expect(result.manifest.compiledPrompt).toContain('把当前链责任变成可以直接写的章纲');
     expect(result.manifest.compiledPrompt).not.toContain('promptInstruction');
-    expect(result.manifest.skillVersionIds).toContain('skill.data-boundary@2');
+    expect(result.manifest.skillVersionIds).toEqual([]);
+    expect(result.manifest.compiledPrompt).toContain('任何候选不得冒充正文实际');
   });
 
   it('要求调用方冻结规范治理模型键，不接受具体供应商模型ID', () => {
@@ -95,7 +103,7 @@ describe('V7运行时提示词分层编译', () => {
     expect(retried).toBe(original);
     expect(retried.manifest.manifestId).toBe(original.manifest.manifestId);
     expect(retried.manifest.compiledPromptHash).toBe(original.manifest.compiledPromptHash);
-    expect(retried.manifest.workstationPromptVersionId).toBe('workstation.chapter_outline@2');
+    expect(retried.manifest.workstationPromptVersionId).toBe(original.manifest.workstationPromptVersionId);
     expect(retried.manifest.governanceRevision).toBe(8);
     expect(retried.manifest.temperature).toBe(0.56);
     expect(retried.manifest.compiledPrompt).not.toContain('失败之后才发布的新提示');

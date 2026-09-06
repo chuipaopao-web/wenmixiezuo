@@ -276,7 +276,12 @@ describe('V7 creation runtime contracts', () => {
     option.tree.root.children = [
       node(1, 1, 16, 45_000), node(2, 17, 32, 45_000), node(3, 33, 48, 45_000), node(4, 49, 64, 45_000)
     ];
-    expect(() => parseVolumeOption(JSON.stringify(option), 'volume-1')).toThrow('4至8章');
+    expect(parseVolumeOption(JSON.stringify(option), 'volume-1').tree.root.children).toHaveLength(4);
+    option.tree.root.children[1]!.budget.chapterRange = [16, 32];
+    expect(() => parseVolumeOption(JSON.stringify(option), 'volume-1')).toThrow('连续');
+    option.tree.root.children[1]!.budget.chapterRange = [17, 32];
+    option.tree.root.children[0]!.budget.wordTarget = 0;
+    expect(() => parseVolumeOption(JSON.stringify(option), 'volume-1')).toThrow();
   });
 });
 

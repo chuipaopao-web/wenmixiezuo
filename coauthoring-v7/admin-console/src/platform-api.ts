@@ -284,10 +284,12 @@ export interface V7UnifiedAgentGovernance {
   roles: Array<{
     roleKey: string; publicName: string; publicResponsibility: string; capabilities: string[]; tools: string[];
     outputContract: string; failureContract: string; authorSelectable: boolean; allowedModelProfileKeys: string[];
+    modelCandidates?: Array<{ profileKey: string; publicName: string; status: 'compatible' | 'pending' | 'suspended'; reason: string }>;
     members: Array<{
       memberKey: string; displayName: string; modelProfileKey: string; modelName: string; provider: string; plan: 'coding' | 'agent' | 'image';
       enabled: boolean; defaultForRole: boolean; fallbackPriority: number; temperatureAdjustment: number;
       credentialReady: boolean; status: 'on_duty' | 'on_leave';
+      admission?: { status: 'compatible' | 'pending' | 'suspended'; reason: string };
     }>;
   }>;
   taskPolicies: Array<{

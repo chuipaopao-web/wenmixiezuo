@@ -3,6 +3,8 @@ import {
   V7_GLOBAL_MEMBERS,
   V7_TASK_TEMPERATURE_POLICIES,
   allowedModelProfilesForRole,
+  candidateModelProfilesForRole,
+  modelAdmissionForRole,
   modelBindingForProfile,
   taskTemperaturePolicy,
   type V7AgentTaskKind,
@@ -77,7 +79,7 @@ export class V7AgentGovernanceRepository {
       SET model_profile_key=?,updated_by='system',updated_at=? WHERE member_key=?`);
     for (const member of V7_GLOBAL_MEMBERS) {
       const row = currentModel.get(member.memberKey) as { model_profile_key: string } | undefined;
-      if (row !== undefined && !allowedModelProfilesForRole(member.fixedRoleKey).includes(row.model_profile_key)) {
+      if (row !== undefined && !candidateModelProfilesForRole(member.fixedRoleKey).includes(row.model_profile_key)) {
         rosterChanged = restoreApprovedModel.run(member.modelProfileKey, now, member.memberKey).changes > 0 || rosterChanged;
       }
     }
@@ -199,7 +201,7 @@ export class V7AgentGovernanceRepository {
       const target = before.members.find((member) => member.memberKey === input.memberKey);
       if (target === undefined) throw new Error('成员不存在');
       let enabled = input.enabled ?? target.enabled;
-      let isDefault = input.defaultForRole ?? target.defaultForRole;
+      let isDefault = input.defaultForRole ?? (input.enabled === false ? false : target.defaultForRole);
       const roleMembers = before.members.filter((member) => member.fixedRoleKey === target.fixedRoleKey)
         .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority);
       if (!enabled && roleMembers.filter((member) => member.enabled && member.memberKey !== target.memberKey).length === 0) {
@@ -213,8 +215,11 @@ export class V7AgentGovernanceRepository {
           .run(input.now, target.fixedRoleKey);
       }
       if (!enabled && target.defaultForRole) {
-        const replacement = roleMembers.find((member) => member.memberKey !== target.memberKey && member.enabled);
+        const replacement = roleMembers.find((member) => member.memberKey !== target.memberKey && member.enabled
+          && modelAdmissionForRole(member.fixedRoleKey, member.modelProfileKey).status === 'compatible');
         if (replacement === undefined) throw new Error('该岗位没有可接班成员');
+        this.database.prepare(`UPDATE v7_agent_governance_member_settings SET default_for_role=0,updated_at=? WHERE member_key=?`)
+          .run(input.now, target.memberKey);
         this.database.prepare(`UPDATE v7_agent_governance_member_settings SET default_for_role=1,updated_at=? WHERE member_key=?`)
           .run(input.now, replacement.memberKey);
       }

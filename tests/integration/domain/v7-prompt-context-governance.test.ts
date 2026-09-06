@@ -32,15 +32,15 @@ describe('V7提示词与上下文治理持久化', () => {
     context.database.prepare(`INSERT INTO v7_prompt_asset_versions(
       asset_id,asset_key,kind,version,status,governance_revision,title,summary,content_json,content_hash,
       based_on_asset_id,created_by,created_at,published_by,published_at,retired_by,retired_at
-    ) VALUES(?,?,?,1,'published',1,?,?,?,?,NULL,'legacy','2026-08-27T00:00:00.000Z','legacy','2026-08-27T00:00:00.000Z',NULL,NULL)`).run(
-      'workstation.chapter_outline@1', current.assetKey, current.kind, current.title, '旧版章纲工位',
+    ) VALUES(?,?,?,2,'published',1,?,?,?,?,NULL,'legacy','2026-08-27T00:00:00.000Z','legacy','2026-08-27T00:00:00.000Z',NULL,NULL)`).run(
+      'workstation.chapter_outline@2', current.assetKey, current.kind, current.title, '旧版章纲工位',
       oldSerialized, sha256(oldSerialized)
     );
     const repository = new V7PromptGovernanceRepository(context.database);
     const service = new V7PromptGovernanceService(repository, new SequenceIds(), new FixedClock());
-    expect(repository.assetById('workstation.chapter_outline@1')?.status).toBe('retired');
+    expect(repository.assetById('workstation.chapter_outline@2')?.status).toBe('retired');
     expect(repository.publishedAsset('workstation.chapter_outline')).toMatchObject({
-      assetId: 'workstation.chapter_outline@2', version: 2, status: 'published', basedOnAssetId: 'workstation.chapter_outline@1'
+      assetId: 'workstation.chapter_outline@3', version: 3, status: 'published', basedOnAssetId: 'workstation.chapter_outline@2'
     });
     expect(service.summary()).toMatchObject({ revision: 2, versionCount: V7_PROMPT_SOURCE_ASSETS.length + 1 });
   });

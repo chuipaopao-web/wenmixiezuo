@@ -20,7 +20,7 @@
   --shadow-sm: 0 8px 24px rgb(38 62 54 / 9%);
   --shadow-panel: 0 22px 65px rgb(38 62 54 / 8%);
   --font-display: "Songti SC", "STSong", "Noto Serif SC", "SimSun", serif;
-  --member-avatar-sprite: url('/avatars/team-collage-source.jpg');
+  --member-avatar-sprite: url('/avatars/editorial-women-v130.png');
 }
 
 /* V7 卷、链、章商业创作工作台：桌面平铺，手机优先，不依赖弹窗。 */
@@ -44,7 +44,7 @@
 .creation-chief-presence > span:last-child { min-width: 0; display: grid; gap: 3px; }
 .creation-chief-presence strong { font-size: 16px; }
 .creation-chief-presence small { overflow: hidden; color: var(--ink-muted); text-overflow: ellipsis; white-space: nowrap; }
-.creation-avatar { flex: 0 0 auto; width: 43px; height: 43px; display: inline-block; border: 2px solid #fff; border-radius: 50%; background-image: var(--member-avatar-sprite); background-size: 300% 300%; box-shadow: 0 2px 9px rgb(31 67 56 / .15); }
+.creation-avatar { flex: 0 0 auto; width: 43px; height: 43px; display: inline-block; border: 2px solid #fff; border-radius: 50%; background-image: var(--member-avatar-sprite); background-size: 600% 400%; box-shadow: 0 2px 9px rgb(31 67 56 / .15); }
 .creation-avatar.large { width: 62px; height: 62px; }
 .creation-avatar.small { width: 33px; height: 33px; margin-left: -7px; }
 .creation-avatar.small:first-child { margin-left: 0; }
@@ -143,7 +143,7 @@
 .creation-member-select { display: grid; gap: 5px; color: var(--ink-muted); font-size: 13px; }
 .creation-member-select > span { min-height: 34px; display: grid; grid-template-columns: 28px auto 1fr; align-items: center; gap: 7px; }
 .creation-member-select > span:not(:has(> i)) { grid-template-columns: auto minmax(0, 1fr); }
-.creation-member-select > span > i { width: 28px; height: 28px; border: 2px solid #fff; border-radius: 50%; background-image: var(--member-avatar-sprite); background-size: 700% 100%; box-shadow: 0 0 0 1px var(--line); }
+.creation-member-select > span > i { width: 28px; height: 28px; border: 2px solid #fff; border-radius: 50%; background-image: var(--member-avatar-sprite); background-size: 600% 400%; box-shadow: 0 0 0 1px var(--line); }
 .creation-member-select > span > b { color: var(--ink); }
 .creation-member-select > span > small { justify-self: end; color: var(--ink-faint); font-size: 11px; font-weight: 560; }
 .creation-member-select select, .creation-outline-start select { width: 100%; min-height: 43px; border: 1px solid var(--line-strong); border-radius: 11px; padding: 0 11px; color: var(--ink); background: #fff; }
@@ -653,7 +653,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .editorial-live-room { width: min(960px, 100%); min-height: min(650px, calc(100dvh - 180px)); display: grid; align-content: center; justify-items: center; gap: 14px; margin: 0 auto; padding: clamp(24px, 5vw, 54px); text-align: center; }
 .editorial-live-cast { position: relative; display: grid; justify-items: center; }
 .editorial-lead { display: grid; justify-items: center; gap: 6px; }
-.chief-live-avatar, .editorial-live-members .agent-avatar, .task-member-stack i, .team-summary-avatars i, .team-member-head > i { background-image: url('/avatars/team-collage-source.jpg'); background-repeat: no-repeat; background-size: 300% 300%; }
+.chief-live-avatar, .editorial-live-members .agent-avatar, .task-member-stack i, .team-summary-avatars i, .team-member-head > i { background-image: url('/avatars/editorial-women-v130.png'); background-repeat: no-repeat; background-size: 600% 400%; }
 .chief-live-avatar { width: 112px; height: 112px; border: 6px solid #fff; border-radius: 50%; box-shadow: 0 18px 38px rgb(39 73 62 / 20%); }
 .editorial-lead strong { margin-top: 5px; color: var(--accent); font-family: var(--font-display); font-size: 24px; }
 .editorial-lead small { color: var(--ink-faint); font-size: 12px; }
@@ -1119,7 +1119,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .planning-waiting-card { min-height: min(520px, calc(100dvh - 230px)); display: grid; grid-template-columns: 60px minmax(0, 620px); align-content: center; justify-content: center; gap: 12px 16px; border: 1px solid var(--line); border-radius: 19px; padding: clamp(24px, 5vw, 58px); text-align: left; background: linear-gradient(145deg, #fff, #f5faf6); }
 .planning-member-orb { grid-row: 1 / 3; width: 58px; height: 58px; display: grid; place-items: center; border-radius: 18px; color: white; background: var(--accent); box-shadow: 0 12px 30px rgb(38 86 70 / 18%); }
 .planning-member-orb svg { width: 28px; height: 28px; }
-.planning-waiting-avatar { grid-row: 1 / 3; width: 58px; height: 58px; border: 3px solid #fff; border-radius: 50%; background-image: url('/avatars/team-collage-source.jpg'); background-repeat: no-repeat; background-size: 300% 300%; box-shadow: 0 10px 27px rgb(38 86 70 / 18%); }
+.planning-waiting-avatar { grid-row: 1 / 3; width: 58px; height: 58px; border: 3px solid #fff; border-radius: 50%; background-image: url('/avatars/editorial-women-v130.png'); background-repeat: no-repeat; background-size: 600% 400%; box-shadow: 0 10px 27px rgb(38 86 70 / 18%); }
 .planning-waiting-card strong { font-family: var(--font-display); font-size: 25px; font-weight: 660; }
 .planning-waiting-card p { margin: 6px 0 0; color: var(--ink-soft); line-height: 1.7; }
 .planning-progress { grid-column: 1 / -1; height: 8px; overflow: hidden; border-radius: 999px; background: #e8eee9; }
@@ -1150,7 +1150,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .planning-suggestions article button.planning-primary { border-color: var(--accent); background: var(--accent); color: #fff; }
 .planning-member-faces { grid-column: 2; display: flex; flex-wrap: wrap; gap: 8px; }
 .planning-member-faces > span { display: grid; justify-items: center; gap: 3px; color: var(--ink-soft); font-size: 10px; }
-.planning-member-faces i, .planning-actor-strip i { display: block; width: 42px; height: 42px; border: 2px solid #fff; border-radius: 50%; background-image: url('/avatars/team-collage-source.jpg'); background-repeat: no-repeat; background-size: 300% 300%; box-shadow: 0 5px 14px rgb(44 74 66 / 15%); }
+.planning-member-faces i, .planning-actor-strip i { display: block; width: 42px; height: 42px; border: 2px solid #fff; border-radius: 50%; background-image: url('/avatars/editorial-women-v130.png'); background-repeat: no-repeat; background-size: 600% 400%; box-shadow: 0 5px 14px rgb(44 74 66 / 15%); }
 .planning-actor-strip { grid-column: 1 / -1; border: 1px solid var(--line); border-radius: 13px; background: rgb(255 255 255 / 78%); }
 .planning-actor-strip > summary { min-height: 48px; display: flex; align-items: center; gap: 10px; list-style: none; cursor: pointer; padding: 7px 10px; color: var(--accent); font-size: 12px; font-weight: 760; }
 .planning-actor-strip > summary::-webkit-details-marker { display: none; }
@@ -1215,7 +1215,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .route-tree-member select { min-height: 44px; border: 1px solid var(--line-strong); border-radius: 11px; padding: 0 12px; color: var(--ink); background: #fff; }
 .planning-secondary { min-height: 44px; border: 1px solid var(--line); border-radius: 12px; padding: 0 16px; color: var(--ink-soft); background: #fff; cursor: pointer; font: inherit; font-weight: 720; }
 .planning-secondary:disabled { cursor: wait; opacity: .55; }
-.planning-person-avatar { width: 48px; height: 48px; flex: 0 0 auto; border: 2px solid #fff; border-radius: 50%; background-image: url('/avatars/team-collage-source.jpg'); background-repeat: no-repeat; background-size: 300% 300%; box-shadow: 0 6px 16px rgb(44 74 66 / 15%); }
+.planning-person-avatar { width: 48px; height: 48px; flex: 0 0 auto; border: 2px solid #fff; border-radius: 50%; background-image: url('/avatars/editorial-women-v130.png'); background-repeat: no-repeat; background-size: 600% 400%; box-shadow: 0 6px 16px rgb(44 74 66 / 15%); }
 .route-writer-line { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .route-writer-line > .planning-person-avatar { width: 38px; height: 38px; }
 .route-writer-line > span { min-width: 0; display: grid; gap: 3px; }
@@ -1503,7 +1503,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
   border-radius: 50%;
   background-image: var(--member-avatar-sprite);
   background-repeat: no-repeat;
-  background-size: 300% 300%;
+  background-size: 600% 400%;
   box-shadow: 0 8px 18px rgb(29 55 47 / 16%);
 }
 
@@ -1829,7 +1829,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
   border-radius: 22px;
   background-image: var(--member-avatar-sprite);
   background-repeat: no-repeat;
-  background-size: 300% 300%;
+  background-size: 600% 400%;
   box-shadow: 0 12px 26px rgb(37 61 53 / 15%);
 }
 
@@ -2281,7 +2281,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .setting-recommendation-card { min-width: 0; display: grid; grid-template-columns: 68px minmax(0, 1fr); align-items: center; gap: 15px; border: 1px solid #cbdccf; border-radius: 18px; padding: 17px 19px; background: linear-gradient(145deg, #fff, #f2f8f2); box-shadow: var(--shadow-sm); }
 .setting-recommendation-card > .workflow-action-dock { grid-column: 1 / -1; width: 100%; }
 .setting-recommendation-card.failed { border-color: #e6c9b8; background: #fff8f3; }
-.setting-recommendation-avatar { width: 64px; height: 64px; flex: 0 0 auto; border: 3px solid #fff; border-radius: 50%; background-image: url('/avatars/team-collage-source.jpg'); background-repeat: no-repeat; background-size: 300% 300%; box-shadow: 0 8px 20px rgb(44 74 66 / 18%); }
+.setting-recommendation-avatar { width: 64px; height: 64px; flex: 0 0 auto; border: 3px solid #fff; border-radius: 50%; background-image: url('/avatars/editorial-women-v130.png'); background-repeat: no-repeat; background-size: 600% 400%; box-shadow: 0 8px 20px rgb(44 74 66 / 18%); }
 .setting-recommendation-placeholder { width: 64px; height: 64px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: var(--accent); background: #e9f1ec; }
 .setting-recommendation-placeholder svg { width: 28px; height: 28px; }
 .setting-recommendation-card > div:not(.setting-recommendation-progress) { min-width: 0; display: grid; gap: 4px; }
@@ -2331,7 +2331,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .editorial-room { padding: 20px; background: linear-gradient(145deg, #fff, #f4f8f3); }
 .editorial-summary { min-width: 0; display: grid; grid-template-columns: minmax(220px, .8fr) minmax(260px, 1.5fr) minmax(120px, auto) auto auto; align-items: center; gap: 12px; }
 .editorial-chief { min-width: 0; display: flex; align-items: center; gap: 12px; }
-.editorial-chief > .agent-avatar { width: 58px; height: 58px; flex: 0 0 auto; border: 3px solid #fff; border-radius: 50%; background-image: url('/avatars/team-collage-source.jpg'); background-repeat: no-repeat; background-size: 300% 300%; box-shadow: 0 8px 22px rgb(44 74 66 / 18%); }
+.editorial-chief > .agent-avatar { width: 58px; height: 58px; flex: 0 0 auto; border: 3px solid #fff; border-radius: 50%; background-image: url('/avatars/editorial-women-v130.png'); background-repeat: no-repeat; background-size: 600% 400%; box-shadow: 0 8px 22px rgb(44 74 66 / 18%); }
 .editorial-chief > .agent-avatar.working { outline: 3px solid #a9c6b5; }
 .editorial-chief > span:last-child { min-width: 0; display: grid; gap: 4px; }
 .editorial-chief strong { color: var(--accent); font-size: 17px; }
@@ -2344,7 +2344,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .editorial-summary > b small { color: var(--ink-faint); font-size: 10px; font-weight: 550; }
 .editorial-toggle { min-height: 36px; border: 1px solid var(--line-strong); border-radius: 10px; padding: 0 12px; color: var(--accent); cursor: pointer; background: #fff; font-weight: 700; }
 .editorial-avatar-row { min-width: 0; display: flex; align-items: center; overflow: hidden; padding-left: 7px; }
-.editorial-avatar-row .agent-avatar { width: 30px; height: 30px; flex: 0 0 auto; margin-left: -7px; border: 2px solid #fff; border-radius: 50%; background-image: url('/avatars/team-collage-source.jpg'); background-repeat: no-repeat; background-size: 300% 300%; box-shadow: 0 3px 8px rgb(44 74 66 / 13%); }
+.editorial-avatar-row .agent-avatar { width: 30px; height: 30px; flex: 0 0 auto; margin-left: -7px; border: 2px solid #fff; border-radius: 50%; background-image: url('/avatars/editorial-women-v130.png'); background-repeat: no-repeat; background-size: 600% 400%; box-shadow: 0 3px 8px rgb(44 74 66 / 13%); }
 .editorial-avatar-row .agent-avatar.working { outline: 2px solid #7ea08e; }
 .editorial-avatar-row .agent-avatar.leave { filter: grayscale(.65); opacity: .5; }
 .editorial-progress { height: 9px; overflow: hidden; margin: 14px 0 0; border-radius: 999px; background: #dfe8e1; }
@@ -2355,7 +2355,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .editorial-roster article.leave { opacity: .66; background: #f2f3f0; }
 .editorial-roster article > div { display: flex; align-items: center; gap: 8px; }
 .editorial-roster article > div > span { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; color: #fff; background: var(--accent); font-weight: 760; }
-.editorial-roster .agent-avatar { flex: 0 0 auto; border: 1px solid color-mix(in srgb, var(--accent) 22%, white); border-radius: 50%; background-image: url('/avatars/team-collage-source.jpg'); background-repeat: no-repeat; background-size: 300% 300%; box-shadow: 0 4px 10px rgb(44 74 66 / 14%); }
+.editorial-roster .agent-avatar { flex: 0 0 auto; border: 1px solid color-mix(in srgb, var(--accent) 22%, white); border-radius: 50%; background-image: url('/avatars/editorial-women-v130.png'); background-repeat: no-repeat; background-size: 600% 400%; box-shadow: 0 4px 10px rgb(44 74 66 / 14%); }
 .editorial-roster article > div > div { min-width: 0; display: grid; }
 .editorial-roster strong, .editorial-roster p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .editorial-roster small, .editorial-roster em { color: var(--ink-faint); font-size: 11px; font-style: normal; }
@@ -2374,7 +2374,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .setting-result-status small { border-radius: 999px; padding: 4px 8px; color: #80623b; background: #fff4df; font-size: 10px; }
 .setting-detail-toggle { min-height: 34px; border: 1px solid var(--line-strong); border-radius: 9px; padding: 0 11px; color: var(--accent); cursor: pointer; background: #fff; font-weight: 700; }
 .setting-active-member { min-width: min(390px, 38vw); display: flex; align-items: center; gap: 11px; border-radius: 14px; padding: 8px 12px; background: var(--accent-soft); }
-.setting-active-avatar, .setting-panel-avatar, .redesign-member-avatar { flex: 0 0 auto; border: 2px solid #fff; border-radius: 50%; background-image: url('/avatars/team-collage-source.jpg'); background-repeat: no-repeat; background-size: 300% 300%; box-shadow: 0 5px 14px rgb(44 74 66 / 16%); }
+.setting-active-avatar, .setting-panel-avatar, .redesign-member-avatar { flex: 0 0 auto; border: 2px solid #fff; border-radius: 50%; background-image: url('/avatars/editorial-women-v130.png'); background-repeat: no-repeat; background-size: 600% 400%; box-shadow: 0 5px 14px rgb(44 74 66 / 16%); }
 .setting-active-avatar { width: 58px; height: 58px; }
 .setting-active-member > span:last-child { min-width: 0; display: grid; gap: 3px; }
 .setting-active-member strong { color: var(--accent); font-size: 14px; }
@@ -2413,7 +2413,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .setting-inline-panel > footer > button:not(.primary-action) { min-height: 42px; border: 1px solid var(--line-strong); border-radius: 10px; padding: 0 15px; cursor: pointer; background: #fff; }
 .setting-final-review { display: grid; gap: 13px; border: 1px solid #bdd2c2; border-radius: 18px; padding: 18px; background: #fff; box-shadow: var(--shadow-sm); }
 .setting-final-review > header > div { display: flex; align-items: center; gap: 12px; }
-.chief-review-avatar { width: 52px; height: 52px; flex: 0 0 auto; border: 2px solid #fff; border-radius: 50%; background-image: url('/avatars/team-collage-source.jpg'); background-repeat: no-repeat; background-size: 300% 300%; box-shadow: 0 6px 18px rgb(44 74 66 / 16%); }
+.chief-review-avatar { width: 52px; height: 52px; flex: 0 0 auto; border: 2px solid #fff; border-radius: 50%; background-image: url('/avatars/editorial-women-v130.png'); background-repeat: no-repeat; background-size: 600% 400%; box-shadow: 0 6px 18px rgb(44 74 66 / 16%); }
 .setting-final-review > header span:last-child { display: grid; gap: 4px; }
 .setting-final-review > header strong { color: var(--accent); font-size: 18px; }
 .setting-final-review > header small { color: var(--ink-soft); }
@@ -2459,7 +2459,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .cover-design-dialog { width: min(860px, 100%); }
 .visual-member-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .visual-member-strip { display: grid; grid-template-columns: 54px auto minmax(0, 1fr); align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 15px; padding: 12px 14px; background: var(--accent-soft); }
-.visual-agent-avatar { width: 54px; height: 54px; border: 2px solid #fff; border-radius: 50%; background-image: url('/avatars/team-collage-source.jpg'); background-repeat: no-repeat; background-size: 300% 300%; box-shadow: 0 6px 18px rgb(44 74 66 / 15%); }
+.visual-agent-avatar { width: 54px; height: 54px; border: 2px solid #fff; border-radius: 50%; background-image: url('/avatars/editorial-women-v130.png'); background-repeat: no-repeat; background-size: 600% 400%; box-shadow: 0 6px 18px rgb(44 74 66 / 15%); }
 .visual-member-strip > div { display: grid; gap: 3px; }
 .visual-member-strip > div span { width: fit-content; border-radius: 999px; padding: 2px 8px; color: var(--accent); background: #fff; font-size: 11px; }
 .visual-member-strip.on_leave { color: #7e6850; background: #f7f2e8; }
