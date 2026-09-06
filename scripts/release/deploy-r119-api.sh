@@ -50,8 +50,8 @@ PY
  chmod 755 "$ROOT"
  cp -al "$OLD/node_modules" "$SRC/node_modules"
  cd "$SRC"
- node node_modules/tsx/dist/cli.mjs scripts/quality/verify-v7-runtime-source-closure.ts --output "$ROOT/closure.json" >"$ROOT/closure.log"
- node node_modules/tsx/dist/cli.mjs scripts/release/verify-v7-release-module-resolution.ts --release-source "$SRC" --manifest "$ROOT/closure.json" >"$ROOT/modules.log"
+ node node_modules/tsx/dist/cli.mjs scripts/quality/verify-v7-runtime-source-closure.ts --output artifacts/r119-closure.json >"$ROOT/closure.log"
+ node node_modules/tsx/dist/cli.mjs scripts/release/verify-v7-release-module-resolution.ts --release-source "$SRC" --manifest "$SRC/artifacts/r119-closure.json" >"$ROOT/modules.log"
  node node_modules/vitest/vitest.mjs run --configLoader native tests/integration/security/request-policy.test.ts >"$ROOT/policy-tests.log" 2>&1
  node scripts/release/r119-compiled-probe.mjs >"$ROOT/compiled-probe.json"
  # Use the established consistent backup; never mutate/restore author data.
