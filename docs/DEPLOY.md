@@ -21,9 +21,10 @@
                          SQLite (WAL 模式) + 不可变文件
 ```
 
-- **Caddy**：反向代理 + TLS（Let's Encrypt 自动证书）+ 静态文件；限流由应用层 `@fastify/rate-limit` 提供（注册 3/5分钟、登录 10/5分钟、全局 100/分钟），Caddy 配置只使用内置模块，无需 xcaddy 编译插件
+- **Caddy**：反向代理 + TLS（Let's Encrypt 自动证书）+ 静态文件；限流由应用层 `@fastify/rate-limit` 提供。注册 3/5分钟、登录 10/5分钟按 IP；已验证账号读取 GET/HEAD 共用 600/分钟，写入另用 100/分钟；匿名与健康检查各自按 IP 100/分钟。Caddy 配置只使用内置模块，无需 xcaddy 编译插件。
 - **API**：Fastify 5，监听 `127.0.0.1:43111`，不直接暴露公网
 - **Worker**：独立进程，写入运行心跳，并按开关追赶V7正式化outbox；不监听公网端口
+- **服务依赖**：现网 Worker 的 `Requires=wenmi-api.service` 会在停止 API 时连带停止 Worker。API 发布即使不改 Worker 代码，也必须按实际依赖处理：在途连续至少30秒为零并立即复核后切换；启动 API，等待带新版本号的健康响应（初始化已登记版本），再启动 Worker；校验 Worker 心跳的版本、进程号及新鲜度，不能沿用旧心跳。回退同样按此顺序启动两者。不能假定“只操作 API”就能保持 Worker 进程不变。
 - **数据库**：`node:sqlite` 内置 SQLite，WAL 模式，文件存储于 `data/database/`
 
 ## 前置条件
