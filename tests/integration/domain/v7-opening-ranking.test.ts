@@ -8,6 +8,15 @@ const originalRows=OPENING_EVALUATION_REPORT.rows;
 afterEach(()=>{context?.close();context=undefined;Object.defineProperty(OPENING_EVALUATION_REPORT,'rows',{value:originalRows});});
 const row=(profileKey:string,node:'design'|'review',milliseconds:number,structurePassed=true)=>({profileKey,node,milliseconds,structurePassed,quality:'passed' as const,assessment:'fixture',outputTokens:100});
 describe('opening node ranking and bounded admission',()=>{
+ it('legacy GLM can enable verified opening design without entering setting selection',()=>{
+  Object.defineProperty(OPENING_EVALUATION_REPORT,'rows',{value:[row('glm-5.3','design',10),row('deepseek-v4-pro','design',50)]});
+  context=createTestContext();const repository=new V7AgentGovernanceRepository(context.database);
+  const service=new V7AgentGovernanceService(repository,new SequenceIds(),new FixedClock(),{codingPlan:true,agentPlan:true,image:true});
+  service.updateMember('admin','planner-glm-5-3',{expectedRevision:service.snapshot().revision,enabled:true});
+  expect(service.openingRoster().filter(m=>m.roleKey==='screenwriter')[0]?.memberKey).toBe('planner-glm-5-3');
+  expect(()=>repository.resolveTaskPolicy('planner-glm-5-3','opening_design')).not.toThrow();
+  expect(service.adminView().settingSelection.some(m=>m.modelId==='glm-5.3'&&m.roleKey==='screenwriter')).toBe(false);
+ });
  it('keeps design and review independent, excludes invalid and retired results',()=>{
   const report={version:'test',testedAt:'2026-09-06',scope:'test',rows:[row('deepseek-v4-pro','design',50),row('kimi-k3','review',1),row('deepseek-v4-flash','design',2,false),row('glm-5.2','design',1),row('kimi-k2.7-code','design',30)]};
   expect(openingRanking('design',report).map(r=>r.profileKey)).toEqual(['kimi-k2.7-code','deepseek-v4-pro']);

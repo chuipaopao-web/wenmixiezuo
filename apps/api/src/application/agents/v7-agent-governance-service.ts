@@ -253,8 +253,13 @@ export class V7AgentGovernanceService {
     const nextProfile = modelProfileKey ?? target.modelProfileKey;
     const nextEnabled = defaultForRole === true || (enabled ?? target.enabled);
     const admission = modelAdmissionForRole(target.fixedRoleKey, nextProfile);
+    // A passed opening node may resume an existing binding without granting a
+    // global default or changing the model. Other node rosters retain their gates.
+    const verifiedOpeningResume = enabled === true && modelProfileKey === undefined
+      && defaultForRole !== true && target.fixedRoleKey === 'planning_writer'
+      && openingRanking('design').some(row => row.profileKey === nextProfile);
     if (nextEnabled && (modelProfileKey !== undefined || enabled === true || defaultForRole === true)
-      && admission.status !== 'compatible') {
+      && admission.status !== 'compatible' && !verifiedOpeningResume) {
       throw new DomainError(errorCodes.validation, admission.reason + ' 请先停岗，再保存候选模型，验证后方可启用。');
     }
     // A mutable model binding must not silently remove the last independent
