@@ -57,11 +57,16 @@ export function memberAvatarStyle(memberKey: string) {
 }
 
 /** 兼容已保存的 V7 任务快照；编号名只保留在内部历史记录中。 */
-export function memberDisplayName(memberKey: string, storedName: string): string {
-  return publicMemberIdentity(canonicalMemberIdentityKey(memberKey))?.displayName
+export function memberDisplayName(memberKey: string, storedName: string, modelId?: string|null): string {
+  const name = publicMemberIdentity(canonicalMemberIdentityKey(memberKey))?.displayName
     ?? MEMBER_DISPLAY_NAME[canonicalMemberIdentityKey(memberKey)] ?? MEMBER_DISPLAY_NAME[memberKey] ?? storedName;
+  if (modelId !== undefined) return memberNameWithModel(name,modelId);
+  // New server projections carry the actual binding; never replace it with a seat's initial model.
+  const suffix=storedName.match(/·(?:4p|4f|G3|GF|K3|K7|M3|DB|S5)$/u)?.[0];
+  return suffix ? `${memberNameWithModel(name,null)}${suffix}` : name;
 }
 
 export function memberAvatarPath(memberKey: string): string | null {
   return MEMBER_AVATAR_PATH[canonicalMemberIdentityKey(memberKey)] ?? MEMBER_AVATAR_PATH[memberKey] ?? null;
 }
+import { memberNameWithModel } from '@wenmi/agent-catalog';

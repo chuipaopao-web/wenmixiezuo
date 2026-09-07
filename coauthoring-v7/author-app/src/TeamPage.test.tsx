@@ -12,6 +12,14 @@ vi.mock('./opening-api', async (importOriginal) => {
 const mockedOpening = vi.mocked(opening);
 
 describe('V7统一团队编辑部', () => {
+  it('保留接口实际模型后缀，头像姓名不会覆盖回初始模型', async () => {
+    const fixture=teamFixture();
+    fixture.departments[0]!.members[0]!.displayName='貂蝉·GF';
+    mockedOpening.fetchEditorialDepartment.mockResolvedValue(fixture);
+    render(<TeamPage/>);
+    fireEvent.click(await screen.findByRole('button',{name:/主编室/u}));
+    expect(screen.getByText('貂蝉·GF')).toBeVisible();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockedOpening.fetchEditorialDepartment.mockResolvedValue(teamFixture());

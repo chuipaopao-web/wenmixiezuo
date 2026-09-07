@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { publicMemberIdentity } from '@wenmi/agent-catalog';
+import { publicMemberIdentity, memberNameWithModel } from '@wenmi/agent-catalog';
 import {
   OpeningAgentEngine,
   OpeningAgentStoppedError,
@@ -809,7 +809,7 @@ function parseFullSnapshotMember(value: unknown): V7OpeningMemberDefinition {
   }
   return {
     memberKey: item.memberKey,
-    displayName: item.displayName,
+    displayName: memberNameWithModel(item.displayName,model.modelId),
     roleKey: item.roleKey,
     model: { provider: model.provider as V7OpeningMemberDefinition['model']['provider'], modelId: model.modelId, plan: model.plan },
     enabledByDefault: item.enabled,
@@ -826,7 +826,7 @@ function cloneMember(member: V7OpeningMemberDefinition): V7OpeningMemberDefiniti
 function publicMember(memberKey: string | null, roster: readonly V7OpeningMemberDefinition[]): { memberKey: string; displayName: string } | null {
   if (memberKey === null) return null;
   const member = roster.find((candidate) => candidate.memberKey === memberKey);
-  return member === undefined ? null : { memberKey: member.memberKey, displayName: member.displayName };
+  return member === undefined ? null : { memberKey: member.memberKey, displayName: memberNameWithModel(member.displayName,member.model.modelId) };
 }
 
 function canResume(status: string): boolean {

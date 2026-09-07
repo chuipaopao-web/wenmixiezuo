@@ -16,6 +16,8 @@ describe('opening node ranking and bounded admission',()=>{
    service.updateMember('admin',member.memberKey,{expectedRevision:service.snapshot().revision,enabled:true,defaultForRole:true});
   }
   const members=service.snapshot().members;
+  expect(members.filter(m=>m.modelProfileKey==='deepseek-v4-pro').every(m=>m.displayName.endsWith('·4p'))).toBe(true);
+  expect(service.openingRoster().filter(m=>m.model.modelId==='deepseek-v4-pro').every(m=>m.displayName.endsWith('·4p'))).toBe(true);
   expect(creationRosterFromGlobal(members).filter(m=>m.defaultForRole).every(m=>m.model.modelId==='deepseek-v4-pro')).toBe(true);
   expect(planningRosterFromGlobal(members).filter(m=>m.defaultForRole).every(m=>m.model.modelId==='deepseek-v4-pro')).toBe(true);
   const reviewers=service.fallback('independent_reviewer',undefined,'deepseek-v4-pro');

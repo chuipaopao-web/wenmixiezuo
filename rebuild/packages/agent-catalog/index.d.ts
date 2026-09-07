@@ -31,5 +31,7 @@ export interface OpeningEvaluationReport {
 export const OPENING_EVALUATION_REPORT: OpeningEvaluationReport;
 export const SETTING_EVALUATION_REPORT: OpeningEvaluationReport;
 export const SETTING_DESIGN_PRIORITY: readonly string[];
+export const MODEL_SUFFIXES: Readonly<Record<string,string>>;
+export function memberNameWithModel(name: string, modelId: string|null|undefined): string;
 export function settingReviewRanking(report?: OpeningEvaluationReport): OpeningEvaluationRow[];
 export function openingRanking(node: 'design'|'review', report?: OpeningEvaluationReport): OpeningEvaluationRow[];

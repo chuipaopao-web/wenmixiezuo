@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { openingRanking, ROLES, MEMBER_SLOTS } from '@wenmi/agent-catalog';
+import { openingRanking, ROLES, MEMBER_SLOTS, memberNameWithModel } from '@wenmi/agent-catalog';
 import {MemberWorkspace} from './MemberWorkspace';
 import {PromptContextCenter} from './PromptContextCenter';
 import { ArrowClockwise, CheckCircle, Robot, WarningCircle } from '@phosphor-icons/react';
@@ -109,7 +109,7 @@ function MemberCard({ data, role, member, busy, update }: {
   const identity = publicMemberIdentity(member.memberKey);
   const canReturn = !member.configurationOnly && (member.admission === undefined || member.admission.status === 'compatible');
   return <article className={`agent-member-card ${member.enabled ? 'enabled' : 'disabled'}`}>
-    <div className="agent-member-identity"><span className="agent-avatar" aria-hidden="true" style={{ backgroundImage: `url('${identity?.avatarPath ?? V7_MEMBER_AVATAR_SPRITE}')`, backgroundSize: identity?.avatarSize ?? V7_MEMBER_AVATAR_SIZE, backgroundPosition: publicMemberIdentity(member.memberKey)?.avatarPosition ?? '100% 100%', flexShrink: 0 }}/><div><h3>{publicMemberIdentity(member.memberKey)?.displayName ?? member.displayName}</h3><p>{member.modelName}{member.plan === null ? '' : ` · ${member.plan === 'image' ? '图片' : member.plan === 'agent' ? 'Agent Plan' : 'Coding Plan'}`}</p></div><span className={`agent-duty-state ${member.status === 'on_duty' ? 'on' : 'off'}`}>{member.openingNode ? '开书接单' : member.status === 'on_duty' ? '在岗' : member.status === 'unbound' ? '未绑定' : member.status === 'candidate' ? '待验证' : '停岗'}</span></div>
+    <div className="agent-member-identity"><span className="agent-avatar" aria-hidden="true" style={{ backgroundImage: `url('${identity?.avatarPath ?? V7_MEMBER_AVATAR_SPRITE}')`, backgroundSize: identity?.avatarSize ?? V7_MEMBER_AVATAR_SIZE, backgroundPosition: publicMemberIdentity(member.memberKey)?.avatarPosition ?? '100% 100%', flexShrink: 0 }}/><div><h3>{member.displayName}</h3><p>{member.modelName}{member.plan === null ? '' : ` · ${member.plan === 'image' ? '图片' : member.plan === 'agent' ? 'Agent Plan' : 'Coding Plan'}`}</p></div><span className={`agent-duty-state ${member.status === 'on_duty' ? 'on' : 'off'}`}>{member.openingNode ? '开书接单' : member.status === 'on_duty' ? '在岗' : member.status === 'unbound' ? '未绑定' : member.status === 'candidate' ? '待验证' : '停岗'}</span></div>
     <div className="agent-member-order"><label><span>绑定模型</span><select value={member.modelProfileKey ?? ''} disabled={busy} onChange={(e) => void update(member.memberKey,{modelProfileKey:e.target.value || null},`已调整${member.displayName}的模型`)}>{member.configurationOnly && <option value="">未绑定（预留位置）</option>}{candidates.map((candidate) => <option key={candidate.profileKey} value={candidate.profileKey} disabled={member.enabled && candidate.status !== 'compatible' && candidate.profileKey !== member.modelProfileKey}>{candidate.publicName} · {admissionLabel(candidate.status)}</option>)}</select></label>{!member.configurationOnly && <label><span>交接顺序</span><input type="number" min="1" max="100" value={member.fallbackPriority} disabled={busy} onChange={(e)=>void update(member.memberKey,{fallbackPriority:Number(e.target.value)},`已调整${member.displayName}的交接顺序`)}/></label>}</div>
     {member.admission && <p>{member.admission.reason}</p>}
     {member.settingNode && <p>设定{member.settingNode === 'chief_editor' ? '审查：按本轮合格速度顺序接单。' : '设计：按指定模型优先顺序接单。'}</p>}
@@ -157,7 +157,7 @@ function OpeningEvaluation({data}:{data:V7UnifiedAgentGovernance}):React.JSX.Ele
             <p><strong>{node==='design'?'开书设计':'开书审查'} · {Math.round(row.milliseconds/1000)}秒</strong> · {rank<0?'未入榜':`第${rank+1}名`}</p>
             {row.repairMilliseconds!==undefined && <p>首次返回{Math.round((row.firstMilliseconds??0)/1000)}秒，结构修复{Math.round(row.repairMilliseconds/1000)}秒；按可用结果总耗时排名。</p>}
             <p>{row.structurePassed?'字段结构通过':'未正常交付'} · 内容{row.quality==='passed'?'样本通过':row.quality==='failed'?'未通过':'未验证'}</p>
-            <p>{row.assessment}</p>{selected && <p>{publicMemberIdentity(selected.memberKey)?.displayName} · {node==='design'?'前端已展示':'开书审查在岗'}</p>}
+            <p>{row.assessment}</p>{selected && <p>{memberNameWithModel(publicMemberIdentity(selected.memberKey)?.displayName ?? '成员',selected.modelId)} · {node==='design'?'前端已展示':'开书审查在岗'}</p>}
           </article>;
         })}</div>
       </section>;

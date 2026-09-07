@@ -154,6 +154,7 @@ export class V7AgentGovernanceRepository {
       if (definition === undefined || definition.fixedRoleKey !== row.fixed_role_key) throw new Error(`V7成员固定岗位被破坏：${row.member_key}`);
       return {
         ...definition,
+        displayName: memberNameWithModel(definition.displayName,row.model_profile_key),
         modelProfileKey: row.model_profile_key,
         model: modelBindingForProfile(row.model_profile_key),
         fallbackPriority: row.fallback_priority,
@@ -346,3 +347,4 @@ export class V7AgentGovernanceRepository {
       VALUES(?,?,?,?,?,?,?,?)`).run(eventId, actorId, targetKind, targetKey, JSON.stringify(before), JSON.stringify(after), reason, now);
   }
 }
+import { memberNameWithModel } from '@wenmi/agent-catalog';

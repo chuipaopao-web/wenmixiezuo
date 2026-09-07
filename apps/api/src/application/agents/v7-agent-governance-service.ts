@@ -61,7 +61,7 @@ export class V7AgentGovernanceService {
         if (model.plan==='image' || !this.credentialReady({model})) continue;
         const position=result.filter(m=>m.roleKey===roleKey).length;
         if (node==='design' && position>=3) break;
-        result.push({memberKey,displayName:publicMemberIdentity(memberKey)!.displayName,roleKey,
+        result.push({memberKey,displayName:memberNameWithModel(publicMemberIdentity(memberKey)!.displayName,model.modelId),roleKey,
           enabledByDefault:true,defaultForRole:position===0,fallbackPriority:position+1,
           model:{provider:model.provider as 'volcengine-ark-coding-plan'|'volcengine-ark-agent-plan',modelId:model.modelId,plan:model.plan},promptInstruction:''});
       }
@@ -84,7 +84,7 @@ export class V7AgentGovernanceService {
       if(slot.modelProfileKey===null)return [];
       const identity=publicMemberIdentity(slot.memberKey)!;
       const admitted=opening.has(slot.memberKey)||(slot.roleKey==='chief_editor'&&settingReviewRanking().some(r=>r.profileKey===slot.modelProfileKey))||(slot.roleKey==='planning_writer'&&SETTING_DESIGN_PRIORITY.includes(slot.modelProfileKey));
-      return [{memberKey:slot.memberKey,displayName:identity.displayName,fixedRoleKey:identity.roleKey,
+      return [{memberKey:slot.memberKey,displayName:memberNameWithModel(identity.displayName,slot.modelProfileKey),fixedRoleKey:identity.roleKey,
         modelProfileKey:slot.modelProfileKey,model:modelBindingForProfile(slot.modelProfileKey),enabled:admitted,
         enabledByDefault:admitted,defaultForRole:false,fallbackPriority:100,temperatureAdjustment:0,
         promptInstruction:'',governanceRevision:snapshot.revision}];
@@ -159,7 +159,7 @@ export class V7AgentGovernanceService {
       const identity = publicMemberIdentity(slot.memberKey)!;
       const model = slot.modelProfileKey === null ? null : modelBindingForProfile(slot.modelProfileKey);
       return {
-        memberKey: slot.memberKey, displayName: identity.displayName, roleKey: identity.roleKey,
+        memberKey: slot.memberKey, displayName: memberNameWithModel(identity.displayName,slot.modelProfileKey), roleKey: identity.roleKey,
         modelProfileKey: slot.modelProfileKey, modelName: slot.modelProfileKey === null ? '未绑定模型' : V7_MODEL_PROFILE_LABELS[slot.modelProfileKey],
         provider: model?.provider ?? null, plan: model?.plan ?? null,
         enabled: false, defaultForRole: false, fallbackPriority: 100, temperatureAdjustment: 0,
@@ -359,3 +359,4 @@ function optionalText(value: unknown, max: number, allowEmpty = false): string |
   if ((!allowEmpty && result.length === 0) || Array.from(result).length > max) throw new DomainError(errorCodes.validation, '文字内容长度无效。');
   return result;
 }
+import { memberNameWithModel } from '@wenmi/agent-catalog';
