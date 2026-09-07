@@ -1,0 +1,19 @@
+.benefits-center { display: grid; gap: 28px; align-content: start; }
+.benefits-center .benefits-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.benefits-center .benefits-heading > svg { width: 48px; height: 48px; flex-shrink: 0; color: var(--accent); }
+.benefits-center h3, .benefits-center h4 { margin: 0 0 12px; color: var(--ink); }
+.benefits-center .benefits-current { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px; padding: 24px; border-radius: 18px; background: var(--soft, #eaf1ec); }
+.benefits-current span { display: block; font-size: 14px; margin-bottom: 10px; color: var(--muted); }
+.benefits-current h3 { font-size: 24px; }
+.benefits-center button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 12px 18px; border: 1px solid var(--line, #ccd9d1); border-radius: 12px; background: #fff; color: var(--accent); font: inherit; font-weight: 650; cursor: pointer; }
+.benefits-center button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.benefits-center .benefits-plans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.benefits-plans article { padding: 22px; border: 1px solid var(--line, #dce5df); border-radius: 16px; background: #fff; }
+.benefits-plans strong { font-size: 30px; color: var(--accent); }
+.benefits-plans small { color: var(--muted); }
+.benefits-center .benefits-note { font-size: 14px; line-height: 1.7; color: var(--muted); }
+.benefits-center .benefits-promotion { padding-top: 24px; border-top: 1px solid var(--line, #dce5df); }
+.benefits-promotion > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.benefits-promotion span { white-space: nowrap; font-size: 14px; color: var(--muted); }
+.benefits-notice { padding: 20px; border: 1px solid var(--line, #dce5df); border-radius: 14px; }
+@media (max-width: 700px) { .benefits-center .benefits-plans { grid-template-columns: 1fr; } .benefits-center .benefits-current { padding: 20px; } .benefits-center .benefits-heading > svg { width: 32px; height: 32px; } }

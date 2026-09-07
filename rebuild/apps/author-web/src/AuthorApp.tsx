@@ -20,6 +20,7 @@ import { TeamPage } from './TeamPage';
 import { TimeMachinePage } from './TimeMachinePage';
 import { CreationWorkspacePage } from './CreationWorkspacePage';
 import { LibraryPage } from './LibraryPage';
+import { BenefitsPage } from './BenefitsPage';
 import {
   authorViewFromSearch,
   bookIdFromSearch,
@@ -196,20 +197,6 @@ function StatusPage(props: {
       {section === 'tasks'
         ? <TaskLogPage {...taskLogProps} />
         : <TeamPage />}
-    </section>
-  );
-}
-
-function BenefitsPage(): React.JSX.Element {
-  return (
-    <section className="benefits-page" aria-labelledby="benefits-title">
-      <p className="eyebrow">福利</p>
-      <h2 id="benefits-title">福利中心</h2>
-      <p>活动与创作福利将在这里公布。敬请期待。</p>
-      <div className="benefits-placeholder" role="status">
-        <GiftIcon aria-hidden="true" />
-        <span>当前没有可领取活动。</span>
-      </div>
     </section>
   );
 }
@@ -559,7 +546,7 @@ export function AuthorApp(): React.JSX.Element {
         {view === 'library' && bookId !== null && <LibraryPage bookId={bookId} />}
         {view === 'library' && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
         {(view === 'status' || view === 'tasks' || view === 'team') && <StatusPage section={view === 'team' ? 'team' : 'tasks'} onSectionChange={(section) => navigate(section === 'team' ? 'team' : 'tasks', bookId)} onOpenTask={(taskId) => navigate('new-novel', null, 'ai', taskId)} onOpenBook={(nextBookId) => navigate('information', nextBookId)} onOpenSetting={openSettings} onOpenPlanning={(nextBookId) => navigate('time-machine', nextBookId)} onOpenCreation={(nextBookId, focus) => navigate(focus, nextBookId)} />}
-        {view === 'benefits' && <BenefitsPage />}
+        {view === 'benefits' && <BenefitsPage onOpenAccount={() => { setOpeningAccountReturn(null); navigate('account', bookId); }} />}
         {view === 'account' && <section className="v7-account-page"><AuthorAccountCenter {...(openingAccountReturn === null ? {} : { onClose: returnToOpeningFromAccount, closeLabel: membershipReturnRefresh === 'running' ? '正在确认会员状态…' : '返回这次开书' })} /></section>}
       </main>
     </div>
