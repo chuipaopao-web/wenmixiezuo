@@ -56,6 +56,7 @@ export function projectBookBlueprint(document: PlanningTreeDocument, focusChildS
 }
 
 export const BOOK_BLUEPRINT_INSTRUCTIONS = [
+  '生成后自行对齐阶段与卷：阶段只能汇总其关联卷的实际设计，已在前卷解决的矛盾不能原样当作后卷尚未解决的问题。先按各卷事件容量分配字数，再写篇幅理由，理由必须与数值相符；不要均分后又宣称没有均分。根与卷的每个叙述字段用一句15至60字的具体短话，数组只留必要要点，避免在不同字段复制整段说明。',
   '本次全书树顶层增加bookBlueprint={schema:"book-blueprint-v1",endingPromise,storylines,stages}。先确定开局与终局之间需要哪些阶段，再分配到卷；不要先把字数平均切块再填事件。',
   'storylines每条为{key,title,goal,development,resolution}：主线和真正影响主线的支线，写具体人物目标、推进和收束，不为数量凑线。',
   'stages每阶段为{key,title,startState,gain,cost,causalBridge,rhythm,volumeKeys,storylineKeys}：主角起点、获得/变化、代价、为何形成下一局面、本阶段的具体节奏、关联卷key、关联故事线key。最后阶段causalBridge写收束余波，不能用新敌人代替终局兑现。',

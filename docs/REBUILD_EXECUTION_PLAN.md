@@ -273,7 +273,7 @@
 | [RB-49.4](#rb-49-4) | 后台Wiki知识库与事实纠正 | RB-29、RB-31、RB-32、RB-49.3 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | [第97批范围核查](../coauthoring-v7/docs/worklists/REBUILD-MANAGEMENT-COVERAGE-20260905-97.md) |
 | [RB-49.5](#rb-49-5) | 后台关系图谱与时间线管理 | RB-33、RB-49.4 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | [第97批范围核查](../coauthoring-v7/docs/worklists/REBUILD-MANAGEMENT-COVERAGE-20260905-97.md) |
 | [RB-49.6](#rb-49-6) | 后台自动维护与记忆更新治理 | RB-29、RB-46、RB-48.1、RB-49.5 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | [第97批范围核查](../coauthoring-v7/docs/worklists/REBUILD-MANAGEMENT-COVERAGE-20260905-97.md) |
-| [RB-50](#rb-50) | 后台创作资产总览 | RB-48 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | 待建立 |
+| [RB-50](#rb-50) | 后台创作资产总览 | RB-48 | 已定 | 开发中 | 未开始 | 验收中 | 试用中 | 第141批统一入口与六类查阅已实现；完整资产维护仍未完成，见RB-51.1设计说明 |
 | [RB-50.1](#rb-50-1) | 后台题材、标签与资料目录管理 | RB-50、RB-49.3 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | [第97批范围核查](../coauthoring-v7/docs/worklists/REBUILD-MANAGEMENT-COVERAGE-20260905-97.md) |
 | [RB-51](#rb-51) | 后台叙事方法 | RB-50 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | 待建立 |
 | [RB-51.1](#rb-51-1) | 节奏资产、分层短卡与输入预览 | RB-51、RB-49.1 | 已定 | 已实现 | 已实现 | 通过 | 已发布 | [第140批](../coauthoring-v7/docs/worklists/RHYTHM-ASSETS-20260907-140.md)；权限/版本/候选校验、手机桌面与安全上线通过；合成文学样例限制另记 |
