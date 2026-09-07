@@ -1,5 +1,6 @@
 import { Agent, type Dispatcher } from 'undici';
 import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from './model-adapter.js';
+import { evidenceGuidance } from './model-evidence-guidance.js';
 import { assertPlanBaseUrl, thinkingTokenAllowance, usesGlmVisibleOutputRoute, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
 
 export interface ArkPlanModelOptions {
@@ -34,7 +35,7 @@ const SYSTEM_PROMPTS: Record<ModelPurpose, string> = {
 };
 
 export function defaultSystemPromptForPurpose(purpose: ModelPurpose): string {
-  return SYSTEM_PROMPTS[purpose];
+  return [SYSTEM_PROMPTS[purpose], evidenceGuidance(purpose)].filter(Boolean).join('\n');
 }
 
 export class ArkPlanModelAdapter implements ModelAdapter {
@@ -102,12 +103,12 @@ export class ArkPlanModelAdapter implements ModelAdapter {
             // omitting the field does not disable reasoning. R148 synthetic review.
             thinking: { type: 'enabled' }, reasoning_effort: 'low',
             messages: [{ role: 'system', content: appendSupplement(
-              this.options.systemPrompt ?? SYSTEM_PROMPTS[this.options.purpose], request.supplementalInstructions
+              this.options.systemPrompt ?? defaultSystemPromptForPurpose(this.options.purpose), request.supplementalInstructions
             ) }, { role: 'user', content: request.prompt }]
           } : {
           ...thinkingField(this.options.plan, this.modelId, this.options.purpose, request.maxOutputTokens),
           system: appendSupplement(
-            this.options.systemPrompt ?? SYSTEM_PROMPTS[this.options.purpose],
+            this.options.systemPrompt ?? defaultSystemPromptForPurpose(this.options.purpose),
             request.supplementalInstructions
           ),
           messages: [{
@@ -154,6 +155,12 @@ export class ArkPlanModelAdapter implements ModelAdapter {
     } catch {
       throw new ModelAdapterError(`${planDisplayName(this.options.plan)}已返回成功状态但响应无法解析，供应商结果状态未知`,
         'technical_failure', false, response.status, true);
+    }
+    if (body.stop_reason === 'max_tokens' || body.stop_reason === 'length') {
+      // The provider finished with a known incomplete result. Existing bounded
+      // task recovery may retry; never expose a truncated manuscript as success.
+      throw new ModelAdapterError(`${planDisplayName(this.options.plan)}输出达到长度上限，内容未完整交付（${body.stop_reason}）`,
+        'technical_failure', true, response.status, false);
     }
     const output = body.content?.filter((item) => item.type === 'text' && typeof item.text === 'string').map((item) => item.text!.trim()).filter(Boolean).join('\n').trim();
     if (output === undefined || output.length === 0) throw new ModelAdapterError(
