@@ -10,6 +10,7 @@ export type AuthorMembershipPlan = 'bronze' | 'silver' | 'gold' | 'diamond';
 
 export interface AuthorMembershipStatus {
   isAdmin: boolean;
+  plans?: Array<{ plan: AuthorMembershipPlan; label: string; price: string; amountCny: number; computeQuota: number; months: number }>;
   membership: null | {
     plan: AuthorMembershipPlan;
     planLabel: string;

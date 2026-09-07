@@ -85,6 +85,8 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       // 注册即自动发放青铜体验（2026-08-20 起），无需管理员操作。
       const emptyStatus = await app.inject({ method: 'GET', url: '/api/v1/membership/me', headers: { host: BROWSER_HEADERS.host, cookie: userCookie } });
       expect(emptyStatus.statusCode).toBe(200);
+      expect(emptyStatus.json().data.plans.map((p: {label: string; amountCny: number; computeQuota: number; months: number}) => [p.label,p.amountCny,p.computeQuota,p.months]))
+        .toEqual([['白银算力包',198,20000000,12],['黄金算力包',398,50000000,12],['钻石算力包',980,200000000,12]]);
       expect(emptyStatus.json().data.membership).toMatchObject({
         plan: 'bronze', planLabel: '青铜会员', status: 'active',
         computeQuota: MEMBERSHIP_PLANS.bronze.tokenQuota, computeConsumed: 0, expired: false
@@ -92,8 +94,10 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
 
       const grant = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'silver', idempotencyKey: 'membership-grant-0001' } });
       expect(grant.statusCode).toBe(200);
+      expect(context.database.prepare('SELECT amount_cash_micros FROM membership_transactions WHERE idempotency_key=?').get('membership-grant-0001'))
+        .toEqual({amount_cash_micros:198000000});
       expect(grant.json().data.membership).toMatchObject({
-        plan: 'silver', planLabel: '白银会员', status: 'active',
+        plan: 'silver', planLabel: '白银算力包', status: 'active',
         computeQuota: MEMBERSHIP_PLANS.silver.tokenQuota, computeConsumed: 0,
         computeRemaining: MEMBERSHIP_PLANS.silver.tokenQuota, expired: false
       });
@@ -108,7 +112,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
 
       const renew = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'diamond', idempotencyKey: 'membership-renew-0001' } });
       expect(renew.statusCode).toBe(200);
-      expect(renew.json().data.membership).toMatchObject({ plan: 'diamond', planLabel: '钻石会员', computeQuota: MEMBERSHIP_PLANS.diamond.tokenQuota });
+      expect(renew.json().data.membership).toMatchObject({ plan: 'diamond', planLabel: '钻石算力包', computeQuota: MEMBERSHIP_PLANS.diamond.tokenQuota });
 
       const list = await app.inject({ method: 'GET', url: '/api/v1/admin/memberships', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
       expect(list.statusCode).toBe(200);
@@ -119,7 +123,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       const revoke = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}/revoke`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { idempotencyKey: 'membership-revoke-0001' } });
       expect(revoke.statusCode).toBe(200);
       const revokedStatus = await app.inject({ method: 'GET', url: '/api/v1/membership/me', headers: { host: BROWSER_HEADERS.host, cookie: userCookie } });
-      expect(revokedStatus.json().data).toEqual({ isAdmin: false, membership: null });
+      expect(revokedStatus.json().data).toMatchObject({ isAdmin: false, membership: null });
       const revokeReplay = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}/revoke`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { idempotencyKey: 'membership-revoke-0001' } });
       expect(revokeReplay.statusCode).toBe(200);
       const revokeAgain = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}/revoke`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { idempotencyKey: 'membership-revoke-0002' } });
@@ -133,7 +137,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       expect(dashboard.json().data.business.activePaidUsers).toBe(0);
 
       const adminStatus = await app.inject({ method: 'GET', url: '/api/v1/membership/me', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
-      expect(adminStatus.json().data).toEqual({ isAdmin: true, membership: null });
+      expect(adminStatus.json().data).toMatchObject({ isAdmin: true, membership: null });
       expect(admin.role).toBe('admin');
     } finally {
       await app.close();

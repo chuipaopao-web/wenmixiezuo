@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import './commercial-summary.css';
 import { ArrowClockwise, MagnifyingGlass } from '@phosphor-icons/react';
 import {
   fetchMembershipUsers,
@@ -38,7 +39,19 @@ function OperationsPage(): React.JSX.Element {
   if (state.data === null) return <RemoteState label="正在读取生产运营数据…" error={state.error} onRetry={state.reload} />;
   const data = state.data;
   return <div className="asset-page platform-page">
-    <PlatformHeading title="平台运营总览" description="直接读取生产账本、任务和会员数据；这里不保存统计副本。" onRefresh={state.reload} />
+    <PlatformHeading title="数据中控" description="注册、会员与收入统一查看；每日新增按北京时间统计。" onRefresh={state.reload} />
+    {data.commercial !== undefined && <>
+      <section className="platform-metrics image-aware" aria-label="商业数据中控">
+        <PlatformMetric label="总注册量" value={String(data.commercial.registeredUsers)} />
+        <PlatformMetric label="今日新增" value={String(data.commercial.newUsersToday)} />
+        <PlatformMetric label="付费人数" value={String(data.commercial.paidUsers)} />
+        <PlatformMetric label="付费率" value={formatRatio(data.commercial.paidRate)} />
+        <PlatformMetric label="总收入（按198元估算）" value={formatCny(data.commercial.estimatedRevenueCashMicros)} />
+        <PlatformMetric label="已登记收款" value={formatCny(data.commercial.recordedRevenueCashMicros)} />
+      </section>
+      <p className="platform-muted">已排除管理员及{data.commercial.excludedTestUsers}个已核实测试账号。按白银、黄金、钻石档统计付费人数；估算收入不代表实际收款。</p>
+      <PlatformPanel title="每日新增注册" description="最近30天，零新增日期也保留。"><div className="platform-registration-days">{data.commercial.daily.map((item) => <div key={item.day}><span>{item.day.slice(5)}</span><b>{item.newUsers} 人</b></div>)}</div></PlatformPanel>
+    </>}
     <section className="platform-metrics image-aware" aria-label="今日运营指标">
       <PlatformMetric label="今日失败任务" value={String(data.overview.failedTasksToday)} tone={data.overview.failedTasksToday > 0 ? 'warning' : 'normal'} />
       <PlatformMetric label="待处理问题" value={String(data.overview.openIssues)} tone={data.overview.openIssues > 0 ? 'warning' : 'normal'} />
@@ -50,11 +63,11 @@ function OperationsPage(): React.JSX.Element {
       <PlatformMetric label="本月会员流水" value={formatCny(data.overview.monthRevenueCashMicros)} />
     </section>
     <div className="platform-two-column">
-      <PlatformPanel title="商业概况" description="收入只统计会员不可变流水，不把套餐标价当成实收。">
+      <PlatformPanel title="收款记录核对" description="以下只按已登记的正金额流水计算；历史线下办理记录可能不完整，因此与上方按会员档位统计的人数不同。">
         <dl className="platform-fact-grid">
           <Fact label="注册用户" value={String(data.business.registeredUsers)} />
-          <Fact label="累计付费用户" value={String(data.business.cumulativePaidUsers)} />
-          <Fact label="累计付费率" value={formatRatio(data.business.cumulativePaidRate)} />
+          <Fact label="有收款记录用户" value={String(data.business.cumulativePaidUsers)} />
+          <Fact label="收款记录覆盖率" value={formatRatio(data.business.cumulativePaidRate)} />
           <Fact label="近30天新用户" value={String(data.business.newUsers30d)} />
           <Fact label="近30天首付用户" value={String(data.business.firstPaidUsers30d)} />
           <Fact label="近30天首付率" value={formatRatio(data.business.firstPaidRate30d)} />
@@ -377,7 +390,7 @@ function MembershipsPage(): React.JSX.Element {
       <div className="platform-inline-body">
         <dl className="platform-detail-list"><Fact label="当前会员" value={selected.membership?.planLabel ?? '未开通'} /><Fact label="当前到期" value={selected.membership === null ? '—' : formatDateTime(selected.membership.periodEnd)} /><Fact label="累计算力" value={formatCompute(selected.totalTokens * 2)} /></dl>
         <div className="platform-edit-fields">
-          <label>会员套餐<select value={plan} onChange={(event) => choosePlan(event.target.value as MembershipPlan)}><option value="bronze" disabled={selectedHasCurrentMembership}>青铜 · 20万算力</option><option value="silver">白银 · 2000万算力</option><option value="gold">黄金 · 5000万算力</option><option value="diamond">钻石 · 2亿算力</option></select></label>
+          <label>会员套餐<select value={plan} onChange={(event) => choosePlan(event.target.value as MembershipPlan)}><option value="bronze" disabled={selectedHasCurrentMembership}>青铜 · 20万算力</option><option value="silver">白银算力包 · 198元 · 2000万算力</option><option value="gold">黄金算力包 · 398元 · 5000万算力</option><option value="diamond">钻石算力包 · 980元 · 2亿算力</option></select></label>
           <label>本次实收金额（元）<input type="number" min="0" max="100000" step="0.01" value={amountCny} onChange={(event) => { setAmountCny(Number(event.target.value)); setActionKey(newPlatformActionKey('membership')); }} /></label>
           <label className="wide">备注<input value={note} onChange={(event) => { setNote(event.target.value); setActionKey(newPlatformActionKey('membership')); }} placeholder="优惠、渠道或补发说明（可空）" /></label>
         </div>
@@ -465,7 +478,7 @@ function formatRatio(value: number | null): string { return value === null ? '�
 function formatDateTime(value: string | null): string { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false }); }
 function issueStatusLabel(value: PlatformIssue['status']): string { return ({ open: '未处理', in_progress: '处理中', resolved: '已解决', ignored: '已忽略' })[value]; }
 function severityLabel(value: PlatformIssue['severity']): string { return ({ low: '低', medium: '中', high: '高', critical: '紧急' })[value]; }
-function planLabel(value: string): string { return ({ bronze: '青铜', silver: '白银', gold: '黄金', diamond: '钻石' } as Record<string, string>)[value] ?? value; }
-function defaultPlanAmount(value: MembershipPlan): number { return ({ bronze: 0, silver: 98, gold: 198, diamond: 980 })[value]; }
+function planLabel(value: string): string { return ({ bronze: '青铜', silver: '白银算力包', gold: '黄金算力包', diamond: '钻石算力包' } as Record<string, string>)[value] ?? value; }
+function defaultPlanAmount(value: MembershipPlan): number { return ({ bronze: 0, silver: 198, gold: 398, diamond: 980 })[value]; }
 function transactionLabel(value: string): string { return ({ grant: '开通', renew: '续费', revoke: '撤销' } as Record<string, string>)[value] ?? value; }
 function safePlatformMessage(reason: unknown, fallback = '读取生产数据失败，请稍后重试。'): string { if (reason !== null && typeof reason === 'object') { const message = Reflect.get(reason, 'message'); if (typeof message === 'string' && message.length > 0 && message.length <= 300 && !/(?:\bSQL\b|sqlite|stack|node_modules|Bearer\s)/iu.test(message)) return message; } return fallback; }

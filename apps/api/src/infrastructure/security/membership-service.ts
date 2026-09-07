@@ -30,26 +30,36 @@ export type MembershipPlan = keyof typeof MEMBERSHIP_PLANS;
 
 export const MEMBERSHIP_PLAN_LABELS: Record<MembershipPlan, string> = {
   bronze: '青铜会员',
-  silver: '白银会员',
-  gold: '黄金会员',
-  diamond: '钻石会员'
+  silver: '白银算力包',
+  gold: '黄金算力包',
+  diamond: '钻石算力包'
 };
 
 /** 各档位公开价格，仅用于展示。 */
 export const MEMBERSHIP_PLAN_PRICES: Record<MembershipPlan, string> = {
   bronze: '免费',
-  silver: '98元',
-  gold: '198元',
+  silver: '198元',
+  gold: '398元',
   diamond: '980元'
 };
 
 /** 后台会员流水的默认实收金额；管理员可在办理时按真实收款覆盖。 */
 export const MEMBERSHIP_PLAN_PRICE_CASH_MICROS: Record<MembershipPlan, number> = {
   bronze: 0,
-  silver: 98_000_000,
-  gold: 198_000_000,
+  silver: 198_000_000,
+  gold: 398_000_000,
   diamond: 980_000_000
 };
+
+/** 当前售卖目录；订单金额与已购配额独立保存，改价不回写历史。 */
+export const MEMBERSHIP_CATALOG = (['silver', 'gold', 'diamond'] as const).map((plan) => ({
+  plan,
+  label: MEMBERSHIP_PLAN_LABELS[plan],
+  price: MEMBERSHIP_PLAN_PRICES[plan],
+  amountCny: MEMBERSHIP_PLAN_PRICE_CASH_MICROS[plan] / 1_000_000,
+  computeQuota: MEMBERSHIP_PLANS[plan].tokenQuota,
+  months: MEMBERSHIP_PLANS[plan].months
+}));
 
 
 /** 办理会员联系方式的唯一来源；错误详情与前端提示共用。 */

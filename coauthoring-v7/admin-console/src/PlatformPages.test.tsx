@@ -150,7 +150,7 @@ describe('V7 独立后台平台页面', () => {
 
   it('运营总览区分今日已制作图片与仍在制作中的占用', async () => {
     render(<PlatformPage section="operations" />);
-    expect(await screen.findByText('平台运营总览')).toBeVisible();
+    expect(await screen.findByText('数据中控')).toBeVisible();
 
     const completed = screen.getByText('今日图片已制作').closest('article');
     const reserved = screen.getByText('图片制作中占用').closest('article');
@@ -218,7 +218,7 @@ describe('V7 独立后台平台页面', () => {
     fireEvent.click(screen.getByRole('button', { name: '开通并记录收入' }));
 
     await waitFor(() => expect(mockedApi.grantMembership).toHaveBeenCalledWith('user-1', {
-      plan: 'gold', amountCny: 198, note: '线下转账', idempotencyKey: expect.stringMatching(/^membership-/u)
+      plan: 'gold', amountCny: 398, note: '线下转账', idempotencyKey: expect.stringMatching(/^membership-/u)
     }));
     await waitFor(() => expect(mockedApi.fetchMembershipUsers).toHaveBeenCalledTimes(2));
     expect(mockedApi.fetchMembershipStats).toHaveBeenCalledTimes(2);
@@ -231,7 +231,7 @@ describe('V7 独立后台平台页面', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '办理' }));
     expect(screen.getByLabelText('会员套餐')).toHaveValue('silver');
-    expect(screen.getByLabelText('本次实收金额（元）')).toHaveValue(98);
+    expect(screen.getByLabelText('本次实收金额（元）')).toHaveValue(198);
     expect(screen.getByRole('button', { name: '升级并记录收入' })).toBeVisible();
     expect(screen.getByText(/从办理当天开始计算12个月/u)).toBeVisible();
     expect(screen.getByRole('option', { name: '青铜 · 20万算力' })).toBeDisabled();

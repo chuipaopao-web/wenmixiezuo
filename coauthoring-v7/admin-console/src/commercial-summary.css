@@ -1,0 +1,4 @@
+.platform-registration-days { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.platform-registration-days > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px; border: 1px solid #e0e9e4; border-radius: 10px; background: #f8fbf9; }
+.platform-registration-days span { white-space: nowrap; color: #607c70; }
+@media (max-width: 600px) { .platform-registration-days { max-height: 290px; overflow-y: auto; } }

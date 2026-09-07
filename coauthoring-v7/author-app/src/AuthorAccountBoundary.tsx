@@ -414,7 +414,7 @@ export function AuthorAccountCenter({
     </header>
 
     <dl className="v7-account-facts">
-      <div><dt>身份</dt><dd>{session.account.role === 'admin' ? '管理员' : '作者'}</dd></div>
+      <div><dt>身份</dt><dd>{session.account.role === 'admin' ? '管理员' : record !== null && ['gold', 'diamond'].includes(record.plan) ? '推广员' : '作者'}</dd></div>
       <div><dt>账号状态</dt><dd>{session.account.status === 'active' ? '正常使用' : '已暂停'}</dd></div>
     </dl>
 
@@ -446,6 +446,16 @@ export function AuthorAccountCenter({
         <p className="v7-account-expiry">到期时间：{formatDate(record.periodEnd)}</p>
       </>}
     </section>
+
+    {session.membershipState === 'ready' && (session.membership?.plans?.length ?? 0) > 0 && <section className="v7-account-plan-catalog" aria-label="会员套餐价格">
+      <h3>选择您的算力包</h3>
+      <div className="v7-account-plan-options">{session.membership?.plans?.map((plan) => <article key={plan.plan}>
+        <h4>{plan.label}</h4><strong>{plan.price}</strong>
+        <p>{formatCompute(plan.computeQuota)}算力 · {plan.months}个月</p>
+      </article>)}</div>
+      <p className="v7-account-muted">算力为套餐有效期内的总额度。目前由管理员办理。</p>
+      <p className="v7-account-muted">黄金、钻石算力包包含推广员资格；推广奖励与提现尚未开放。</p>
+    </section>}
 
     <section className="v7-account-support" aria-label="会员开通">
       <div><strong>开通或续费会员</strong><span>添加管理员微信，说明您的登录邮箱即可办理。</span></div>

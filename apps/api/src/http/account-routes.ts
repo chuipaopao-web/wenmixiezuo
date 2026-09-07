@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { success } from '../contracts/api.js';
 import { DomainError } from '../domain/errors.js';
-import { isMembershipPlan, MembershipService } from '../infrastructure/security/membership-service.js';
+import { isMembershipPlan, MembershipService, MEMBERSHIP_CATALOG } from '../infrastructure/security/membership-service.js';
 import { AccountAuthService } from '../infrastructure/security/account-auth-service.js';
 import { requireAdministrator, requireAuthenticatedAccount, requireAuthenticatedOwner } from '../infrastructure/security/auth-context.js';
 
@@ -68,7 +68,7 @@ export async function registerAccountRoutes(app: FastifyInstance, accounts: Acco
 
   app.get('/api/v1/membership/me', async (request) => {
     const owner = requireAuthenticatedOwner(request);
-    return success(memberships.statusForOwner(owner.ownerId), request.id);
+    return success({ ...memberships.statusForOwner(owner.ownerId), plans: MEMBERSHIP_CATALOG }, request.id);
   });
 
   app.get<{

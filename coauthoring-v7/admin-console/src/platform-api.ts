@@ -17,6 +17,11 @@ export interface AdminAccount {
 }
 
 export interface PlatformDashboard {
+  commercial?: {
+    timezone: string; registeredUsers: number; newUsersToday: number; paidUsers: number; paidRate: number | null;
+    estimatedRevenueCashMicros: number; estimateUnitCny: number; recordedRevenueCashMicros: number; excludedTestUsers: number;
+    daily: Array<{day: string; newUsers: number}>;
+  };
   overview: {
     failedTasksToday: number;
     apiCashMicrosToday: number;

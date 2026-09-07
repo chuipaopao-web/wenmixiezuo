@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { commercialSummary } from '../application/admin/commercial-summary.js';
 import type { DatabaseSync } from 'node:sqlite';
 import type { FastifyInstance } from 'fastify';
 import { readRebuildControl } from '../application/admin/rebuild-control-service.js';
@@ -232,7 +233,7 @@ export async function registerV7AdminConsoleRoutes(app: FastifyInstance, databas
       FROM user_memberships m JOIN user_accounts a ON a.user_id=m.user_id
       WHERE m.status='active' AND m.period_end>? AND m.period_end<=? ORDER BY m.period_end LIMIT 8`)
       .all(now.toISOString(), now.toISOString(), new Date(now.getTime() + 30 * 86_400_000).toISOString());
-    return success({ overview, business, trend, topUsers, expiring }, request.id);
+    return success({ overview, business, commercial: commercialSummary(database, now), trend, topUsers, expiring }, request.id);
   });
 
   app.get<{ Querystring: { day?: string } }>('/api/v1/admin/user-operations', async (request) => {

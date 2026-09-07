@@ -18,6 +18,11 @@ const ACCOUNT: AuthorAccount = {
 
 const MEMBERSHIP: AuthorMembershipStatus = {
   isAdmin: false,
+  plans: [
+    {plan:'silver',label:'白银算力包',price:'198元',amountCny:198,computeQuota:20000000,months:12},
+    {plan:'gold',label:'黄金算力包',price:'398元',amountCny:398,computeQuota:50000000,months:12},
+    {plan:'diamond',label:'钻石算力包',price:'980元',amountCny:980,computeQuota:200000000,months:12}
+  ],
   membership: {
     plan: 'gold',
     planLabel: '黄金会员',
@@ -84,6 +89,11 @@ describe('V7 作者端账号门禁与个人中心', () => {
     expect(await screen.findByText('创作首页：林老师')).toBeVisible();
     expect(screen.getByText(ACCOUNT.email)).toBeVisible();
     expect(screen.getByText('黄金会员')).toBeVisible();
+    expect(screen.getByRole('region', {name:'会员套餐价格'})).toBeVisible();
+    expect(screen.getByText('推广员', {exact:true})).toBeVisible();
+    expect(screen.getByText('198元')).toBeVisible();
+    expect(screen.getByText('398元')).toBeVisible();
+    expect(screen.getByText('980元')).toBeVisible();
     expect(screen.getByText('36万')).toBeVisible();
     expect(screen.getByText('164万')).toBeVisible();
     expect(screen.getByText('200万')).toBeVisible();

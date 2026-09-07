@@ -57,7 +57,7 @@ const NAVIGATION = [
   { key: 'overview', label: '资产方法论', icon: House, group: '创作资产' },
   { key: 'agents', label: '成员与上下文', icon: Robot, group: '创作团队' },
   { key: 'creation-ops', label: '创作运行', icon: GitBranch, group: '创作团队' },
-  { key: 'operations', label: '运营总览', icon: ChartLineUp, group: '平台运营' },
+  { key: 'operations', label: '数据中控', icon: ChartLineUp, group: '平台运营' },
   { key: 'users', label: '用户与书籍', icon: Users, group: '平台运营' },
   { key: 'usage', label: '算力与成本', icon: CurrencyCircleDollar, group: '平台运营' },
   { key: 'issues', label: '问题记录', icon: Bug, group: '平台运营' },
