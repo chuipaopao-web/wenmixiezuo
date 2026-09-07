@@ -19,6 +19,11 @@ interface ArkMessagesResponse {
   usage?: { input_tokens?: number; output_tokens?: number };
 }
 
+interface ArkChatResponse {
+  choices?: Array<{ message?: { content?: string | null }; finish_reason?: string }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+}
+
 const SYSTEM_PROMPTS: Record<ModelPurpose, string> = {
   interactive_planning: '你是文秘写作的策划编剧。依据当前资料独立设计完整方案，严格遵守输出合同，只输出一个完整JSON对象。保持人物因果、作者要求与容量责任，不输出思考过程，不缩减要求的篇幅。',
   discussion: '你是文秘写作中的小说创作成员。只按当前任务和当前书籍范围给出明确、可执行的中文意见，不冒充其他成员，不声称执行了未执行的操作。',
@@ -36,6 +41,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
   public readonly provider: string;
   public readonly modelId: string;
   readonly #endpoint: string;
+  readonly #glmReviewChat: boolean;
 
   public constructor(
     private readonly options: ArkPlanModelOptions,
@@ -43,7 +49,9 @@ export class ArkPlanModelAdapter implements ModelAdapter {
   ) {
     this.provider = options.provider;
     this.modelId = options.modelId;
-    this.#endpoint = `${assertPlanBaseUrl(options.plan, options.baseUrl)}/v1/messages`;
+    this.#glmReviewChat = options.plan === 'coding' && options.purpose === 'novel_reviewer'
+      && ['glm-5.3', 'glm-5.3-flash'].includes(options.modelId);
+    this.#endpoint = `${assertPlanBaseUrl(options.plan, options.baseUrl)}${this.#glmReviewChat ? '/v3/chat/completions' : '/v1/messages'}`;
     if (options.apiKey.trim().length === 0) throw new Error(`${planDisplayName(options.plan)}凭证未配置`);
   }
 
@@ -81,10 +89,18 @@ export class ArkPlanModelAdapter implements ModelAdapter {
         body: JSON.stringify({
           model: this.modelId,
           // max_tokens 在可见输出限额之上追加与当前模型策略一致的推理余量；
-          // thinking字段是否发送由模型和用途能力决定。GLM 直出路由的余量
+          // thinking字段是否发送由模型和用途能力决定。GLM 隐式推理的余量
           // 随提示词规模折算（2026-09-02 实测：固定1k会被失控思考全部烧穿）。
           max_tokens: request.maxOutputTokens + thinkingTokenAllowance(this.modelId, this.options.purpose, request.maxOutputTokens, request.prompt.length),
           ...temperature,
+          ...(this.#glmReviewChat ? {
+            // Z.ai GLM 5.3 requires thinking. Ark Coding Chat supports low effort;
+            // omitting the field does not disable reasoning. R148 synthetic review.
+            thinking: { type: 'enabled' }, reasoning_effort: 'low',
+            messages: [{ role: 'system', content: appendSupplement(
+              this.options.systemPrompt ?? SYSTEM_PROMPTS[this.options.purpose], request.supplementalInstructions
+            ) }, { role: 'user', content: request.prompt }]
+          } : {
           ...thinkingField(this.options.plan, this.modelId, this.options.purpose, request.maxOutputTokens),
           system: appendSupplement(
             this.options.systemPrompt ?? SYSTEM_PROMPTS[this.options.purpose],
@@ -94,6 +110,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
             role: 'user',
             content: request.prompt
           }]
+          })
         }),
         signal: controller.signal,
         dispatcher: longRequestDispatcher(timeoutMs)
@@ -122,7 +139,14 @@ export class ArkPlanModelAdapter implements ModelAdapter {
     }
     let body: ArkMessagesResponse;
     try {
-      body = await response.json() as ArkMessagesResponse;
+      const payload = await response.json() as ArkMessagesResponse & ArkChatResponse;
+      // Normalize only submitted text and counts; never retain provider reasoning.
+      body = this.#glmReviewChat ? {
+        content: typeof payload.choices?.[0]?.message?.content === 'string'
+          ? [{ type: 'text', text: payload.choices[0].message.content }] : [],
+        stop_reason: payload.choices?.[0]?.finish_reason ?? 'unknown',
+        usage: { input_tokens: finiteTokenCount(payload.usage?.prompt_tokens), output_tokens: finiteTokenCount(payload.usage?.completion_tokens) }
+      } : payload;
     } catch {
       throw new ModelAdapterError(`${planDisplayName(this.options.plan)}已返回成功状态但响应无法解析，供应商结果状态未知`,
         'technical_failure', false, response.status, true);

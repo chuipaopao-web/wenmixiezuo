@@ -13,6 +13,28 @@ const request = {
 };
 
 describe('火山方舟严格套餐适配器', () => {
+  it.each(['glm-5.3','glm-5.3-flash'])('%s审查走套餐Chat低推理并保留补充指令与完整计量', async modelId => {
+    const fetchImpl=vi.fn<typeof fetch>(async (url,init)=>{
+      expect(String(url)).toBe('https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions');
+      const body=JSON.parse(String(init?.body));
+      expect(body).toMatchObject({model:modelId,thinking:{type:'enabled'},reasoning_effort:'low',max_tokens:11000});
+      expect(body).not.toHaveProperty('system');
+      expect(body.messages[0]).toMatchObject({role:'system',content:expect.stringContaining('保留普通人能力边界')});
+      expect(body.messages[1]).toEqual({role:'user',content:request.prompt});
+      return Response.json({choices:[{message:{content:'{"verdict":"pass"}',reasoning_content:'not-returned'},finish_reason:'stop'}],usage:{prompt_tokens:979,completion_tokens:573}});
+    });
+    const adapter=new ArkPlanModelAdapter({plan:'coding',provider:'volcengine-ark-coding-plan',modelId,
+      baseUrl:'https://ark.cn-beijing.volces.com/api/coding',apiKey:'test',purpose:'novel_reviewer'},fetchImpl);
+    const result=await adapter.generate({...request,maxOutputTokens:3000,supplementalInstructions:'保留普通人能力边界'});
+    expect(result).toMatchObject({output:'{"verdict":"pass"}',inputTokens:979,outputTokens:573,cashCostCny:0});
+    expect(JSON.stringify(result)).not.toContain('not-returned');expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+  it.each(['empty','malformed','rejected'])('GLM Chat %s不伪装完成且不自动重试',async mode=>{
+    const fetchImpl=vi.fn<typeof fetch>(async()=>mode==='malformed'?new Response('{'):mode==='rejected'?Response.json({error:{message:'unsupported'}},{status:400}):Response.json({choices:[{message:{content:null},finish_reason:'length'}],usage:{completion_tokens:11000}}));
+    const adapter=new ArkPlanModelAdapter({plan:'coding',provider:'volcengine-ark-coding-plan',modelId:'glm-5.3',baseUrl:'https://ark.cn-beijing.volces.com/api/coding',apiKey:'test',purpose:'novel_reviewer'},fetchImpl);
+    await expect(adapter.generate(request)).rejects.toMatchObject({outcomeUnknown:mode==='malformed'});
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
   it.each(['glm-5.2', 'kimi-k2.7-code'])('%s短结构审查省略不支持的关闭思考参数', async modelId => {
     const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
       const body = JSON.parse(String(init?.body));

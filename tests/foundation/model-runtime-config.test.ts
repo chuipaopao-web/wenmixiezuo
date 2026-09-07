@@ -97,7 +97,7 @@ describe('模型运行配置', () => {
     expect(config.roleProfiles.reviewer.modelId).toBe('kimi-k2.7-code');
     expect(config.roleProfiles.continuity.modelId).toBe('doubao-seed-2.1-turbo');
   });
-  it('GLM-5.2/5.3保持可配置和可执行，但当前岗位方案不绑定', () => {
+  it('GLM-5.3与Flash公开配置，停用5.2不再执行', () => {
     const config = loadModelRuntimeConfig({
       WENMI_MODEL_MODE: 'subscription-plan',
       WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
@@ -105,7 +105,7 @@ describe('模型运行配置', () => {
     });
     expect(config.publicProfiles.filter((profile) => /glm-5\.[23]/iu.test(profile.modelId))).toEqual([
       {
-        provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.2', plan: 'coding',
+        provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3-flash', plan: 'coding',
         roles: [], credentialConfigured: true
       },
       {
@@ -118,7 +118,7 @@ describe('模型运行配置', () => {
     )).not.toThrow();
     expect(() => new ModelAdapterFactory(config).resolve(
       'volcengine-ark-coding-plan', 'glm-5.2', 'novel_reviewer', 'fact_reviewer'
-    )).not.toThrow();
+    )).toThrow('模型不在已批准的套餐角色配置中');
     expect(() => new ModelAdapterFactory(config).resolve(
       'volcengine-ark-agent-plan', 'kimi-k3', 'novel_writer'
     )).not.toThrow();

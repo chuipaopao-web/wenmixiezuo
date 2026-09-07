@@ -1,8 +1,8 @@
 // Real bounded synthetic probes; reviewed semantics, not a global model ranking.
 export const SETTING_EVALUATION_REPORT = {
-  "version": "r147-setting-review-1",
-  "testedAt": "2026-09-07T15:00:54.999Z",
-  "scope": "七个当前文字型号，同一14项合成设定，3处预置冲突；仅测试设定审查，180秒/次、最多2并发、不补修。人工复核语义与正式字段；不代表设计、正文或全部题材通过。",
+  "version": "r148-setting-review-2",
+  "testedAt": "2026-09-07T16:31:16.022Z",
+  "scope": "七型号同一14项合成设定、3处冲突。R148仅复测GLM：Coding Chat、low推理，5.3两次、Flash一次；其他型号保留R147结果。180秒/次、不补修。仅代表本样本审查，不代表设计、正文或稳定速度。",
   "rows": [
     {
       "profileKey": "deepseek-v4-flash",
@@ -43,11 +43,11 @@ export const SETTING_EVALUATION_REPORT = {
     {
       "profileKey": "glm-5.3",
       "node": "review",
-      "milliseconds": 180004,
-      "structurePassed": false,
-      "quality": "unverified",
-      "assessment": "180秒内未正常交付，不参与速度排名及本节点自动接单。",
-      "outputTokens": null
+      "milliseconds": 9448,
+      "structurePassed": true,
+      "quality": "failed",
+      "assessment": "低推理Chat两次8.1/9.4秒交付，均定位3/3；第二次把无超能力扩写成无特殊天赋，扩大作者限制，暂不自动准入。旧Messages为180秒未交付。",
+      "outputTokens": 615
     },
     {
       "profileKey": "doubao-seed-2.1-turbo",
@@ -61,11 +61,11 @@ export const SETTING_EVALUATION_REPORT = {
     {
       "profileKey": "glm-5.3-flash",
       "node": "review",
-      "milliseconds": 131682,
+      "milliseconds": 11947,
       "structurePassed": true,
       "quality": "passed",
-      "assessment": "定位3/3处冲突并提供对应简洁修订；本轮较慢，作为备用。",
-      "outputTokens": 5515
+      "assessment": "低推理Chat定位3/3，修订姓名，能力及行程保留明确待处理意见；11.9秒/517输出Token，旧Messages为131.7秒/5515。单样本，不表示全部冲突已自动修好。",
+      "outputTokens": 517
     }
   ]
 };
