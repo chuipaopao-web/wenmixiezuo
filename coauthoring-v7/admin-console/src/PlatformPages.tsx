@@ -46,10 +46,9 @@ function OperationsPage(): React.JSX.Element {
         <PlatformMetric label="今日新增" value={String(data.commercial.newUsersToday)} />
         <PlatformMetric label="付费人数" value={String(data.commercial.paidUsers)} />
         <PlatformMetric label="付费率" value={formatRatio(data.commercial.paidRate)} />
-        <PlatformMetric label="总收入（按198元估算）" value={formatCny(data.commercial.estimatedRevenueCashMicros)} />
         <PlatformMetric label="已登记收款" value={formatCny(data.commercial.recordedRevenueCashMicros)} />
       </section>
-      <p className="platform-muted">已排除管理员及{data.commercial.excludedTestUsers}个已核实测试账号。按白银、黄金、钻石档统计付费人数；估算收入不代表实际收款。</p>
+      <p className="platform-muted">已排除管理员及{data.commercial.excludedTestUsers}个已核实测试账号。按白银、黄金、钻石档统计付费人数；收款金额按已登记流水汇总。</p>
       <PlatformPanel title="每日新增注册" description="最近30天，零新增日期也保留。"><div className="platform-registration-days">{data.commercial.daily.map((item) => <div key={item.day}><span>{item.day.slice(5)}</span><b>{item.newUsers} 人</b></div>)}</div></PlatformPanel>
     </>}
     <section className="platform-metrics image-aware" aria-label="今日运营指标">
