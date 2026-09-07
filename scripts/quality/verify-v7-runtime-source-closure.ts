@@ -92,6 +92,8 @@ const BUILD_RESOURCES: ReadonlyArray<{
 const STANDALONE_OPERATIONAL_RESOURCES = [
   // Explicit operator command npm run benchmark:opening; synthetic subscription calls only.
   'scripts/quality/opening-model-benchmark.mjs',
+  // Explicit operator command npm run benchmark:setting-review; bounded synthetic review only.
+  'scripts/quality/setting-review-benchmark.mjs',
   // R119 API-only release: invoked by the explicitly authorized deployment script.
   'scripts/release/deploy-r119-api.sh',
   'scripts/release/deploy-r116-author-static.sh',
