@@ -87,8 +87,8 @@ export const V7_GLOBAL_MEMBERS: readonly V7GlobalMemberDefinition[] = [
   member('chief-glm-5-3', '顾承砚', 'chief_editor', 'glm-5.3', 2),
   member('chief-kimi-k3', '沈知微', 'chief_editor', 'kimi-k3', 3),
 
-  member('deputy-glm-5-3', '西施', 'deputy_editor', 'glm-5.3', 1, true),
-  member('deputy-deepseek-v4-pro', '妙玉', 'deputy_editor', 'deepseek-v4-pro', 2),
+  member('deputy-glm-5-3', '西施', 'deputy_editor', 'glm-5.3', 2),
+  member('deputy-deepseek-v4-pro', '妙玉', 'deputy_editor', 'deepseek-v4-pro', 1, true),
   member('deputy-kimi-k3', '谢临川', 'deputy_editor', 'kimi-k3', 3),
 
   member('planner-deepseek-v4-pro', '红玉', 'planning_writer', 'deepseek-v4-pro', 1, true),
@@ -103,9 +103,9 @@ export const V7_GLOBAL_MEMBERS: readonly V7GlobalMemberDefinition[] = [
   member('writer-kimi-2-7', '柳永', 'lead_writer', 'kimi-k2.7-code', 5),
   member('writer-doubao', '蒲松龄', 'lead_writer', 'doubao-seed-2.1-turbo', 6),
 
-  member('review-kimi-k3', '周行简', 'independent_reviewer', 'kimi-k3', 1, true),
+  member('review-kimi-k3', '周行简', 'independent_reviewer', 'kimi-k3', 3),
   member('review-glm-5-3', '顾清辞', 'independent_reviewer', 'glm-5.3', 2),
-  member('review-deepseek-v4-pro', '陆观澜', 'independent_reviewer', 'deepseek-v4-pro', 3),
+  member('review-deepseek-v4-pro', '陆观澜', 'independent_reviewer', 'deepseek-v4-pro', 1, true),
 
   member('continuity-deepseek-v4-pro', '裴文心', 'continuity_editor', 'deepseek-v4-pro', 1, true),
   member('continuity-glm-5-3', '宋知遥', 'continuity_editor', 'glm-5.3', 2),

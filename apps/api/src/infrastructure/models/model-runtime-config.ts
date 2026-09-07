@@ -244,13 +244,13 @@ function codingPlanProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, RoleMo
   return {
     chief_editor: { ...deepSeekPro },
     plot_architect: { ...deepSeekPro },
-    continuity: { ...doubao },
+    continuity: { ...deepSeekPro },
     writer: { ...deepSeekPro },
-    reviewer: { ...kimiK27 },
-    reader_experience: { ...doubao },
-    style_editor: { ...deepSeekFlash },
-    researcher: { ...deepSeekFlash },
-    copyright: { ...kimiK27 }
+    reviewer: { ...deepSeekPro },
+    reader_experience: { ...deepSeekPro },
+    style_editor: { ...deepSeekPro },
+    researcher: { ...deepSeekPro },
+    copyright: { ...deepSeekPro }
   };
 }
 function toPublicProfiles(

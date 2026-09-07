@@ -35,11 +35,7 @@ describe('模型运行配置', () => {
     expect(config.roleProfiles.writer).toMatchObject({
       provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro', plan: 'coding'
     });
-    expect(config.roleProfiles.continuity).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'doubao-seed-2.1-turbo', plan: 'coding' });
-    expect(config.roleProfiles.reviewer).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'kimi-k2.7-code', plan: 'coding' });
-    expect(config.roleProfiles.reader_experience).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'doubao-seed-2.1-turbo', plan: 'coding' });
-    expect(config.roleProfiles.researcher).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-flash', plan: 'coding' });
-    expect(config.roleProfiles.style_editor).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-flash', plan: 'coding' });
+    expect(Object.values(config.roleProfiles).every(profile => profile.modelId === 'deepseek-v4-pro')).toBe(true);
     expect(JSON.stringify(config.publicProfiles)).not.toContain('test-key');
   });
 
@@ -93,9 +89,9 @@ describe('模型运行配置', () => {
     });
 
     expect(config.roleProfiles.chief_editor.modelId).toBe('deepseek-v4-pro');
-    expect(config.roleProfiles.style_editor.modelId).toBe('deepseek-v4-flash');
-    expect(config.roleProfiles.reviewer.modelId).toBe('kimi-k2.7-code');
-    expect(config.roleProfiles.continuity.modelId).toBe('doubao-seed-2.1-turbo');
+    expect(config.roleProfiles.style_editor.modelId).toBe('deepseek-v4-pro');
+    expect(config.roleProfiles.reviewer.modelId).toBe('deepseek-v4-pro');
+    expect(config.roleProfiles.continuity.modelId).toBe('deepseek-v4-pro');
   });
   it('GLM-5.3与Flash公开配置，停用5.2不再执行', () => {
     const config = loadModelRuntimeConfig({

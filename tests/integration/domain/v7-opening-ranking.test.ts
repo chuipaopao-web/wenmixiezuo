@@ -1,5 +1,6 @@
 import {afterEach,describe,expect,it} from 'vitest';
 import {OPENING_EVALUATION_REPORT,openingRanking} from '@wenmi/agent-catalog';
+import {creationRosterFromGlobal,planningRosterFromGlobal} from '@wenmi/v7-backend';
 import {V7AgentGovernanceService} from '../../../apps/api/src/application/agents/v7-agent-governance-service.js';
 import {V7AgentGovernanceRepository} from '../../../apps/api/src/infrastructure/db/repositories/v7-agent-governance-repository.js';
 import {FixedClock,SequenceIds,createTestContext,type TestContext} from '../../helpers/test-context.js';
@@ -8,12 +9,28 @@ const originalRows=OPENING_EVALUATION_REPORT.rows;
 afterEach(()=>{context?.close();context=undefined;Object.defineProperty(OPENING_EVALUATION_REPORT,'rows',{value:originalRows});});
 const row=(profileKey:string,node:'design'|'review',milliseconds:number,structurePassed=true)=>({profileKey,node,milliseconds,structurePassed,quality:'passed' as const,assessment:'fixture',outputTokens:100});
 describe('opening node ranking and bounded admission',()=>{
+ it('honors Pro defaults despite old priorities, preserves explicit choices and independent fallback',()=>{
+  context=createTestContext();const repository=new V7AgentGovernanceRepository(context.database);
+  const service=new V7AgentGovernanceService(repository,new SequenceIds(),new FixedClock(),{codingPlan:true,agentPlan:true,image:true});
+  for(const member of service.snapshot().members.filter(m=>m.modelProfileKey==='deepseek-v4-pro')){
+   service.updateMember('admin',member.memberKey,{expectedRevision:service.snapshot().revision,enabled:true,defaultForRole:true});
+  }
+  const members=service.snapshot().members;
+  expect(creationRosterFromGlobal(members).filter(m=>m.defaultForRole).every(m=>m.model.modelId==='deepseek-v4-pro')).toBe(true);
+  expect(planningRosterFromGlobal(members).filter(m=>m.defaultForRole).every(m=>m.model.modelId==='deepseek-v4-pro')).toBe(true);
+  const reviewers=service.fallback('independent_reviewer',undefined,'deepseek-v4-pro');
+  expect(reviewers.length).toBeGreaterThan(0);
+  expect(reviewers.every(m=>m.modelProfileKey!=='deepseek-v4-pro')).toBe(true);
+  const optional=reviewers[0]!;
+  expect(service.fallback('independent_reviewer',optional.memberKey)[0]?.memberKey).toBe(optional.memberKey);
+ });
  it('legacy GLM can enable verified opening design without entering setting selection',()=>{
   Object.defineProperty(OPENING_EVALUATION_REPORT,'rows',{value:[row('glm-5.3','design',10),row('deepseek-v4-pro','design',50)]});
   context=createTestContext();const repository=new V7AgentGovernanceRepository(context.database);
   const service=new V7AgentGovernanceService(repository,new SequenceIds(),new FixedClock(),{codingPlan:true,agentPlan:true,image:true});
   service.updateMember('admin','planner-glm-5-3',{expectedRevision:service.snapshot().revision,enabled:true});
-  expect(service.openingRoster().filter(m=>m.roleKey==='screenwriter')[0]?.memberKey).toBe('planner-glm-5-3');
+  expect(service.openingRoster().filter(m=>m.roleKey==='screenwriter')[0]?.memberKey).toBe('planner-deepseek-v4-pro');
+  expect(openingRanking('design')[0]?.profileKey).toBe('glm-5.3');
   expect(()=>repository.resolveTaskPolicy('planner-glm-5-3','opening_design')).not.toThrow();
   expect(service.adminView().settingSelection.some(m=>m.modelId==='glm-5.3'&&m.roleKey==='screenwriter')).toBe(false);
  });
@@ -29,8 +46,8 @@ describe('opening node ranking and bounded admission',()=>{
   const bindings=()=>service.snapshot().members.map(({memberKey,modelProfileKey,enabled})=>({memberKey,modelProfileKey,enabled}));
   const before=bindings();
   const designers=service.openingRoster().filter(m=>m.roleKey==='screenwriter');
-  expect(designers.map(m=>m.model.modelId)).toEqual(['deepseek-v4-flash','kimi-k2.7-code','deepseek-v4-pro']);
-  const slot=designers[0]!;
+  expect(designers.map(m=>m.model.modelId)).toEqual(['deepseek-v4-pro','deepseek-v4-flash','kimi-k2.7-code']);
+  const slot=designers[1]!;
   expect(repository.resolveTaskPolicy(slot.memberKey,'opening_design').temperature).toBeGreaterThan(0);
   expect(()=>repository.resolveTaskPolicy(slot.memberKey,'manuscript')).toThrow();
   service.updateMember('admin',slot.memberKey,{expectedRevision:service.snapshot().revision,modelProfileKey:'glm-5.3'});

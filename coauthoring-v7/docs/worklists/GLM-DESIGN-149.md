@@ -8,4 +8,8 @@
 
 实现范围收敛：仅GLM5.3的opening_design可信网关标记切换Coding Chat enabled/low（包含现有格式返修），未扩展到设定或GLM Flash设计。开书优先名单由节点报告排序，让幼薇/GLM5.3优先，原合格成员保留备用；审查名单不变，继续排除设计模型。设定仍DeepSeek Pro/Flash/Kimi2.7。
 
-验证：API构建、41适配器测试、1真实网关幂等/权限/返修定向用例、2准入测试通过；真实探针没有写作者数据。发布待完成。证据在.local/r149-*.json和服务器/tmp/r149-*.json。
+验证：API构建、41适配器测试、1真实网关幂等/权限/返修定向用例、3准入测试通过；真实探针没有写作者数据。证据在.local/r149-*.json和服务器/tmp/r149-*.json。
+
+交付：2026-09-08 01:07发布wm-v7-20260908-010000-4a85d028，静态b20a8e4957fc6b51bc7f；回滚R148。连续30秒在途零、备份校验、构建/闭包/模块解析、API/Worker新心跳、公网健康/401/资源哈希通过。自动审批曾因准入测试失败拒绝首次切换，修复并重新验证后获准发布；旧1d243daa暂存包未切生产。
+
+配置：现有幼薇绑定因旧停岗而未出现在候选，新增已通过开书节点可恢复原绑定的入口（不能借此换模型或设全局默认），通过正常治理事务enabled=true，记录于/opt/wenmi-releases/glm-design-149/member-before.json、member-after.json。设定名单与运行有效名单不同，单看后台前三名不足以验证；使用现有v7_setting_member_settings设置幼薇enabled=0，setting-gate.json保留证据，确保设定不执行。线上只读确认开书幼薇/红玉/温予安，设定DeepSeek Pro/Flash/Kimi2.7。没有重跑作者旧任务，没有生产已登录页面验收。

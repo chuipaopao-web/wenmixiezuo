@@ -49,7 +49,10 @@ export class V7AgentGovernanceService {
     for (const node of ['review','design'] as const) {
       const fixedRoleKey=node==='design'?'planning_writer':'chief_editor';
       const roleKey=node==='design'?'screenwriter':'chief_editor';
-      for (const row of openingRanking(node)) {
+      // Default preference is independent of the recorded speed ranking.
+      const preferred = openingRanking(node).toSorted((a, b) =>
+        Number(b.profileKey === 'deepseek-v4-pro') - Number(a.profileKey === 'deepseek-v4-pro'));
+      for (const row of preferred) {
         const legacy=snapshot.members.find(m=>m.fixedRoleKey===fixedRoleKey && m.modelProfileKey===row.profileKey && m.enabled);
         const slot=candidates.find(m=>m.roleKey===fixedRoleKey && m.modelProfileKey===row.profileKey);
         const memberKey=legacy?.memberKey ?? slot?.memberKey;
@@ -115,7 +118,7 @@ export class V7AgentGovernanceService {
     const candidates = this.members(roleKey).filter((member) => member.modelProfileKey !== excludeModelProfileKey);
     const selected = selectedMemberKey === undefined ? undefined : candidates.find((member) => member.memberKey === selectedMemberKey);
     if (selectedMemberKey !== undefined && selected === undefined) throw new DomainError(errorCodes.validation, '选择的成员不在当前岗位或正在请假。');
-    const defaultMember = candidates.find((member) => member.defaultForRole);
+    const defaultMember = candidates.find((member) => member.defaultForRole) ?? candidates[0];
     if (defaultMember === undefined) throw new DomainError('V7_AGENT_GOVERNANCE_CONFLICT', '当前岗位没有可接单成员。', {}, true, 409);
     const seen = new Set<string>();
     return [selected, defaultMember, ...candidates].filter((member): member is V7EffectiveMember => member !== undefined).filter((member) => {

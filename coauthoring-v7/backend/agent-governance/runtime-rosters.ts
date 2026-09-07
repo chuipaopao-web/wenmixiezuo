@@ -178,7 +178,8 @@ function planning(member: V7RosterSourceMember, roleKey: V7PlanningRoleKey, fall
 function textMembers(members: readonly V7RosterSourceMember[], roleKey: V7FixedRoleKey): V7RosterSourceMember[] {
   return members.filter((member) => member.fixedRoleKey === roleKey && memberEnabled(member) && member.model.plan !== 'image'
       && allowedModelProfilesForRole(roleKey).includes(member.modelProfileKey))
-    .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority);
+    .toSorted((left, right) => Number(right.defaultForRole) - Number(left.defaultForRole)
+      || left.fallbackPriority - right.fallbackPriority);
 }
 
 /**
@@ -205,7 +206,8 @@ function structuredOutputMembers(members: readonly V7RosterSourceMember[]): V7Ro
  * console; runtime code must not silently replace that decision.
  */
 function reviewOutputMembers(members: readonly V7RosterSourceMember[]): V7RosterSourceMember[] {
-  return [...members].sort((left, right) => left.fallbackPriority - right.fallbackPriority);
+  return [...members].sort((left, right) => Number(right.defaultForRole) - Number(left.defaultForRole)
+    || left.fallbackPriority - right.fallbackPriority);
 }
 
 function textModel(member: V7RosterSourceMember): V7MemberModelBinding {
