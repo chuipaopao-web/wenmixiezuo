@@ -77,7 +77,7 @@ export class V7AgentGovernanceService {
   public connectedMembers(): V7EffectiveMember[] {
     const snapshot=this.snapshot();
     const opening=new Set(this.openingRoster().map(m=>m.memberKey));
-    return [...snapshot.members,...this.repository.candidateSlots().flatMap(slot=>{
+    return [...snapshot.members.map(member=>({...member,enabled:member.enabled&&allowedModelProfilesForRole(member.fixedRoleKey).includes(member.modelProfileKey)})),...this.repository.candidateSlots().flatMap(slot=>{
       if(slot.modelProfileKey===null)return [];
       const identity=publicMemberIdentity(slot.memberKey)!;
       const admitted=opening.has(slot.memberKey)||(slot.roleKey==='chief_editor'&&settingReviewRanking().some(r=>r.profileKey===slot.modelProfileKey))||(slot.roleKey==='planning_writer'&&SETTING_DESIGN_PRIORITY.includes(slot.modelProfileKey));
