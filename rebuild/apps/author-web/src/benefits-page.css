@@ -16,4 +16,12 @@
 .benefits-promotion > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .benefits-promotion span { white-space: nowrap; font-size: 14px; color: var(--muted); }
 .benefits-notice { padding: 20px; border: 1px solid var(--line, #dce5df); border-radius: 14px; }
+.benefits-center .benefits-reward-title { margin: 24px 0 0; }
+.benefits-rewards { width: 100%; margin-top: 16px; border-collapse: collapse; table-layout: fixed; font-size: 15px; }
+.benefits-rewards caption { text-align: left; padding-bottom: 12px; font-size: 14px; color: var(--ink-soft); }
+.benefits-rewards th, .benefits-rewards td { border-bottom: 1px solid var(--line, #dce5df); padding: 14px 8px; text-align: center; overflow-wrap: anywhere; }
+.benefits-rewards thead { background: var(--panel-muted); }
+.benefits-rewards th:first-child { width: 34%; text-align: left; }
+.benefits-rewards td { font-weight: 650; color: var(--accent); }
+@media (max-width: 480px) { .benefits-rewards { font-size: 13px; } .benefits-rewards th, .benefits-rewards td { padding: 12px 4px; } }
 @media (max-width: 700px) { .benefits-center .benefits-plans { grid-template-columns: 1fr; } .benefits-center .benefits-current { padding: 20px; } .benefits-center .benefits-heading > svg { width: 32px; height: 32px; } }
