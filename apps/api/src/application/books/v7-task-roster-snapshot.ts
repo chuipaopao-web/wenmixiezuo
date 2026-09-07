@@ -119,7 +119,7 @@ function sameCurrentSettingRoster(
   frozen: readonly V7SettingMemberDefinition[],
   current: readonly V7SettingMemberDefinition[]
 ): boolean {
-  if (frozen.length !== current.length || !uniqueMemberKeys(current)) return false;
+  if (!uniqueMemberKeys(current)) return false;
   return frozen.every((member) => {
     const match = current.find((candidate) => candidate.memberKey === member.memberKey);
     return match !== undefined

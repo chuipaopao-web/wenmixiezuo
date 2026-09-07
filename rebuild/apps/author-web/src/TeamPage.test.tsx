@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TeamPage } from './TeamPage';
 import * as opening from './opening-api';
+import { publicMemberIdentity } from '@wenmi/agent-catalog';
 
 vi.mock('./opening-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./opening-api')>();
@@ -21,7 +22,7 @@ describe('V7统一团队编辑部', () => {
     render(<TeamPage />);
     expect(await screen.findByText('位成员')).toBeVisible();
     expect(screen.getAllByText('22')).toHaveLength(2);
-    expect(screen.getAllByText('0')).toHaveLength(2);
+    expect(screen.getAllByText('0')).toHaveLength(4);
     expect(screen.getByText('每位成员只显示一次；只有真实任务执行中，才会标为工作中。')).toBeVisible();
 
     for (const name of ['主编室', '副编室', '策划编剧组', '主笔组', '独立审查组', '资料记录组', '封面制作组']) {
@@ -31,8 +32,8 @@ describe('V7统一团队编辑部', () => {
     const cards = document.querySelectorAll('.team-member-card');
     expect(cards).toHaveLength(22);
     expect(new Set([...cards].map((card) => card.querySelector('strong')?.textContent)).size).toBe(22);
-    for (const writer of ['清照', '司马相如', '谢道韫', '曹雪芹', '柳永', '蒲松龄']) {
-      expect(screen.getByText(writer)).toBeVisible();
+    for (const writer of teamFixture().departments.find(d=>d.departmentKey==='lead_writer')!.members) {
+      expect(screen.getByText(publicMemberIdentity(writer.memberKey)?.displayName ?? writer.displayName)).toBeVisible();
     }
     expect(document.querySelectorAll('.team-member-head em')).toHaveLength(22);
     expect([...document.querySelectorAll('.team-member-head em')].every((node) => node.textContent === '空闲')).toBe(true);

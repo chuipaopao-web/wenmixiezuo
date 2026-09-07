@@ -25,7 +25,7 @@ export async function registerV7SettingEditorialRoutes(
   const service = new V7SettingEditorialService(
     database, adapters, ids, clock, credentials,
     () => openingRosterFromGlobal(unifiedGovernance.snapshot().members),
-    () => settingRosterFromGlobal(unifiedGovernance.snapshot().members)
+    () => unifiedGovernance.settingRoster()
   );
   const books = new V7OpeningBookService(database, ids, clock);
   const scope = (request: Parameters<typeof requireAuthenticatedOwner>[0], bookId: string): { ownerId: string; bookId: string } => {

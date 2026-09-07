@@ -142,7 +142,7 @@ export interface EditorialDepartmentView {
       role: string;
       responsibility: string;
       capabilities: string[];
-      presence: 'ready' | 'working' | 'leave';
+      presence: 'ready' | 'working' | 'leave' | 'candidate' | 'unbound';
       statusText: string;
       currentWork: string | null;
       completedCount: number;

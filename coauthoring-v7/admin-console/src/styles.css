@@ -505,6 +505,12 @@ button { color: inherit; }
 .agent-team-notice button { margin-left: auto; border: 0; color: inherit; background: transparent; cursor: pointer; font-weight: 700; }
 .agent-role-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px; }
 .agent-role-panel { min-width: 0; border: 1px solid var(--asset-line); background: #fff; }
+.setting-evaluation { padding: 20px; color: var(--asset-green-700); }
+.setting-evaluation > h2 { margin: 0 0 12px; font-size: 20px; }
+.setting-evaluation p { color: var(--asset-muted); font-size: 13px; line-height: 1.7; }
+.setting-evaluation .agent-policy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+.setting-evaluation .agent-member-card { border: 1px solid var(--asset-line); border-radius: 12px; padding: 16px; }
+.setting-evaluation .agent-member-card h3 { font-size: 15px; margin: 0 0 10px; }
 .agent-role-panel > header { min-height: 112px; display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; align-items: center; gap: 13px; padding: 17px; border-bottom: 1px solid var(--asset-line); }
 .agent-role-icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 10px; color: var(--asset-green-700); background: var(--asset-green-100); }
 .agent-role-icon svg { width: 23px; height: 23px; }

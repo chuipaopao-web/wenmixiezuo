@@ -1,6 +1,10 @@
 // Public identities and supported channel names only; no credentials, user data or task state.
 export { OPENING_EVALUATION_REPORT } from './opening-evaluations.js';
 import { OPENING_EVALUATION_REPORT } from './opening-evaluations.js';
+export { SETTING_EVALUATION_REPORT } from './setting-evaluations.js';
+import { SETTING_EVALUATION_REPORT } from './setting-evaluations.js';
+export const SETTING_DESIGN_PRIORITY = Object.freeze(['deepseek-v4-pro','deepseek-v4-flash','kimi-k2.7-code']);
+export function settingReviewRanking(report=SETTING_EVALUATION_REPORT){return openingRanking('review',report);}
 export function openingRanking(node, report=OPENING_EVALUATION_REPORT){
  return report.rows.filter(row=>row.node===node && row.profileKey!=='glm-5.2' && row.structurePassed && row.quality==='passed' && Number.isFinite(row.milliseconds) && row.milliseconds>0)
   .toSorted((a,b)=>a.milliseconds-b.milliseconds || a.profileKey.localeCompare(b.profileKey));

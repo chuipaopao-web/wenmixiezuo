@@ -29,4 +29,7 @@ export interface OpeningEvaluationReport {
   readonly rows: readonly OpeningEvaluationRow[];
 }
 export const OPENING_EVALUATION_REPORT: OpeningEvaluationReport;
+export const SETTING_EVALUATION_REPORT: OpeningEvaluationReport;
+export const SETTING_DESIGN_PRIORITY: readonly string[];
+export function settingReviewRanking(report?: OpeningEvaluationReport): OpeningEvaluationRow[];
 export function openingRanking(node: 'design'|'review', report?: OpeningEvaluationReport): OpeningEvaluationRow[];

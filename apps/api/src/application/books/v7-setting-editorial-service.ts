@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { SETTING_CONCISE_INSTRUCTION, assertConciseSetting } from '@wenmi/opening-runtime';
+import { SETTING_EVALUATION_REPORT, settingReviewRanking } from '@wenmi/agent-catalog';
 import {
   V7_OPENING_MEMBERS,
   V7_SETTING_CATALOG,
@@ -451,7 +452,6 @@ export class V7SettingEditorialService {
 
   public retryFinalReview(ownerId: string, bookId: string, taskId: string): V7SettingFinalReviewView {
     const row = this.requireFinalReview(ownerId, bookId, taskId);
-    this.executableSettingRoster(row);
     if (row.status !== 'partially_failed') throw new DomainError(errorCodes.validation, '当前统一整理任务不需要重试。', {}, false, 409);
     const currentHash = finalReviewRequestHash(
       this.profile(ownerId, bookId),
@@ -465,6 +465,19 @@ export class V7SettingEditorialService {
     if (unknown !== undefined) throw new DomainError(errorCodes.validation, '上次结果还不能确认，不能盲目重试。', {}, false, 409);
     const failed = this.repository.latestModelOutcomeForBatch(ownerId, bookId, taskId, ['failed']);
     const completedModel = this.repository.latestModelOutcomeForBatch(ownerId, bookId, taskId, ['succeeded']);
+    if(failed!==undefined&&completedModel===undefined&&row.retry_safety==='technical_retry'){
+      // A recovery is a new audited attempt using current policy. Never rewrite the old frozen call.
+      const recoveryKey=`setting-review-recovery:${taskId}`;
+      const existing=this.repository.findBatchByIdempotency(ownerId,bookId,recoveryKey);
+      if(existing){if(existing.status==='queued'||existing.status==='working')this.startFinalReview(existing);return this.finalReviewView(existing);}
+      const profile=this.profile(ownerId,bookId),now=this.clock.now().toISOString(),nextId=this.ids.next();
+      const chief=this.availableFinalReviewChiefs().find(m=>!(state.excludedModelIds??[]).includes(m.model.modelId));
+      if(!chief)throw new DomainError(errorCodes.validation,'当前没有通过设定审查验证的独立成员。',{},false,409);
+      const next={...state,phase:'preparing',progress:5,assignedMemberKey:chief.memberKey,attemptedMemberKeys:[],resumedFromTaskId:taskId,publicMessage:`已保留全部设定，${chief.displayName}正在接手核对。`};
+      this.repository.createFinalReviewTask({taskId:nextId,ownerId,bookId,idempotencyKey:recoveryKey,requestHash:currentHash,openingVersion:profile.version,openingHash:hash(profile.openingBlueprint),rosterJson:JSON.stringify(this.effectiveRoster()),stateJson:JSON.stringify(next),now});
+      const created=this.repository.findBatchByIdempotency(ownerId,bookId,recoveryKey)!;this.startFinalReview(created);return this.finalReviewView(created);
+    }
+    this.executableSettingRoster(row);
     if (row.retry_safety === 'safe_after_precondition') {
       assertMembershipAllowsGeneration(this.database, ownerId, this.clock.now().toISOString(), 8_000);
     } else if (failed === undefined && !(row.retry_safety === 'technical_retry' && completedModel !== undefined)) {
@@ -1466,7 +1479,7 @@ export class V7SettingEditorialService {
     let chiefs: V7SettingMemberDefinition[];
     try {
       chiefs = this.executableSettingRoster(task)
-        .filter((member) => member.roleKey === 'chief_editor' && !(state.excludedModelIds ?? []).includes(member.model.modelId))
+        .filter((member) => member.roleKey === 'chief_editor' && settingReviewAdmitted(member.model.modelId) && !(state.excludedModelIds ?? []).includes(member.model.modelId))
         .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority);
       if ((state.excludedModelIds?.length ?? 0) > 0) chiefs = chiefs.slice(0, 3);
     } catch (error) {
@@ -1784,7 +1797,7 @@ export class V7SettingEditorialService {
   }
 
   private availableFinalReviewChiefs(): V7SettingMemberDefinition[] {
-    return this.effectiveRoster().filter((member) => member.roleKey === 'chief_editor')
+    return this.effectiveRoster().filter((member) => member.roleKey === 'chief_editor' && settingReviewAdmitted(member.model.modelId))
       .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority);
   }
 
@@ -2858,10 +2871,10 @@ export class V7SettingEditorialService {
       governanceRevision: compiled.manifest.governanceRevision, temperature: compiled.manifest.temperature, now
     });
     try {
-      const adapter = this.adapters.resolve(compiled.manifest.provider, compiled.manifest.modelId, 'structured_planning');
+      const adapter = this.adapters.resolve(compiled.manifest.provider, compiled.manifest.modelId, invocation.taskKind === 'setting_review' ? 'novel_reviewer' : 'structured_planning');
       const result = await adapter.generate({ requestId: executionRequestId, taskId: batchId, ownerId, bookId, agentId: member.memberKey,
         prompt: compiled.manifest.compiledPrompt, maxOutputTokens: compiled.manifest.maxOutputTokens,
-        temperature: compiled.manifest.temperature });
+        temperature: compiled.manifest.temperature }, invocation.taskKind === 'setting_review' ? AbortSignal.timeout(180_000) : undefined);
       if (!result.output.trim()) throw new Error('模型没有返回内容');
       const completed = this.clock.now().toISOString();
       this.repository.succeedModelCall({
@@ -4127,6 +4140,11 @@ function settingBatchFailure(error: unknown): SettingBatchFailure {
     storedMessage,
     publicMessage: '对不起，这一轮没有全部完成；已完成的设定都已保留，请检查后重新设计未完成条目。'
   };
+}
+
+function settingReviewAdmitted(modelId: string): boolean {
+  const measured=SETTING_EVALUATION_REPORT.rows.some(row=>row.profileKey===modelId);
+  return !measured || settingReviewRanking().some(row=>row.profileKey===modelId);
 }
 
 function coherentSettingLead(batch: BatchRow): string | null {

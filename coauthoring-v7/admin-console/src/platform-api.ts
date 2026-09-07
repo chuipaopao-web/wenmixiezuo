@@ -288,6 +288,8 @@ export interface V7VisualAgentGovernance {
 
 export interface V7UnifiedAgentGovernance {
   openingEvaluation?: import('@wenmi/agent-catalog').OpeningEvaluationReport;
+  settingEvaluation?: import('@wenmi/agent-catalog').OpeningEvaluationReport;
+  settingSelection?: Array<{memberKey:string;roleKey:string;modelId:string;order:number}>;
   openingSelection?: Array<{memberKey:string;roleKey:'screenwriter'|'chief_editor';modelId:string;order:number}>;
   revision: number;
   summary: { roleCount: number; memberCount: number; onDutyCount: number; leaveCount: number; candidateCount?: number; unboundCount?: number };
@@ -303,6 +305,7 @@ export interface V7UnifiedAgentGovernance {
       credentialReady: boolean; status: 'on_duty' | 'on_leave' | 'candidate' | 'unbound';
       configurationOnly?: boolean;
       openingNode?: 'screenwriter' | 'chief_editor' | null;
+      settingNode?: 'screenwriter' | 'chief_editor' | null;
       admission?: { status: 'compatible' | 'pending' | 'suspended'; reason: string };
     }>;
   }>;

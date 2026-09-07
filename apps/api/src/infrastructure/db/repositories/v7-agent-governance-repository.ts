@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { MEMBER_SLOTS, candidateModels, openingRanking } from '@wenmi/agent-catalog';
+import { MEMBER_SLOTS, candidateModels, openingRanking, settingReviewRanking, SETTING_DESIGN_PRIORITY } from '@wenmi/agent-catalog';
 import {
   V7_GLOBAL_MEMBERS,
   V7_TASK_TEMPERATURE_POLICIES,
@@ -184,6 +184,15 @@ export class V7AgentGovernanceRepository {
 
   public resolveTaskPolicy(memberKey: string, taskKind: V7AgentTaskKind): V7ResolvedTaskPolicy {
     const slot=MEMBER_SLOTS.find(candidate=>!candidate.legacy && candidate.memberKey===memberKey);
+    if(slot&&['setting_design','setting_review'].includes(taskKind)){
+      const role=taskKind==='setting_review'?'chief_editor':'planning_writer';
+      const binding=this.candidateSlots().find(candidate=>candidate.memberKey===memberKey);
+      const profiles=taskKind==='setting_review'?settingReviewRanking().map(row=>row.profileKey):SETTING_DESIGN_PRIORITY;
+      if(slot.roleKey!==role||binding?.roleKey!==role||!profiles.includes(binding.modelProfileKey??''))throw new Error('该成员未获得当前设定节点准入');
+      const snapshot=this.snapshot(),policy=snapshot.taskPolicies.find(p=>p.taskKind===taskKind);
+      if(!policy)throw new Error('设定节点参数缺失');
+      return {governanceRevision:snapshot.revision,temperature:policy.defaultTemperature};
+    }
     if (slot && ['opening_design','opening_review','opening_revision'].includes(taskKind)) {
       const node=taskKind==='opening_review'?'review':'design';
       const role=node==='review'?'chief_editor':'planning_writer';

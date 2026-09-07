@@ -6,13 +6,60 @@ import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { V7PlanningSourceCompiler } from '../../../apps/api/src/application/planning/v7-planning-source-compiler.js';
 import { V7SettingEditorialRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.js';
 import { V7_SETTING_CATALOG, V7_SETTING_MEMBERS, validateSettingEditorialRoster } from '@wenmi/v7-backend';
-import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
+import { createTestContext as createBaseTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
+
+function createTestContext(prefix?: string): TestContext {
+  const context = createBaseTestContext(prefix);
+  // These tests inject an in-memory model resolver; enable both credential gates without a live key.
+  context.config.modelRuntime.endpoints.coding.apiKey = 'fixture-only-no-network';
+  context.config.modelRuntime.endpoints.agent.apiKey = 'fixture-only-no-network';
+  return context;
+}
 
 const HEADERS = { host: '127.0.0.1:43111', origin: 'http://127.0.0.1:43110', 'sec-fetch-site': 'same-site', 'content-type': 'application/json' };
 let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7设定编辑部', () => {
+  it('已知失败恢复采用新尝试，保留原设定与历史调用并防重', async () => {
+    context=createTestContext('r147-recovery-');
+    const delegate=new SettingResolver(false);let failing=true;
+    const purposes:ModelPurpose[]=[];
+    const resolver:V7OpeningModelAdapterResolver={resolve(provider,modelId,purpose){
+      const adapter=delegate.resolve(provider,modelId,purpose);
+      return {...adapter,generate:async(request,signal)=>{
+        if(settingStagePrompt(request.prompt).includes('v7_setting_batch_final_review_v1')){
+          purposes.push(purpose);
+          if(failing)throw new Error('known rejected fixture');
+          return successfulModelResult(provider,modelId,JSON.stringify({verdict:'pass',summary:'核对通过',unifiedDecisions:[],conflicts:[],patches:[]}));
+        }
+        return adapter.generate(request,signal);
+      }};
+    }};
+    const app=await createServer(context.config,context.database,{v7OpeningModelAdapters:resolver});
+    try{
+      const cookie=await register(app,'r147-recovery@example.test','恢复验收','fixture-pass-147');
+      const bookId=await createBook(app,cookie,'恢复验收','r147-recovery-book','历史脑洞');
+      const url=`/api/v1/v7/books/${bookId}`;
+      const seed=await app.inject({method:'POST',url:url+'/setting-batches',headers:{...HEADERS,cookie},payload:{selectedItemKeys:['world-stage'],idempotencyKey:'seed-147'}});
+      await pollBatch(app,cookie,bookId,seed.json().data.batchId);
+      const requested=await app.inject({method:'POST',url:url+'/setting-final-reviews',headers:{...HEADERS,cookie},payload:{idempotencyKey:'review-147'}});
+      const oldId=requested.json().data.taskId;
+      expect((await pollFinalReview(app,cookie,bookId)).status).toBe('failed');
+      const old=context.database.prepare('SELECT * FROM v7_setting_batches WHERE batch_id=?').get(oldId);
+      const items=context.database.prepare('SELECT * FROM v7_setting_items WHERE book_id=?').all(bookId);
+      failing=false;
+      const retry=await app.inject({method:'POST',url:url+`/setting-final-reviews/${oldId}/retry`,headers:{...HEADERS,cookie},payload:{}});
+      expect(retry.statusCode,retry.body).toBe(200);
+      expect(retry.json().data.taskId).not.toBe(oldId);
+      expect((await pollFinalReview(app,cookie,bookId)).status).toBe('ready');
+      const replay=await app.inject({method:'POST',url:url+`/setting-final-reviews/${oldId}/retry`,headers:{...HEADERS,cookie},payload:{}});
+      expect(replay.json().data.taskId).toBe(retry.json().data.taskId);
+      expect(context.database.prepare('SELECT * FROM v7_setting_batches WHERE batch_id=?').get(oldId)).toEqual(old);
+      expect(context.database.prepare('SELECT * FROM v7_setting_items WHERE book_id=?').all(bookId)).toEqual(items);
+      expect(purposes.every(p=>p==='novel_reviewer')).toBe(true);
+    }finally{await app.close();}
+  });
   it.each(['normal', 'handoff', 'repair', 'unknown', 'patch', 'review_handoff'] as const)('精练设定 %s：同人统筹、草案接续与自动独立审查', async (mode) => {
     context = createTestContext('wenmi-r139-setting-');
     const delegate = new SettingResolver(false);
@@ -472,7 +519,7 @@ describe('V7设定编辑部', () => {
       const department = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${firstBook}/setting-department`, headers: { host: HEADERS.host, cookie } });
       expect(department.statusCode).toBe(200);
       expect(department.json().data.catalog.some((item: { key: string }) => item.key === 'history-baseline')).toBe(true);
-      expect(department.json().data.members).toHaveLength(9);
+      expect(department.json().data.members).toHaveLength(13);
       expect(JSON.stringify(department.json().data.members)).not.toMatch(/modelId|provider|凭据|失败|timeout/iu);
 
       const payload = { selectedItemKeys: ['world-stage', 'history-baseline'], customItems: [], authorNotes: {}, idempotencyKey: 'setting-batch-0001' };

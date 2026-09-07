@@ -40,6 +40,8 @@ export function TeamPage(): React.JSX.Element {
         readyCount: members.filter((member) => member.presence === 'ready').length,
         workingCount: members.filter((member) => member.presence === 'working').length,
         leaveCount: members.filter((member) => member.presence === 'leave').length,
+        candidateCount: members.filter((member) => member.presence === 'candidate').length,
+        unboundCount: members.filter((member) => member.presence === 'unbound').length,
         completedCount: members.reduce((total, member) => total + member.completedCount, 0)
       }
     };
@@ -82,6 +84,8 @@ export function TeamPage(): React.JSX.Element {
         <div><strong>{projectedTeam.summary.workingCount}</strong><small>工作中</small></div>
         <div><strong>{projectedTeam.summary.readyCount}</strong><small>空闲</small></div>
         <div><strong>{projectedTeam.summary.leaveCount}</strong><small>暂离</small></div>
+        <div><strong>{projectedTeam.summary.candidateCount}</strong><small>已接入待验证</small></div>
+        <div><strong>{projectedTeam.summary.unboundCount}</strong><small>未绑定</small></div>
         <p>每位成员只显示一次；只有真实任务执行中，才会标为工作中。</p>
       </div>
       {error !== null && <div className="error-notice" role="status">{error}</div>}
@@ -90,7 +94,7 @@ export function TeamPage(): React.JSX.Element {
         const workingCount = department.members.filter((member) => member.presence === 'working').length;
         const groupStatus = workingCount > 0
           ? `${workingCount} 人工作中`
-          : department.members.every((member) => member.presence === 'leave') ? '暂时无人接单' : '当前空闲';
+          : department.members.some((member) => member.presence === 'ready') ? '当前空闲' : '等待接单条件就绪';
         const departmentName = publicDepartmentName(department.departmentKey);
         return <section className={`team-department ${isExpanded ? '' : 'collapsed'}`} key={department.departmentKey} aria-label={departmentName}>
           <button className="team-department-summary" type="button" aria-expanded={isExpanded} onClick={() => setExpanded((current) => ({ ...current, [department.departmentKey]: !isExpanded }))}>
@@ -99,10 +103,10 @@ export function TeamPage(): React.JSX.Element {
             {isExpanded ? <CaretUpIcon /> : <CaretDownIcon />}
           </button>
           {isExpanded && <div className="team-member-grid">{department.members.map((member) => <article className={`team-member-card ${member.presence}`} key={member.memberKey}>
-            <div className="team-member-head"><i style={avatarStyle(member.memberKey)} aria-hidden="true"/><span><strong>{memberDisplayName(member.memberKey, member.displayName)}</strong><small>{publicRoleLabel(member.role, department.departmentKey)}</small></span><em>{member.presence === 'leave' ? '暂离' : member.presence === 'working' ? '工作中' : '空闲'}</em></div>
+            <div className="team-member-head"><i style={avatarStyle(member.memberKey)} aria-hidden="true"/><span><strong>{memberDisplayName(member.memberKey, member.displayName)}</strong><small>{publicRoleLabel(member.role, department.departmentKey)}</small></span><em>{member.presence === 'unbound'?'未绑定':member.presence === 'candidate'?'待验证':member.presence === 'leave' ? '暂离' : member.presence === 'working' ? '工作中' : '空闲'}</em></div>
             <p>{member.presence === 'working'
               ? publicStatusCopy(member.currentWork ?? member.statusText, '正在处理本轮工作。')
-              : member.presence === 'leave' ? '暂时无法接单。' : '当前空闲，可以接单。'}</p>
+              : member.presence === 'candidate'?'模型已接入，等待岗位验证。':member.presence === 'unbound'?'预留位置，尚未绑定模型。':member.presence === 'leave' ? '暂时无法接单。' : '当前空闲，可以接单。'}</p>
             <footer><span>{member.presence === 'working' ? '任务处理中' : '当前没有任务'}</span><b>完成 {member.completedCount} 项</b></footer>
           </article>)}</div>}
         </section>;
@@ -156,12 +160,13 @@ function avatarStyle(memberKey: string): React.CSSProperties {
 type EditorialMember = EditorialDepartmentView['departments'][number]['members'][number];
 
 function effectivePresence(member: EditorialMember): EditorialMember['presence'] {
+  if (member.presence === 'candidate' || member.presence === 'unbound') return member.presence;
   if (member.presence === 'leave') return 'leave';
   return member.presence === 'working' && member.currentWork?.trim() ? 'working' : 'ready';
 }
 
 function mergeMember<T extends EditorialMember>(previous: T, current: T): T {
-  const rank = { ready: 1, leave: 2, working: 3 } as const;
+  const rank = { unbound: 0, candidate: 1, ready: 2, leave: 3, working: 4 } as const;
   const primary = rank[current.presence] > rank[previous.presence] ? current : previous;
   return {
     ...previous,

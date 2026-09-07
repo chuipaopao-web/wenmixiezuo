@@ -3,11 +3,35 @@ import { V7AgentGovernanceService } from '../../../apps/api/src/application/agen
 import { resolveV7TaskPolicy } from '../../../apps/api/src/application/agents/v7-agent-runtime-policy.js';
 import { V7AgentGovernanceRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-agent-governance-repository.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { resolveSettingTaskRoster } from '../../../apps/api/src/application/books/v7-task-roster-snapshot.js';
 
 let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7统一岗位、模型与任务参数', () => {
+  it('已绑定席位可追踪，设定独立准入；新增成员不改写旧任务模型', () => {
+    context = createTestContext();
+    const repository = new V7AgentGovernanceRepository(context.database);
+    const service = new V7AgentGovernanceService(repository, new SequenceIds(), new FixedClock(),
+      {codingPlan:true,agentPlan:true,image:true});
+    const connected=service.connectedMembers();
+    expect(connected.length).toBe(23+repository.candidateSlots().filter(m=>m.modelProfileKey!==null).length);
+    expect(new Set(connected.map(m=>m.memberKey)).size).toBe(connected.length);
+    const roster=service.settingRoster();
+    const design=roster.filter(m=>m.roleKey==='screenwriter'&&m.fallbackPriority<100).sort((a,b)=>a.fallbackPriority-b.fallbackPriority);
+    expect(design.map(m=>m.model.modelId)).toEqual(['deepseek-v4-pro','deepseek-v4-flash','kimi-k2.7-code']);
+    const reviewers=roster.filter(m=>m.roleKey==='chief_editor'&&m.fallbackPriority<100).sort((a,b)=>a.fallbackPriority-b.fallbackPriority);
+    expect(reviewers.map(m=>m.model.modelId)).toEqual(['kimi-k3','doubao-seed-2.1-turbo','glm-5.3-flash']);
+    const extra=reviewers.find(m=>m.model.modelId==='glm-5.3-flash')!;
+    expect(repository.resolveTaskPolicy(extra.memberKey,'setting_review').temperature).toBe(.25);
+    expect(()=>repository.resolveTaskPolicy(extra.memberKey,'setting_design')).toThrow();
+    const frozen=roster.filter(m=>service.snapshot().members.some(old=>old.memberKey===m.memberKey));
+    expect(resolveSettingTaskRoster(JSON.stringify(frozen),roster)).toHaveLength(frozen.length);
+    expect(()=>resolveSettingTaskRoster(JSON.stringify(frozen),roster.map((m,i)=>i===0?{...m,model:{...m.model,modelId:'changed'}}:m))).toThrow();
+    service.updateMember('admin',extra.memberKey,{expectedRevision:service.snapshot().revision,modelProfileKey:null});
+    expect(service.settingRoster().some(m=>m.memberKey===extra.memberKey)).toBe(false);
+    expect(()=>repository.resolveTaskPolicy(extra.memberKey,'setting_review')).toThrow();
+  });
   it('默认成员可以真正停岗；更换模型保留身份和已有任务快照', () => {
     context = createTestContext();
     const service = new V7AgentGovernanceService(new V7AgentGovernanceRepository(context.database), new SequenceIds(), new FixedClock(),

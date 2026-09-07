@@ -731,7 +731,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .task-log-empty span { color: var(--ink-faint); font-size: 12px; }
 
 /* V7团队总览：部门可折叠，成员状态由后端事实投影。 */
-.team-overview-strip { display: grid; grid-template-columns: 44px repeat(4, auto) minmax(160px, 1fr); }
+.team-overview-strip { display: grid; grid-template-columns: 44px repeat(6, auto) minmax(120px, 1fr); }
 .team-overview-strip > div { min-width: 72px; display: grid; justify-items: center; border-left: 1px solid var(--line); }
 .team-overview-strip strong { color: var(--accent); font-size: 20px; }
 .team-overview-strip small { color: var(--ink-faint); font-size: 10px; }
@@ -2150,7 +2150,8 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
   .task-member-stack { margin-right: auto; }
   .task-log-card-main strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
   .task-card-details p { grid-template-columns: 1fr; gap: 2px; }
-  .team-overview-strip { grid-template-columns: 38px repeat(4, minmax(0, 1fr)); gap: 6px; padding: 11px 8px; }
+  .team-overview-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 6px; padding: 12px; }
+  .team-overview-strip > span { display: none; }
   .team-overview-strip > div { min-width: 0; }
   .team-overview-strip p { grid-column: 1 / -1; text-align: left; }
   .team-department-summary { grid-template-columns: minmax(0, 1fr) minmax(80px, 120px) 20px; padding: 9px 11px; }

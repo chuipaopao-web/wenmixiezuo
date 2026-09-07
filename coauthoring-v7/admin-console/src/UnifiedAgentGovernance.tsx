@@ -64,11 +64,11 @@ export function UnifiedAgentGovernance(): React.JSX.Element {
     <section className="agent-credential-strip"><Credential label="Coding Plan" ready={data.credentials.codingPlan}/><Credential label="Agent Plan" ready={data.credentials.agentPlan}/><Credential label="图片能力" ready={data.credentials.image}/><p>配置版本 {data.revision}。执行中的任务保留创建时的成员与参数快照。</p></section>
     <div className="prompt-context-tabs" role="tablist" aria-label="成员管理">
       <button role="tab" aria-selected={tab === 'members'} onClick={() => changeTab('members')}>全部成员（{data.summary.memberCount}）</button>
-      <button role="tab" aria-selected={tab === 'evaluation'} onClick={() => changeTab('evaluation')}>开书速度与准入</button>
+      <button role="tab" aria-selected={tab === 'evaluation'} onClick={() => changeTab('evaluation')}>模型速度与准入</button>
       <button role="tab" aria-selected={tab === 'policies'} onClick={() => changeTab('policies')}>任务参数</button>
       <button role="tab" aria-selected={tab === 'configuration'} onClick={() => changeTab('configuration')}>共用规则与题材模板</button>
     </div>
-    {tab === 'evaluation' && <OpeningEvaluation data={data}/>}
+    {tab === 'evaluation' && <><SettingEvaluation data={data}/><OpeningEvaluation data={data}/></>}
     {tab === 'configuration' && <><p>统一管理共用配置。按成员查看最近资料，请返回全部成员并进入详情。</p><PromptContextCenter editorOnly onDirtyChange={setConfigurationDirty}/></>}
     {tab === 'members' && <>
     <p>文字岗位各9位，封面画师2位。待验证 {data.summary.candidateCount ?? 0} 位，未绑定 {data.summary.unboundCount ?? 0} 位。成员身份已建立不代表所有节点都已准入；开书接单单独标注。</p>
@@ -112,6 +112,7 @@ function MemberCard({ data, role, member, busy, update }: {
     <div className="agent-member-identity"><span className="agent-avatar" aria-hidden="true" style={{ backgroundImage: `url('${identity?.avatarPath ?? V7_MEMBER_AVATAR_SPRITE}')`, backgroundSize: identity?.avatarSize ?? V7_MEMBER_AVATAR_SIZE, backgroundPosition: publicMemberIdentity(member.memberKey)?.avatarPosition ?? '100% 100%', flexShrink: 0 }}/><div><h3>{publicMemberIdentity(member.memberKey)?.displayName ?? member.displayName}</h3><p>{member.modelName}{member.plan === null ? '' : ` · ${member.plan === 'image' ? '图片' : member.plan === 'agent' ? 'Agent Plan' : 'Coding Plan'}`}</p></div><span className={`agent-duty-state ${member.status === 'on_duty' ? 'on' : 'off'}`}>{member.openingNode ? '开书接单' : member.status === 'on_duty' ? '在岗' : member.status === 'unbound' ? '未绑定' : member.status === 'candidate' ? '待验证' : '停岗'}</span></div>
     <div className="agent-member-order"><label><span>绑定模型</span><select value={member.modelProfileKey ?? ''} disabled={busy} onChange={(e) => void update(member.memberKey,{modelProfileKey:e.target.value || null},`已调整${member.displayName}的模型`)}>{member.configurationOnly && <option value="">未绑定（预留位置）</option>}{candidates.map((candidate) => <option key={candidate.profileKey} value={candidate.profileKey} disabled={member.enabled && candidate.status !== 'compatible' && candidate.profileKey !== member.modelProfileKey}>{candidate.publicName} · {admissionLabel(candidate.status)}</option>)}</select></label>{!member.configurationOnly && <label><span>交接顺序</span><input type="number" min="1" max="100" value={member.fallbackPriority} disabled={busy} onChange={(e)=>void update(member.memberKey,{fallbackPriority:Number(e.target.value)},`已调整${member.displayName}的交接顺序`)}/></label>}</div>
     {member.admission && <p>{member.admission.reason}</p>}
+    {member.settingNode && <p>设定{member.settingNode === 'chief_editor' ? '审查：按本轮合格速度顺序接单。' : '设计：按指定模型优先顺序接单。'}</p>}
     {(role.roleKey === 'planning_writer' || role.roleKey === 'chief_editor') && <p>{(() => {
       const row = data.openingEvaluation?.rows.find(row => row.profileKey === member.modelProfileKey && row.node === (role.roleKey === 'chief_editor' ? 'review' : 'design'));
       return row ? `当前绑定模型的开书${row.node === 'design' ? '设计' : '审查'}实测：${Math.round(row.milliseconds / 1000)}秒，${row.structurePassed ? '结构通过' : '未正常交付'}；${row.assessment}` : '当前绑定模型暂无开书节点评测记录。';
@@ -125,6 +126,14 @@ function PolicyCard({ policy, busy, update }: { policy: V7UnifiedAgentGovernance
   return <article className="agent-member-card"><div className="agent-member-identity"><span className="agent-avatar">温</span><div><h3>{policy.publicName}</h3><p>{policy.rationale}</p></div></div><label><span>默认温度（{policy.minimumTemperature}—{policy.maximumTemperature}）</span><input type="range" min={policy.minimumTemperature} max={policy.maximumTemperature} step="0.01" value={value} onChange={(e)=>setValue(Number(e.target.value))}/><strong>{value.toFixed(2)}</strong></label><button type="button" disabled={busy || value===policy.defaultTemperature} onClick={()=>void update(policy.taskKind,value,`已调整${policy.publicName}的默认温度`)}>{busy?'保存中…':'保存'}</button></article>;
 }
 function admissionLabel(status: 'compatible' | 'pending' | 'suspended'): string { return status === 'compatible' ? '通道兼容' : status === 'pending' ? '待验证' : '暂停复测'; }
+function SettingEvaluation({data}:{data:V7UnifiedAgentGovernance}):React.JSX.Element|null {
+  const report=data.settingEvaluation;if(!report)return null;
+  const ranked=openingRanking('review',report);
+  return <section className="agent-role-panel setting-evaluation" aria-label="设定审查评测"><h2>设定审查速度与准入</h2><p>{report.scope}</p><p>测试时间：{new Date(report.testedAt).toLocaleString('zh-CN')}。设定设计优先DeepSeek Pro、DeepSeek Flash、Kimi 2.7，本轮未测试设计。</p><div className="agent-policy-grid">{[...report.rows].sort((a,b)=>a.milliseconds-b.milliseconds).map(row=>{
+    const rank=ranked.findIndex(r=>r.profileKey===row.profileKey);
+    return <article className="agent-member-card" key={row.profileKey}><h3>{data.modelProfiles.find(m=>m.profileKey===row.profileKey)?.publicName??row.profileKey}</h3><p><strong>{(row.milliseconds/1000).toFixed(1)}秒</strong> · {rank<0?'未准入':`合格第${rank+1}名`}</p><p>输出Token：{row.outputTokens??'未取得'} · {row.structurePassed?'正式结构通过':'正式结构未通过'} · {row.quality==='passed'?'样本内容通过':row.quality==='failed'?'样本内容未通过':'内容未验证'}</p><p>{row.assessment}</p></article>;
+  })}</div></section>;
+}
 function OpeningEvaluation({data}:{data:V7UnifiedAgentGovernance}):React.JSX.Element|null {
   const report=data.openingEvaluation;
   if (!report?.rows.length) return null;

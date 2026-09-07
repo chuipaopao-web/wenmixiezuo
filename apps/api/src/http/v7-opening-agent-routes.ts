@@ -81,7 +81,7 @@ export async function registerV7OpeningAgentRoutes(
   );
   const editorialDepartment = new V7UnifiedEditorialDepartmentService(
     database,
-    () => unifiedGovernance.snapshot().members,
+    () => unifiedGovernance.connectedMembers(),
     credentials,
     coverRuntime.imageGateway.configured
   );

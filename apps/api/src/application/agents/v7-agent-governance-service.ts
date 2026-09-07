@@ -1,4 +1,4 @@
-import { MEMBER_SLOTS, OPENING_EVALUATION_REPORT, openingRanking, publicMemberIdentity } from '@wenmi/agent-catalog';
+import { MEMBER_SLOTS, OPENING_EVALUATION_REPORT, SETTING_EVALUATION_REPORT, SETTING_DESIGN_PRIORITY, settingReviewRanking, openingRanking, publicMemberIdentity } from '@wenmi/agent-catalog';
 import {
   V7_MODEL_PROFILE_LABELS,
   V7_ROLE_CONTRACTS,
@@ -8,6 +8,7 @@ import {
   effectiveTemperature,
   independentReviewers,
   modelBindingForProfile,
+  settingRosterFromGlobal,
   type V7AgentTaskKind,
   type V7AgentTaskSnapshot,
   type V7EffectiveMember,
@@ -72,6 +73,44 @@ export class V7AgentGovernanceService {
       .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority);
   }
 
+  /** Every configured seat has a concrete binding; admission remains specific to the task. */
+  public connectedMembers(): V7EffectiveMember[] {
+    const snapshot=this.snapshot();
+    const opening=new Set(this.openingRoster().map(m=>m.memberKey));
+    return [...snapshot.members,...this.repository.candidateSlots().flatMap(slot=>{
+      if(slot.modelProfileKey===null)return [];
+      const identity=publicMemberIdentity(slot.memberKey)!;
+      const admitted=opening.has(slot.memberKey)||(slot.roleKey==='chief_editor'&&settingReviewRanking().some(r=>r.profileKey===slot.modelProfileKey))||(slot.roleKey==='planning_writer'&&SETTING_DESIGN_PRIORITY.includes(slot.modelProfileKey));
+      return [{memberKey:slot.memberKey,displayName:identity.displayName,fixedRoleKey:identity.roleKey,
+        modelProfileKey:slot.modelProfileKey,model:modelBindingForProfile(slot.modelProfileKey),enabled:admitted,
+        enabledByDefault:admitted,defaultForRole:false,fallbackPriority:100,temperatureAdjustment:0,
+        promptInstruction:'',governanceRevision:snapshot.revision}];
+    })];
+  }
+
+  public settingRoster(): import('@wenmi/v7-backend').V7SettingMemberDefinition[] {
+    const roster=settingRosterFromGlobal(this.snapshot().members);
+    const ranked=settingReviewRanking();
+    const eligible=this.connectedMembers().filter(m=>this.credentialReady(m));
+    for(const member of eligible){
+      const reviewRank=ranked.findIndex(r=>r.profileKey===member.modelProfileKey);
+      const designRank=SETTING_DESIGN_PRIORITY.indexOf(member.modelProfileKey);
+      const roleKey=member.fixedRoleKey==='chief_editor'&&reviewRank>=0?'chief_editor'
+        :member.fixedRoleKey==='planning_writer'&&designRank>=0?'screenwriter':null;
+      if(roleKey===null||member.model.plan==='image')continue;
+      // Existing administrator off switches remain effective; candidate bindings are node-scoped.
+      if(publicMemberIdentity(member.memberKey)?.legacy&&!member.enabled)continue;
+      const value: import('@wenmi/v7-backend').V7SettingMemberDefinition={memberKey:member.memberKey,displayName:member.displayName,roleKey,
+        publicResponsibility:roleKey==='chief_editor'?'核对明确设定冲突并给出简短修订。':'依据作者资料设计高密度设定。',
+        enabledByDefault:true,fallbackPriority:(roleKey==='chief_editor'?reviewRank:designRank)+1,model:member.model};
+      const old=roster.findIndex(m=>m.memberKey===member.memberKey);
+      if(old>=0)roster[old]=value;else roster.push(value);
+    }
+    return roster.map(m=>({...m,fallbackPriority:m.roleKey==='screenwriter'
+      ? (SETTING_DESIGN_PRIORITY.indexOf(m.model.modelId)<0?100:SETTING_DESIGN_PRIORITY.indexOf(m.model.modelId)+1)
+      :m.roleKey==='chief_editor'?(ranked.findIndex(r=>r.profileKey===m.model.modelId)<0?100:ranked.findIndex(r=>r.profileKey===m.model.modelId)+1):m.fallbackPriority}));
+  }
+
   public fallback(roleKey: V7FixedRoleKey, selectedMemberKey?: string, excludeModelProfileKey?: string): V7EffectiveMember[] {
     const candidates = this.members(roleKey).filter((member) => member.modelProfileKey !== excludeModelProfileKey);
     const selected = selectedMemberKey === undefined ? undefined : candidates.find((member) => member.memberKey === selectedMemberKey);
@@ -112,6 +151,7 @@ export class V7AgentGovernanceService {
   public adminView(): object {
     const snapshot = this.snapshot();
     const openingMembers=this.openingRoster();
+    const settingMembers=this.settingRoster().filter(m=>m.roleKey!=='deputy_editor'&&m.fallbackPriority<100);
     const candidates = this.repository.candidateSlots().map(slot => {
       const identity = publicMemberIdentity(slot.memberKey)!;
       const model = slot.modelProfileKey === null ? null : modelBindingForProfile(slot.modelProfileKey);
@@ -123,22 +163,26 @@ export class V7AgentGovernanceService {
         credentialReady: model !== null && this.credentialReady({ model }),
         configurationOnly: true,
         openingNode: openingMembers.find(member=>member.memberKey===slot.memberKey)?.roleKey ?? null,
+        settingNode: settingMembers.find(member=>member.memberKey===slot.memberKey)?.roleKey ?? null,
         admission: { status: 'pending', reason: openingMembers.some(member=>member.memberKey===slot.memberKey)
-          ? '已通过开书节点测试并按速度接单；其他节点仍待验证。解绑模型可停止本节点接单。' : slot.modelProfileKey === null
+          ? '已通过开书节点测试并按速度接单；其他节点仍待验证。解绑模型可停止本节点接单。' : settingMembers.some(member=>member.memberKey===slot.memberKey)
+          ? '已接入设定节点；审查按合格成绩排序，设计按作者指定优先级。解绑模型可停止接单。' : slot.modelProfileKey === null
           ? '预留成员，可随时绑定同类型模型。' : '模型已绑定；待全书、卷等具体节点验证后接单，当前不会自动参与作者任务。' },
-        status: slot.modelProfileKey === null ? 'unbound' : 'candidate'
+        status: slot.modelProfileKey === null ? 'unbound' : settingMembers.some(member=>member.memberKey===slot.memberKey)||openingMembers.some(member=>member.memberKey===slot.memberKey)?'on_duty':'candidate'
       };
     });
     return {
       revision: snapshot.revision,
       openingEvaluation: OPENING_EVALUATION_REPORT,
+      settingEvaluation: SETTING_EVALUATION_REPORT,
+      settingSelection: this.settingRoster().filter(m=>m.roleKey!=='deputy_editor'&&m.fallbackPriority<100).map(m=>({memberKey:m.memberKey,roleKey:m.roleKey,modelId:m.model.modelId,order:m.fallbackPriority})),
       openingSelection: openingMembers.map(member=>({memberKey:member.memberKey,roleKey:member.roleKey,modelId:member.model.modelId,order:member.fallbackPriority})),
       summary: {
         roleCount: V7_ROLE_CONTRACTS.length,
         memberCount: MEMBER_SLOTS.length,
-        onDutyCount: snapshot.members.filter((member) => this.onDuty(member)).length,
+        onDutyCount: snapshot.members.filter((member) => this.onDuty(member)).length + candidates.filter(member => member.status === 'on_duty' && member.credentialReady).length,
         leaveCount: snapshot.members.filter((member) => !this.onDuty(member)).length,
-        candidateCount: candidates.filter(member => member.modelProfileKey !== null).length,
+        candidateCount: candidates.filter(member => member.status === 'candidate').length,
         unboundCount: candidates.filter(member => member.modelProfileKey === null).length
       },
       credentials: this.credentials,
@@ -164,6 +208,7 @@ export class V7AgentGovernanceService {
             fallbackPriority: member.fallbackPriority,
             temperatureAdjustment: member.temperatureAdjustment,
             credentialReady: this.credentialReady(member),
+            settingNode: settingMembers.find(candidate=>candidate.memberKey===member.memberKey)?.roleKey ?? null,
             admission: modelAdmissionForRole(role.roleKey, member.modelProfileKey),
             status: this.onDuty(member) ? 'on_duty' : 'on_leave'
           })), ...candidates.filter(member => member.roleKey === role.roleKey)]

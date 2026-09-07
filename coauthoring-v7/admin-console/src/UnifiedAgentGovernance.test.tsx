@@ -3,8 +3,10 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentGovernancePage } from './AgentGovernancePage';
+import { SETTING_EVALUATION_REPORT } from '@wenmi/agent-catalog';
 
 const governance = {
+  settingEvaluation: SETTING_EVALUATION_REPORT,
   openingEvaluation: {version:'fixture',testedAt:'2026-09-06T14:00:00Z',scope:'合成开书样本，不能代替上岗验证。',rows:[
     {profileKey:'deepseek-v4-pro',node:'design',milliseconds:64000,structurePassed:true,quality:'passed',assessment:'保留作者明确约束。',outputTokens:3600},
     {profileKey:'glm-5.3',node:'review',milliseconds:180000,structurePassed:false,quality:'unverified',assessment:'超时，暂不上岗。',outputTokens:null}
@@ -61,7 +63,10 @@ describe('V7统一成员治理后台', () => {
 
   it('将节点耗时、结构、内容和上岗边界分别显示', async () => {
     render(<AgentGovernancePage/>);
-    fireEvent.click(await screen.findByRole('tab', { name: '开书速度与准入' }));
+    fireEvent.click(await screen.findByRole('tab', { name: '模型速度与准入' }));
+    const setting=screen.getByRole('region',{name:'设定审查评测'});
+    expect(within(setting).getAllByText(/合格第/)).toHaveLength(3);
+    expect(within(setting).getByText(/漏掉/)).toBeVisible();
     const report=await screen.findByRole('region',{name:'开书节点评测'});
     expect(within(report).getByText('开书设计 · 64秒')).toBeVisible();
     expect(within(report).getByText('开书审查 · 180秒')).toBeVisible();
