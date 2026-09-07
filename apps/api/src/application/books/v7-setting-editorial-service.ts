@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { assertSettingReviewConsistency, settingReviewAuthority, SETTING_REVIEW_AUTHORITY_RULES } from './setting-review-consistency.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { SETTING_CONCISE_INSTRUCTION, assertConciseSetting } from '@wenmi/opening-runtime';
 import { SETTING_EVALUATION_REPORT, settingReviewRanking } from '@wenmi/agent-catalog';
@@ -1592,7 +1593,7 @@ export class V7SettingEditorialService {
             : null;
           const repaired = await this.model(
             task.owner_id, task.book_id, task.batch_id, '__batch_final_review__', 'batch_final_review_repair', chief,
-            conciseReview ? `${reviewPrompt.prompt}\n交付检查：${problem instanceof Error ? problem.message : '格式不完整'}。只修复结构或删除重复解释，保留条件、例外和数值，不增加冲突、不改变原有决定：${raw}` : `${reviewPrompt.prompt}\n上次统一整理结果已经保留，但JSON结构没有通过合同校验。只修复JSON结构和缺失字段，不重新判断、不增加冲突、不改变原有决定：${raw}`,
+            `${reviewPrompt.prompt}\n上次统一整理结果已经保留，但交付合同未通过。交付检查：${problem instanceof Error ? problem.message : '格式不完整'}。修复结构、缺失字段和结论与问题清单的不一致；保留条件、例外和数值，不新增冲突。不能删除未解决问题来凑通过，未落实修正时应返回needs_author。上次结果：${raw}`,
             reviewTokens,
             0.1,
             technicalRepairTaskId ?? repairTaskId,
@@ -1664,7 +1665,9 @@ export class V7SettingEditorialService {
             }
           }
         }
-        const review: FinalReviewModelResult = { ...detectedReview, patches: repairedPatches };
+        const review: FinalReviewModelResult = { ...detectedReview, patches: repairedPatches,
+          verdict: repairedPatches.some(patch => patch.issues.length > 0) ? 'needs_author' : detectedReview.verdict };
+        assertSettingReviewConsistency(review, true);
         if (conciseReview) {
           // Keep exact saved facts for unchanged items; never regenerate a second competing ledger.
           review.factLedger = items.map((item) => {
@@ -3544,6 +3547,7 @@ function compileBatchFinalReviewPrompt(
       '有冲突时选择对整本书最稳妥的一套表达，并只返回真正需要改动的条目。'
     ],
     hardRules: [
+      ...SETTING_REVIEW_AUTHORITY_RULES,
       '不能把候选计划、可能情节或主编推测写成已经发生的事实。',
       '不能新增开书资料没有授权的系统、超能力、游戏、修仙、后宫或其他题材。',
       '不能用空泛大词替换原有具体有效信息。',
@@ -3579,6 +3583,7 @@ function compileBatchFinalReviewPrompt(
       groupTitle: item.groupTitle,
       revision: item.revision,
       content: item.content,
+      authority: settingReviewAuthority(item),
       existingIssues: item.issues
     }))
   };
@@ -3599,6 +3604,7 @@ function compileBatchFinalReviewPrompt(
         groupTitle: item.groupTitle,
         revision: item.revision,
         contextSummary: projection.contextSummary,
+        authority: settingReviewAuthority(item),
         existingIssues: item.issues
       };
     }),
@@ -3630,6 +3636,7 @@ function compileBatchFinalReviewPrompt(
           groupTitle: item.groupTitle,
           revision: item.revision,
           contextSummary: boundIndexText(projection.contextSummary, 48),
+          authority: settingReviewAuthority(item),
           factCount: projection.factEntries.length
         };
       })
@@ -3667,9 +3674,11 @@ function compileBatchFinalReviewPatchPrompts(
       label: item.label,
       groupTitle: item.groupTitle,
       currentContent: item.content,
+      authority: settingReviewAuthority(item),
       existingIssues: item.issues
     })),
     hardRules: [
+      ...SETTING_REVIEW_AUTHORITY_RULES.slice(0, 2),
       'patches必须逐项完整覆盖affectedItems，不能遗漏，也不能返回其他条目。',
       'finalContent必须是改好后的完整正文，不能只给差异或一句决定。',
       '即使某个条目已经采用最终口径，也要原样保留有效内容并返回完整正文，确保本组结果可原子核对。',
@@ -3845,6 +3854,7 @@ function parseBatchFinalReview(
     };
   });
   if (!allowPatches && patches.length > 0) throw new Error('轻量总审不能直接改写完整设定条目');
+  assertSettingReviewConsistency({ verdict, conflicts, patches }, allowPatches);
   if (new Set(groupSummaries.flatMap((entry) => entry.itemKeys)).size !== items.length) {
     throw new Error('设定分组摘要没有完整覆盖当前设定');
   }

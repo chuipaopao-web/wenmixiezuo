@@ -21,6 +21,52 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7设定编辑部', () => {
+  it.each(['repair', 'reject'] as const)('来源身份明确且矛盾通过结论走既有%s路径，不污染正式设定', async mode => {
+    context=createTestContext('r154-'+mode+'-');
+    const delegate=new SettingResolver(false);let calls=0;const prompts:string[]=[];
+    const resolver:V7OpeningModelAdapterResolver={resolve(provider,modelId,purpose){
+      const adapter=delegate.resolve(provider,modelId,purpose);
+      return {...adapter,generate:async(request,signal)=>{
+        const stage=settingStagePrompt(request.prompt);
+        if(!stage.includes('v7_setting_batch_final_review_v1'))return adapter.generate(request,signal);
+        calls++;prompts.push(stage);
+        const repaired=mode==='repair'&&stage.includes('上次结果：');
+        return successfulModelResult(provider,modelId,JSON.stringify({verdict:repaired?'needs_author':'pass',summary:repaired?'功效尚需确认。':'检查通过。',unifiedDecisions:[],conflicts:[],patches:[{
+          itemKey:'history-baseline',finalContent:'该候选办法的实际功效还没有可靠依据，需要作者决定是否作为虚构规则采用。',summary:'保留待决定问题。',contextSummary:'功效尚待确认。',factEntries:['该候选办法的实际功效还没有可靠依据。'],issues:[{problem:'功效未经核实',impact:'可能影响设定成立',suggestion:'核实或明确为虚构规则'}],suggestions:[]
+        }]}));
+      }};
+    }};
+    const app=await createServer(context.config,context.database,{v7OpeningModelAdapters:resolver});
+    try{
+      const cookie=await register(app,'r154-'+mode+'@example.test','审查验收','fixture-pass-154');
+      const bookId=await createBook(app,cookie,'审查验收','r154-book-'+mode,'历史脑洞');const url=`/api/v1/v7/books/${bookId}`;
+      const seeded=await app.inject({method:'POST',url:url+'/setting-batches',headers:{...HEADERS,cookie},payload:{selectedItemKeys:['world-stage','history-baseline'],idempotencyKey:'r154-seed-'+mode}});
+      await pollBatch(app,cookie,bookId,seeded.json().data.batchId);
+      const department=await app.inject({method:'GET',url:url+'/setting-department',headers:{...HEADERS,cookie}});
+      const world=department.json().data.confirmedItems.find((item:{itemKey:string})=>item.itemKey==='world-stage');
+      const accepted=await app.inject({method:'POST',url:url+'/setting-items/world-stage/confirm',headers:{...HEADERS,cookie},payload:{expectedRevision:world.revision}});
+      expect(accepted.statusCode,accepted.body).toBe(200);
+      const before=context.database.prepare('SELECT * FROM v7_setting_item_versions WHERE book_id=? AND status=\'confirmed\' ORDER BY version_id').all(bookId);
+      const currentBefore=context.database.prepare('SELECT * FROM v7_setting_items WHERE book_id=? ORDER BY item_key').all(bookId);
+      const requested=await app.inject({method:'POST',url:url+'/setting-final-reviews',headers:{...HEADERS,cookie},payload:{idempotencyKey:'r154-review-'+mode}});
+      expect(requested.statusCode,requested.body).toBe(200);
+      const result=await pollFinalReview(app,cookie,bookId);
+      const payload=JSON.parse(prompts[0]!);
+      expect(payload.currentSettingCandidates.find((item:{itemKey:string})=>item.itemKey==='world-stage').authority).toBe('confirmed');
+      expect(payload.currentSettingCandidates.find((item:{itemKey:string})=>item.itemKey==='history-baseline').authority).toBe('candidate');
+      if(mode==='repair'){
+        expect(calls).toBe(2);expect(result.status).toBe('ready');expect(result.result.verdict).toBe('needs_author');
+        const current=context.database.prepare('SELECT state FROM v7_setting_items WHERE book_id=? AND item_key=?').get(bookId,'history-baseline');
+        expect(current?.state).toBe('candidate');
+        const view=(await app.inject({method:'GET',url:url+'/setting-department',headers:{...HEADERS,cookie}})).json().data.confirmedItems.find((item:{itemKey:string})=>item.itemKey==='history-baseline');
+        expect(view.state).toBe('needs_author');expect(view.issues).toHaveLength(1);
+      }else{
+        expect(result.status).toBe('failed');expect(calls).toBeGreaterThanOrEqual(2);
+        expect(context.database.prepare('SELECT * FROM v7_setting_items WHERE book_id=? ORDER BY item_key').all(bookId)).toEqual(currentBefore);
+      }
+      expect(context.database.prepare('SELECT * FROM v7_setting_item_versions WHERE book_id=? AND status=\'confirmed\' ORDER BY version_id').all(bookId)).toEqual(before);
+    }finally{await app.close();}
+  });
   it('已知失败恢复采用新尝试，保留原设定与历史调用并防重', async () => {
     context=createTestContext('r147-recovery-');
     const delegate=new SettingResolver(false);let failing=true;
@@ -1228,6 +1274,7 @@ describe('V7设定编辑部', () => {
         .find((prompt) => prompt.includes('v7_setting_batch_final_review_v1'))!;
       expect(reviewPrompt).toContain('layered_semantic_index');
       expect(reviewPrompt).not.toContain('原文标记1');
+      expect(JSON.parse(reviewPrompt).currentSettingCandidates.every((item:{authority:string})=>item.authority==='confirmed')).toBe(true);
       expect(Array.from(reviewPrompt).length).toBeLessThanOrEqual(12_000);
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
         WHERE book_id=? AND node_key='batch_final_review' AND state='succeeded'`).get(bookId)).toEqual({ count: 1 });
@@ -1278,6 +1325,7 @@ describe('V7设定编辑部', () => {
       expect(reviewPrompt).toContain('layered_semantic_index');
       expect(reviewPrompt).toContain('一句话索引');
       expect(reviewPrompt).not.toContain('冗'.repeat(60));
+      expect(JSON.parse(reviewPrompt).currentSettingCandidates.every((item:{authority:string})=>item.authority==='confirmed')).toBe(true);
       expect(Array.from(reviewPrompt).length).toBeLessThanOrEqual(12_000);
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
         WHERE book_id=? AND node_key='batch_final_review' AND state='succeeded'`).get(bookId)).toEqual({ count: 1 });
@@ -2061,7 +2109,7 @@ class StructureRecoveryResolver implements V7OpeningModelAdapterResolver {
           }
         }
         if (completePrompt.includes('v7_setting_batch_final_review_v1')) {
-          const repair = completePrompt.includes('上次统一整理结果已经保留，但JSON结构没有通过合同校验');
+          const repair = completePrompt.includes('上次统一整理结果已经保留');
           if (repair) {
             this.finalReviewRepairCalls += 1;
             if (this.failFinalReviewRepair) throw new Error('模拟统一整理repair已知失败');
