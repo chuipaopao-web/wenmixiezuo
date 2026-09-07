@@ -6,7 +6,7 @@ import './styles.css';
 const root = document.getElementById('root');
 
 if (root === null) {
-  throw new Error('V7 author app root is missing.');
+  throw new Error('Author app root is missing.');
 }
 
 createRoot(root).render(

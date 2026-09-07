@@ -59,7 +59,7 @@ export function FeatureCapabilitiesPage(): React.JSX.Element {
 
   return <div className="feature-ledger-page">
     <header className="feature-ledger-heading">
-      <div><h2>功能台账</h2><p>查看 V7 当前能力、旧功能去向和疑似遗漏。代码证据默认收起，需要时再展开。</p></div>
+      <div><h2>功能台账</h2><p>查看当前能力、旧功能去向和疑似遗漏。代码证据默认收起，需要时再展开。</p></div>
       <button type="button" disabled={refreshing} onClick={() => void load()}>
         <ArrowClockwise className={refreshing ? 'spinning' : ''} />{refreshing ? '核对中…' : '重新核对'}
       </button>

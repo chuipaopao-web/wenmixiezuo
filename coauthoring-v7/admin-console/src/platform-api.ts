@@ -616,6 +616,25 @@ const API_ORIGIN = configuredOrigin && configuredOrigin.length > 0
 export const ADMIN_AUTHENTICATION_REQUIRED_EVENT = 'wenmi:v7-admin-authentication-required';
 export const AUTHOR_SITE_ORIGIN = resolveAuthorSiteOrigin(import.meta.env.VITE_PUBLIC_ORIGIN);
 
+async function accountRequest<T>(action: (signal: AbortSignal) => Promise<T>, externalSignal?: AbortSignal): Promise<T> {
+  const controller = new AbortController();
+  const cancel = (): void => controller.abort();
+  let timedOut = false;
+  if (externalSignal?.aborted) controller.abort();
+  externalSignal?.addEventListener('abort', cancel, { once: true });
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 15_000);
+  try {
+    return await action(controller.signal);
+  } catch (reason) {
+    if (timedOut) throw new Error('连接后台超时，请检查网络后重试。');
+    if (reason instanceof TypeError) throw new Error('暂时连接不上后台，请检查网络后重试。');
+    throw reason;
+  } finally {
+    clearTimeout(timer);
+    externalSignal?.removeEventListener('abort', cancel);
+  }
+}
+
 export async function platformRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_ORIGIN}${path}`, {
     ...init,
@@ -637,19 +656,21 @@ export async function platformRequest<T>(path: string, init: RequestInit = {}): 
 }
 
 export async function fetchCurrentAccount(signal?: AbortSignal): Promise<AdminAccount | null> {
-  const response = await fetch(`${API_ORIGIN}/api/v1/auth/me`, {
-    credentials: 'include',
-    headers: { accept: 'application/json' },
-    ...(signal === undefined ? {} : { signal })
-  });
-  if (response.status === 401) return null;
-  const payload = await response.json().catch(() => ({})) as ApiEnvelope<AdminAccount>;
-  if (!response.ok || payload.data === undefined) throw new Error(safeMessage(payload.error?.message, response.status));
-  return payload.data;
+  return accountRequest(async (requestSignal) => {
+    const response = await fetch(`${API_ORIGIN}/api/v1/auth/me`, {
+      credentials: 'include',
+      headers: { accept: 'application/json' },
+      signal: requestSignal
+    });
+    if (response.status === 401) return null;
+    const payload = await response.json().catch(() => ({})) as ApiEnvelope<AdminAccount>;
+    if (!response.ok || payload.data === undefined) throw new Error(safeMessage(payload.error?.message, response.status));
+    return payload.data;
+  }, signal);
 }
 
 export function loginAccount(input: { email: string; password: string }): Promise<{ account: AdminAccount; expiresInSeconds: number }> {
-  return platformRequest('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(input) });
+  return accountRequest(signal => platformRequest('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(input), signal }));
 }
 
 export function logoutAccount(): Promise<{ loggedOut: boolean }> {

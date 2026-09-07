@@ -287,7 +287,7 @@ export function AuthorAuthenticationPage({
   return <main className="v7-account-shell">
     <section className="v7-account-card v7-account-auth-card" aria-labelledby="v7-account-title">
       <BrandMark />
-      <p className="v7-account-eyebrow">文秘写作 V7</p>
+      <p className="v7-account-eyebrow">文秘写作</p>
       <h1 id="v7-account-title">{mode === 'login' ? '欢迎回来' : '创建作者账号'}</h1>
       <p className="v7-account-intro">{mode === 'login' ? '登录后继续您的创作。' : '注册后即可开始创作。'}</p>
 

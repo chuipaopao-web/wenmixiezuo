@@ -130,7 +130,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
   }, [section]);
 
   return <div className="asset-admin-app">
-    <aside className="asset-sidebar" aria-label="V7 管理后台导航">
+    <aside className="asset-sidebar" aria-label="管理后台导航">
       <header><span className="asset-brand-mark">文</span><div><strong>文秘产品管理</strong><small>功能、配置与平台运营</small></div></header>
       <nav>{NAVIGATION.map(({ key, label, icon: Icon, group }, index) => <Fragment key={key}>
         {(index === 0 || NAVIGATION[index - 1]?.group !== group) && <span className="asset-nav-group">{group}</span>}
@@ -141,7 +141,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
           onClick={() => navigate(key)}
         ><Icon aria-hidden="true" /><span>{label}</span></button>
       </Fragment>)}</nav>
-      <footer className="asset-account-footer"><div><span>{account.displayName.slice(0, 1).toUpperCase()}</span><p><strong>{account.displayName}</strong><small>平台管理员</small></p></div><div><button type="button" aria-label="退出 V7 管理后台" title="退出" onClick={() => void onSignOut()}><SignOut /></button></div></footer>
+      <footer className="asset-account-footer"><div><span>{account.displayName.slice(0, 1).toUpperCase()}</span><p><strong>{account.displayName}</strong><small>平台管理员</small></p></div><div><button type="button" aria-label="退出管理后台" title="退出" onClick={() => void onSignOut()}><SignOut /></button></div></footer>
     </aside>
 
     <div className="asset-stage">
@@ -506,7 +506,7 @@ function RecipeDetail({ value }: { value: Extract<AssetDetail, { kind: 'recipe' 
       ['标准阶段', `${value.stages.length} 个`],
       ['常见题材', value.commonGenreFamilies.length === 0 ? '跨题材通用' : value.commonGenreFamilies.map(getGenreLabel).join('、')],
       ['适用提示', value.fitSignals.join('、')],
-      ['资产来源', value.legacyTemplateKeys.length > 0 ? '承接历史版本有效责任并按 V7 重写' : 'V7 新增配方'],
+      ['资产来源', value.legacyTemplateKeys.length > 0 ? '承接历史版本有效责任并重新实现' : '新增配方'],
       ['内部标识', value.key]
     ]} />
     <DetailSection title="五个标准阶段">

@@ -66,7 +66,7 @@ export function AdminRoot(): React.JSX.Element {
   if (account.role !== 'admin') return <main className="asset-auth-state asset-denied">
     <ShieldCheck aria-hidden="true" />
     <h1>当前账号没有管理权限</h1>
-    <p>V7 后台包含平台运营数据和内部创作资产，只允许管理员查看。</p>
+    <p>后台包含平台运营数据和内部创作资产，只允许管理员查看。</p>
     <div><a href={AUTHOR_SITE_ORIGIN}><ArrowLeft aria-hidden="true" />返回作者创作台</a><button type="button" onClick={() => void signOut()}>退出当前账号</button></div>
   </main>;
 

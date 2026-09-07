@@ -33,6 +33,30 @@ import {
 describe('V7 管理后台平台 API 适配', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  test.each(['identity', 'login'])('%s请求卡住时有界结束并允许重新请求', async kind => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    })));
+    const request = kind === 'identity' ? fetchCurrentAccount() : loginAccount({ email: 'admin@example.test', password: 'local-test' });
+    const assertion = expect(request).rejects.toThrow('连接后台超时');
+    await vi.advanceTimersByTimeAsync(15_000);
+    await assertion;
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 401 })));
+    await expect(fetchCurrentAccount()).resolves.toBeNull();
+  });
+
+  test('身份请求随组件卸载取消，不当作网络超时', async () => {
+    vi.stubGlobal('fetch', vi.fn((_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    })));
+    const controller = new AbortController();
+    const request = fetchCurrentAccount(controller.signal);
+    controller.abort();
+    await expect(request).rejects.toMatchObject({ name: 'AbortError' });
   });
 
   test('未登录身份核验返回 null，不伪装管理员', async () => {
