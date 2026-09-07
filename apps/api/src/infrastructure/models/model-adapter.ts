@@ -7,6 +7,8 @@ export interface ModelRequest {
   bookId: string;
   agentId: string;
   prompt: string;
+  /** Trusted gateway task kind; scopes model protocol changes to verified nodes. */
+  executionKind?: 'opening_design';
   supplementalInstructions?: string;
   maxOutputTokens: number;
   temperature?: number;

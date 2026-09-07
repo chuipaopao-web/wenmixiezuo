@@ -346,6 +346,7 @@ describe('V7开书Agent平台接入', () => {
       const first = await gateway.generate(request);
       expect(first.requestId).toBe(request.requestId);
       expect(resolver.generateCount).toBe(1);
+      expect(resolver.executionKinds).toEqual(['opening_design']);
 
       await expect(gateway.generate({
         ...request,
@@ -1468,6 +1469,7 @@ function latestCandidate(view: any, kind: string): any {
 
 class ScriptedResolver implements V7OpeningModelAdapterResolver {
   public generateCount = 0;
+  public readonly executionKinds: Array<ModelRequest['executionKind']> = [];
   public readonly temperatures: Array<number | undefined> = [];
   public constructor(private readonly mode: 'success' | 'unknown' | 'decision' = 'success') {}
 
@@ -1477,6 +1479,7 @@ class ScriptedResolver implements V7OpeningModelAdapterResolver {
       modelId,
       generate: async (request: ModelRequest): Promise<ModelResult> => {
         this.generateCount += 1;
+        this.executionKinds.push(request.executionKind);
         this.temperatures.push(request.temperature);
         if (this.mode === 'unknown') {
           throw new ModelAdapterError('连接断开，无法确认供应商是否已经完成', 'technical_failure', true, undefined, true);

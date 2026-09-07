@@ -1,8 +1,8 @@
 // Reviewed synthetic node evidence; raw first runs and rechecks are archived separately.
 export const OPENING_EVALUATION_REPORT = {
-  "version": "opening-r133",
-  "testedAt": "2026-09-06T16:10:57.734Z",
-  "scope": "当前7种文字模型先逐一设计，再逐一审查；共14个初测记录全部保留。3个设计格式错误做一次修复，按首次返回加修复总耗时排名。审查先用旧目录压力样本，随后对3个结构合格模型，用系统已校验目录且含禁止系统冲突的共同候选复核；这3个按复核耗时排名，其余保留初测失败。全部顺序执行、每调用180秒、同岗位同输入/参数；只是本题单次完整返回时间，不是首字速度或长期平均。",
+  "version": "opening-r149",
+  "testedAt": "2026-09-07T16:53:02.779Z",
+  "scope": "R149仅复测GLM5.3设计，Coding Chat low，同一合成想法：阶段提示首次17.9秒、完整岗位编译修复18.3秒，按合计36.3秒排名；非完整线上任务耗时。其余保留R133七型号各自设计/审查记录，修复计入耗时；阶段不同、协议不同，不是严格同参横向评测或长期平均。原始记录保留，设定另行验证。",
   "rows": [
     {
       "profileKey": "deepseek-v4-pro",
@@ -29,11 +29,13 @@ export const OPENING_EVALUATION_REPORT = {
     {
       "profileKey": "glm-5.3",
       "node": "design",
-      "milliseconds": 180005,
-      "structurePassed": false,
-      "quality": "unverified",
-      "assessment": "达到180秒测试期限，未取得可用开书信息，本节点不接单。",
-      "outputTokens": null
+      "milliseconds": 36278,
+      "firstMilliseconds": 17937,
+      "repairMilliseconds": 18341,
+      "structurePassed": true,
+      "quality": "passed",
+      "assessment": "R149 Coding Chat low：同一合成想法首次17.9秒有目录外标签，完整岗位上下文修复18.3秒后通过。保留唯一主角、无系统、知识试错代价；按两次合计排名，非线上整任务或长期平均。仅开书设计准入，设定设计仍未通过。",
+      "outputTokens": 1870
     },
     {
       "profileKey": "glm-5.3-flash",

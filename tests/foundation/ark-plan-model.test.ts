@@ -13,6 +13,21 @@ const request = {
 };
 
 describe('火山方舟严格套餐适配器', () => {
+  it.each([
+    ['glm-5.3','opening_design',true],['glm-5.3',undefined,false],
+    ['glm-5.3-flash','opening_design',false],['deepseek-v4-pro','opening_design',false]
+  ] as const)('%s/%s只为已验证开书设计切换Chat协议',async(modelId,executionKind,chat)=>{
+    const fetchImpl=vi.fn<typeof fetch>(async(url,init)=>{
+      expect(String(url)).toBe(`https://ark.cn-beijing.volces.com/api/coding/${chat?'v3/chat/completions':'v1/messages'}`);
+      const body=JSON.parse(String(init?.body));
+      if(chat)expect(body).toMatchObject({thinking:{type:'enabled'},reasoning_effort:'low',max_tokens:14000});
+      else expect(body).not.toHaveProperty('reasoning_effort');
+      return Response.json(chat?{choices:[{message:{content:'{}'}}],usage:{prompt_tokens:100,completion_tokens:500}}:{content:[{type:'text',text:'{}'}]});
+    });
+    const adapter=new ArkPlanModelAdapter({plan:'coding',provider:'volcengine-ark-coding-plan',modelId,baseUrl:'https://ark.cn-beijing.volces.com/api/coding',apiKey:'test',purpose:'structured_planning'},fetchImpl);
+    await adapter.generate({...request,maxOutputTokens:6000,...(executionKind?{executionKind}:{})});
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
   it.each(['glm-5.3','glm-5.3-flash'])('%s审查走套餐Chat低推理并保留补充指令与完整计量', async modelId => {
     const fetchImpl=vi.fn<typeof fetch>(async (url,init)=>{
       expect(String(url)).toBe('https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions');

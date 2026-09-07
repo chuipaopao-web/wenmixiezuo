@@ -56,6 +56,10 @@ export class ArkPlanModelAdapter implements ModelAdapter {
   }
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
+    const glmChat = this.#glmReviewChat || (this.options.plan === 'coding'
+      && this.modelId === 'glm-5.3' && this.options.purpose === 'structured_planning'
+      && request.executionKind === 'opening_design');
+    const endpoint = glmChat ? `${assertPlanBaseUrl(this.options.plan, this.options.baseUrl)}/v3/chat/completions` : this.#endpoint;
     if (this.options.purpose === 'interactive_planning'
       && !['doubao-seed-2.1-turbo', 'deepseek-v4-pro'].includes(this.modelId)) {
       throw new ModelAdapterError('该模型未进入快速方案路线，请改用当前方案成员。', 'request_failure', false);
@@ -79,7 +83,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
     try {
     let response: Response;
     try {
-      response = await this.fetchImpl(this.#endpoint, {
+      response = await this.fetchImpl(endpoint, {
         method: 'POST',
         headers: {
           authorization: `Bearer ${this.options.apiKey}`,
@@ -93,7 +97,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
           // 随提示词规模折算（2026-09-02 实测：固定1k会被失控思考全部烧穿）。
           max_tokens: request.maxOutputTokens + thinkingTokenAllowance(this.modelId, this.options.purpose, request.maxOutputTokens, request.prompt.length),
           ...temperature,
-          ...(this.#glmReviewChat ? {
+          ...(glmChat ? {
             // Z.ai GLM 5.3 requires thinking. Ark Coding Chat supports low effort;
             // omitting the field does not disable reasoning. R148 synthetic review.
             thinking: { type: 'enabled' }, reasoning_effort: 'low',
@@ -141,7 +145,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
     try {
       const payload = await response.json() as ArkMessagesResponse & ArkChatResponse;
       // Normalize only submitted text and counts; never retain provider reasoning.
-      body = this.#glmReviewChat ? {
+      body = glmChat ? {
         content: typeof payload.choices?.[0]?.message?.content === 'string'
           ? [{ type: 'text', text: payload.choices[0].message.content }] : [],
         stop_reason: payload.choices?.[0]?.finish_reason ?? 'unknown',

@@ -125,6 +125,7 @@ export class V7OpeningAgentModelGateway implements OpeningAgentModelGateway {
         bookId: `v7-prebook:${request.taskId}`,
         agentId: request.member.memberKey,
         prompt: compiled.manifest.compiledPrompt,
+        ...(request.taskKind === 'opening_design' ? { executionKind: 'opening_design' as const } : {}),
         maxOutputTokens: request.maxOutputTokens,
         temperature: runtimePolicy.temperature
       });
