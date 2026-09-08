@@ -1,6 +1,6 @@
 # 文秘写作全产品重构执行文档与开发顺序表
 
-> 版本1.67 · 2026-09-09 · 第171批逐主题设定与详情开合修复已上线，最终完整回归59项通过
+> 版本1.68 · 2026-09-09 · 第172批按用户决定改为四项批次、全部辅助字段折叠，正在验证
 >
 > 本文是全产品重构的**唯一执行顺序和进度来源**；[详细开发规格](REBUILD_DEVELOPMENT_SPEC.md)保留产品与工程设计解释。
 >
@@ -688,7 +688,7 @@
 
 - **第171批发布（覆盖170批）**：2026-09-09 05:20:09上线wm-v7-20260909-053000-2bd365fb，静态276d3254f2a1755b3a19。最终完整后端回归于05:21:51开始，59项全部通过（artifacts/r171-final-complete-suite.log）；此前失败轮次保留，不作为通过证据。另26项作者组件、完整类型、390/1440浏览器与服务器独立构建/模块校验通过。在途连续30秒零后切换，健康、新Worker心跳、公网入口资源与401通过。完整源码/opt/wenmi-releases/wm-v7-20260909-053000-2bd365fb/source；无数据迁移/清理，无额外真实模型调用。
 
-- **第171批确认方案（覆盖170批展示）**：每次只设计一个主题，取消同组最多5项及尾项合并6项的安排；负责人顺序接续，每项完成即保存，再读取最新已完成草案；已确认规则与草案明确区分，资料超预算时挑完整相关事实，不截断条件或伪造正式事实。失败仍按现有冻结成员续做，结果未知不盲目重发；预算按单主题次数估计，不用固定字数承诺准确性。查看详情真实展开完整规则与操作，收起仅短预览。条件、适用、涉及收在每主题唯一小字“规则详情”，代价与例外直接可见；已知内部目录引用显示中文，存储和上下文保持完整。[检查记录](../coauthoring-v7/docs/worklists/SETTING-SINGLE-TOPIC-171.md)。
+- **第172批确认方案（覆盖171批）**：用户明确决定每次4项，相关主题最多4项一批，余项单独处理，不回并为5/6项；负责人顺序接续，完成即保存，再读取最新已完成草案。已确认规则与草案区分，资料超预算时挑完整相关事实，不截断条件。保留失败换员与未知调用保护，预算随批次数估计。查看详情展开完整正文与操作，收起短预览；条件、适用、涉及、代价、限制与例外全部放入唯一小字“规则详情”，正文区域不再逐条显示辅助小字。仅有代价或例外仍可展开。折叠只改变作者页面，不改rules存储或后台renderSettingRule完整投影，不影响AI及后续资料包读取，作者无需先展开。[检查记录](../coauthoring-v7/docs/worklists/SETTING-FOUR-TOPICS-172.md)。
 
 - **确认方案·确认与实施状态**：2026-09-08用户确认完整方案并授权连续完成、测试、部署。三步实现已补齐：24主题及规则卡同源、分层选材与对象依赖、旧主题完整覆盖核对、修改语义分类、规划/定稿冲突拦截、明确作者规则取舍及批量原子确认。2026-09-09 00:32:59已发布wm-v7-20260909-003000-2c5dfc42，静态b1f55fc5353a6dec6a42；完整工程验证、55项最终复核、390/1440界面、服务器独立构建与75个旧资产内存升级、公网健康/Worker新心跳/资源与401检查通过。保留全部确认方案；长期阅读效果持续评测，不以工程测试代替百万字文学验证。
 - **确认方案·目标与现状**：目标是几百万字长篇、跨题材、结果简洁专业、资料可准确检索及注入；不承诺零崩坏或固定字数保证注意力。核对现有目录60候选项（34通用、26扩展），非每本书全部启用。已有摘要、事实和下游筛选，仍有通用与题材扩展重叠、力量等级通用化及部分路径硬性150—300/600字和重复字段等问题。
@@ -747,7 +747,7 @@
 - **确认方案·验收06·长篇效果**：工程链路及少量真实语义小样持续核验：两卷规划与定稿的隔离资料检查了来源、冲突、版本失效和正文保护；三次Kimi审查分别约4.8/5.1/2.6秒，识别限制扩大、正文矛盾与明确未来生效的合理变化。百万字连续阅读质量尚无实证，作为后续持续评测项，不伪称完成。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/books/v7-setting-editorial-service.ts,apps/api/src/application/books/v7-task-roster-snapshot.ts,apps/api/src/infrastructure/db/repositories/setting-change-impact.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-rules.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-catalog.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-agent-support.ts,rebuild/packages/backend/src/legacy-opening/agent-governance/agent-governance-registry.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/books/setting-continuity.ts,apps/api/src/infrastructure/db/repositories/setting-version-selection.ts,apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.ts,coauthoring-v7/author-app/src/SettingPage.tsx,apps/api/src/infrastructure/db/repositories/setting-continuity-repository.ts,apps/api/src/application/agents/book-creative-context.ts
-- **管理·代码核对**：41a789dc80b1a8652d2fa13647ed367ed16c107c0f6ecacfa45bb00720b754a6
+- **管理·代码核对**：4dec511b9413be99b8dabe7b8a9dd8167678b4b0d07bf07a14c7870e95e729d7
 
 - **管理·共享步骤**：AI-008,AI-009
 

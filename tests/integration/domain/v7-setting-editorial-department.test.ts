@@ -693,7 +693,7 @@ describe('V7设定编辑部', () => {
       expect(resolver.prompts.join('\n')).toContain('东汉末年');
       expect(resolver.prompts.join('\n')).not.toContain('主角处于社会底层');
       expect(resolver.prompts.join('\n')).not.toContain('危机中醒来');
-      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_member_events WHERE owner_id=(SELECT owner_id FROM books WHERE book_id=?) AND book_id=? AND event_type='handoff'`).get(firstBook, firstBook)).toEqual({ count: 1 });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_member_events WHERE owner_id=(SELECT owner_id FROM books WHERE book_id=?) AND book_id=? AND event_type='handoff'`).get(firstBook, firstBook)).toEqual({ count: 2 });
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_jobs WHERE book_id=? AND context_hash IS NOT NULL`).get(firstBook)).toEqual({ count: 2 });
       const settingSources = context.database.prepare(`SELECT DISTINCT s.owner_id AS ownerId,s.book_id AS bookId,
         s.source_type AS sourceType,s.authority,s.decision
@@ -711,8 +711,8 @@ describe('V7设定编辑部', () => {
       expect(repeated.statusCode).toBe(200);
       expect(repeated.json().data.batchId).toBe(batchId);
       const callCount = (context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=?`).get(firstBook) as { count: number }).count;
-      // 旧兼容任务改为逐项设计/审查；幂等请求不再次派发模型调用。
-      expect(callCount).toBe(7);
+      // 同类两项在四项上限内合并；幂等请求不再次派发模型调用。
+      expect(callCount).toBe(2);
 
       const firstItem = completed.items.find((item: { itemKey: string }) => item.itemKey === 'world-stage');
       const confirmed = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-items/world-stage/confirm`, headers: { ...HEADERS, cookie }, payload: { expectedRevision: firstItem.revision } });
@@ -747,7 +747,7 @@ describe('V7设定编辑部', () => {
         operationMode: 'revise', basedOnTaskId: sourceBeforeAuthorRevision.taskId, authorInstructionVersion: 1
       });
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_versions WHERE book_id=? AND item_key='world-stage'`).get(firstBook)).toEqual({ count: 3 });
-      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=? AND node_key IN ('chief','chief_repair')`).get(firstBook)).toEqual({ count: 6 });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=? AND node_key IN ('chief','chief_repair')`).get(firstBook)).toEqual({ count: 2 });
       const repeatedRevision = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-items/world-stage/revisions`, headers: { ...HEADERS, cookie }, payload: { content: '这是作者修改后的世界舞台，新版本保留旧版，不原地覆盖。', idempotencyKey: 'setting-author-revision-0001' } });
       expect(repeatedRevision.statusCode).toBe(200);
       expect(repeatedRevision.json().data.batchId).toBe(revisionBatchId);
@@ -966,7 +966,7 @@ describe('V7设定编辑部', () => {
     } finally { await app.close(); }
   });
 
-  it('同类设定逐主题设计，每项独立资料包并读取前项草案后再统一审查', async () => {
+  it('五项同类设定拆为4加1，尾项不并回前批且接续前批草案', async () => {
     context = createTestContext('wenmi-v7-setting-grouped-');
     const resolver = new SettingResolver(false);
     const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
@@ -976,7 +976,7 @@ describe('V7设定编辑部', () => {
       const created = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
         payload: {
-          selectedItemKeys: ['world-stage', 'geography', 'hazards', 'civilization'],
+          selectedItemKeys: ['world-stage', 'geography', 'hazards', 'civilization', 'history'],
           customItems: [], authorNotes: {}, designMemberKey: 'planner-deepseek-v4-pro', idempotencyKey: 'setting-grouped-batch-0001'
         }
       });
@@ -984,20 +984,21 @@ describe('V7设定编辑部', () => {
       const batchId = created.json().data.batchId as string;
       const completed = await pollBatch(app, cookie, bookId, batchId);
       expect(completed.status).toBe('awaiting_author');
-      expect(completed.progress).toEqual({ completed: 4, total: 4, percent: 100 });
+      expect(completed.progress).toEqual({ completed: 5, total: 5, percent: 100 });
       expect(completed.items.every((item: { state: string; content: string | null }) => (
         item.state === 'needs_author' && typeof item.content === 'string' && item.content.length > 20
       ))).toBe(true);
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
-        WHERE book_id=? AND batch_id=? AND node_key='writer_group' AND state='succeeded'`).get(bookId, batchId)).toEqual({ count: 4 });
+        WHERE book_id=? AND batch_id=? AND node_key='writer_group' AND state='succeeded'`).get(bookId, batchId)).toEqual({ count: 2 });
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
         WHERE book_id=? AND batch_id=? AND node_key IN ('chief','chief_repair')`).get(bookId, batchId)).toEqual({ count: 0 });
       const contexts = context.database.prepare(`SELECT DISTINCT context_hash AS contextHash,context_manifest_json AS manifest
         FROM v7_setting_item_jobs WHERE book_id=? AND batch_id=?`).all(bookId, batchId) as Array<{ contextHash: string; manifest: string }>;
-      expect(contexts).toHaveLength(4);
+      expect(contexts).toHaveLength(2);
+      expect(contexts.map((context) => JSON.parse(context.manifest).itemKeys.length).sort()).toEqual([1, 4]);
       for (const context of contexts) {
         const manifest = JSON.parse(context.manifest) as { characterCount: number; budgetChars: number; itemKeys: string[] };
-        expect(manifest.itemKeys).toHaveLength(1);
+        expect(manifest.itemKeys.length).toBeLessThanOrEqual(4);
         expect(manifest.characterCount).toBeLessThanOrEqual(manifest.budgetChars);
         expect(manifest.budgetChars).toBe(12_000);
       }
@@ -1624,14 +1625,14 @@ describe('V7设定编辑部', () => {
       resolver.releaseWriter();
       for (let index = 0; index < 120; index += 1) {
         const stored = context.database.prepare(`SELECT state FROM v7_setting_model_calls
-          WHERE owner_id=? AND book_id=? AND batch_id=? AND node_key='writer'
+          WHERE owner_id=? AND book_id=? AND batch_id=? AND node_key='writer_group'
           ORDER BY started_at DESC LIMIT 1`).get(owner.owner_id, bookId, batchId) as { state: string } | undefined;
         if (stored?.state === 'succeeded') break;
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
       await new Promise((resolve) => setTimeout(resolve, 10));
       expect(context.database.prepare(`SELECT state FROM v7_setting_model_calls
-        WHERE owner_id=? AND book_id=? AND batch_id=? AND node_key='writer'
+        WHERE owner_id=? AND book_id=? AND batch_id=? AND node_key='writer_group'
         ORDER BY started_at DESC LIMIT 1`).get(owner.owner_id, bookId, batchId)).toEqual({ state: 'succeeded' });
 
       expect(context.database.prepare(`SELECT status,lease_token,lease_expires_at,updated_at

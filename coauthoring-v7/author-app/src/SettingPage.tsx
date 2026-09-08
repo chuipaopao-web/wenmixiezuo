@@ -549,14 +549,14 @@ function SettingResultCard(props: SettingResultCardProps): React.JSX.Element {
     {expanded && <>
       {item.rules?.length ? <ul className="setting-rule-list">{item.rules.map((rule, index) => <li key={index}>
         <p>{display(rule.statement)}</p>
-        {rule.costs.length > 0 && <small>代价：{display(rule.costs.join('；'))}</small>}
-        {rule.exceptions.length > 0 && <small>限制与例外：{display(rule.exceptions.join('；'))}</small>}
       </li>)}</ul> : item.content !== null && <p className="setting-final-content">{display(item.content)}</p>}
-      {item.rules?.some((rule) => rule.scope || rule.objects.length > 0 || rule.conditions.length > 0) && <details className="setting-rule-details">
+      {item.rules?.some((rule) => rule.scope || rule.objects.length > 0 || rule.conditions.length > 0 || rule.costs.length > 0 || rule.exceptions.length > 0) && <details className="setting-rule-details">
         <summary>规则详情</summary>
-        {item.rules.map((rule, index) => (rule.scope || rule.objects.length > 0 || rule.conditions.length > 0) && <div key={index}>
+        {item.rules.map((rule, index) => (rule.scope || rule.objects.length > 0 || rule.conditions.length > 0 || rule.costs.length > 0 || rule.exceptions.length > 0) && <div key={index}>
           <small>第{index + 1}条</small>
           {rule.conditions.length > 0 && <small>条件：{display(rule.conditions.join('；'))}</small>}
+          {rule.costs.length > 0 && <small>代价：{display(rule.costs.join('；'))}</small>}
+          {rule.exceptions.length > 0 && <small>限制与例外：{display(rule.exceptions.join('；'))}</small>}
           {rule.scope && <small>适用：{display(rule.scope)}</small>}
           {rule.objects.length > 0 && <small>涉及：{display(rule.objects.join('、'))}</small>}
         </div>)}
