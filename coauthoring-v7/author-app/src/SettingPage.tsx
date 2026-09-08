@@ -546,11 +546,14 @@ function SettingResultCard(props: SettingResultCardProps): React.JSX.Element {
     {(expanded || compact) && <>
       {item.rules?.length ? <ul className="setting-rule-list">{item.rules.map((rule, index) => <li key={index}>
         <p>{rule.statement}</p>
-        {rule.scope && <small>适用：{rule.scope}</small>}
         {rule.conditions.length > 0 && <small>条件：{rule.conditions.join('；')}</small>}
         {rule.costs.length > 0 && <small>代价：{rule.costs.join('；')}</small>}
         {rule.exceptions.length > 0 && <small>限制与例外：{rule.exceptions.join('；')}</small>}
-        {rule.objects.length > 0 && <small>涉及：{rule.objects.join('、')}</small>}
+        {(rule.scope || rule.objects.length > 0) && <details className="setting-rule-details">
+          <summary>规则详情</summary>
+          {rule.scope && <small>适用：{rule.scope}</small>}
+          {rule.objects.length > 0 && <small>涉及：{rule.objects.join('、')}</small>}
+        </details>}
       </li>)}</ul> : item.content !== null && <p className="setting-final-content">{item.content}</p>}
       {expanded && item.content !== null && item.designRationale !== null && <details className="setting-rationale"><summary><span>设计思路</span><small>展开查看</small></summary><div><h4>为什么这样设计</h4><p>{item.designRationale}</p>{item.storyConsequences.length > 0 && <><h4>会影响后续什么</h4><ul>{item.storyConsequences.map((entry) => <li key={entry}>{entry}</li>)}</ul></>}</div></details>}
       {!active && item.state !== 'confirmed' && item.issues.length > 0 && <div className="chief-issues"><strong><WarningCircleIcon />需要您决定</strong>{item.issues.map((issue) => <p key={`${issue.problem}-${issue.suggestion}`}><b>{issue.problem}</b><span>{issue.suggestion}</span></p>)}<small>采用提醒后会把当前完整内容直接交给主编复审；您确认后才会正式采用。</small><button type="button" disabled={optimizing || props.readOnly} onClick={props.onAdoptChief}><SparkleIcon />{optimizing ? '正在创建优化任务…' : '按提醒优化'}</button></div>}

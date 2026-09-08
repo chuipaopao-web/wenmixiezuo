@@ -41,3 +41,6 @@
 .setting-welcome p { margin: 0; max-width: 680px; font-size: clamp(20px, 2.5vw, 28px); line-height: 1.8; color: #35584e; }
 .setting-welcome > button { min-width: 180px; }
 @media (max-width: 640px) { .setting-welcome { padding: 24px 8px 32px; gap: 20px; } .setting-welcome-avatar { width: 140px; height: 140px; } }
+.setting-page .setting-rule-details { margin-top: 8px; }
+.setting-page .setting-rule-details > summary { cursor: pointer; width: fit-content; padding: 10px 0; color: #536b62; font-size: 14px; }
+.setting-page .setting-rule-details > summary:focus-visible { outline: 2px solid #35584e; outline-offset: 3px; border-radius: 4px; }
