@@ -4,14 +4,15 @@ import type { RebuildControlData, RebuildUnit } from '../../backend/admin/rebuil
 import { fetchRebuildControl } from './platform-api';
 import './rebuild-control.css';
 import { WorkflowGuide, detailText } from './WorkflowGuide';
+import { AiWorkNodes } from './AiWorkNodes';
 
 type Destination = 'agents' | 'prompt-context' | 'rhythm' | 'memberships' | 'issues' | 'features';
 type Filter = 'all' | 'active' | 'pending' | 'accepted' | 'attention';
-type MapView = 'main' | 'exceptions' | 'all';
+type MapView = 'ai' | 'main' | 'exceptions' | 'all';
 function readMapView(): MapView {
   const params = new URL(window.location.href).searchParams;
   const value = params.get('mapView');
-  return value === 'all' || value === 'exceptions' || value === 'main' ? value : params.has('unit') ? 'all' : 'main';
+  return value === 'ai' || value === 'all' || value === 'exceptions' || value === 'main' ? value : params.has('unit') ? 'all' : 'ai';
 }
 
 export function unitStage(unit: RebuildUnit): string {
@@ -134,8 +135,9 @@ export function RebuildControlCenter({ mode, onNavigate }: {
     </section>
 
     {mode === 'configuration' ? <ConfigurationCenter data={data} onNavigate={onNavigate} /> : <>
-      <nav className="workflow-guide-switch" aria-label="功能地图视图">{([['main','主流程'],['exceptions','异常处理'],['all','全部功能']] as const).map(([view,label]) => <button key={view} type="button" aria-pressed={mapView === view} onClick={() => changeView(view)}>{label}</button>)}</nav>
-      {mapView !== 'all' && <WorkflowGuide units={data.units} mode={mapView} onSelect={choose} />}
+      <nav className="workflow-guide-switch" aria-label="功能地图视图">{([['ai','AI工作节点'],['main','主流程'],['exceptions','异常处理'],['all','全部功能']] as const).map(([view,label]) => <button key={view} type="button" aria-pressed={mapView === view} onClick={() => changeView(view)}>{label}</button>)}</nav>
+      {mapView === 'ai' && <AiWorkNodes units={data.units} onSelect={choose} />}
+      {(mapView === 'main' || mapView === 'exceptions') && <WorkflowGuide units={data.units} mode={mapView} onSelect={choose} />}
       {mapView === 'all' && <>
       <section className="rebuild-summary" aria-label="重构进度">
         <article><span>计划工作单元</span><strong>{data.units.length}<small>项</small></strong><p>覆盖 {data.sourceFeatures.length} 项来源功能</p></article>

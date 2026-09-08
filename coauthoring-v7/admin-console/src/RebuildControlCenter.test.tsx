@@ -32,11 +32,11 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('功能地图与配置中心', () => {
-  it('默认进入主流程，异常导航可刷新恢复且不混入全部功能', async () => {
+  it('默认进入实际AI节点，异常导航可刷新恢复且不混入全部功能', async () => {
     window.history.replaceState({}, '', '/v7/?section=rebuild');
     mockedFetch.mockResolvedValue({ ...data, units: [...data.units, { ...unit, id:'RB-17', details:[{label:'设计·异常：知道缺哪份资料',text:'系统直接读取，不调用资料编辑。'}] }] });
     const mounted = render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);
-    expect(await screen.findByRole('button',{name:'主流程'})).toHaveAttribute('aria-pressed','true');
+    expect(await screen.findByRole('button',{name:'AI工作节点'})).toHaveAttribute('aria-pressed','true');
     expect(screen.queryByLabelText('搜索功能地图')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button',{name:'异常处理'}));
     expect(screen.getByText('系统直接读取，不调用资料编辑。')).toBeVisible();

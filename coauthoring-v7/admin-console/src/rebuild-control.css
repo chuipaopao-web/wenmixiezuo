@@ -121,3 +121,24 @@
 @media(max-width:1100px) { .workflow-guide-nodes { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:680px) { .workflow-guide-nodes { grid-template-columns:1fr; } }
 .workflow-guide-decision { padding:10px 12px; background:#eaf3ee; border-radius:8px; font-weight:750; color:#25483d; }
+.ai-work-nodes { margin-top: 24px; }
+.ai-work-nodes h3 { font-size: 26px; margin: 0 0 12px; }
+.ai-work-nodes p { line-height: 1.7; }
+.ai-work-filters { display: flex; gap: 16px; flex-wrap: wrap; margin: 24px 0; }
+.ai-work-filters label { display: grid; gap: 8px; flex: 1 1 240px; }
+.ai-work-filters input, .ai-work-filters select { padding: 12px; min-height: 44px; font: inherit; border: 1px solid #baccc5; border-radius: 8px; background: white; color: #203e36; }
+.ai-work-jumps { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 24px; }
+.ai-work-jumps a { padding: 10px 14px; background: #e6efeb; border-radius: 6px; color: #204f41; text-decoration: none; }
+.ai-work-group { scroll-margin-top: 24px; margin: 28px 0; }
+.ai-work-group > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ai-work-group h4 { font-size: 21px; }
+.ai-work-group ol { list-style: none; padding: 0; margin: 0; border: 1px solid #d5e2dc; border-radius: 12px; overflow: hidden; }
+.ai-work-group li { padding: 18px 22px; background: white; border-bottom: 1px solid #e2eae6; }
+.ai-work-group li:last-child { border-bottom: 0; }
+.ai-work-title { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.ai-work-title span { font-size: 12px; color: #58766b; }
+.ai-work-title em { margin-left: auto; font-size: 13px; font-style: normal; background: #eef4f1; padding: 4px 8px; color: #245b49; border-radius: 5px; }
+.ai-work-group p { margin: 8px 0; }
+.ai-work-group small { display: block; color: #657b72; overflow-wrap: anywhere; line-height: 1.5; }
+.ai-work-system { padding: 20px; background: #eaf0ed; border-radius: 10px; }
+@media(max-width: 600px) { .ai-work-group li { padding: 16px; } .ai-work-title em { margin-left: 0; } }

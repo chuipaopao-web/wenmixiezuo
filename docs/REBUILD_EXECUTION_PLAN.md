@@ -1,6 +1,6 @@
 # 文秘写作全产品重构执行文档与开发顺序表
 
-> 版本1.53 · 2026-09-08 · 第157批主流程与异常导航
+> 版本1.54 · 2026-09-08 · 第158批全部实际AI工作节点
 >
 > 本文是全产品重构的**唯一执行顺序和进度来源**；[详细开发规格](REBUILD_DEVELOPMENT_SPEC.md)保留产品与工程设计解释。
 >
@@ -62,8 +62,8 @@
 
 ## 3. 下一位接管者如何继续
 
-- **当前批次**：第157批：主流程与异常导航，已发布
-- **当前工作**：默认主流程；异常处理和全部功能独立导航，视图写入URL。17个节点明确资料编辑介入或不介入、执行与复查；5类异常有固定触发条件。静态17b2048c3a51ce39d676已发布，8项页面测试、类型检查、构建、浏览器及公网验证通过；实际模型策略不在本批改动。[合同](../coauthoring-v7/docs/worklists/NAVIGATION-157.md)。
+- **当前批次**：第158批：全部实际AI工作节点，验收中
+- **当前工作**：默认显示实际AI工作节点，按功能展开设计、审查、修订、资料整理、格式修复、失败重试、换员及图像生成。144种步骤，14个责任单元；单种可按条目/分页/候选重复执行，不代表一次任务144次调用。每项记录执行岗位、触发条件与代码依据；17个目标功能节点与当前实现分开。没有更改实际模型策略。[合同](../coauthoring-v7/docs/worklists/AI-NODES-158.md)。
 - **第148批历史交付**：2026-09-08 00:37发布wm-v7-20260908-004000-075d8f20，静态未变。仅GLM5.3/Flash审查改为方舟Coding Chat enabled/low。同一合成样本5.3两次8.1/9.4秒，Flash11.9秒；5.3有扩大作者限制的问题不自动准入，Flash优先于KimiK3/豆包。定向测试/构建/来源闭包、在途零30秒、API/Worker/资源/后台报告只读核对通过。无作者任务调用，回滚R147。[合同](../coauthoring-v7/docs/worklists/GLM-COMPATIBILITY-148.md)。
 - **第147批历史交付**：2026-09-07 23:39已发布wm-v7-20260907-233000-6df36911，静态c4ba0e045624eb165403。生产补齐6个GLM Flash空绑定；56身份、43绑定、13预留。7型号各一次合成设定审查，合格顺序Kimi K3 33.8秒、豆包88.1秒、GLM5.3 Flash131.7秒；其余保留未准入原因。设计优先DeepSeek Pro/Flash/Kimi2.7，未实测设计。修复审查调用策略和已知失败恢复；49相关集成、24作者页面、3后台测试，类型/构建及390/1440本地浏览器通过。在途连续30秒零、生产健康/Worker/资源和实际配置核对通过；没有重跑作者旧任务，其他节点不自动解禁。[合同](../coauthoring-v7/docs/worklists/SETTING-MODEL-ADMISSION-147.md)。
 - **第146批当前工作**：代码001acd28，静态5ca0cccaeb362733224d已发布；福利中心展示198/398/980元订单两级各30/60/150钻石、合计60/120/300，标注拟定、待审核、尚未生效。3项既有福利用例、本地隔离账号390/1440金额/提示/溢出与公网静态/健康检查通过；未执行生产已登录页面验收。后台静态和API/Worker不变，回滚R145；不包含邀请、返佣、结算或提现业务，RB-61状态不变。[合同](../coauthoring-v7/docs/worklists/REWARD-PREVIEW-146.md)。
@@ -520,6 +520,9 @@
 
 ### RB-16 模型网关与最小Agent配置
 
+- **实际AI节点·AI-001**：规划模型空输出加预算重试｜当前规划或资料成员｜重试｜仅确认思考耗尽且未形成有效输出，并重新核对额度通过时，加大输出额度重试一次。｜apps/api/src/infrastructure/models/v7-planning-model-gateway.ts:221
+- **实际AI节点·AI-002**：创作模型空输出加预算重试｜当前调用成员｜重试｜非interactive_planning调用遇到确定的思考耗尽，且额度校验通过，加大输出额度重试一次；不等同换员。｜apps/api/src/infrastructure/models/v7-creation-model-gateway.ts:234
+
 - **讨论**：任务需要哪些能力，配置与模型选择由开发者提出；不把固定成员数当质量保证。
 - **前端交付**：调用状态和简短错误反馈；先具备受保护的最小配置/诊断能力，完整后台在RB-48。
 - **后端逐项实现**：调用适配、能力校验、冻结参数与配置版本、流式/结构化输出校验、全局重试上限、限流熔断、调用审计。
@@ -539,6 +542,14 @@
 <a id="rb-17"></a>
 
 ### RB-17 上下文、来源与检索基础
+
+- **实际AI节点·AI-003**：超预算原文逐页选取｜调用方的资料编辑｜资料整理｜全书方向、全书/卷/链结构、互动卷/链、章纲、正文、审查的资料投影超预算时启动；每页一次选取，未超预算直接返回原文。｜apps/api/src/application/creation/v7-context-evidence-reader.ts:93
+- **实际AI节点·AI-004**：原文选取格式或预算修复｜当前资料编辑｜格式修复｜该页结果有无效编号、缺必要来源或超预算时再次选择。｜apps/api/src/application/creation/v7-context-evidence-reader.ts:93
+- **实际AI节点·AI-005**：删去硬约束后的覆盖核对｜当前资料编辑｜审查｜本页移除此前标为必须保留的片段时，另一次模型调用判断是否仍被新片段覆盖。｜apps/api/src/application/creation/v7-context-evidence-reader.ts:122
+- **实际AI节点·AI-006**：覆盖核对失败后重新选取｜当前资料编辑｜资料整理｜核对未通过，返回该页选择循环再次提交；不是只做系统字数检查。｜apps/api/src/application/creation/v7-context-evidence-reader.ts:93
+- **实际AI节点·AI-007**：原文选取耗尽后的恢复轮｜当前资料编辑｜重试｜调用方提供recoveryKey时，耗尽原三轮后进入额外恢复轮；总尝试上限变为六轮，每轮仍可能有覆盖审查。｜apps/api/src/application/creation/v7-context-evidence-reader.ts:86
+- **实际AI节点·AI-008**：补建本书题材工作档案｜副主编｜资料整理｜业务网关要求题材档案且当前没有有效档案时，取得租约后生成；有效档案直接复用。｜apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts:403
+- **实际AI节点·AI-009**：题材档案失败重新生成｜副主编｜重试｜上次档案生成明确失败，重新ensure时使用冻结上下文进行技术重试。｜apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts:262
 
 - **设计·已确认方案**：正常路径只有全书、每卷、每链固定由资料编辑组包一次；其他节点由系统直接提供指定资料或继承上层任务包。异常补查与正常流程分开。此规则为目标方案，运行接入另行验收。
 - **设计·异常：知道缺哪份资料**：触发：请求包含明确对象或来源编号。系统读取绑定书籍的当前有效版本并返回原任务；不调用资料编辑。不存在则进入资料缺失分支。
@@ -567,6 +578,17 @@
 <a id="rb-19"></a>
 
 ### RB-19 AI开书页与结果采用
+
+- **实际AI节点·AI-010**：首次设计开书资料｜策划编剧｜设计｜提交开书想法，进入 package_design。｜rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts:96
+- **实际AI节点·AI-011**：换成员重新设计开书资料｜新选策划编剧｜重设计｜用户提交新的重新设计任务，进入 package_design；与技术重试不同。｜rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts:96
+- **实际AI节点·AI-012**：开书资料首次审查｜主编｜审查｜资料候选完成，进入 package_review；排除同底座设计模型。｜rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts:153
+- **实际AI节点·AI-013**：按审查或作者意见修订｜策划编剧｜修订｜进入 package_revision，读取上一方案、审查及作者调整要求。界面称“主编调整”，实际设计调用仍是策划编剧。｜rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts:96
+- **实际AI节点·AI-014**：开书修订后再次审查｜主编｜审查｜修订完成进入 package_re_review，重新审查新候选。｜rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts:153
+- **实际AI节点·AI-015**：开书设计结果格式修复｜当前策划编剧｜格式修复｜设计或修订返回结构不合格，按阶段修复预算再次调用。｜rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts:333
+- **实际AI节点·AI-016**：开书审查结果格式修复｜当前主编｜格式修复｜审查或复审返回结构不合格，按阶段修复预算再次调用。｜rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts:333
+- **实际AI节点·AI-017**：开书设计失败换员接替｜后备策划编剧｜换员｜失败分类允许交接且存在下一成员时，重新执行当前设计阶段。｜rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts:358
+- **实际AI节点·AI-018**：开书审查失败换员接替｜后备主编｜换员｜失败分类允许交接且存在不同底座审核成员时，重新执行审查阶段。｜rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts:358
+- **实际AI节点·AI-019**：开书已知失败恢复执行｜失败阶段的执行成员｜重试｜恢复任务后重入未完成阶段；已有成功结果复用，未知结果先核对，不能直接再发。｜rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts:74
 
 - **设计·流程序号**：1
 - **设计·系统直供**：作者想法、已填写信息、当前修改意见。
@@ -610,6 +632,33 @@
 
 ### RB-21 设定页
 
+- **实际AI节点·AI-020**：推荐本书设定目录｜主编｜设计｜提交设定目录推荐任务。｜apps/api/src/application/books/v7-setting-editorial-service.ts:1298
+- **实际AI节点·AI-021**：修复目录推荐格式｜当前主编｜格式修复｜目录推荐无法按合同解析。｜apps/api/src/application/books/v7-setting-editorial-service.ts:1327
+- **实际AI节点·AI-022**：重新执行失败的目录推荐｜原推荐主编｜重试｜用户恢复明确失败的推荐任务，满足安全重试条件才重新执行。｜apps/api/src/application/books/v7-setting-editorial-service.ts:327
+- **实际AI节点·AI-023**：为后续设定筛选已设计事实｜策划编剧｜资料整理｜完整设定资料超预算时，选择当前条目所需已确认事实和候选；不是每条必做。｜apps/api/src/application/books/v7-setting-editorial-service.ts:2140
+- **实际AI节点·AI-024**：设定资料筛选失败换员｜后备策划编剧｜换员｜资料选择失败且结果明确，最多按当前交接上限切换成员。｜apps/api/src/application/books/v7-setting-editorial-service.ts:2137
+- **实际AI节点·AI-025**：成组设计设定条目｜策划编剧｜设计｜当前工作单元有多条设定时，一次交付本组候选。｜apps/api/src/application/books/v7-setting-editorial-service.ts:2283
+- **实际AI节点·AI-026**：修复成组设定输出｜当前策划编剧｜格式修复｜组结果结构、内容长度等合同校验失败。｜apps/api/src/application/books/v7-setting-editorial-service.ts:2295
+- **实际AI节点·AI-027**：成组设计失败换员｜后备策划编剧｜换员｜本组成员失败，按冻结名单接续；不是重新生成全书已完成条目。｜apps/api/src/application/books/v7-setting-editorial-service.ts:2279
+- **实际AI节点·AI-028**：成组失败后逐条设计｜策划编剧｜重试｜组处理走到逐条兜底分支，调用单条设计流程。｜apps/api/src/application/books/v7-setting-editorial-service.ts:2352
+- **实际AI节点·AI-029**：单条设定设计｜策划编剧｜设计｜单条任务或逐条兜底，生成该条候选。｜apps/api/src/application/books/v7-setting-editorial-service.ts:2555
+- **实际AI节点·AI-030**：修复单条设定输出｜当前策划编剧｜格式修复｜单条候选无法解析或不符合合同。｜apps/api/src/application/books/v7-setting-editorial-service.ts:2571
+- **实际AI节点·AI-031**：单条设计失败换员｜后备策划编剧｜换员｜当前条目未交付且允许接替，下一成员设计同一条。｜apps/api/src/application/books/v7-setting-editorial-service.ts:2548
+- **实际AI节点·AI-032**：设定专项事实核查｜副主编｜审查｜作者明确要求事实核查，且条目要求该核查时才启动。｜apps/api/src/application/books/v7-setting-editorial-service.ts:2501
+- **实际AI节点·AI-033**：单条设定主编审查｜主编｜审查｜工作路径要求逐条主编审核时，对候选出具审查结果；不代表所有组设计都会逐条审查。｜apps/api/src/application/books/v7-setting-editorial-service.ts:2615
+- **实际AI节点·AI-034**：修复单条审查输出｜当前主编｜格式修复｜单条审查结果结构不合法。｜apps/api/src/application/books/v7-setting-editorial-service.ts:2632
+- **实际AI节点·AI-035**：换成员重新设计设定｜用户选定策划编剧｜重设计｜用户要求重设计某条，按选择的成员生成候选。｜apps/api/src/application/books/v7-setting-editorial-service.ts:1894
+- **实际AI节点·AI-036**：融合设定候选及作者意见｜主编｜修订｜用户提交需要融合的候选及意见，生成融合审查/修订结果。｜apps/api/src/application/books/v7-setting-editorial-service.ts:2734
+- **实际AI节点·AI-037**：修复设定融合输出｜当前主编｜格式修复｜融合结果无法按合同解析。｜apps/api/src/application/books/v7-setting-editorial-service.ts:2753
+- **实际AI节点·AI-038**：全书设定统一审查｜主编｜审查｜统一整理阶段审核全部设定或其索引。｜apps/api/src/application/books/v7-setting-editorial-service.ts:1575
+- **实际AI节点·AI-039**：修复统一审查结论｜当前主编｜格式修复｜报告格式不合格或通过结论与问题相矛盾。｜apps/api/src/application/books/v7-setting-editorial-service.ts:1594
+- **实际AI节点·AI-040**：统一审查定向修订｜主编｜修订｜索引审查发现需要调整的条目，按受影响分组读取原文并给出修订。｜apps/api/src/application/books/v7-setting-editorial-service.ts:1619
+- **实际AI节点·AI-041**：修复定向修订输出｜当前主编｜格式修复｜定向修订组结果不满足合同。｜apps/api/src/application/books/v7-setting-editorial-service.ts:1645
+- **实际AI节点·AI-042**：统一整理失败换主编｜后备主编｜换员｜本轮主编失败且允许交接，下一主编接续统一整理。｜apps/api/src/application/books/v7-setting-editorial-service.ts:1515
+- **实际AI节点·AI-043**：继续失败的统一整理｜本轮主编｜重试｜用户点击继续统一整理；只对未成功且可安全重试的模型步骤重新调用。｜apps/api/src/application/books/v7-setting-editorial-service.ts:454
+- **实际AI节点·AI-044**：恢复失败的设定设计｜失败条目的成员｜重试｜恢复批次时只重排明确失败的条目，成功内容不重新生成。｜apps/api/src/application/books/v7-setting-editorial-service.ts:605
+- **实际AI节点·AI-045**：恢复失败的重设计或融合｜该任务的策划编剧或主编｜重试｜重设计恢复接口通过来源版本和失败状态检查后，执行尚未完成的步骤。｜apps/api/src/application/books/v7-setting-editorial-service.ts:973
+
 - **设计·功能简介**：先去重并准备本书适用的基础设定，以简短大白话呈现；已有开书信息复用，确认后供下游按需读取。
 - **设计·功能逻辑**：适用性检查、基础设定设计、统一核对、作者确认，再进入全书规划。系统直接读取指定资料，复杂关联才由资料编辑选择。此为最新目标，下方讨论保留历史依据，冲突时以本段和已确认方案为准。
 
@@ -631,6 +680,24 @@
 <a id="rb-22"></a>
 
 ### RB-22 全书蓝图与方向页
+
+- **实际AI节点·AI-046**：全书方向资料策划｜资料编辑｜资料整理｜方向任务没有已保存的共享资料计划时，选择相关资料与任务边界。｜apps/api/src/application/planning/v7-planning-route-service.ts:773
+- **实际AI节点·AI-047**：修复方向资料策划｜当前资料编辑｜格式修复｜共享资料计划不能解析或不符合合同。｜apps/api/src/application/planning/v7-planning-route-service.ts:794
+- **实际AI节点·AI-048**：方向资料策划失败换员｜后备资料编辑｜换员｜共享资料策划失败，尝试冻结名单中的下一成员。｜apps/api/src/application/planning/v7-planning-route-service.ts:750
+- **实际AI节点·AI-049**：设计全书故事走向｜主编｜设计｜每个已安排的方向席位分别生成路线候选。｜apps/api/src/application/planning/v7-planning-route-service.ts:665
+- **实际AI节点·AI-050**：修复全书走向输出｜当前主编｜格式修复｜方向候选不符合输出合同。｜apps/api/src/application/planning/v7-planning-route-service.ts:699
+- **实际AI节点·AI-051**：全书走向设计失败换员｜后备主编｜换员｜当前席位失败且允许接替，下一主编补齐该席位。｜apps/api/src/application/planning/v7-planning-route-service.ts:637
+- **实际AI节点·AI-052**：审查全书走向候选｜冻结审核成员｜审查｜方向候选完成后，按已安排的审核名单分别审查。｜apps/api/src/application/planning/v7-planning-route-service.ts:869
+- **实际AI节点·AI-053**：融合或调整全书走向｜主编｜修订｜用户提交方向融合/调整决定后，执行 route_fusion。｜apps/api/src/application/planning/v7-planning-route-service.ts:948
+- **实际AI节点·AI-054**：恢复缺失的方向工作｜对应资料编辑或主编｜重试｜重试未完成方向/审核；已完成模型结果复用，明确失败才重新调用。｜apps/api/src/application/planning/v7-planning-route-service.ts:326
+- **实际AI节点·AI-055**：方向融合失败后重新执行｜执行融合的主编｜重试｜融合决定任务的已知失败或无效旧结果满足恢复条件。｜apps/api/src/application/planning/v7-planning-route-service.ts:933
+- **实际AI节点·AI-056**：全书蓝图资料策划｜资料编辑｜资料整理｜生成全书蓝图且没有冻结资料计划时，确定当前层需要的资料。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:589
+- **实际AI节点·AI-057**：全书蓝图资料策划格式修复｜当前资料编辑｜格式修复｜资料计划不符合合同，重发修复任务。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:613
+- **实际AI节点·AI-058**：全书蓝图资料策划换员｜后备资料编辑｜换员｜当前资料策划失败，按冻结资料名单接替。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:570
+- **实际AI节点·AI-059**：全书蓝图生成｜冻结规划执行成员｜设计｜进入 tree 生成器的全书蓝图工位；区别于互动创作方案入口。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:488
+- **实际AI节点·AI-060**：全书蓝图生成格式修复｜当前规划成员｜格式修复｜结构输出或目标字数等合同校验失败。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:507
+- **实际AI节点·AI-061**：全书蓝图生成失败换员｜后备规划成员｜换员｜当前生成失败，下一冻结成员接续同一层任务。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:477
+- **实际AI节点·AI-062**：全书蓝图失败恢复｜该层资料或规划成员｜重试｜用户恢复已知失败任务；已成功调用复用，未完成调用重新执行。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:670
 
 - **设计·流程序号**：4
 - **设计·系统直供**：开书起点终点、目标字数、宏观规则、作者目标。
@@ -658,6 +725,27 @@
 
 ### RB-23 卷设计页
 
+- **实际AI节点·AI-141**：按新意见重新设计互动卷方案｜用户选择的规划成员｜重设计｜用户提交redesignOptions，创建新方案任务并继承修改要求，重新进入卷方案设计与审核。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:564
+
+- **实际AI节点·AI-063**：卷结构资料策划｜资料编辑｜资料整理｜生成卷结构且没有冻结资料计划时，确定当前层需要的资料。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:589
+- **实际AI节点·AI-064**：卷结构资料策划格式修复｜当前资料编辑｜格式修复｜资料计划不符合合同，重发修复任务。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:613
+- **实际AI节点·AI-065**：卷结构资料策划换员｜后备资料编辑｜换员｜当前资料策划失败，按冻结资料名单接替。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:570
+- **实际AI节点·AI-066**：卷结构生成｜冻结规划执行成员｜设计｜进入 tree 生成器的卷结构工位；区别于互动创作方案入口。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:488
+- **实际AI节点·AI-067**：卷结构生成格式修复｜当前规划成员｜格式修复｜结构输出或目标字数等合同校验失败。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:507
+- **实际AI节点·AI-068**：卷结构生成失败换员｜后备规划成员｜换员｜当前生成失败，下一冻结成员接续同一层任务。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:477
+- **实际AI节点·AI-069**：卷结构失败恢复｜该层资料或规划成员｜重试｜用户恢复已知失败任务；已成功调用复用，未完成调用重新执行。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:670
+- **实际AI节点·AI-070**：互动卷方案资料选择｜资料编辑｜资料整理｜该任务请求上下文且不能复用有效资料包时，选择来源条目；这是当前实现，并非仅全书/卷/链才整理。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:263
+- **实际AI节点·AI-071**：互动卷方案资料选择修复｜当前资料编辑｜格式修复｜选择输出无法解析或来源引用不合格。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:301
+- **实际AI节点·AI-072**：互动卷方案资料选择换员｜后备资料编辑｜换员｜本成员资料选择失败后，尝试下一资料成员。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:251
+- **实际AI节点·AI-073**：互动卷方案资料失败再执行｜资料编辑｜重试｜恢复上层任务时资料包仍未完成且可安全恢复，重新执行资料选择。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:248
+- **实际AI节点·AI-074**：卷互动方案设计｜该席位选定规划成员｜设计｜为卷分别生成已安排席位的方案。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1401
+- **实际AI节点·AI-075**：卷互动方案格式修复｜当前方案成员｜格式修复｜方案输出合同不合格，重新提交结构修复。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1424
+- **实际AI节点·AI-076**：卷互动方案失败换员｜后备规划成员｜换员｜本席位执行失败后，按候选名单接替。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1397
+- **实际AI节点·AI-077**：卷互动方案主编审查｜主编｜审查｜方案完成后审核候选。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1466
+- **实际AI节点·AI-078**：卷互动方案审查修复｜当前主编｜格式修复｜主编审查结构不合格。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1481
+- **实际AI节点·AI-079**：卷互动方案审查换员｜后备主编｜换员｜审查调用失败且允许继续，通用执行器切换成员。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1532
+- **实际AI节点·AI-080**：卷互动方案失败恢复｜对应规划成员或主编｜重试｜retryOptions只补缺失方案或未完成审核，已保存结果复用。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:519
+
 - **设计·流程序号**：5
 - **设计·系统直供**：全书方向摘要、本卷职责、已发生状态；未发生结果标规划。
 - **设计·资料编辑介入**：介入一次：每卷设计前组包。
@@ -675,6 +763,27 @@
 <a id="rb-24"></a>
 
 ### RB-24 链/故事单元页
+
+- **实际AI节点·AI-142**：按新意见重新设计互动链方案｜用户选择的规划成员｜重设计｜用户提交redesignOptions，创建新方案任务并继承修改要求，重新进入链方案设计与审核。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:564
+
+- **实际AI节点·AI-081**：链结构资料策划｜资料编辑｜资料整理｜生成链结构且没有冻结资料计划时，确定当前层需要的资料。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:589
+- **实际AI节点·AI-082**：链结构资料策划格式修复｜当前资料编辑｜格式修复｜资料计划不符合合同，重发修复任务。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:613
+- **实际AI节点·AI-083**：链结构资料策划换员｜后备资料编辑｜换员｜当前资料策划失败，按冻结资料名单接替。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:570
+- **实际AI节点·AI-084**：链结构生成｜冻结规划执行成员｜设计｜进入 tree 生成器的链结构工位；区别于互动创作方案入口。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:488
+- **实际AI节点·AI-085**：链结构生成格式修复｜当前规划成员｜格式修复｜结构输出或目标字数等合同校验失败。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:507
+- **实际AI节点·AI-086**：链结构生成失败换员｜后备规划成员｜换员｜当前生成失败，下一冻结成员接续同一层任务。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:477
+- **实际AI节点·AI-087**：链结构失败恢复｜该层资料或规划成员｜重试｜用户恢复已知失败任务；已成功调用复用，未完成调用重新执行。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:670
+- **实际AI节点·AI-088**：互动链方案资料选择｜资料编辑｜资料整理｜该任务请求上下文且不能复用有效资料包时，选择来源条目；这是当前实现，并非仅全书/卷/链才整理。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:263
+- **实际AI节点·AI-089**：互动链方案资料选择修复｜当前资料编辑｜格式修复｜选择输出无法解析或来源引用不合格。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:301
+- **实际AI节点·AI-090**：互动链方案资料选择换员｜后备资料编辑｜换员｜本成员资料选择失败后，尝试下一资料成员。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:251
+- **实际AI节点·AI-091**：互动链方案资料失败再执行｜资料编辑｜重试｜恢复上层任务时资料包仍未完成且可安全恢复，重新执行资料选择。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:248
+- **实际AI节点·AI-092**：链互动方案设计｜该席位选定规划成员｜设计｜为链分别生成已安排席位的方案。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1401
+- **实际AI节点·AI-093**：链互动方案格式修复｜当前方案成员｜格式修复｜方案输出合同不合格，重新提交结构修复。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1424
+- **实际AI节点·AI-094**：链互动方案失败换员｜后备规划成员｜换员｜本席位执行失败后，按候选名单接替。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1397
+- **实际AI节点·AI-095**：链互动方案主编审查｜主编｜审查｜方案完成后审核候选。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1466
+- **实际AI节点·AI-096**：链互动方案审查修复｜当前主编｜格式修复｜主编审查结构不合格。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1481
+- **实际AI节点·AI-097**：链互动方案审查换员｜后备主编｜换员｜审查调用失败且允许继续，通用执行器切换成员。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1532
+- **实际AI节点·AI-098**：链互动方案失败恢复｜对应规划成员或主编｜重试｜retryOptions只补缺失方案或未完成审核，已保存结果复用。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:519
 
 - **设计·流程序号**：6
 - **设计·系统直供**：本卷目标、本链问题、前序实际结果或明确标识的计划。
@@ -694,6 +803,19 @@
 
 ### RB-25 章计划与章节安排
 
+- **实际AI节点·AI-143**：重新设计或替换章纲候选｜用户选择的规划成员｜重设计｜generateOutlines收到regenerate或replaceCandidateId时，生成新的章纲候选，再进入主编审核。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:789
+- **实际AI节点·AI-144**：恢复未完成的章纲设计或审核｜规划成员或主编｜重试｜再次提交章纲任务时补缺失席位，并审核仍无结论的候选；已完成的候选和审查不重复生成。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:896
+
+- **实际AI节点·AI-099**：章纲资料选择｜资料编辑｜资料整理｜该任务请求上下文且不能复用有效资料包时，选择来源条目；这是当前实现，并非仅全书/卷/链才整理。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:263
+- **实际AI节点·AI-100**：章纲资料选择修复｜当前资料编辑｜格式修复｜选择输出无法解析或来源引用不合格。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:301
+- **实际AI节点·AI-101**：章纲资料选择换员｜后备资料编辑｜换员｜本成员资料选择失败后，尝试下一资料成员。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:251
+- **实际AI节点·AI-102**：章纲资料失败再执行｜资料编辑｜重试｜恢复上层任务时资料包仍未完成且可安全恢复，重新执行资料选择。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:248
+- **实际AI节点·AI-103**：章纲候选设计｜规划成员｜设计｜当前链进入章纲阶段，每个安排席位生成候选。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:860
+- **实际AI节点·AI-104**：章纲设计失败换员｜后备规划成员｜换员｜章纲模型调用失败且允许接续。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1532
+- **实际AI节点·AI-105**：章纲候选审查｜主编｜审查｜对尚无审查结果的章纲候选逐份审核。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:901
+- **实际AI节点·AI-106**：章纲审查输出修复｜当前主编｜格式修复｜章纲审核结果结构校验失败。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:914
+- **实际AI节点·AI-107**：章纲审查失败换员｜后备主编｜换员｜章纲审查调用失败且允许接续。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1532
+
 - **设计·流程序号**：7
 - **设计·系统直供**：当前链、章任务、前章实际结果。
 - **设计·资料编辑介入**：不介入：系统继承链资料包并补当前状态。
@@ -712,6 +834,15 @@
 
 ### RB-26 AI正文生成
 
+- **实际AI节点·AI-108**：正文资料选择｜资料编辑｜资料整理｜该任务请求上下文且不能复用有效资料包时，选择来源条目；这是当前实现，并非仅全书/卷/链才整理。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:263
+- **实际AI节点·AI-109**：正文资料选择修复｜当前资料编辑｜格式修复｜选择输出无法解析或来源引用不合格。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:301
+- **实际AI节点·AI-110**：正文资料选择换员｜后备资料编辑｜换员｜本成员资料选择失败后，尝试下一资料成员。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:251
+- **实际AI节点·AI-111**：正文资料失败再执行｜资料编辑｜重试｜恢复上层任务时资料包仍未完成且可安全恢复，重新执行资料选择。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:248
+- **实际AI节点·AI-112**：章节正文初稿｜正文主笔｜设计｜基于当前采用章纲及资料包生成本章初稿。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1055
+- **实际AI节点·AI-113**：正文问题修订｜正文主笔｜修订｜本章执行进入第二轮，带入前稿与重写要求修订。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1050
+- **实际AI节点·AI-114**：正文生成失败换员｜后备正文主笔｜换员｜正文调用失败且允许接替，不把未确认结果当成成功。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1532
+- **实际AI节点·AI-115**：章节重新执行｜正文主笔｜重试｜重新进入章节执行；本次尝试按已有稿件/失败状态决定复用或生成。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1055
+
 - **设计·流程序号**：8
 - **设计·系统直供**：章纲、必要前文、作者风格要求、出场人物状态。
 - **设计·资料编辑介入**：不介入：系统提供章纲、链资料包和必要前文。
@@ -729,6 +860,16 @@
 <a id="rb-27"></a>
 
 ### RB-27 审查、比较与定向重写
+
+- **实际AI节点·AI-116**：正文审查资料选择｜资料编辑｜资料整理｜该任务请求上下文且不能复用有效资料包时，选择来源条目；这是当前实现，并非仅全书/卷/链才整理。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:263
+- **实际AI节点·AI-117**：正文审查资料选择修复｜当前资料编辑｜格式修复｜选择输出无法解析或来源引用不合格。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:301
+- **实际AI节点·AI-118**：正文审查资料选择换员｜后备资料编辑｜换员｜本成员资料选择失败后，尝试下一资料成员。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:251
+- **实际AI节点·AI-119**：正文审查资料失败再执行｜资料编辑｜重试｜恢复上层任务时资料包仍未完成且可安全恢复，重新执行资料选择。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:248
+- **实际AI节点·AI-120**：正文独立审查｜独立审校成员｜审查｜新正文版本生成后审查，排除该稿主笔使用的同底座模型。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1091
+- **实际AI节点·AI-121**：正文修订后再次审查｜独立审校成员｜审查｜第二轮产生新稿，再次执行审查；不是复用旧稿结论。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1091
+- **实际AI节点·AI-122**：正文审查格式修复｜本轮审校成员｜格式修复｜审查报告结构无法解析，向该成员发送明确错误。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1105
+- **实际AI节点·AI-123**：正文审查失败换员｜后备独立审校成员｜换员｜审查调用失败且允许交接，保持独立性排除规则。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1532
+- **实际AI节点·AI-124**：正文审查失败再执行｜独立审校成员｜重试｜恢复章节时稿件已保存但审核尚未完成，重新审查该版本。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:1087
 
 - **设计·流程序号**：9
 - **设计·系统直供**：待审内容、任务合同、已选正式依据。
@@ -759,6 +900,10 @@
 
 ### RB-28 采用正文与结算确认
 
+- **实际AI节点·AI-125**：从正式正文提取结算事实｜结算编辑｜事实维护｜作者采用正文后，处理尚未完成的正式化事件；保存/采用本身由系统执行。｜apps/api/src/application/creation/v7-creation-formalization-service.ts:464
+- **实际AI节点·AI-126**：事实提取失败换员｜后备结算编辑｜换员｜当前结算成员未交付，按结算后备名单尝试。｜apps/api/src/application/creation/v7-creation-formalization-service.ts:461
+- **实际AI节点·AI-127**：正式化失败重新提取｜结算编辑｜重试｜恢复失败正式化事件；只有模型事实提取未完成才重新调用。｜apps/api/src/application/creation/v7-creation-formalization-service.ts:194
+
 - **设计·流程序号**：10
 - **设计·系统直供**：作者选定版本、相关任务和用量记录。
 - **设计·资料编辑介入**：不介入：采用、保存、计费均由系统完成。
@@ -776,6 +921,10 @@
 <a id="rb-29"></a>
 
 ### RB-29 连续创作与长期记忆
+
+- **实际AI节点·AI-128**：根据已发生事实更新规划建议｜规划维护成员｜事实维护｜正式结算触发维护，比较正文结果与已确认规划，产生维护候选。｜apps/api/src/application/planning/v7-planning-maintenance-service.ts:364
+- **实际AI节点·AI-129**：规划维护失败换员｜后备规划维护成员｜换员｜当前维护调用失败且可继续。｜apps/api/src/application/planning/v7-planning-maintenance-service.ts:354
+- **实际AI节点·AI-130**：规划维护失败恢复｜规划维护成员｜重试｜恢复失败维护任务，按冻结结算和规划快照重新处理。｜apps/api/src/application/planning/v7-planning-maintenance-service.ts:364
 
 - **设计·流程序号**：11
 - **设计·系统直供**：已接受正文、相关旧状态和来源版本。
@@ -815,6 +964,13 @@
 
 ### RB-32 人物详情与人物维护
 
+- **实际AI节点·AI-131**：整理人物资料包｜人物资料成员｜资料整理｜明确请求人物上下文包，读取指定人物及关系。｜apps/api/src/application/characters/v7-character-memory-service.ts:592
+- **实际AI节点·AI-132**：人物资料包失败换员｜后备人物资料成员｜换员｜当前资料成员失败后按冻结名单接续。｜apps/api/src/application/characters/v7-character-memory-service.ts:584
+- **实际AI节点·AI-133**：人物资料包失败重试｜人物资料成员｜重试｜retryContextPack恢复明确失败的资料任务。｜apps/api/src/application/characters/v7-character-memory-service.ts:383
+- **实际AI节点·AI-134**：从正式证据维护人物事实｜人物维护成员｜事实维护｜收到人物维护任务，基于带来源的证据生成变更候选。｜apps/api/src/application/characters/v7-character-memory-service.ts:690
+- **实际AI节点·AI-135**：人物维护失败换员｜后备人物维护成员｜换员｜维护结果未交付，下一成员接替。｜apps/api/src/application/characters/v7-character-memory-service.ts:682
+- **实际AI节点·AI-136**：人物维护失败重试｜人物维护成员｜重试｜retryMaintenance恢复失败维护；已有成功调用先复用。｜apps/api/src/application/characters/v7-character-memory-service.ts:451
+
 - **设计·流程序号**：12
 - **设计·系统直供**：指定人物档案、相关正文、作者要求。
 - **设计·资料编辑介入**：不介入：系统直接提供指定角色、所在任务和相关正文。
@@ -851,6 +1007,11 @@
 <a id="rb-34"></a>
 
 ### RB-34 命名与封面工作室
+
+- **实际AI节点·AI-137**：生成书名候选｜选定命名成员｜设计｜用户提交取名请求；该服务只有一次生成，没有独立自动格式修复/换员循环。｜apps/api/src/application/books/v7-book-title-design-service.ts:125
+- **实际AI节点·AI-138**：设计封面绘图要求｜主编｜设计｜制作封面时先生成文字绘图工单。｜apps/api/src/application/books/v7-book-cover-design-service.ts:330
+- **实际AI节点·AI-139**：封面工单失败换主编｜后备主编｜换员｜当前文字工单失败后，下一主编接续。｜apps/api/src/application/books/v7-book-cover-design-service.ts:151
+- **实际AI节点·AI-140**：生成封面图片｜封面画师绑定的图片模型｜图像生成｜文字工单完成后调用图片模型；后续叠字排版是系统操作。｜apps/api/src/application/books/v7-book-cover-design-service.ts:203
 
 - **设计·流程序号**：14
 - **设计·系统直供**：作者输入、书名、已有角色或封面要求。
