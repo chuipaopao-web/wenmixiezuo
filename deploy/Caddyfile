@@ -106,7 +106,7 @@ admin.wenmixiezuo.com {
     file_server
   }
 
-  # V7 独立管理后台。保留 /v7 前缀，避免历史 SPA 回退到已停止的根入口。
+  # 后台根地址直接加载管理入口；历史 /v7 链接和资源保持兼容。
   handle /v7 {
     redir * /v7/ 308
   }
@@ -119,7 +119,10 @@ admin.wenmixiezuo.com {
   }
 
   handle {
-    redir * /v7/ 308
+    root * /opt/wenmi/releases/current
+    encode gzip zstd
+    rewrite * /v7/index.html
+    file_server
   }
 
   tls {
