@@ -525,7 +525,6 @@ interface SettingResultCardProps {
 function SettingResultCard(props: SettingResultCardProps): React.JSX.Element {
   const { item, members, editing, redesigning, optimizing } = props;
   const display = (text: string) => settingReferenceLabel(text, props.catalog);
-  const compact = Boolean(item.rules?.length) || (item.content !== null && Array.from(item.content).length <= 600);
   const [expanded, setExpanded] = useState(false);
   const active = item.state === 'queued' || item.state === 'working' || item.state === 'chief_review';
   const assignedKey = item.assignedMemberKey === null ? null : canonicalMemberIdentityKey(item.assignedMemberKey);
@@ -546,18 +545,18 @@ function SettingResultCard(props: SettingResultCardProps): React.JSX.Element {
       </div> : <div className="setting-result-status"><em>{item.state === 'confirmed' ? <><CheckCircleIcon />已确认</> : stateText}</em>{item.state !== 'confirmed' && item.issues.length > 0 && <small>需要决定 {item.issues.length} 项</small>}</div>}
       <button type="button" className="setting-detail-toggle" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? '收起详情' : '查看详情'}</button>
     </header>
-    {!expanded && !compact && item.content !== null && <p className="setting-result-preview">{compactPreview(item.content, 88)}</p>}
-    {(expanded || compact) && <>
+    {!expanded && item.content !== null && <p className="setting-result-preview">{compactPreview(display(item.rules?.length ? item.rules.map((rule) => rule.statement).join('；') : item.content), 88)}</p>}
+    {expanded && <>
       {item.rules?.length ? <ul className="setting-rule-list">{item.rules.map((rule, index) => <li key={index}>
         <p>{display(rule.statement)}</p>
-        {rule.conditions.length > 0 && <small>条件：{display(rule.conditions.join('；'))}</small>}
         {rule.costs.length > 0 && <small>代价：{display(rule.costs.join('；'))}</small>}
         {rule.exceptions.length > 0 && <small>限制与例外：{display(rule.exceptions.join('；'))}</small>}
       </li>)}</ul> : item.content !== null && <p className="setting-final-content">{display(item.content)}</p>}
-      {item.rules?.some((rule) => rule.scope || rule.objects.length > 0) && <details className="setting-rule-details">
+      {item.rules?.some((rule) => rule.scope || rule.objects.length > 0 || rule.conditions.length > 0) && <details className="setting-rule-details">
         <summary>规则详情</summary>
-        {item.rules.map((rule, index) => (rule.scope || rule.objects.length > 0) && <div key={index}>
+        {item.rules.map((rule, index) => (rule.scope || rule.objects.length > 0 || rule.conditions.length > 0) && <div key={index}>
           <small>第{index + 1}条</small>
+          {rule.conditions.length > 0 && <small>条件：{display(rule.conditions.join('；'))}</small>}
           {rule.scope && <small>适用：{display(rule.scope)}</small>}
           {rule.objects.length > 0 && <small>涉及：{display(rule.objects.join('、'))}</small>}
         </div>)}

@@ -83,7 +83,9 @@ import {
 // 副编→编剧→主编串行链，避免页面轮询在旧调用尚未返回时重复接管。
 const LEASE_MS = 15 * 60_000;
 const MAX_HANDOFFS = 2;
-const SETTING_GROUP_SIZE = 5;
+// Each call owns one topic; do not merge a trailing topic into a previous call.
+// The coherent workflow reloads saved drafts between calls and keeps its lead.
+const SETTING_GROUP_SIZE = 1;
 // 设定目录、提示词取舍规则或解析硬门禁变化时必须提升版本。
 // 旧清单作为审计保留，但作者再次点击时要能创建一轮新任务，不能
 // 因开书资料未变而永久复用已经不符合当前合同的结果。
@@ -542,7 +544,7 @@ export class V7SettingEditorialService {
     if (initialItems.length === 0) throw new DomainError(errorCodes.validation, '这些设定都已经设计好了，请只选择新增条目；想修改旧内容可使用“重新设计”。');
     const now = this.clock.now().toISOString();
     // 先做整批最低调用预算校验。真正调用仍逐次精确预占；这里仅在确定连
-    // 最少分组调用都无法完成时拒绝创建，避免先完成一半再突然伪装成成员失败。
+    // 最少逐项调用都无法完成时拒绝创建，避免先完成一半再突然伪装成成员失败。
     assertMembershipAllowsGeneration(this.database, ownerId, now, minimumSettingReservation(initialItems.length));
     const batchId = this.ids.next();
     const roster = this.effectiveRoster();
@@ -2241,8 +2243,7 @@ export class V7SettingEditorialService {
       const chunks: JobRow[][] = [];
       for (let index = 0; index < items.length; index += SETTING_GROUP_SIZE) {
         const chunk = items.slice(index, index + SETTING_GROUP_SIZE);
-        if (chunk.length === 1 && chunks.length > 0 && chunks.at(-1)!.length < 6) chunks.at(-1)!.push(chunk[0]!);
-        else chunks.push(chunk);
+        chunks.push(chunk);
       }
       return chunks;
     });
@@ -4272,7 +4273,7 @@ function coherentSettingLead(batch: BatchRow): string | null {
 
 function settingBatchStatusText(batch: BatchRow, completedCount: number): string {
   if (batch.status === 'queued') return '老板稍等，大家正在准备';
-  if (batch.status === 'working') return '我正在逐组完成设定，做好一组就保存一组。';
+  if (batch.status === 'working') return '我正在逐项完成设定，做好一项就保存一项。';
   if (batch.status === 'awaiting_author') return '这一轮已经整理好，请老板看看';
   if (batch.status === 'completed') return '这一轮已经确认好啦';
   const failure = settingBatchFailureFromRow(batch);

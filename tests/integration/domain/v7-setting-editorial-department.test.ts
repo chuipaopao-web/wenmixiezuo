@@ -693,7 +693,7 @@ describe('V7设定编辑部', () => {
       expect(resolver.prompts.join('\n')).toContain('东汉末年');
       expect(resolver.prompts.join('\n')).not.toContain('主角处于社会底层');
       expect(resolver.prompts.join('\n')).not.toContain('危机中醒来');
-      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_member_events WHERE owner_id=(SELECT owner_id FROM books WHERE book_id=?) AND book_id=? AND event_type='handoff'`).get(firstBook, firstBook)).toEqual({ count: 2 });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_member_events WHERE owner_id=(SELECT owner_id FROM books WHERE book_id=?) AND book_id=? AND event_type='handoff'`).get(firstBook, firstBook)).toEqual({ count: 1 });
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_jobs WHERE book_id=? AND context_hash IS NOT NULL`).get(firstBook)).toEqual({ count: 2 });
       const settingSources = context.database.prepare(`SELECT DISTINCT s.owner_id AS ownerId,s.book_id AS bookId,
         s.source_type AS sourceType,s.authority,s.decision
@@ -711,8 +711,8 @@ describe('V7设定编辑部', () => {
       expect(repeated.statusCode).toBe(200);
       expect(repeated.json().data.batchId).toBe(batchId);
       const callCount = (context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=?`).get(firstBook) as { count: number }).count;
-      // 同组两项共享一次设计；首位失败后仅交接一次，不重复派出逐项审查。
-      expect(callCount).toBe(2);
+      // 旧兼容任务改为逐项设计/审查；幂等请求不再次派发模型调用。
+      expect(callCount).toBe(7);
 
       const firstItem = completed.items.find((item: { itemKey: string }) => item.itemKey === 'world-stage');
       const confirmed = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-items/world-stage/confirm`, headers: { ...HEADERS, cookie }, payload: { expectedRevision: firstItem.revision } });
@@ -747,7 +747,7 @@ describe('V7设定编辑部', () => {
         operationMode: 'revise', basedOnTaskId: sourceBeforeAuthorRevision.taskId, authorInstructionVersion: 1
       });
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_versions WHERE book_id=? AND item_key='world-stage'`).get(firstBook)).toEqual({ count: 3 });
-      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=? AND node_key IN ('chief','chief_repair')`).get(firstBook)).toEqual({ count: 2 });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=? AND node_key IN ('chief','chief_repair')`).get(firstBook)).toEqual({ count: 6 });
       const repeatedRevision = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-items/world-stage/revisions`, headers: { ...HEADERS, cookie }, payload: { content: '这是作者修改后的世界舞台，新版本保留旧版，不原地覆盖。', idempotencyKey: 'setting-author-revision-0001' } });
       expect(repeatedRevision.statusCode).toBe(200);
       expect(repeatedRevision.json().data.batchId).toBe(revisionBatchId);
@@ -966,7 +966,7 @@ describe('V7设定编辑部', () => {
     } finally { await app.close(); }
   });
 
-  it('同类设定按最多六项共享一份轻量资料包，一次设计后再等待全书统一审查', async () => {
+  it('同类设定逐主题设计，每项独立资料包并读取前项草案后再统一审查', async () => {
     context = createTestContext('wenmi-v7-setting-grouped-');
     const resolver = new SettingResolver(false);
     const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
@@ -977,7 +977,7 @@ describe('V7设定编辑部', () => {
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
         payload: {
           selectedItemKeys: ['world-stage', 'geography', 'hazards', 'civilization'],
-          customItems: [], authorNotes: {}, idempotencyKey: 'setting-grouped-batch-0001'
+          customItems: [], authorNotes: {}, designMemberKey: 'planner-deepseek-v4-pro', idempotencyKey: 'setting-grouped-batch-0001'
         }
       });
       expect(created.statusCode, created.body).toBe(200);
@@ -989,16 +989,18 @@ describe('V7设定编辑部', () => {
         item.state === 'needs_author' && typeof item.content === 'string' && item.content.length > 20
       ))).toBe(true);
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
-        WHERE book_id=? AND batch_id=? AND node_key='writer_group' AND state='succeeded'`).get(bookId, batchId)).toEqual({ count: 1 });
+        WHERE book_id=? AND batch_id=? AND node_key='writer_group' AND state='succeeded'`).get(bookId, batchId)).toEqual({ count: 4 });
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
         WHERE book_id=? AND batch_id=? AND node_key IN ('chief','chief_repair')`).get(bookId, batchId)).toEqual({ count: 0 });
       const contexts = context.database.prepare(`SELECT DISTINCT context_hash AS contextHash,context_manifest_json AS manifest
         FROM v7_setting_item_jobs WHERE book_id=? AND batch_id=?`).all(bookId, batchId) as Array<{ contextHash: string; manifest: string }>;
-      expect(contexts).toHaveLength(1);
-      const manifest = JSON.parse(contexts[0]!.manifest) as { characterCount: number; budgetChars: number; itemKeys: string[] };
-      expect(manifest.itemKeys).toHaveLength(4);
-      expect(manifest.characterCount).toBeLessThanOrEqual(manifest.budgetChars);
-      expect(manifest.budgetChars).toBe(12_000);
+      expect(contexts).toHaveLength(4);
+      for (const context of contexts) {
+        const manifest = JSON.parse(context.manifest) as { characterCount: number; budgetChars: number; itemKeys: string[] };
+        expect(manifest.itemKeys).toHaveLength(1);
+        expect(manifest.characterCount).toBeLessThanOrEqual(manifest.budgetChars);
+        expect(manifest.budgetChars).toBe(12_000);
+      }
     } finally { await app.close(); }
   });
 
@@ -1614,18 +1616,22 @@ describe('V7设定编辑部', () => {
       );
       const eventCount = context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_member_events
         WHERE owner_id=? AND book_id=? AND batch_id=?`).get(owner.owner_id, bookId, batchId);
+      const outputCheckpoint = context.database.prepare(`SELECT output_id,content_json FROM v7_setting_outputs
+        WHERE owner_id=? AND book_id=? AND batch_id=? ORDER BY output_id`).all(owner.owner_id, bookId, batchId);
+      const versionCheckpoint = context.database.prepare(`SELECT * FROM v7_setting_item_versions
+        WHERE owner_id=? AND book_id=? AND source_batch_id=? ORDER BY version_id`).all(owner.owner_id, bookId, batchId);
 
       resolver.releaseWriter();
       for (let index = 0; index < 120; index += 1) {
         const stored = context.database.prepare(`SELECT state FROM v7_setting_model_calls
-          WHERE owner_id=? AND book_id=? AND batch_id=? AND node_key='writer_group'
+          WHERE owner_id=? AND book_id=? AND batch_id=? AND node_key='writer'
           ORDER BY started_at DESC LIMIT 1`).get(owner.owner_id, bookId, batchId) as { state: string } | undefined;
         if (stored?.state === 'succeeded') break;
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
       await new Promise((resolve) => setTimeout(resolve, 10));
       expect(context.database.prepare(`SELECT state FROM v7_setting_model_calls
-        WHERE owner_id=? AND book_id=? AND batch_id=? AND node_key='writer_group'
+        WHERE owner_id=? AND book_id=? AND batch_id=? AND node_key='writer'
         ORDER BY started_at DESC LIMIT 1`).get(owner.owner_id, bookId, batchId)).toEqual({ state: 'succeeded' });
 
       expect(context.database.prepare(`SELECT status,lease_token,lease_expires_at,updated_at
@@ -1636,10 +1642,10 @@ describe('V7设定编辑部', () => {
         FROM v7_setting_item_jobs WHERE owner_id=? AND book_id=? AND batch_id=? ORDER BY item_key`).all(
         owner.owner_id, bookId, batchId
       )).toEqual(terminalJobs);
-      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_outputs
-        WHERE owner_id=? AND book_id=? AND batch_id=?`).get(owner.owner_id, bookId, batchId)).toEqual({ count: 0 });
-      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_versions
-        WHERE owner_id=? AND book_id=? AND source_batch_id=?`).get(owner.owner_id, bookId, batchId)).toEqual({ count: 0 });
+      expect(context.database.prepare(`SELECT output_id,content_json FROM v7_setting_outputs
+        WHERE owner_id=? AND book_id=? AND batch_id=? ORDER BY output_id`).all(owner.owner_id, bookId, batchId)).toEqual(outputCheckpoint);
+      expect(context.database.prepare(`SELECT * FROM v7_setting_item_versions
+        WHERE owner_id=? AND book_id=? AND source_batch_id=? ORDER BY version_id`).all(owner.owner_id, bookId, batchId)).toEqual(versionCheckpoint);
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_member_events
         WHERE owner_id=? AND book_id=? AND batch_id=?`).get(owner.owner_id, bookId, batchId)).toEqual(eventCount);
     } finally {
@@ -1906,20 +1912,33 @@ describe('V7设定编辑部', () => {
 
   it('会员算力在分组间不足时保留成功项、不伪造成成员失败，条件恢复后只续跑未发送项', async () => {
     context = createTestContext('wenmi-v7-setting-membership-recovery-');
-    const resolver = new SettingResolver(false);
+    const delegate = new SettingResolver(false);
+    let quotaOwner = '';
+    let exhausted = false;
+    const resolver: V7OpeningModelAdapterResolver = { resolve(provider, modelId, purpose) {
+      const adapter = delegate.resolve(provider, modelId, purpose);
+      return { provider, modelId, generate: async (request, signal) => {
+        const result = await adapter.generate(request, signal);
+        if (!exhausted && quotaOwner && settingStagePrompt(request.prompt).includes('v7_setting_group_design_v1')) {
+          exhausted = true;
+          context!.database.prepare('UPDATE user_memberships SET token_quota=1000 WHERE owner_id=?').run(quotaOwner);
+        }
+        return result;
+      }};
+    }};
     const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       await register(app, 'setting-membership-admin@example.com', '额度测试管理员', 'strong-pass-907');
       const cookie = await register(app, 'setting-membership-recovery@example.com', '额度恢复作者', 'strong-pass-908');
       const bookId = await createBook(app, cookie, '额度恢复测试', 'setting-membership-recovery-book', '历史脑洞');
       const owner = context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string };
-      // 两个分组的最低预算校验可以通过，但第一组真实预占后，第二组会在
-      // 模型发送前被门禁阻断，以复现生产“部分完成”的真实边界。
-      context.database.prepare('UPDATE user_memberships SET token_quota=35000 WHERE owner_id=?').run(owner.owner_id);
+      // 入场额度足够；模拟首项返回时其他任务用完额度，下一项发送前应阻断。
+      quotaOwner = owner.owner_id;
+      context.database.prepare('UPDATE user_memberships SET token_quota=200000 WHERE owner_id=?').run(owner.owner_id);
       const selectedItemKeys = ['world-stage', 'geography', 'hazards', 'civilization', 'history', 'governance', 'class'];
       const created = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
-        payload: { selectedItemKeys, customItems: [], authorNotes: {}, idempotencyKey: 'setting-membership-batch-0001' }
+        payload: { selectedItemKeys, customItems: [], authorNotes: {}, designMemberKey: 'planner-deepseek-v4-pro', idempotencyKey: 'setting-membership-batch-0001' }
       });
       expect(created.statusCode, created.body).toBe(200);
       const batchId = created.json().data.batchId as string;

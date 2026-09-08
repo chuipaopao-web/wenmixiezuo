@@ -1,6 +1,6 @@
 # 文秘写作全产品重构执行文档与开发顺序表
 
-> 版本1.66 · 2026-09-09 · 第170批设定详情紧凑展示已验证并静态上线
+> 版本1.67 · 2026-09-09 · 第171批逐主题设定与详情开合修复正在验证
 >
 > 本文是全产品重构的**唯一执行顺序和进度来源**；[详细开发规格](REBUILD_DEVELOPMENT_SPEC.md)保留产品与工程设计解释。
 >
@@ -688,7 +688,7 @@
 
 - **第170批发布（覆盖169批）**：静态06edfa0487c90036302a，API仍为wm-v7-20260909-033000-d5567614且API/Worker未重启。26项组件/引用检查、Web类型、独立构建、390/1440浏览器紧凑入口/中文引用/键盘开合及公网12资源校验通过；当前完整源码/opt/wenmi-releases/wm-web-r170-e79bf7f3/source。历史169批检查保留。
 
-- **第170批确认展示规则（覆盖169批布局）**：每个设定主题只留一个默认关闭的小字“规则详情”，展开后按第几条查看适用范围和关联对象，无信息则没有空入口；清除详情继承的大面板留白。正文及必要条件、代价、例外直接显示，显式目录引用如“见education”按真实目录转换为中文“见教育、知识与传承”；保留正常英文，不改写存储、AI资料或正在执行的任务。[检查记录](../coauthoring-v7/docs/worklists/SETTING-COMPACT-170.md)。
+- **第171批确认方案（覆盖170批展示）**：每次只设计一个主题，取消同组最多5项及尾项合并6项的安排；负责人顺序接续，每项完成即保存，再读取最新已完成草案；已确认规则与草案明确区分，资料超预算时挑完整相关事实，不截断条件或伪造正式事实。失败仍按现有冻结成员续做，结果未知不盲目重发；预算按单主题次数估计，不用固定字数承诺准确性。查看详情真实展开完整规则与操作，收起仅短预览。条件、适用、涉及收在每主题唯一小字“规则详情”，代价与例外直接可见；已知内部目录引用显示中文，存储和上下文保持完整。[检查记录](../coauthoring-v7/docs/worklists/SETTING-SINGLE-TOPIC-171.md)。
 
 - **确认方案·确认与实施状态**：2026-09-08用户确认完整方案并授权连续完成、测试、部署。三步实现已补齐：24主题及规则卡同源、分层选材与对象依赖、旧主题完整覆盖核对、修改语义分类、规划/定稿冲突拦截、明确作者规则取舍及批量原子确认。2026-09-09 00:32:59已发布wm-v7-20260909-003000-2c5dfc42，静态b1f55fc5353a6dec6a42；完整工程验证、55项最终复核、390/1440界面、服务器独立构建与75个旧资产内存升级、公网健康/Worker新心跳/资源与401检查通过。保留全部确认方案；长期阅读效果持续评测，不以工程测试代替百万字文学验证。
 - **确认方案·目标与现状**：目标是几百万字长篇、跨题材、结果简洁专业、资料可准确检索及注入；不承诺零崩坏或固定字数保证注意力。核对现有目录60候选项（34通用、26扩展），非每本书全部启用。已有摘要、事实和下游筛选，仍有通用与题材扩展重叠、力量等级通用化及部分路径硬性150—300/600字和重复字段等问题。
@@ -747,7 +747,7 @@
 - **确认方案·验收06·长篇效果**：工程链路及少量真实语义小样持续核验：两卷规划与定稿的隔离资料检查了来源、冲突、版本失效和正文保护；三次Kimi审查分别约4.8/5.1/2.6秒，识别限制扩大、正文矛盾与明确未来生效的合理变化。百万字连续阅读质量尚无实证，作为后续持续评测项，不伪称完成。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/books/v7-setting-editorial-service.ts,apps/api/src/application/books/v7-task-roster-snapshot.ts,apps/api/src/infrastructure/db/repositories/setting-change-impact.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-rules.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-catalog.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-agent-support.ts,rebuild/packages/backend/src/legacy-opening/agent-governance/agent-governance-registry.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/books/setting-continuity.ts,apps/api/src/infrastructure/db/repositories/setting-version-selection.ts,apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.ts,coauthoring-v7/author-app/src/SettingPage.tsx,apps/api/src/infrastructure/db/repositories/setting-continuity-repository.ts,apps/api/src/application/agents/book-creative-context.ts
-- **管理·代码核对**：164b77e036f45f369f82561b67d1b526edc5aefeabd8b9b0636efa53bdec39b9
+- **管理·代码核对**：41a789dc80b1a8652d2fa13647ed367ed16c107c0f6ecacfa45bb00720b754a6
 
 - **管理·共享步骤**：AI-008,AI-009
 
