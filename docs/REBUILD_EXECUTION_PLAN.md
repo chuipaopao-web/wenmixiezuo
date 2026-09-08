@@ -332,6 +332,8 @@
 
 ### RB-00.2 官网首页与公开入口
 
+- **第175批品牌统一**：官网、作者工作台、登录/注册/账号状态页、后台登录及宣传区、后台导航和两个站点的浏览器图标共用第174批原创Logo图片。后台开发预览也使用同一资源，不再显示“文”字占位图标；成员头像、书籍封面不属于品牌替换。仅静态更新，不改登录权限与任务；证据见[第175批](../coauthoring-v7/docs/worklists/PRODUCT-LOGO-175.md)。
+
 - **第174批当前设计**：首页首屏为“无需经验，无需文笔”与 AI 编辑部介绍，列出框架、大纲、细纲、章纲、正文、角色人设、故事线；貂蝉读取统一成员头像。原创暖金古风执笔少女 Logo 用于官网导航、页脚与浏览器图标。删除首屏大幅流程占位图，简洁步骤放下方。登录、注册与工作台行为保持。此页不启动 Agent，不注入上下文，纯产品说明；发布证据见[第174批](../coauthoring-v7/docs/worklists/HOMEPAGE-BRAND-174.md)。
 
 - **讨论**：第105批已确认公开产品介绍、顶部登录注册，保留绿色视觉；首屏表达从想法开始小说，分段说明创作流程、作者控制、多智能体及长期记忆。短剧未开放时标规划中，不宣传永久准确记忆、虚假实时进度或不存在的完整能力。
@@ -588,7 +590,7 @@
 ### RB-19 AI开书页与结果采用
 
 - **管理·代码来源**：rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,rebuild/packages/agent-catalog/creative-assets.js,rebuild/packages/backend/src/legacy-opening/opening-agent/opening-prompt-compiler.ts,apps/api/src/application/books/v7-opening-agent-service.ts,coauthoring-v7/author-app/src/NewNovelPage.tsx,coauthoring-v7/author-app/src/AuthorApp.tsx
-- **管理·代码核对**：88006539a7ac99497c0ecd21afdf43c7d7cc67e07c0c15bc180702cd5d9b353e
+- **管理·代码核对**：c84c3ca1348d55b7f92b31c3c373fe5f9cdfdf7ec72b40dcecf8afb2d3705c53
 
 - **管理·共享步骤**：none
 - **第166批确认方案**：首页直接开书，新貂蝉为亲切可爱的成年古风女性；尺度为常规发挥/趣味加料/反差脑洞/荒诞猎奇/极限整活，默认4。风格已由第167批调整为一个主偏向、最多四个辅助偏向；主导与辅助用途分别明确。完整机制库允许自由组合与原创，不宣称全网最全。后台“资产方法论→创意与金手指”查看同源卡片和节点规则；正式调用快照在本功能的上下文样例中追溯。2026-09-09 02:56:49已上线wm-v7-20260909-024500-108646da，静态a950d437b17ebb3fa52b。手机/电脑和定向接口验证通过，真实合成样例设计88秒、审查21秒通过；单例不代表所有任务速度。剧本尚未开放。

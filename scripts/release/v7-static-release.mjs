@@ -155,7 +155,9 @@ async function verifyHtmlEntrypoint(releaseDirectory, entryPath, requiredBase, f
   const references = localReferencePaths(html);
   if (references.length === 0) throw new Error(`${entryPath} 没有可验证的本地资源引用`);
   for (const reference of references) {
-    if (requiredBase !== '/' && reference.startsWith('/') && !reference.startsWith(requiredBase)) {
+    // Both entrypoints use the same versioned brand asset from the combined release.
+    const sharedBrandIcon = reference === '/avatars/wenmi-logo-r174.png';
+    if (requiredBase !== '/' && reference.startsWith('/') && !reference.startsWith(requiredBase) && !sharedBrandIcon) {
       throw new Error(`${entryPath} 的资源 ${reference} 没有使用 ${requiredBase} 基址`);
     }
     const resolvedReference = resolveHtmlReference(entryPath, reference);

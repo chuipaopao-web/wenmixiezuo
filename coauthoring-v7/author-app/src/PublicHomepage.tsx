@@ -76,7 +76,7 @@ export function PublicHomepage({
         onClick={(event) => event.currentTarget.closest('.public-homepage')?.scrollTo({ top: 0, behavior: 'smooth' })}
         aria-label="回到文秘写作首页"
       >
-        <img className="public-brand-image" src="/branding/wenmi-logo-r174.png" alt="" />
+        <img className="public-brand-image" src="/avatars/wenmi-logo-r174.png" alt="" />
         <span>文秘写作</span>
       </button>
       <nav className="public-home-nav" aria-label="公开入口">
@@ -173,7 +173,7 @@ export function PublicHomepage({
 
     <footer className="public-home-footer" id="contact">
       <div>
-        <img className="public-brand-image" src="/branding/wenmi-logo-r174.png" alt="" />
+        <img className="public-brand-image" src="/avatars/wenmi-logo-r174.png" alt="" />
         <strong>文秘写作</strong>
         <p>让创作更有章法。</p>
       </div>

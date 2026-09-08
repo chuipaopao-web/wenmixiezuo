@@ -104,7 +104,7 @@ function AdminLogin({ initialError, onAuthenticated, onRetry }: {
 
   return <main className="asset-login">
     <section>
-      <div className="asset-login-brand"><span className="asset-brand-mark">文</span><div><strong>文秘写作</strong><small>产品管理后台</small></div></div>
+      <div className="asset-login-brand"><img className="asset-brand-mark product-logo" src="/avatars/wenmi-logo-r174.png" alt="" /><div><strong>文秘写作</strong><small>产品管理后台</small></div></div>
       <span className="asset-login-kicker">ADMIN CONSOLE</span>
       <h1>登录管理后台</h1>
       <p>在这里查看功能地图、管理配置、跟进重构与运营问题。</p>
@@ -116,7 +116,7 @@ function AdminLogin({ initialError, onAuthenticated, onRetry }: {
       </form>
       <a href={AUTHOR_SITE_ORIGIN}><ArrowLeft aria-hidden="true" />返回作者创作台</a>
     </section>
-    <aside aria-hidden="true"><span>文</span><strong>看清每一项功能，<br />跟进每一步开发。</strong><p>功能地图、配置与运营，在独立后台统一管理。</p></aside>
+    <aside aria-hidden="true"><img className="asset-login-logo product-logo" src="/avatars/wenmi-logo-r174.png" alt="" /><strong>看清每一项功能，<br />跟进每一步开发。</strong><p>功能地图、配置与运营，在独立后台统一管理。</p></aside>
   </main>;
 }
 

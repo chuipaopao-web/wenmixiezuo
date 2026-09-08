@@ -133,7 +133,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
 
   return <div className="asset-admin-app">
     <aside className="asset-sidebar" aria-label="管理后台导航">
-      <header><span className="asset-brand-mark">文</span><div><strong>文秘产品管理</strong><small>功能、配置与平台运营</small></div></header>
+      <header><img className="asset-brand-mark product-logo" src="/avatars/wenmi-logo-r174.png" alt="" /><div><strong>文秘产品管理</strong><small>功能、配置与平台运营</small></div></header>
       <nav>{NAVIGATION.map(({ key, label, icon: Icon, group }, index) => <Fragment key={key}>
         {(index === 0 || NAVIGATION[index - 1]?.group !== group) && <span className="asset-nav-group">{group}</span>}
         <button

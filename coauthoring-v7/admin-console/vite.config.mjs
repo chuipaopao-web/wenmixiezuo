@@ -11,7 +11,7 @@ const trustedLocalOrigin = process.env.V7_ADMIN_PROXY_ORIGIN ?? 'http://127.0.0.
 function sharedAvatars(server) {
   server.middlewares.use((req, res, next) => {
     const name = req.url?.split('?')[0];
-    if (!['/avatars/editorial-women-v130.png', '/avatars/editorial-women-v131.png', '/avatars/diaochan-welcome-r166.png'].includes(name)) return next();
+    if (!['/avatars/editorial-women-v130.png', '/avatars/editorial-women-v131.png', '/avatars/diaochan-welcome-r166.png', '/avatars/wenmi-logo-r174.png'].includes(name)) return next();
     readFile(new URL('../author-app/public' + name, import.meta.url)).then(data => {
       res.setHeader('Content-Type', 'image/png'); res.end(data);
     }).catch(next);

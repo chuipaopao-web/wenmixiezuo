@@ -74,6 +74,8 @@
   letter-spacing: 0.12em;
 }
 
+img.v7-account-brand { object-fit: cover; background: #ffe3a1; }
+
 .v7-account-card h1 {
   margin: 12px 0 8px;
   font: 500 clamp(30px, 8vw, 40px)/1.15 "STSong", "Songti SC", serif;

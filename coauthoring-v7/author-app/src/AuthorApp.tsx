@@ -441,7 +441,7 @@ export function AuthorApp(): React.JSX.Element {
       >
         <div className="sidebar-brand">
           <button className="brand-lockup" type="button" onClick={() => navigate('home')} aria-label="返回文秘写作首页">
-            <span className="brand-mark" aria-hidden="true">文</span>
+            <img className="brand-mark product-logo" src="/avatars/wenmi-logo-r174.png" alt="" />
             <span><strong>文秘写作</strong><small>长篇创作台</small></span>
           </button>
           <button className="icon-button" type="button" aria-label="关闭书架" onClick={closeLeftMenu}><XIcon /></button>

@@ -482,7 +482,7 @@ export function AuthorAccountCenter({
 }
 
 function BrandMark(): React.JSX.Element {
-  return <span className="v7-account-brand" aria-hidden="true">文</span>;
+  return <img className="v7-account-brand product-logo" src="/avatars/wenmi-logo-r174.png" alt="" />;
 }
 
 function firstCharacter(value: string): string {

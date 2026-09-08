@@ -109,6 +109,16 @@ describe('V7 组合静态发布包', () => {
     await expect(assembleV7StaticRelease(fixture)).rejects.toThrow('没有使用 /v7/ 基址');
   });
 
+  it('后台可共用品牌图标，但缺失图标仍阻止发布', async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.projectRoot, 'coauthoring-v7/admin-console/dist/index.html'), '<link rel="icon" href="/avatars/wenmi-logo-r174.png"><script src="/v7/assets/admin.js"></script>');
+    await expect(assembleV7StaticRelease(fixture)).rejects.toThrow('发布资源不存在');
+    const brand = join(fixture.projectRoot, 'coauthoring-v7/author-app/dist/avatars');
+    await mkdir(brand);
+    await writeFile(join(brand, 'wenmi-logo-r174.png'), 'synthetic-image');
+    await expect(assembleV7StaticRelease(fixture)).resolves.toHaveProperty('releaseId');
+  });
+
   it('按作者端、后台和上游路径分别解析深链接', () => {
     const files = new Set(['index.html', 'assets/author.js', 'v7/index.html', 'v7/assets/admin.js']);
     expect(resolveStaticRequest('/some/book/chapter/12', files)).toEqual({ kind: 'file', path: 'index.html' });

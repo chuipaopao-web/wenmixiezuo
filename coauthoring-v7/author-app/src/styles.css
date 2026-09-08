@@ -422,6 +422,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .brand-lockup { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0; background: transparent; cursor: pointer; text-align: left; }
 .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; color: #f7f3e8; background: linear-gradient(145deg, #3a6154, #2c4a42 58%, #223b34); box-shadow: 0 10px 24px rgb(44 74 66 / 24%); font-family: var(--font-display); font-size: 19px; }
 .brand-lockup > span:last-child { min-width: 0; display: grid; }
+img.product-logo { object-fit: cover; flex-shrink: 0; background: #ffe3a1; }
 .brand-lockup strong { overflow: hidden; font-family: var(--font-display); font-size: 14px; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
 .brand-lockup small { display: none; color: var(--ink-faint); font-size: 10px; }
 
