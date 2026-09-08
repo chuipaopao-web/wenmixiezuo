@@ -2,7 +2,7 @@
 
 ## R174：官网品牌与编辑部首屏
 
-合同coauthoring-v7/docs/worklists/HOMEPAGE-BRAND-174.md。原创暖金古风少女Logo、首页新貂蝉头像、编辑部首屏、新营销文案；保留登录注册与工作台入口，流程步骤下移。9项入口测试、Web类型/构建、内置浏览器桌面及390px检查通过；静态发布准备中，不重启API/Worker。
+合同coauthoring-v7/docs/worklists/HOMEPAGE-BRAND-174.md。原创暖金古风少女Logo、首页新貂蝉头像、编辑部首屏、新营销文案；保留登录注册与工作台入口，流程步骤下移。9项入口测试、Web类型/构建、内置浏览器桌面及390px检查通过；已静态发布d6296e52b0b4abffe3ab，来源/opt/wenmi-releases/wm-web-r174-a0640e3d/source。13项公网资源及后台入口、健康、401通过，API/Worker未重启，仍为R173版本。线上浏览器导航超时，视觉检查为本地同源页面。
 
 ## R173：完整短句与正文单独展示，已上线
 
