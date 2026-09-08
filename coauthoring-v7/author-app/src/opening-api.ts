@@ -97,6 +97,7 @@ export interface OpeningCandidate<T = unknown> {
 }
 
 export interface OpeningTaskView {
+  creativeProfile?: import('@wenmi/agent-catalog').CreativeProfile;
   taskId: string;
   idea: string;
   publishingPlatform: OpeningPublishingPlatform;
@@ -438,12 +439,14 @@ export function createOpeningTask(
   idea: string,
   publishingPlatform: OpeningPublishingPlatform,
   idempotencyKey: string,
-  selectedScreenwriterMemberKey?: string
+  selectedScreenwriterMemberKey?: string,
+  creativeProfile?: import('@wenmi/agent-catalog').CreativeProfile
 ): Promise<OpeningTaskView> {
   return request<OpeningTaskWireView>('/api/v1/v7/opening-agent/tasks', {
     method: 'POST',
     body: JSON.stringify({
       idea,
+      creativeProfile,
       publishingPlatform,
       idempotencyKey,
       ...(selectedScreenwriterMemberKey === undefined || selectedScreenwriterMemberKey.length === 0

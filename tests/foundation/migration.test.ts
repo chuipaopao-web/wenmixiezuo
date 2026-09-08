@@ -113,7 +113,8 @@ describe('向前迁移器', () => {
         '0105_v7_planning_generation_retries.sql',
         '0106_v7_setting_failure_recovery.sql', '0107_v7_route_decision_jobs.sql',
         '0108_v7_agent_member_slots.sql', '0109_v7_rhythm_policy.sql',
-        '0110_account_usage_purge_archive.sql'
+        '0110_account_usage_purge_archive.sql',
+        '0111_opening_creative_profile.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(database.prepare(`SELECT name,"notnull" AS required,dflt_value AS defaultValue

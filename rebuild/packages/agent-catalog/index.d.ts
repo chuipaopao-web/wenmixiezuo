@@ -1,3 +1,4 @@
+export * from './creative-assets.js';
 export type RoleKey = 'chief_editor'|'deputy_editor'|'planning_writer'|'lead_writer'|'independent_reviewer'|'continuity_editor'|'visual_renderer';
 export interface CatalogModel { readonly profileKey: string; readonly publicName: string; readonly kind: 'text'|'image' }
 export interface CatalogRole { readonly roleKey: RoleKey; readonly departmentName: string; readonly publicName: string; readonly publicResponsibility: string; readonly kind: 'text'|'image'; readonly capacity: number }

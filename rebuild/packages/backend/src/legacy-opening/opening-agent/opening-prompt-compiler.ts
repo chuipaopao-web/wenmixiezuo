@@ -1,3 +1,4 @@
+import { creativeDirective, openingCreativeCatalog, type CreativeProfile } from '@wenmi/agent-catalog';
 import { compileOpeningSkillBundle } from '../agents/agent-skills.js';
 import type { V7OpeningNodeKey } from '../agents/agent-tools.js';
 import type {
@@ -26,6 +27,7 @@ export interface OpeningPromptInput {
   operation: OpeningPromptOperation;
   basedOnTaskId: string | null;
   authorIdea: string;
+  creativeProfile?: CreativeProfile | undefined;
   publishingPlatform: OpeningPublishingPlatform;
   ideaVersion: number;
   referencePack: OpeningReferencePack;
@@ -79,6 +81,8 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
       instructions: input.openingPackage?.authorInstructions ?? [],
       instruction: '这些是作者后续明确提出的调整意见，优先于最初想法中被明确修改的同一内容；未涉及的原始要求继续保留。设计成员据此修订，主编按修订后的作者意图审查，不得以旧想法否决作者的新决定。'
     },
+    creativeDirection: creativeDirective(input.creativeProfile, 'opening'),
+    creativeAssets: input.creativeProfile && input.nodeKey === 'opening_package_design' ? { version: input.creativeProfile.version, selection: '完整精简目录，自主选择、组合或原创，不限卡片数量；这是灵感，不是本书事实。修订时只使用服务作者修改的创意。', cards: openingCreativeCatalog() } : null,
     publishingStyle: publishingStyle(input.publishingPlatform),
     memberSupplement: {
       instruction: input.memberInstruction,
@@ -112,11 +116,11 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
     finalInstructions: [
       '只输出一个可解析JSON对象，不使用Markdown，不解释工作过程。',
       '不要输出思维链、内部推理、工具调用记录、API信息或后续承诺。',
-      '没有足够依据时把问题放入开放项或作者决定项，不擅自补成确定事实。',
+      '作者未指定的创作内容由设计成员主动提出候选，不以缺少现实依据为由推回作者；不得把虚构候选冒充已确认事实。',
       '先逐字确认作者明确指定的主角。遇到岳飞、曹操等知名历史人物不等于其成为主角；不得因为名人更知名而替换作者主角。',
       '当前困境和开局剧情不属于开书资料；不得生成，也不得在审查时要求作者补充。当前共享表单中的作品定位、时代、主角基础资料、外貌形象、故事方向和结局方向必须全部填写。',
       'protagonists.goal、protagonists.dilemma、protagonists.boundary、backgrounds.openingSituation及opening下的字段是旧接口兼容空位，不在当前共享开书表单中；不得因为它们为空要求修订或让作者决定。长期目标只检查longTermDirection，作者边界只检查mustFollow。',
-      '作者没有给出家庭、职业、特殊能力或外貌细节时，要结合已确认背景作最小、可修改且不抢剧情的专业设计；确实没有金手指时写清“无额外金手指，主要依靠……”而不是留空。',
+      '作者未给出的家庭、职业、能力和外貌由成员按创意方向主动设计；明确卖点、反差与持续玩法。优先提出适配金手指，但服从作者明确无外挂要求；不强制代价、冷却或战力平衡。',
       '书名必须让读者一眼看出至少一个具体卖点，例如主角身份差、时代处境、核心能力或主要冲突；不得只用空泛朝代词、单字意象或“某时归、某世录、某朝传”一类缺少内容信息的名称。',
       '预计总字数必须根据本书题材、平台和可持续故事容量具体设计，不能照抄统一默认值。建议卷数、商业受众和追读定位不属于本轮输出，由时光机里的全案策划分别规划。',
       '修订任务中，authorInstructions只调整当前开书资料；保持未被作者点名的既有字段，不能扩展修改设定、蓝图、分卷或正文。',
@@ -124,8 +128,8 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
       'mustFollow只记录作者原话中明确提出的禁止项或不能写错的边界；不得替作者虚构限制。作者没有提出限制时返回["无额外限制"]。',
       '主编审查的issues.field必须写作者看得懂的中文名称，例如“故事方向”“结局方向”。decisions.field则必须从决定卡白名单逐字选择，前端会把它翻译成中文，不会直接展示。',
       '只有确实会改变作品方向且无法由主编自行判断的事项才进入decisions；一项只处理一个字段。question、currentValue、recommendation、reason、impact都用简短大白话，recommendation必须是可直接写回该字段的完整内容。普通优化由主编直接完成，不要把一长串专业问题甩给作者。',
-      '审查结论以能否安全进入下一阶段为准：资料忠于作者、字段合法、方向自洽且可继续规划时必须pass；可选优化可以写入issues，但requiredChanges、authorDecisions和decisions必须为空。',
-      '只有作者原意被改错、必填结构无效或存在会阻断下一阶段的硬冲突时，才能返回revise或author_decision。题材容量、预计字数、书名强度等合理区间内的商业偏好不能作为阻断理由。作者已经处理过的决定不得换一种说法反复提出。',
+      '审查结论以能否安全进入下一阶段为准：资料忠于作者、字段合法、符合选定创意尺度且可继续规划时必须pass；可选优化可以写入issues，但requiredChanges、authorDecisions和decisions必须为空。',
+      '只有作者原意被改错、必填结构无效或存在姓名身份或作者明确要求的硬冲突时，才能返回revise或author_decision。题材容量、预计字数、书名强度等合理区间内的商业偏好不能作为阻断理由。作者已经处理过的决定不得换一种说法反复提出。',
       '返回revise或author_decision时，每一项需要作者处理的内容都必须生成decisions决定卡，并使用白名单中的精确field；不得只写requiredChanges或authorDecisions。positioning.expectedTotalWords的recommendation必须只写100000至10000000之间的阿拉伯整数，不写“万”“字”或说明文字。',
       '严格遵守outputJsonSchema的字段名、嵌套层级和类型；不能把应为对象或数组的字段写成一段字符串。',
       '不能省略outputJsonSchema.required中的字段；没有内容的可选数组返回空数组。'

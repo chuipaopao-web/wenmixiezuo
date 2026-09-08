@@ -1,3 +1,4 @@
+import type { CreativeProfile } from '@wenmi/agent-catalog';
 import type { V7AgentFailureClass } from '../agents/agent-failure-policy.js';
 import type { V7OpeningMemberDefinition, V7OpeningRoleKey } from '../agents/agent-roster.js';
 import type { V7OpeningNodeKey } from '../agents/agent-tools.js';
@@ -250,6 +251,7 @@ export interface OpeningAgentTaskState {
 }
 
 export interface OpeningIdeaSnapshot {
+  creativeProfile?: CreativeProfile | undefined;
   text: string;
   version: number;
   hash: string;

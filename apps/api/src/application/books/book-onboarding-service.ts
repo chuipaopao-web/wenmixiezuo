@@ -86,7 +86,8 @@ export class BookOnboardingService {
     const openingStyleVersionId = draft.openingBlueprint === null ? null : this.ids.next();
     const rules = buildAdaptationRules(draft.fields, draft.tags);
 
-    this.database.exec('BEGIN IMMEDIATE');
+    const ownsTransaction = !this.database.isTransaction;
+    if (ownsTransaction) this.database.exec('BEGIN IMMEDIATE');
     try {
       new BookRepository(this.database).create(bookScope, draft.title, now, 'active');
       if (failAt === 'after_book') throw new Error('simulated-onboarding-failure');
@@ -199,7 +200,7 @@ export class BookOnboardingService {
         UPDATE positioning_drafts SET status = 'confirmed', confirmed_book_id = ?, updated_at = ?
         WHERE draft_id = ? AND owner_id = ? AND version = ? AND status = 'editing'
       `).run(draft.proposedBookId, now, draftId, scope.ownerId, expectedVersion);
-      this.database.exec('COMMIT');
+      if (ownsTransaction) this.database.exec('COMMIT');
       return {
         bookId: draft.proposedBookId,
         title: draft.title,
@@ -212,7 +213,7 @@ export class BookOnboardingService {
         openingBlueprintId
       };
     } catch (error) {
-      this.database.exec('ROLLBACK');
+      if (ownsTransaction) this.database.exec('ROLLBACK');
       throw error;
     }
   }

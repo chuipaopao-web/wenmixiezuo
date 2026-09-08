@@ -1,3 +1,4 @@
+export * from './creative-assets.js';
 // Public identities and supported channel names only; no credentials, user data or task state.
 export { OPENING_EVALUATION_REPORT } from './opening-evaluations.js';
 import { OPENING_EVALUATION_REPORT } from './opening-evaluations.js';
@@ -54,6 +55,8 @@ for(const role of ROLES){
   members.push({memberKey:`member-${role.roleKey}-${number}`,displayName:extraNames[extra],roleKey:role.roleKey,initialModelProfileKey:initial==='glm-5.2'?null:initial,legacy:false,avatarPath:'/avatars/editorial-women-v131.png',avatarSize:'600% 600%',avatarPosition:positions(extra,6)});
  }
 }
+const welcomeChief=members.find(member=>member.memberKey==='chief-deepseek-v4-pro');
+Object.assign(welcomeChief,{avatarPath:'/avatars/diaochan-welcome-r166.png',avatarSize:'cover',avatarPosition:'center 32%'});
 export const MEMBER_SLOTS=Object.freeze(members.map(Object.freeze));
 export const V7_MEMBER_IDENTITIES=Object.freeze(MEMBER_SLOTS.map(m=>Object.freeze([m.memberKey,m.displayName])));
 export function publicMemberIdentity(memberKey){return MEMBER_SLOTS.find(m=>m.memberKey===memberKey);}

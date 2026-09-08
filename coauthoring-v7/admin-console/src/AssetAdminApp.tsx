@@ -42,10 +42,12 @@ import { CreationOperationsPage } from './CreationOperationsPage';
 import { FeatureCapabilitiesPage } from './FeatureCapabilitiesPage';
 import { RebuildControlCenter } from './RebuildControlCenter';
 import { RhythmAssetsPage } from './RhythmAssetsPage';
+import { CreativeAssetsPage } from './CreativeAssetsPage';
 import './asset-library.css';
 
 const ASSET_TABS = [
   { key: 'overview', label: '总览' }, { key: 'rhythm', label: '节奏短卡' },
+  { key: 'creative', label: '创意与金手指' },
   { key: 'methods', label: '叙事方法' }, { key: 'patterns', label: '剧情模式' },
   { key: 'recipes', label: '剧情配方' }, { key: 'planning', label: '分层应用' }
 ] as const;
@@ -64,7 +66,7 @@ const NAVIGATION = [
   { key: 'memberships', label: '会员与收入', icon: Crown, group: '平台运营' }
 ] as const;
 
-type AdminSection = AssetSection | PlatformSection | 'rhythm' | 'agents' | 'prompt-context' | 'creation-ops' | 'features' | 'rebuild' | 'configuration';
+type AdminSection = AssetSection | PlatformSection | 'rhythm' | 'creative' | 'agents' | 'prompt-context' | 'creation-ops' | 'features' | 'rebuild' | 'configuration';
 
 const DEFAULT_METHOD_FILTERS: MethodFilters = { query: '', dimension: 'all', scope: 'all' };
 const DEFAULT_PATTERN_FILTERS: PatternFilters = { query: '', category: 'all', genre: 'all' };
@@ -165,6 +167,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
         {section === 'recipes' && <RecipesPage items={recipes} filters={recipeFilters} onFilters={setRecipeFilters} onOpen={(value) => setDetail({ kind: 'recipe', value })} onClear={clearFilters} />}
         {section === 'planning' && <PlanningPage />}
         {section === 'rhythm' && <RhythmAssetsPage />}
+        {section === 'creative' && <CreativeAssetsPage />}
         {section === 'agents' && <AgentGovernancePage />}
         {section === 'creation-ops' && <CreationOperationsPage />}
         {section === 'features' && <FeatureCapabilitiesPage />}

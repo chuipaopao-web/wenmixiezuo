@@ -155,6 +155,7 @@ export async function registerV7OpeningAgentRoutes(
   app.post<{
     Body: {
       idea?: unknown;
+      creativeProfile?: unknown;
       idempotencyKey?: unknown;
       selectedChiefMemberKey?: unknown;
       selectedScreenwriterMemberKey?: unknown;
@@ -164,6 +165,7 @@ export async function registerV7OpeningAgentRoutes(
     const owner = requireAuthenticatedOwner(request);
     return success(service.create(owner.ownerId, {
       idea: request.body?.idea,
+      creativeProfile: request.body?.creativeProfile,
       idempotencyKey: request.body?.idempotencyKey,
       selectedChiefMemberKey: request.body?.selectedChiefMemberKey,
       selectedScreenwriterMemberKey: request.body?.selectedScreenwriterMemberKey,

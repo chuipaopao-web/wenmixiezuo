@@ -115,7 +115,7 @@ export class OpeningAgentEngine {
           authorInstructionVersion,
           (validationRepair, member, contract) => (
           buildOpeningAgentPrompt({
-            taskId: state!.taskId, nodeKey: 'opening_package_design', authorIdea: idea.text,
+            taskId: state!.taskId, nodeKey: 'opening_package_design', authorIdea: idea.text, creativeProfile: idea.creativeProfile,
             roleKey: PACKAGE_SPEC.roleKey,
             taskKind: PACKAGE_SPEC.taskKind,
             workstationKey: PACKAGE_SPEC.workstationKey,
@@ -160,7 +160,7 @@ export class OpeningAgentEngine {
           null,
           (validationRepair, member, contract) => (
           buildOpeningAgentPrompt({
-            taskId: state!.taskId, nodeKey: 'opening_package_review', authorIdea: idea.text,
+            taskId: state!.taskId, nodeKey: 'opening_package_review', authorIdea: idea.text, creativeProfile: idea.creativeProfile,
             roleKey: REVIEW_SPEC.roleKey,
             taskKind: REVIEW_SPEC.taskKind,
             workstationKey: REVIEW_SPEC.workstationKey,

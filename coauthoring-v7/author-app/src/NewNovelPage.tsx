@@ -1,3 +1,4 @@
+import { CREATIVE_SCALES, READING_STYLES, normalizeCreativeProfile, type CreativeProfile } from '@wenmi/agent-catalog';
 import {
   CheckCircleIcon,
   UsersThreeIcon,
@@ -36,6 +37,7 @@ const DECISION_KEY_PREFIX = 'wenmi-v7-opening-decisions-v2';
 const OPENING_RECOVERY_TIMEOUT_MS = 15_000;
 
 interface OpeningDraftSnapshot {
+  creativeProfile?: CreativeProfile;
   idea: string;
   taskId: string | null;
   mode: 'idea' | 'ai' | 'manual';
@@ -117,6 +119,7 @@ function readSnapshot(entryMode: 'ai' | 'manual', userId: string): OpeningDraftS
     const manualConfirmAction = pendingOpeningAction(parsed?.manualConfirmAction);
     const restored: OpeningDraftSnapshot = {
       idea,
+      creativeProfile: normalizeCreativeProfile(parsed?.creativeProfile),
       taskId: null,
       mode: 'idea' as const,
       publishingPlatform,
@@ -380,6 +383,8 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   const draftStorageKey = openingDraftKey(account.userId, entryMode);
   const [initial] = useState(() => readSnapshot(entryMode, account.userId));
   const [idea, setIdea] = useState(initial.idea);
+  const [creativeProfile, setCreativeProfile] = useState(() => normalizeCreativeProfile(initial.creativeProfile));
+  const [ideaConfirmed, setIdeaConfirmed] = useState(false);
   const [mode, setMode] = useState<OpeningDraftSnapshot['mode']>(initial.mode);
   const [publishingPlatform, setPublishingPlatform] = useState<OpeningPublishingPlatform>(initial.publishingPlatform);
   const [taskId, setTaskId] = useState<string | null>(initial.taskId);
@@ -448,6 +453,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     try {
       localStorage.setItem(draftStorageKey, JSON.stringify({
         idea,
+        creativeProfile,
         taskId,
         mode,
         publishingPlatform,
@@ -462,7 +468,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     } catch {
       // 浏览器拒绝本地存储时仍保留当前内存输入；提交失败会继续显示原位恢复提示。
     }
-  }, [adjustmentNote, baseCandidateId, draftStorageKey, idea, manualConfirmAction, manualStep, mode, openingPackage, openingSubmitAction, publishingPlatform, selectedDesignerMemberKey, taskId]);
+  }, [creativeProfile, adjustmentNote, baseCandidateId, draftStorageKey, idea, manualConfirmAction, manualStep, mode, openingPackage, openingSubmitAction, publishingPlatform, selectedDesignerMemberKey, taskId]);
 
   const persistPendingAction = useCallback((
     field: 'openingSubmitAction' | 'manualConfirmAction',
@@ -496,6 +502,8 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     removeTaskFromLocation();
     loadedCandidateRef.current = null;
     setIdea('');
+    setCreativeProfile(normalizeCreativeProfile());
+    setIdeaConfirmed(false);
     setMode('idea');
     setTaskId(null);
     setTask(null);
@@ -537,6 +545,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
           return;
         }
         setIdea(value.idea);
+        setCreativeProfile(normalizeCreativeProfile(value.creativeProfile));
         setTask(value);
         setPublishingPlatform(value.publishingPlatform);
         setRecoveryError(null);
@@ -640,6 +649,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     setError(null);
     const inputFingerprint = JSON.stringify({
       idea: idea.trim(),
+      creativeProfile,
       publishingPlatform: 'fanqie',
       selectedDesignerMemberKey: selectedDesignerMemberKey || null
     });
@@ -653,7 +663,8 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
         idea.trim(),
         'fanqie',
         action.key,
-        selectedDesignerMemberKey || undefined
+        selectedDesignerMemberKey || undefined,
+        creativeProfile
       );
       setOpeningSubmitAction(null);
       persistPendingAction('openingSubmitAction', null);
@@ -685,6 +696,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     setError(null);
     const inputFingerprint = JSON.stringify({
       idea: idea.trim(),
+      creativeProfile,
       publishingPlatform: 'fanqie',
       selectedDesignerMemberKey
     });
@@ -699,7 +711,8 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
         idea.trim(),
         'fanqie',
         action.key,
-        selectedDesignerMemberKey
+        selectedDesignerMemberKey,
+        creativeProfile
       );
       setOpeningSubmitAction(null);
       persistPendingAction('openingSubmitAction', null);
@@ -730,17 +743,6 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     }
   };
 
-  const startManual = () => {
-    if (ideaLength < 4 || ideaLength > 2_000) return;
-    removeTaskFromLocation();
-    setMode('manual');
-    setTaskId(null);
-    setTask(null);
-    setBaseCandidateId(null);
-    setOpeningPackage(openingPackage ?? emptyOpeningPackage());
-    setManualStep(1);
-    setError(null);
-  };
 
   const submitRevision = async () => {
     if (taskId === null || baseCandidateId === null || openingPackage === null || (!dirty && !hasDecisionUpdates) || unresolvedRequiredDecisions.length > 0 || invalidCustomDecision) return;
@@ -813,6 +815,8 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
       clearOpeningDraft(account.userId, 'manual');
       loadedCandidateRef.current = null;
       setIdea('');
+    setCreativeProfile(normalizeCreativeProfile());
+    setIdeaConfirmed(false);
       setMode('manual');
       setTaskId(null);
       setTask(null);
@@ -852,7 +856,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   if (mode === 'ai' && task?.retired === true) {
     return <section className="novel-create-surface" aria-label="开书任务恢复"><div className="failure-card compact-failure-card">
       <WarningCircleIcon /><p className="eyebrow">本轮未完成</p><h2 id="novel-create-title">已有结果和开书思路都已保留</h2><p>对不起，这项未完成任务已经停止，请按当前流程重新开始。</p>
-    </div><WorkflowActionDock title="继续这本书" detail="历史结果已安全保留。" primary={<button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '按当前流程重新开始'}</button>} secondary={<><button className="secondary-action" type="button" disabled={busy} onClick={startManual}>{openingPackage === null ? '自己填写开书资料' : '保留现有资料，自己完成'}</button><button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
+    </div><WorkflowActionDock title="继续这本书" detail="历史结果已安全保留。" primary={<button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '按当前流程重新开始'}</button>} secondary={<><button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
   }
 
   if (mode === 'ai' && task !== null && task.isRunning) {
@@ -867,27 +871,34 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     if (membershipBlocked) {
       return <section className="novel-create-surface" aria-label="开书任务恢复"><div className="failure-card compact-failure-card">
         <WarningCircleIcon /><p className="eyebrow">需要先处理会员或额度</p><h2 id="novel-create-title">开书想法已经安全保存</h2><p>{publicFailureCopy(task.errorMessage)}</p>
-      </div><WorkflowActionDock title="这本书仍然可以继续" detail={membershipRetryReady ? '会员信息已经重新确认，当前状态可以使用已保存的想法发起一轮新任务，不会覆盖旧结果。' : '先查看会员或额度；也可以不等AI，直接自己填写开书资料。'} primary={membershipRetryReady || busy
+      </div><WorkflowActionDock title="这本书仍然可以继续" detail={membershipRetryReady ? '会员信息已经重新确认，当前状态可以使用已保存的想法发起一轮新任务，不会覆盖旧结果。' : '先查看会员或额度，原想法和已完成资料都会保留。'} primary={membershipRetryReady || busy
         ? <button className="primary-action" type="button" disabled={busy} onClick={() => { onMembershipRetryConsumed(); void startAi(); }}>{busy ? '正在提交…' : '重新交给创作团队'}</button>
-        : <button className="primary-action" type="button" onClick={() => onOpenAccount(membershipRecoveryAction)}>查看会员与额度</button>} secondary={<>{membershipRetryReady && <button className="secondary-action" type="button" onClick={() => onOpenAccount(membershipRecoveryAction)}>再次查看会员与额度</button>}<button className="secondary-action" type="button" disabled={busy} onClick={startManual}>自己填写开书资料</button><button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
+        : <button className="primary-action" type="button" onClick={() => onOpenAccount(membershipRecoveryAction)}>查看会员与额度</button>} secondary={<>{membershipRetryReady && <button className="secondary-action" type="button" onClick={() => onOpenAccount(membershipRecoveryAction)}>再次查看会员与额度</button>}<button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
     }
     return <section className="novel-create-surface" aria-label="开书任务恢复"><div className="failure-card compact-failure-card">
       <WarningCircleIcon /><p className="eyebrow">{task.status === 'interrupted' ? '本轮连接结果未知' : '本轮未完成'}</p><h2 id="novel-create-title">已有结果和开书思路都已保留</h2><p>{publicFailureCopy(task.errorMessage)}</p>
-    </div><WorkflowActionDock title="选择恢复方式" detail="重试只会创建新一轮任务，不会覆盖旧结果。" primary={<button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '重新交给创作团队'}</button>} secondary={<>{task.status === 'interrupted' && <button className="secondary-action" type="button" disabled={busy} onClick={() => setRecoveryAttempt((current) => current + 1)}>重新连接这次任务</button>}<button className="secondary-action" type="button" disabled={busy} onClick={startManual}>{openingPackage === null ? '自己填写开书资料' : '保留现有资料，自己完成'}</button><button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
+    </div><WorkflowActionDock title="选择恢复方式" detail="重试只会创建新一轮任务，不会覆盖旧结果。" primary={<button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '重新交给创作团队'}</button>} secondary={<>{task.status === 'interrupted' && <button className="secondary-action" type="button" disabled={busy} onClick={() => setRecoveryAttempt((current) => current + 1)}>重新连接这次任务</button>}<button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
   }
 
   if (mode === 'idea') {
     return (
-      <section className="novel-create-surface" aria-label="填写开书想法">
+      <section className="novel-create-surface welcome-opening" aria-label="填写开书想法">
+        <div className="opening-welcome">
+          <img className="welcome-chief-portrait" src="/avatars/diaochan-welcome-r166.png" alt="貂蝉，编辑部主编" />
+          <div><p className="eyebrow">貂蝉 · 您的创作主编</p><h2>老板好啊！</h2>
+          <p>编辑部全员在岗，输入简短想法，我们将帮您设计作品、骨架、大纲、细纲、章纲、正文，您只需点点手指，做出决策就好啦！</p></div>
+        </div>
         <div className="idea-card">
-          <div className="idea-card-heading"><div><span className="step-number">01</span><h3>开书想法</h3></div></div>
           <label htmlFor="opening-idea">说说您想写什么</label>
-          <ImeTextarea id="opening-idea" maxChars={2_000} value={idea} onChange={(next) => { setIdea(next); setError(null); }} placeholder="例如：张三穿越到三国成为一名小卒，想靠现代知识活下来，并在乱世中建立自己的班底……" rows={8} />
-          <div className="idea-meta"><span>4至2000字</span><output>{ideaLength}/2000</output></div>
+          <ImeTextarea id="opening-idea" maxChars={2_000} value={idea} onChange={(next) => { setIdea(next); setIdeaConfirmed(false); setError(null); }} placeholder="例如：我想写一个在仙侠世界开坦克的外卖员，越离谱越好玩……" rows={4} />
+          <div className="idea-meta"><span>一句想法也可以 · {ideaLength}/2000</span><button className="secondary-action" type="button" disabled={ideaLength<4 || busy} onClick={() => setIdeaConfirmed(true)}>{ideaConfirmed ? '想法已确认' : '确定'}</button></div>
           <DesignerMemberPicker members={designMembers} value={selectedDesignerMemberKey} onChange={setSelectedDesignerMemberKey} />
+          <fieldset className="creative-choice"><legend>设计尺度</legend><div className="creative-scale-options">{CREATIVE_SCALES.map(scale => <button key={scale.level} type="button" aria-pressed={creativeProfile.scale===scale.level} onClick={() => setCreativeProfile(current=>({...current,scale:scale.level}))}><strong>{scale.name}</strong><small>{scale.description}</small></button>)}</div></fieldset>
+          <fieldset className="creative-choice"><legend>风格偏向 <small>可不选，最多三项；先选的优先</small></legend><div className="creative-style-options">{READING_STYLES.map(style => <button key={style} type="button" aria-pressed={creativeProfile.styles.includes(style)} disabled={!creativeProfile.styles.includes(style) && creativeProfile.styles.length>=3} onClick={() => setCreativeProfile(current=>({...current,styles:current.styles.includes(style)?current.styles.filter(item=>item!==style):[...current.styles,style]}))}>{creativeProfile.styles.includes(style) ? `${creativeProfile.styles.indexOf(style)+1} · ` : ''}{style}</button>)}</div></fieldset>
+          <fieldset className="creative-choice"><legend>作品类型</legend><div className="creative-style-options"><button type="button" aria-pressed="true">网文</button><button type="button" disabled>剧本 · 即将开放</button></div></fieldset>
           {error !== null && <div className="error-notice" role="alert">{error}</div>}
         </div>
-        <WorkflowActionDock title="让编辑部开始设计" detail="想法至少4字，最多2000字。" primary={<button className="primary-action" type="button" disabled={ideaLength < 4 || busy} onClick={() => void startAi()}><UsersThreeIcon />{busy ? '正在提交…' : '开始设计'}</button>} secondary={<button className="secondary-action" type="button" onClick={onBack}>返回创作类型</button>} />
+        <WorkflowActionDock title="让编辑部开始设计" detail="生成后可修改，也可以换成员重新设计。" primary={<button className="primary-action" type="button" disabled={ideaLength < 4 || busy} onClick={() => void startAi()}><UsersThreeIcon />{busy ? '正在提交…' : '开始设计'}</button>} />
       </section>
     );
   }

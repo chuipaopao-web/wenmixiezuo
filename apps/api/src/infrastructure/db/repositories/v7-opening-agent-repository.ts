@@ -1,3 +1,4 @@
+import type { CreativeProfile } from '@wenmi/agent-catalog';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
   OpeningAgentTaskState,
@@ -17,6 +18,7 @@ export interface V7OpeningTaskRow {
   idempotency_key: string;
   request_hash: string;
   idea_text: string;
+  creative_profile_json: string | null;
   idea_version: number;
   idea_hash: string;
   publishing_platform: OpeningPublishingPlatform;
@@ -59,6 +61,7 @@ export class V7OpeningAgentRepository implements OpeningAgentToolGateway {
     idempotencyKey: string;
     requestHash: string;
     ideaText: string;
+    creativeProfile?: CreativeProfile;
     ideaHash: string;
     publishingPlatform: OpeningPublishingPlatform;
     selectedChiefMemberKey: string | null;
@@ -69,9 +72,9 @@ export class V7OpeningAgentRepository implements OpeningAgentToolGateway {
     const result = this.database.prepare(`
       INSERT INTO v7_opening_agent_tasks (
         task_id, owner_id, idempotency_key, request_hash, idea_text, idea_version, idea_hash, publishing_platform,
-        selected_chief_member_key, selected_screenwriter_member_key, member_roster_json,
+        selected_chief_member_key, selected_screenwriter_member_key, member_roster_json, creative_profile_json,
         status, phase, state_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 'queued', 'package_design', NULL, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 'queued', 'package_design', NULL, ?, ?)
       ON CONFLICT(owner_id, idempotency_key) DO NOTHING
     `).run(
       input.taskId, input.ownerId, input.idempotencyKey, input.requestHash, input.ideaText, input.ideaHash,
@@ -86,6 +89,7 @@ export class V7OpeningAgentRepository implements OpeningAgentToolGateway {
         fallbackPriority: member.fallbackPriority,
         promptInstruction: member.promptInstruction
       }))),
+      input.creativeProfile ? JSON.stringify(input.creativeProfile) : null,
       input.now, input.now
     );
     const row = this.byIdempotency(input.ownerId, input.idempotencyKey);
@@ -272,6 +276,7 @@ export class V7OpeningAgentRepository implements OpeningAgentToolGateway {
     const row = this.requireRow(ownerId, taskId);
     return {
       text: row.idea_text,
+      creativeProfile: row.creative_profile_json ? JSON.parse(row.creative_profile_json) : undefined,
       version: row.idea_version,
       hash: row.idea_hash,
       publishingPlatform: row.publishing_platform

@@ -1,3 +1,4 @@
+import { normalizeCreativeProfile, type CreativeProfile } from '@wenmi/agent-catalog';
 import { createHash, randomUUID } from 'node:crypto';
 import { publicMemberIdentity, memberNameWithModel } from '@wenmi/agent-catalog';
 import {
@@ -34,6 +35,7 @@ const LEASE_HEARTBEAT_MS = 30 * 1_000;
 
 export interface CreateV7OpeningAgentTaskInput {
   idea: unknown;
+  creativeProfile?: unknown;
   idempotencyKey: unknown;
   selectedChiefMemberKey?: unknown;
   selectedScreenwriterMemberKey?: unknown;
@@ -51,6 +53,7 @@ export interface ReviseV7OpeningAgentTaskInput {
 export interface V7OpeningAgentTaskView {
   taskId: string;
   idea: string;
+  creativeProfile?: CreativeProfile;
   publishingPlatform: OpeningPublishingPlatform;
   status: string;
   phase: string;
@@ -96,6 +99,9 @@ export class V7OpeningAgentService {
 
   public create(ownerId: string, input: CreateV7OpeningAgentTaskInput): V7OpeningAgentTaskView {
     const idea = normalizeIdea(input.idea);
+    let creativeProfile: CreativeProfile;
+    try { creativeProfile = normalizeCreativeProfile(input.creativeProfile); }
+    catch(error) { throw new DomainError(errorCodes.validation, error instanceof Error ? error.message : '创作偏好无效'); }
     const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
     // 当前商业入口统一按番茄小说工作。请求字段只为旧客户端兼容保留，
     // 不再让作者端决定平台，也不允许旧草稿改变新任务的平台策略。
@@ -116,6 +122,7 @@ export class V7OpeningAgentService {
     );
     const requestHash = createHash('sha256').update(JSON.stringify({
       idea,
+      creativeProfile,
       publishingPlatform,
       selectedChiefMemberKey,
       selectedScreenwriterMemberKey
@@ -127,6 +134,7 @@ export class V7OpeningAgentService {
       idempotencyKey,
       requestHash,
       ideaText: idea,
+      creativeProfile,
       ideaHash: createHash('sha256').update(idea).digest('hex'),
       publishingPlatform,
       selectedChiefMemberKey,
@@ -134,7 +142,9 @@ export class V7OpeningAgentService {
       memberRoster,
       now
     });
-    if (result.row.request_hash !== requestHash) {
+    const legacyHash = createHash('sha256').update(JSON.stringify({idea,publishingPlatform,selectedChiefMemberKey,selectedScreenwriterMemberKey})).digest('hex');
+    const compatibleLegacyRetry = input.creativeProfile === undefined && result.row.creative_profile_json === null && result.row.request_hash === legacyHash;
+    if (result.row.request_hash !== requestHash && !compatibleLegacyRetry) {
       throw new DomainError(
         errorCodes.validation,
         '这个任务编号已经用于另一份开书思路或成员选择，请重新发起。',
@@ -417,6 +427,7 @@ export class V7OpeningAgentService {
     return {
       taskId: row.task_id,
       idea: row.idea_text,
+      creativeProfile: row.creative_profile_json ? JSON.parse(row.creative_profile_json) : undefined,
       publishingPlatform: row.publishing_platform,
       status,
       phase: row.phase,

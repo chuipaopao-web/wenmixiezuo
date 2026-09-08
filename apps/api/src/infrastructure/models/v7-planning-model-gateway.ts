@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { withBookCreativeProfile } from '../../application/agents/book-creative-context.js';
 import {
   modelProfileKeyForBinding,
   type V7AgentTaskKind,
@@ -154,7 +155,7 @@ export class V7PlanningModelGateway {
       operationMode: request.technicalRetry === true ? 'retry' : request.operationMode,
       basedOnTaskId: request.basedOnTaskId,
       authorInstructionVersion: request.authorInstructionVersion,
-      sourcePrompt: request.prompt,
+      sourcePrompt: withBookCreativeProfile(this.database, request.ownerId, request.bookId, request.prompt, request.workstationKey),
       sourceTraces: request.sourceTraces,
       promptAssets: promptGovernance.publishedAssets(),
       genreProfile,

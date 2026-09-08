@@ -133,45 +133,6 @@ function mainNavKeyForView(view: AuthorView): MainNavKey | null {
   return null;
 }
 
-function HomePage({ onCreateNovel }: { onCreateNovel: (entry: OpeningEntry) => void }): React.JSX.Element {
-  return (
-    <section className="home-surface" aria-labelledby="home-title">
-      <div className="home-intro">
-        <span className="brand-mark home-brand" aria-hidden="true">文</span>
-        <p className="eyebrow">开始一部新作品</p>
-        <h2 id="home-title">今天，想创作什么？</h2>
-        <p className="product-copy">专业网文剧本设计平台：创作团队帮您设计骨架、大纲、剧情，书写正文，订制化设计原创作品。</p>
-      </div>
-
-      <div className="creation-entry-grid" aria-label="选择创作类型">
-        <article className="creation-entry novel-entry">
-          <span className="entry-icon" aria-hidden="true"><BookOpenTextIcon /></span>
-          <span className="entry-copy">
-            <small>长篇网文创作</small>
-            <strong>创作小说</strong>
-            <span>从一个想法开始，由创作团队逐步帮您完成整本书。</span>
-          </span>
-          <span className="entry-actions">
-            <button className="entry-primary-action" type="button" onClick={() => onCreateNovel('ai')}><UsersThreeIcon />团队设计</button>
-            <button className="entry-secondary-action" type="button" onClick={() => onCreateNovel('manual')}><FileTextIcon />自己设计</button>
-          </span>
-        </article>
-
-        <button className="creation-entry script-entry" type="button" disabled aria-disabled="true">
-          <span className="entry-badge">即将开放</span>
-          <span className="entry-icon" aria-hidden="true"><FileTextIcon /></span>
-          <span className="entry-copy">
-            <small>影视与短剧创作</small>
-            <strong>创作剧本</strong>
-            <span>剧本工作流暂不开放，后续会作为独立创作方式接入。</span>
-          </span>
-          <span className="entry-action">敬请期待</span>
-        </button>
-      </div>
-    </section>
-  );
-}
-
 function StatusPage(props: {
   section: 'tasks' | 'team';
   onSectionChange: (section: 'tasks' | 'team') => void;
@@ -261,6 +222,12 @@ export function AuthorApp(): React.JSX.Element {
     return () => controller.abort();
   }, [bookId, bookShelfRequest]);
 
+  const [openingDraftGeneration,setOpeningDraftGeneration]=useState(0);
+  const beginFreshOpening=():void=>{
+    clearOpeningDraft(accountSession.account.userId,'ai');
+    setOpeningDraftGeneration(value=>value+1);
+    navigate('home',null,'ai');
+  };
   const navigate = (
     nextView: AuthorView,
     nextBookId: string | null = null,
@@ -359,12 +326,6 @@ export function AuthorApp(): React.JSX.Element {
     navigate(target, bookId);
   };
 
-  const beginNewNovel = (entry: OpeningEntry) => {
-    setOpeningAccountReturn(null);
-    setMembershipRetryGrant(null);
-    clearOpeningDraft(accountSession.account.userId, entry);
-    navigate('new-novel', null, entry);
-  };
 
   const openAccountFromOpening = (recoveryAction: OpeningMembershipRecoveryAction): void => {
     const currentTaskId = openingTaskIdFromSearch(window.location.search);
@@ -487,7 +448,7 @@ export function AuthorApp(): React.JSX.Element {
         </div>
 
         <div className="rail-book-switcher unified-book-switcher" aria-label="书籍切换">
-          <button className="rail-new-book" type="button" onClick={() => navigate('home')}><PlusIcon /><span>新建书籍</span></button>
+          <button className="rail-new-book" type="button" onClick={beginFreshOpening}><PlusIcon /><span>新建书籍</span></button>
           <div className="book-list-heading"><span>我的书籍</span><strong aria-label={bookShelfStatus === 'ready' ? `${activeBooks.length}本创作中书籍` : '书架尚未加载完成'}>{bookShelfStatus === 'ready' || books.length > 0 ? activeBooks.length : '—'}</strong></div>
           {bookShelfStatus === 'loading' && books.length === 0 && <div className="book-list-loading" role="status"><span className="book-list-loading-dot" aria-hidden="true" />正在加载书架…</div>}
           {bookShelfStatus === 'ready' && activeBooks.length === 0 && <div className="empty-book-list"><BookOpenTextIcon /><span>创建后会显示在这里</span></div>}
@@ -531,20 +492,16 @@ export function AuthorApp(): React.JSX.Element {
             <button type="button" className={view === 'chapter' ? 'active' : ''} onClick={() => navigate('chapter', bookId)}>章</button>
           </div>
         )}
-        {view === 'home' && <HomePage onCreateNovel={beginNewNovel} />}
-        {view === 'new-novel' && <NewNovelPage key={`${accountSession.account.userId}-${openingEntry}-${openingTaskId ?? 'new'}`} entryMode={openingEntry} onBack={() => navigate('home')} onCreated={(createdBookId) => navigate('information', createdBookId)} onAuthenticationRequired={accountSession.requireSignIn} onOpenAccount={openAccountFromOpening} membershipRetryReady={openingTaskId !== null && membershipRetryGrant?.taskId === openingTaskId && accountSession.membershipState === 'ready' && membershipAllowsOpeningRetry(accountSession.account.role, accountSession.membership, membershipRetryGrant.recoveryAction)} onMembershipRetryConsumed={consumeMembershipRecovery} />}
+
+        {(view === 'home' || view === 'new-novel' || (bookId === null && ['information','time-machine','volume','chain','chapter','library'].includes(view))) && <NewNovelPage key={`${accountSession.account.userId}-${openingEntry}-${openingTaskId ?? 'new'}-${openingDraftGeneration}`} entryMode={view === 'home' ? 'ai' : openingEntry} onBack={() => navigate('tasks')} onCreated={(createdBookId) => navigate('information', createdBookId)} onAuthenticationRequired={accountSession.requireSignIn} onOpenAccount={openAccountFromOpening} membershipRetryReady={openingTaskId !== null && membershipRetryGrant?.taskId === openingTaskId && accountSession.membershipState === 'ready' && membershipAllowsOpeningRetry(accountSession.account.role, accountSession.membership, membershipRetryGrant.recoveryAction)} onMembershipRetryConsumed={consumeMembershipRecovery} />}
         {view === 'information' && bookId !== null && <InformationPage key={`${bookId}-${informationSection}-${settingRecoveryFocus ?? 'default'}`} bookId={bookId} initialSection={informationSection} settingRecoveryFocus={settingRecoveryFocus} onOpenTimeMachine={() => navigate('time-machine', bookId)} />}
-        {view === 'information' && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'time-machine' && bookId !== null && <TimeMachinePage key={bookId} bookId={bookId} onOpenSettings={() => {
           openSettings(bookId);
         }} />}
-        {view === 'time-machine' && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'volume' && bookId !== null && <CreationWorkspacePage bookId={bookId} focus="volume" onNavigate={(next, scope) => navigate(next, bookId, openingEntry, null, scope)} />}
         {view === 'chain' && bookId !== null && <CreationWorkspacePage bookId={bookId} focus="chain" onNavigate={(next, scope) => navigate(next, bookId, openingEntry, null, scope)} />}
         {view === 'chapter' && bookId !== null && <CreationWorkspacePage bookId={bookId} focus="chapter" onNavigate={(next, scope) => navigate(next, bookId, openingEntry, null, scope)} />}
-        {['volume', 'chain', 'chapter'].includes(view) && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'library' && bookId !== null && <LibraryPage bookId={bookId} />}
-        {view === 'library' && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
         {(view === 'status' || view === 'tasks' || view === 'team') && <StatusPage section={view === 'team' ? 'team' : 'tasks'} onSectionChange={(section) => navigate(section === 'team' ? 'team' : 'tasks', bookId)} onOpenTask={(taskId) => navigate('new-novel', null, 'ai', taskId)} onOpenBook={(nextBookId) => navigate('information', nextBookId)} onOpenSetting={openSettings} onOpenPlanning={(nextBookId) => navigate('time-machine', nextBookId)} onOpenCreation={(nextBookId, focus) => navigate(focus, nextBookId)} />}
         {view === 'benefits' && <BenefitsPage onOpenAccount={() => { setOpeningAccountReturn(null); navigate('account', bookId); }} />}
         {view === 'account' && <section className="v7-account-page"><AuthorAccountCenter {...(openingAccountReturn === null ? {} : { onClose: returnToOpeningFromAccount, closeLabel: membershipReturnRefresh === 'running' ? '正在确认会员状态…' : '返回这次开书' })} /></section>}

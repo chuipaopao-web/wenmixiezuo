@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { withBookCreativeProfile } from '../../application/agents/book-creative-context.js';
 import {
   modelProfileKeyForBinding,
   type V7ContextSourceTrace,
@@ -166,7 +167,7 @@ export class V7CreationModelGateway {
       operationMode: request.operationMode,
       basedOnTaskId: lineage.basedOnTaskId,
       authorInstructionVersion: lineage.authorInstructionVersion,
-      sourcePrompt: request.prompt,
+      sourcePrompt: withBookCreativeProfile(this.database, request.ownerId, request.bookId, request.prompt, request.workstationKey),
       // Passing an explicit empty list deliberately disables the shared
       // compiler's compatibility discovery and preserves one aggregate stage
       // snapshot for historical creation tasks without fine-grained evidence.

@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { OpeningAgentTaskState, OpeningPackage, OpeningReview } from '@wenmi/v7-backend';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
+import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 import { BookRepository } from '../../infrastructure/db/repositories/book-repository.js';
 import { V7OpeningAgentRepository } from '../../infrastructure/db/repositories/v7-opening-agent-repository.js';
 import { BookOnboardingService } from './book-onboarding-service.js';
@@ -68,16 +69,26 @@ export class V7OpeningBookService {
       openingBlueprint: blueprint
     }, { draftId, proposedBookId: bookId });
 
+    const persistCreativeProfile = (): void => {
+      if(taskId === null) return;
+      const task=this.openings.byTaskId(ownerId,taskId);
+      if(task?.creative_profile_json) this.database.prepare(`INSERT INTO book_creative_profiles (owner_id,book_id,profile_json,source_task_id,created_at) VALUES (?,?,?,?,?) ON CONFLICT(owner_id,book_id) DO NOTHING`).run(ownerId,bookId,task.creative_profile_json,taskId,this.clock.now().toISOString());
+    };
     if (draft.status === 'confirmed') {
       if (draft.confirmedBookId !== bookId) {
         throw new DomainError(errorCodes.validation, '开书确认记录与正式书籍不一致，请联系管理员。', {}, false, 409);
       }
       const book = new BookRepository(this.database).require({ ownerId, bookId });
+      persistCreativeProfile();
       return { bookId: book.bookId, title: book.title, status: 'active', nextView: 'information' };
     }
 
-    const result = new BookOnboardingService(this.database, this.ids, this.clock)
-      .confirmDraftV7({ ownerId }, draft.draftId, draft.version);
+    const result = new UnitOfWork(this.database).run(() => {
+      const created = new BookOnboardingService(this.database, this.ids, this.clock)
+        .confirmDraftV7({ ownerId }, draft.draftId, draft.version);
+      persistCreativeProfile();
+      return created;
+    });
     return { bookId: result.bookId, title: result.title, status: 'active', nextView: 'information' };
   }
 

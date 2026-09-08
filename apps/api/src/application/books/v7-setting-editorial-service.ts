@@ -63,6 +63,7 @@ import { assertMembershipAllowsGeneration } from '../../infrastructure/security/
 import { BookProfileViewService, type BookProfileView } from './book-profile-view-service.js';
 import { resolveV7TaskPolicy } from '../agents/v7-agent-runtime-policy.js';
 import { compileV7RuntimePrompt } from '../agents/v7-runtime-prompt-compiler.js';
+import { withBookCreativeProfile } from '../agents/book-creative-context.js';
 import {
   V7BookGenreProfileEnsureError,
   V7BookGenreProfileEnsureService
@@ -2906,7 +2907,7 @@ export class V7SettingEditorialService {
       authorInstructionVersion: invocation.authorInstructionVersion,
       basedOnTaskId: invocation.basedOnTaskId,
       sourceTraces: invocation.sourceTraces,
-      sourcePrompt: frozenPrompt,
+      sourcePrompt: withBookCreativeProfile(this.database, ownerId, bookId, frozenPrompt, 'setting'),
       promptAssets: promptGovernance.publishedAssets(),
       genreProfile: promptGovernance.activeBookGenreProfile(ownerId, bookId),
       governanceRevision: retrySnapshot?.manifest.governanceRevision ?? promptGovernance.summary().revision,

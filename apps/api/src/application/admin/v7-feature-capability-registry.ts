@@ -95,7 +95,7 @@ export const FEATURE_CAPABILITIES: FeatureCapabilityDefinition[] = [
   ], [
     ['opening-taxonomy', '开书分类', '读取当前题材与标签目录。'],
     ['opening-draft', '开书草稿', '保存、读取和继续未完成的开书输入。'],
-    ['opening-agent-task', '开书协作', '由当前编辑部生成可确认的开书候选。'],
+    ['opening-agent-task', '单页创意开书', '首页直接输入想法，选择成员头像、五档尺度与风格主次；完整精简创意库由成员自主选择，生成后可编辑、换成员，确认后下游继承偏好。'],
     ['book-list-switch', '作品列表与切换', '只列出当前作者的 V7 作品。'],
     ['book-profile-version', '作品资料版本', '版本化维护作品资料并保留确认边界。'],
     ['book-archive-restore', '归档与恢复', '可恢复地归档和恢复作品。'],

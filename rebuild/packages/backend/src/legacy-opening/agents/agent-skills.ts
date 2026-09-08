@@ -95,7 +95,7 @@ const NODE_SKILLS: readonly V7AgentSkillDefinition[] = [
       '让所有字段互相支持，信息颗粒足以帮助后续设定、蓝图和分卷。',
       '每个关键设计说明创作作用，使作者知道这本书将带来什么体验。'
     ],
-    inputSources: ['作者原始开书想法', '当前平台分类目录', '最多六项按需命中的内部创作参考'],
+    inputSources: ['作者原始开书想法', '创意尺度与风格偏向', '当前平台分类目录', '完整精简创意机制库', '少量内部方法参考'],
     excludedSources: ['历史任务书', '其他成员失败输出', '其他书的名字、人物和剧情'],
     outputContract: {
       title: '清楚、有辨识度且与内容一致的暂定书名',
@@ -116,7 +116,7 @@ const NODE_SKILLS: readonly V7AgentSkillDefinition[] = [
     roleKey: 'chief_editor', nodeKey: 'opening_package_review',
     responsibilities: [
       '逐项核对作者原意、任务书责任、字段一致性和后续可用性。',
-      '只提出会影响作品方向、逻辑或商业辨识度的必要修订。',
+      '按作者创意尺度审查；高尺度允许荒诞、碾压和无厘头，不以现实逻辑或商业偏好阻断。',
       '区分可自动修订的问题与必须交给作者决定的分歧。'
     ],
     inputSources: ['作者原始开书想法', '精确资料包候选版本'],
@@ -187,7 +187,7 @@ export function skillVersionId(item: V7AgentSkillDefinition): string {
 }
 
 function skill(input: Omit<V7AgentSkillDefinition, 'version'>): V7AgentSkillDefinition {
-  return { ...input, version: 1 };
+  return { ...input, version: input.kind === 'node' ? 2 : 1 };
 }
 
 function unique(values: readonly string[]): string[] {

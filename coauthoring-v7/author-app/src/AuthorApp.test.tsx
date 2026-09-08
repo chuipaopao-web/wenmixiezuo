@@ -196,7 +196,7 @@ describe('V7 author opening flow', () => {
     vi.unstubAllGlobals();
   });
 
-  it('keeps the confirmed navigation and presents both creation entries', async () => {
+  it('keeps navigation and opens the single-page creative welcome', async () => {
     installFetch();
     render(<AuthorApp />);
     const topbar = screen.getByRole('banner');
@@ -209,11 +209,11 @@ describe('V7 author opening flow', () => {
     }
     expect(within(mainNavigation).getByRole('button', { name: '状态' })).toBeEnabled();
     expect(within(mainNavigation).getByRole('button', { name: '福利' })).toBeEnabled();
-    expect(screen.getByText('创作小说')).toBeVisible();
-    expect(screen.getByRole('button', { name: /团队设计/ })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /自己设计/ })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /创作剧本/ })).toBeDisabled();
-    expect(screen.getByText('专业网文剧本设计平台：创作团队帮您设计骨架、大纲、剧情，书写正文，订制化设计原创作品。')).toBeVisible();
+    expect(screen.getByRole('heading', { name: '老板好啊！' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /自己设计/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: '貂蝉，编辑部主编' })).toHaveAttribute('src','/avatars/diaochan-welcome-r166.png');
+    expect(screen.getByRole('button', { name: /剧本/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /荒诞猎奇/ })).toHaveAttribute('aria-pressed','true');
     await waitFor(() => expect(fetch).toHaveBeenCalled());
   });
 
@@ -383,7 +383,7 @@ describe('V7 author opening flow', () => {
     fireEvent.click(await within(shelf).findByRole('button', { name: '归档当前书籍' }));
     expect(screen.getByText('归档后可以随时恢复，正文和资料都会保留。')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '确认归档' }));
-    await screen.findByRole('heading', { name: '今天，想创作什么？' });
+    await screen.findByRole('heading', { name: '老板好啊！' });
     shelf = openBookShelf();
     expect(await within(shelf).findByText('已归档 · 2')).toBeVisible();
     expect(screen.queryByText('永久删除')).not.toBeInTheDocument();
@@ -429,7 +429,7 @@ describe('V7 author opening flow', () => {
     ]) : null);
     render(<AuthorApp />);
 
-    expect(await screen.findByRole('heading', { name: '今天，想创作什么？' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: '老板好啊！' })).toBeVisible();
     expect(window.location.pathname).toBe('/');
     expect(window.location.search).toBe('?view=home');
     const mainNavigation = getMainNavigation();
@@ -623,12 +623,14 @@ describe('V7 author opening flow', () => {
     await waitFor(() => expect(screen.getByRole('radio', { name: '自动安排' })).toBeChecked());
     fireEvent.click(choice);
     fireEvent.change(screen.getByLabelText('说说您想写什么'), { target: { value: '张三穿越三国，从流民开始求生。' } });
+    fireEvent.click(screen.getByRole('button',{name:/极限整活/}));
+    fireEvent.click(screen.getByRole('button',{name:'沙雕搞怪'}));
     fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
       if (!String(input).endsWith('/api/v1/v7/opening-agent/tasks') || (init as RequestInit | undefined)?.method !== 'POST') return false;
       const body = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
-      return body.selectedScreenwriterMemberKey === 'planner-kimi-k3';
+      return body.selectedScreenwriterMemberKey === 'planner-kimi-k3' && (body.creativeProfile as {scale:number;styles:string[]}).scale===5 && (body.creativeProfile as {styles:string[]}).styles.includes('沙雕搞怪');
     })).toBe(true));
   });
 
@@ -959,32 +961,14 @@ describe('V7 author opening flow', () => {
     expect(requestBodies[1]).toMatchObject({ openingIdea: idea, openingPackage: PACKAGE });
   });
 
-  it('普通失败即使没有候选结果，也能带着原想法转为手工填写', async () => {
-    const failed: OpeningTaskView = {
-      ...COMPLETE_TASK,
-      taskId: 'failed-without-candidate-task',
-      idea: '保留这份失败任务里的开书想法。',
-      status: 'failed',
-      isRunning: false,
-      candidates: [],
-      errorMessage: '对不起，这次没有完成。'
-    };
-    const fetchMock = installFetch((url) => url.endsWith(`/api/v1/v7/opening-agent/tasks/${failed.taskId}`)
-      ? response(failed)
-      : null);
-    window.history.replaceState({}, '', `/?view=new-novel&entry=ai&taskId=${failed.taskId}`);
-
+  it('失败保留原想法，恢复入口不重新露出自己设计', async () => {
+    const failed: OpeningTaskView={...COMPLETE_TASK,status:'failed',isRunning:false,errorMessage:'这次没有完成',candidates:[],taskId:'creative-failed'};
+    installFetch((url)=>url.endsWith('/api/v1/v7/opening-agent/tasks/creative-failed')?response(failed):null);
+    window.history.replaceState({},'', '/?view=new-novel&entry=ai&taskId=creative-failed');
     render(<AuthorApp />);
-
-    fireEvent.click(await screen.findByRole('button', { name: '自己填写开书资料' }));
-    expect(await screen.findByLabelText('自己设计开书资料')).toBeVisible();
-    expect(new URLSearchParams(window.location.search).get('taskId')).toBeNull();
-    expect(fetchMock.mock.calls.filter(([url, init]) => (
-      String(url).endsWith('/api/v1/v7/opening-agent/tasks') && (init as RequestInit | undefined)?.method === 'POST'
-    ))).toHaveLength(0);
-    await waitFor(() => expect(JSON.parse(localStorage.getItem(AI_DRAFT_KEY) ?? 'null')).toMatchObject({
-      idea: failed.idea, mode: 'manual', taskId: null
-    }));
+    expect(await screen.findByRole('button',{name:'重新交给创作团队'})).toBeVisible();
+    expect(screen.queryByRole('button',{name:'自己填写开书资料'})).not.toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'重新填写想法'})).toBeVisible();
   });
 
   it('会员额度不足时可返回原任务，使用保存的想法只重试一次', async () => {
@@ -1018,7 +1002,7 @@ describe('V7 author opening flow', () => {
 
     expect(await screen.findByText(/剩余创作额度不足/u)).toBeVisible();
     expect(screen.queryByRole('button', { name: '重新交给创作团队' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '自己填写开书资料' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '自己填写开书资料' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '查看会员与额度' }));
     expect(new URLSearchParams(window.location.search).get('view')).toBe('account');
     expect(new URLSearchParams(window.location.search).get('returnOpeningTaskId')).toBe(failed.taskId);
@@ -1139,55 +1123,14 @@ describe('V7 author opening flow', () => {
     expect(screen.queryByRole('button', { name: '重新交给创作团队' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '查看会员与额度' })).toBeEnabled();
   });
-  it('keeps the recovered package in manual mode after leaving a failed AI task and refreshing', async () => {
-    const failed: OpeningTaskView = {
-      ...COMPLETE_TASK,
-      status: 'failed',
-      isRunning: false,
-      errorMessage: '本轮没有完成'
-    };
-    localStorage.setItem(AI_DRAFT_KEY, JSON.stringify({
-      idea: failed.idea,
-      taskId: failed.taskId,
-      mode: 'ai'
-    }));
-    let manualConfirmBody: Record<string, unknown> | null = null;
-    installFetch((url, init) => {
-      if (url.endsWith(`/api/v1/v7/opening-agent/tasks/${failed.taskId}`)) return response(failed);
-      if (url.endsWith('/api/v1/v7/opening-books') && init?.method === 'POST') {
-        manualConfirmBody = JSON.parse(String(init.body)) as Record<string, unknown>;
-        return response({ bookId: 'v7-book-manual-recovery', title: PACKAGE.title, status: 'active', nextView: 'information' });
-      }
-      return null;
-    });
-    window.history.replaceState({}, '', `/?view=new-novel&entry=ai&taskId=${failed.taskId}`);
-
-    const mounted = render(<AuthorApp />);
-    fireEvent.click(await screen.findByRole('button', { name: '保留现有资料，自己完成' }));
-
-    expect(new URLSearchParams(window.location.search).get('taskId')).toBeNull();
-    expect(await screen.findByLabelText('自己设计开书资料')).toBeVisible();
-    await waitFor(() => {
-      const saved = JSON.parse(localStorage.getItem(AI_DRAFT_KEY) ?? 'null') as {
-        mode?: string;
-        taskId?: string | null;
-        openingPackage?: OpeningPackage | null;
-      } | null;
-      expect(saved).toMatchObject({ mode: 'manual', taskId: null });
-      expect(saved?.openingPackage?.title).toBe(PACKAGE.title);
-    });
-
-    mounted.unmount();
+  it('失败已完成候选保留在任务，允许重试或重新填写想法', async () => {
+    const failed: OpeningTaskView={...COMPLETE_TASK,status:'failed',isRunning:false,errorMessage:'这次没有完成',taskId:'creative-failed'};
+    installFetch((url)=>url.endsWith('/api/v1/v7/opening-agent/tasks/creative-failed')?response(failed):null);
+    window.history.replaceState({},'', '/?view=new-novel&entry=ai&taskId=creative-failed');
     render(<AuthorApp />);
-    expect(await screen.findByLabelText('自己设计开书资料')).toBeVisible();
-    expect(screen.getByText(PACKAGE.title)).toBeVisible();
-    const next = screen.getByRole('button', { name: '下一步' });
-    await waitFor(() => expect(next).toBeEnabled());
-    fireEvent.click(next);
-    const confirm = screen.getByRole('button', { name: '确认开书资料，创建书籍' });
-    await waitFor(() => expect(confirm).toBeEnabled());
-    fireEvent.click(confirm);
-    await waitFor(() => expect(manualConfirmBody).toMatchObject({ openingIdea: failed.idea }));
+    expect(await screen.findByRole('button',{name:'重新交给创作团队'})).toBeVisible();
+    expect(screen.queryByRole('button',{name:'自己填写开书资料'})).not.toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'重新填写想法'})).toBeVisible();
   });
 
   it('ends an unresponsive task recovery after the 15-second upper bound', async () => {
@@ -1318,7 +1261,6 @@ describe('V7 author opening flow', () => {
     expect(await screen.findByText('资料已经审查通过')).toBeVisible();
 
     fireEvent.click(within(openBookShelf()).getByRole('button', { name: '新建书籍' }));
-    fireEvent.click(await screen.findByRole('button', { name: /团队设计/ }));
 
     expect(await screen.findByLabelText('说说您想写什么')).toHaveValue('');
     expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith(`/api/v1/v7/opening-agent/tasks/${COMPLETE_TASK.taskId}`))).toHaveLength(1);
@@ -1670,7 +1612,6 @@ describe('V7 author opening flow', () => {
     const interrupted = { ...COMPLETE_TASK, status: 'interrupted', isRunning: false, candidates: [] };
     installFetch((url) => url.endsWith('/api/v1/v7/opening-agent/tasks?limit=50') ? response([interrupted]) : null);
     render(<AuthorApp />);
-    fireEvent.click(screen.getByRole('button', { name: /团队设计/ }));
     expect(await screen.findByLabelText('说说您想写什么')).toHaveValue('');
     expect(screen.queryByText(interrupted.idea)).not.toBeInTheDocument();
   });
