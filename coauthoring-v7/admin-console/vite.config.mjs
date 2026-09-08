@@ -2,6 +2,7 @@ import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { defineConfig } from 'vite';
+import { verifyFunctionManagement } from '../../scripts/verify-function-management.mjs';
 
 const apiTarget = process.env.V7_ADMIN_API_TARGET ?? 'http://127.0.0.1:43111';
 const trustedLocalOrigin = process.env.V7_ADMIN_PROXY_ORIGIN ?? 'http://127.0.0.1:43110';
@@ -34,7 +35,7 @@ const apiProxy = {
 export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
   base: '/v7/',
-  plugins: [react(), { name: 'shared-member-avatars', configureServer: sharedAvatars, configurePreviewServer: sharedAvatars }],
+  plugins: [react(), { name: 'function-management-sync', apply: 'build', buildStart() { verifyFunctionManagement(fileURLToPath(new URL('../..', import.meta.url))); } }, { name: 'shared-member-avatars', configureServer: sharedAvatars, configurePreviewServer: sharedAvatars }],
   build: {
     outDir: 'dist',
     emptyOutDir: true

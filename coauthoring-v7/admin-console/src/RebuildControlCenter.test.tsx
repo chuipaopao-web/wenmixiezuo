@@ -6,7 +6,7 @@ import type { RebuildControlData, RebuildUnit } from '../../backend/admin/rebuil
 import { RebuildControlCenter, unitStage } from './RebuildControlCenter';
 import { fetchRebuildControl } from './platform-api';
 
-vi.mock('./platform-api', () => ({ fetchRebuildControl: vi.fn() }));
+vi.mock('./platform-api', () => ({ fetchRebuildControl: vi.fn(), fetchV7PromptAssets: vi.fn().mockResolvedValue([]), fetchV7UnifiedAgentGovernance: vi.fn().mockResolvedValue({roles:[]}) }));
 const unit: RebuildUnit = { id: 'RB-01', name: '注册页', order: 2, stage: '账号与书架', dependencies: [],
   design: '待讨论', frontend: '未开始', backend: '未开始', acceptance: '未验证', deployment: '未发布', evidence: '待建立',
   details: [{ label: '讨论', text: '注册账号，保留已有用户身份。' }, { label: '后端逐项实现', text: '验证并发唯一身份。' }], sourceFeatures: [], taskKinds: [] };
@@ -32,33 +32,31 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('功能地图与配置中心', () => {
-  it('默认进入实际AI节点，异常导航可刷新恢复且不混入全部功能', async () => {
+  it('默认进入统一功能管理，开发路线可独立切换并刷新恢复', async () => {
     window.history.replaceState({}, '', '/v7/?section=rebuild');
     mockedFetch.mockResolvedValue({ ...data, units: [...data.units, { ...unit, id:'RB-17', details:[{label:'设计·异常：知道缺哪份资料',text:'系统直接读取，不调用资料编辑。'}] }] });
     const mounted = render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);
-    expect(await screen.findByRole('button',{name:'AI工作节点'})).toHaveAttribute('aria-pressed','true');
+    expect(await screen.findByRole('button',{name:'功能管理'})).toHaveAttribute('aria-pressed','true');
     expect(screen.queryByLabelText('搜索功能地图')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button',{name:'异常处理'}));
-    expect(screen.getByText('系统直接读取，不调用资料编辑。')).toBeVisible();
-    expect(window.location.search).toContain('mapView=exceptions');
+    fireEvent.click(screen.getByRole('button',{name:'开发路线'}));
+    expect(window.location.search).toContain('mapView=all');
     mounted.unmount();
     render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);
-    expect(await screen.findByRole('region',{name:'异常处理规则'})).toBeVisible();
-    fireEvent.click(screen.getByRole('button',{name:'全部功能'}));
+    expect(await screen.findByRole('button',{name:'开发路线'})).toHaveAttribute('aria-pressed','true');
     expect(screen.getByLabelText('搜索功能地图')).toBeVisible();
   });
   it('导图使用文档职责并跳转到对应功能，保留未归类设计说明', async () => {
     mockedFetch.mockResolvedValueOnce({ ...data, units: [{ ...unit, details: [...unit.details,
-      { label: '设计·流程序号', text: '1' }, { label: '设计·系统直供', text: '系统直接读取当前版本，不调用AI。' },
+      { label: '管理·功能介绍', text: '系统直接读取当前版本，不调用AI。' }, { label: '设计·系统直供', text: '系统直接读取当前版本，不调用AI。' },
       { label: '设计·资料编辑介入', text: '不介入：系统直供。' }, { label: '设计·执行成员', text: '系统保存。' }, { label: '设计·复查成员', text: '作者确认。' },
       { label: '设计·已确认方案', text: '已确认保留身份。' }, { label: '补充记录', text: '不能隐藏这条设计记录。' }
     ] }] });
     render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);
-    fireEvent.click(await screen.findByRole('button', { name: '主流程' }));
-    const guide = screen.getByRole('region', { name: '全链路AI介入导图' });
+    fireEvent.click(await screen.findByRole('button', { name: '功能管理' }));
+    const guide = screen.getByRole('region', { name: '按功能统一管理' });
     expect(within(guide).getByText('系统直接读取当前版本，不调用AI。')).toBeVisible();
-    fireEvent.click(within(guide).getByRole('button', { name: /注册页/ }));
-    expect(screen.queryByRole('region', { name: '全链路AI介入导图' })).not.toBeInTheDocument();
+    fireEvent.click(within(guide).getByRole('button', { name: '开发路线与变更说明' }));
+    expect(screen.queryByRole('region', { name: '按功能统一管理' })).not.toBeInTheDocument();
     expect(screen.getByText('已确认保留身份。')).toBeVisible();
     expect(screen.getByText('不能隐藏这条设计记录。')).toBeVisible();
     expect(window.location.search).toContain('unit=RB-01');
@@ -66,8 +64,8 @@ describe('功能地图与配置中心', () => {
 
   it('没有导图登记时说明缺失，不臆造成员介入', async () => {
     render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);
-    fireEvent.click(await screen.findByRole('button', { name: '主流程' }));
-    expect(screen.getByText(/当前路线文档尚未登记导图节点/)).toBeVisible();
+    fireEvent.click(await screen.findByRole('button', { name: '功能管理' }));
+    expect(screen.getByText(/当前版本尚未登记功能管理档案/)).toBeVisible();
   });
   it('显示登记的当前批次，按开发顺序筛选、查看技术路线与前置功能', async () => {
     render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);

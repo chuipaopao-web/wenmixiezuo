@@ -40,8 +40,8 @@ const STATUS_LABELS: Record<V7PromptAssetStatus, string> = {
   retired: '历史版本'
 };
 
-export function PromptContextCenter({ initialAssetKey, allowedAssetKeys, editorOnly = false, memberKey, onDirtyChange }: {
-  initialAssetKey?: string; allowedAssetKeys?: string[]; editorOnly?: boolean; memberKey?: string; onDirtyChange?: (value:boolean)=>void;
+export function PromptContextCenter({ initialAssetKey, allowedAssetKeys, editorOnly = false, memberKey, workstationKey, taskKindFilter, onDirtyChange }: {
+  initialAssetKey?: string; allowedAssetKeys?: string[]; editorOnly?: boolean; memberKey?: string; workstationKey?: string; taskKindFilter?: string; onDirtyChange?: (value:boolean)=>void;
 } = {}): React.JSX.Element {
   const [tab, setTab] = useState<CenterTab>(editorOnly ? 'sources' : 'opening');
   const [summary, setSummary] = useState<V7PromptContextSummary | null>(null);
@@ -103,19 +103,20 @@ export function PromptContextCenter({ initialAssetKey, allowedAssetKeys, editorO
       const [nextSummary, assetList, manifestList] = await Promise.all([
         fetchV7PromptContextSummary(signal),
         fetchV7PromptAssets({}, signal),
-        fetchV7PromptManifests({ limit: 100, ...(memberKey ? { memberKey } : {}) }, signal)
+        fetchV7PromptManifests({ limit: 100, ...(memberKey ? { memberKey } : {}), ...(workstationKey ? { workstationKey } : {}) }, signal)
       ]);
       setSummary(nextSummary);
       setAssets(assetList);
-      setManifests(manifestList);
+      const scopedManifests = manifestList.filter(m => (!workstationKey || m.workstationKey === workstationKey) && (!taskKindFilter || taskKindFilter.split(',').includes(m.taskKind)));
+      setManifests(scopedManifests);
       setSelectedAssetKey((current) => current ?? assetList[0]?.assetKey ?? null);
-      setSelectedManifestId((current) => current ?? manifestList[0]?.manifestId ?? null);
+      setSelectedManifestId((current) => current ?? scopedManifests[0]?.manifestId ?? null);
     } catch (reason) {
       if (!signal?.aborted) setError(readError(reason, '提示词与上下文暂时无法读取。'));
     } finally {
       if (!signal?.aborted) setBusy(null);
     }
-  }, [memberKey]);
+  }, [memberKey, workstationKey, taskKindFilter]);
 
   useEffect(() => {
     const controller = new AbortController();

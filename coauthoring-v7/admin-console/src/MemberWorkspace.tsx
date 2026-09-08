@@ -73,7 +73,7 @@ export function MemberWorkspace({role,member,configuration,onBack}:{role:Role;me
   </section>;
 }
 
-function MemberInput({detail}:{detail:V7PromptManifestDetail}) {
+export function MemberInput({detail}:{detail:V7PromptManifestDetail}) {
   const role=detail.promptAssets.rolePrompt,station=detail.promptAssets.workstationPrompt,genre=detail.genreProfile;
   const sources=detail.contextPack?.sources??[];
   return <section className="member-input-snapshot" aria-label="实际接收的输入">

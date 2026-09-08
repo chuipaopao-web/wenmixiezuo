@@ -3,16 +3,16 @@ import { ArrowClockwise, ArrowRight, CheckCircle, GearSix, GitBranch, Magnifying
 import type { RebuildControlData, RebuildUnit } from '../../backend/admin/rebuild-control-types.js';
 import { fetchRebuildControl } from './platform-api';
 import './rebuild-control.css';
-import { WorkflowGuide, detailText } from './WorkflowGuide';
-import { AiWorkNodes } from './AiWorkNodes';
+import { detailText } from './WorkflowGuide';
+import { FunctionManagement } from './FunctionManagement';
 
 type Destination = 'agents' | 'prompt-context' | 'rhythm' | 'memberships' | 'issues' | 'features';
 type Filter = 'all' | 'active' | 'pending' | 'accepted' | 'attention';
-type MapView = 'ai' | 'main' | 'exceptions' | 'all';
+type MapView = 'functions' | 'all';
 function readMapView(): MapView {
   const params = new URL(window.location.href).searchParams;
   const value = params.get('mapView');
-  return value === 'ai' || value === 'all' || value === 'exceptions' || value === 'main' ? value : params.has('unit') ? 'all' : 'ai';
+  return value === 'all' || !value && params.has('unit') ? 'all' : 'functions';
 }
 
 export function unitStage(unit: RebuildUnit): string {
@@ -47,7 +47,9 @@ export function RebuildControlCenter({ mode, onNavigate }: {
   const [stage, setStage] = useState('all');
   const [filter, setFilter] = useState<Filter>('all');
   const [mapView, setMapView] = useState<MapView>(readMapView);
+  const [managerDirty, setManagerDirty] = useState(false);
   const changeView = (view: MapView): void => {
+    if (!window.dispatchEvent(new Event('wenmi:admin-navigate', { cancelable: true }))) return;
     setMapView(view);
     const url = new URL(window.location.href); url.searchParams.set('mapView', view);
     window.history.replaceState({}, '', url);
@@ -67,10 +69,10 @@ export function RebuildControlCenter({ mode, onNavigate }: {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') setRevision((value) => value + 1);
+      if (!managerDirty && document.visibilityState === 'visible') setRevision((value) => value + 1);
     }, 60_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [managerDirty]);
 
   useEffect(() => {
     const restore = (): void => { setSelectedId(new URL(window.location.href).searchParams.get('unit') ?? ''); setMapView(readMapView()); };
@@ -135,9 +137,8 @@ export function RebuildControlCenter({ mode, onNavigate }: {
     </section>
 
     {mode === 'configuration' ? <ConfigurationCenter data={data} onNavigate={onNavigate} /> : <>
-      <nav className="workflow-guide-switch" aria-label="功能地图视图">{([['ai','AI工作节点'],['main','主流程'],['exceptions','异常处理'],['all','全部功能']] as const).map(([view,label]) => <button key={view} type="button" aria-pressed={mapView === view} onClick={() => changeView(view)}>{label}</button>)}</nav>
-      {mapView === 'ai' && <AiWorkNodes units={data.units} onSelect={choose} />}
-      {(mapView === 'main' || mapView === 'exceptions') && <WorkflowGuide units={data.units} mode={mapView} onSelect={choose} />}
+      <nav className="workflow-guide-switch" aria-label="功能地图视图">{([['functions','功能管理'],['all','开发路线']] as const).map(([view,label]) => <button key={view} type="button" aria-pressed={mapView === view} onClick={() => changeView(view)}>{label}</button>)}</nav>
+      {mapView === 'functions' && <FunctionManagement units={data.units} onDetails={choose} onDirtyChange={setManagerDirty} />}
       {mapView === 'all' && <>
       <section className="rebuild-summary" aria-label="重构进度">
         <article><span>计划工作单元</span><strong>{data.units.length}<small>项</small></strong><p>覆盖 {data.sourceFeatures.length} 项来源功能</p></article>

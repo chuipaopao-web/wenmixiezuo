@@ -1,6 +1,6 @@
 # 文秘写作全产品重构执行文档与开发顺序表
 
-> 版本1.54 · 2026-09-08 · 第158批全部实际AI工作节点
+> 版本1.55 · 2026-09-08 · 第159批按功能统一管理
 >
 > 本文是全产品重构的**唯一执行顺序和进度来源**；[详细开发规格](REBUILD_DEVELOPMENT_SPEC.md)保留产品与工程设计解释。
 >
@@ -62,8 +62,9 @@
 
 ## 3. 下一位接管者如何继续
 
-- **当前批次**：第158批：全部实际AI工作节点，已发布
-- **当前工作**：默认显示实际AI工作节点，按功能展开设计、审查、修订、资料整理、格式修复、失败重试、换员及图像生成。144种步骤，14个责任单元；单种可按条目/分页/候选重复执行，不代表一次任务144次调用。每项记录执行岗位、触发条件与代码依据；17个目标功能节点与当前实现分开。静态c19b570bb5f1b867c583已发布，11项定向检查、类型/构建/预览及公网资源验证通过；API/Worker进程未变，没有更改实际模型策略。[合同](../coauthoring-v7/docs/worklists/AI-NODES-158.md)。
+- **当前批次**：第159批：按功能统一管理，验收中
+- **当前工作**：默认进入功能管理，已登记13项现有执行功能。每项合并完整流程、资料供给、注入与压缩、输入输出要求、执行岗位、实际工作及失败分支，并关联实时提示资产、成员绑定与只读上下文样例。144种实际AI步骤仍保留并按本功能及共享步骤归类；17个目标节点与当前实现分开。本批只改后台与说明，不改变模型执行策略。[合同](../coauthoring-v7/docs/worklists/FUNCTION-MANAGEMENT-159.md)。
+- **功能说明维护**：第6节的“管理·”字段是后台功能说明的唯一来源。开发新增或修改已登记功能时，同步核对流程、资料、岗位、失败规则及代码来源；后台构建校验执行来源是否变化，未核对会阻止构建。执行端已发布的提示资产和成员绑定在页面可见时每30秒刷新，退出编辑及返回窗口也同步；静态版本变化在非编辑状态自动重载。代码控制的预算、路由与事务规则必须随研发发布调整，不把说明或提示词当作这些参数的编辑入口。历史任务输入保留原快照。
 - **第148批历史交付**：2026-09-08 00:37发布wm-v7-20260908-004000-075d8f20，静态未变。仅GLM5.3/Flash审查改为方舟Coding Chat enabled/low。同一合成样本5.3两次8.1/9.4秒，Flash11.9秒；5.3有扩大作者限制的问题不自动准入，Flash优先于KimiK3/豆包。定向测试/构建/来源闭包、在途零30秒、API/Worker/资源/后台报告只读核对通过。无作者任务调用，回滚R147。[合同](../coauthoring-v7/docs/worklists/GLM-COMPATIBILITY-148.md)。
 - **第147批历史交付**：2026-09-07 23:39已发布wm-v7-20260907-233000-6df36911，静态c4ba0e045624eb165403。生产补齐6个GLM Flash空绑定；56身份、43绑定、13预留。7型号各一次合成设定审查，合格顺序Kimi K3 33.8秒、豆包88.1秒、GLM5.3 Flash131.7秒；其余保留未准入原因。设计优先DeepSeek Pro/Flash/Kimi2.7，未实测设计。修复审查调用策略和已知失败恢复；49相关集成、24作者页面、3后台测试，类型/构建及390/1440本地浏览器通过。在途连续30秒零、生产健康/Worker/资源和实际配置核对通过；没有重跑作者旧任务，其他节点不自动解禁。[合同](../coauthoring-v7/docs/worklists/SETTING-MODEL-ADMISSION-147.md)。
 - **第146批当前工作**：代码001acd28，静态5ca0cccaeb362733224d已发布；福利中心展示198/398/980元订单两级各30/60/150钻石、合计60/120/300，标注拟定、待审核、尚未生效。3项既有福利用例、本地隔离账号390/1440金额/提示/溢出与公网静态/健康检查通过；未执行生产已登录页面验收。后台静态和API/Worker不变，回滚R145；不包含邀请、返佣、结算或提现业务，RB-61状态不变。[合同](../coauthoring-v7/docs/worklists/REWARD-PREVIEW-146.md)。
@@ -579,6 +580,27 @@
 
 ### RB-19 AI开书页与结果采用
 
+- **管理·代码来源**：rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
+- **管理·代码核对**：54db94a1b17781d030f0840eef837909024fe28d2051e02eb5e4eb3c6daf7890
+
+- **管理·共享步骤**：none
+
+- **管理·名称**：开书
+- **管理·工位**：opening
+- **管理·任务类型**：opening_design,opening_review
+- **管理·岗位**：planning_writer,chief_editor
+- **管理·共享节点**：RB-16,RB-17
+- **管理·功能介绍**：开书：作者输入想法、选择设计成员，审阅结果；可提意见修订、换成员重做，确认后建书。
+- **管理·用户操作**：作者输入想法、选择设计成员，审阅结果；可提意见修订、换成员重做，确认后建书。
+- **管理·流程**：系统冻结想法与任务 → 策划编剧设计开书资料 → 主编审核候选 → 有问题时编剧修订并复审 → 作者确认创建书籍
+- **管理·资料供给**：系统提供作者原始想法、分类参考、当前候选及审查意见。开书正常路径没有独立资料编辑组包调用；修订携带本轮作者指令，重设计按新任务的冻结来源执行。
+- **管理·注入与压缩**：开书不用正文阶段的分页资料筛选器；按开书合同拼装当前必要资料。作者想法和修改意见不能为了变短丢失。实际各块字符占用见样例，不能用固定字数承诺无幻觉。
+- **管理·格式化输入**：结构化任务、原始想法、分类参考、候选与修改要求分别标识来源。输出合同由开书编译器提供。
+- **管理·输出与校验**：开书资料和审查均按JSON合同解析，检查字段与关联；修复不合格结构、限制修订范围。主编审查不代替作者采用。
+- **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
+- **管理·思考与解释**：现有通用规则不要求返回内部思维链，也不保存或展示内部推理。成员按照任务要求完成工作；需要解释时只交付简短依据、来源和问题。输出字段约束不等于给小说套固定情节模板。
+- **管理·调整边界**：本页可调整已接入提示资产的岗位、工位与执行规则：保存草稿、预览、发布、恢复历史草稿。成员绑定来自实时治理接口。执行顺序、硬性字符/Token上限、解析器、失败次数属于代码控制，不能仅改提示词使其生效；修改后须随功能发布同步说明。
+
 - **实际AI节点·AI-010**：首次设计开书资料｜策划编剧｜设计｜提交开书想法，进入 package_design。｜rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts:96
 - **实际AI节点·AI-011**：换成员重新设计开书资料｜新选策划编剧｜重设计｜用户提交新的重新设计任务，进入 package_design；与技术重试不同。｜rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts:96
 - **实际AI节点·AI-012**：开书资料首次审查｜主编｜审查｜资料候选完成，进入 package_review；排除同底座设计模型。｜rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts:153
@@ -612,6 +634,27 @@
 
 ### RB-20 作品信息与开书资料编辑
 
+- **管理·代码来源**：apps/api/src/application/books/v7-opening-book-service.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
+- **管理·代码核对**：60d7ba831b7af687351f668f9c3bbc0aebc8d02108bcec1446f7f8fe3163ce45
+
+- **管理·共享步骤**：none
+
+- **管理·名称**：资料编辑
+- **管理·工位**：none
+- **管理·任务类型**：none
+- **管理·岗位**：none
+- **管理·共享节点**：none
+- **管理·功能介绍**：资料编辑：打开资料页修改内容并保存；此处指作者手动修改，不是点击AI重设计。
+- **管理·用户操作**：打开资料页修改内容并保存；此处指作者手动修改，不是点击AI重设计。
+- **管理·流程**：系统读取当前书籍版本 → 作者编辑 → 系统校验权限及字段 → 保存新版本
+- **管理·资料供给**：系统直接读取当前书籍资料，不启动资料Agent。AI重做开书资料归到“开书”功能。
+- **管理·注入与压缩**：本操作没有模型上下文，不需要压缩或注入。
+- **管理·格式化输入**：结构化表单提交已修改字段，携带当前版本。
+- **管理·输出与校验**：系统校验并保存；没有模型输出、AI模板或模型审核。
+- **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
+- **管理·思考与解释**：本功能为作者手动编辑，不调用模型；没有思维链、提示词或模型输出。
+- **管理·调整边界**：表单字段与版本规则由程序控制。没有AI提示资产配置，AI重设计请进入开书功能。
+
 - **设计·流程序号**：2
 - **设计·系统直供**：当前开书正式版本、作者修改内容。
 - **设计·资料编辑介入**：不介入：系统提供当前版本和修改意见。
@@ -631,6 +674,27 @@
 <a id="rb-21"></a>
 
 ### RB-21 设定页
+
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/books/v7-setting-editorial-service.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
+- **管理·代码核对**：c33a359f4c8ca5d2ceb34297d2eaf8e2ede817c74258c1528e9a378e77c24957
+
+- **管理·共享步骤**：AI-008,AI-009
+
+- **管理·名称**：设定
+- **管理·工位**：setting
+- **管理·任务类型**：setting_recommendation,setting_design,setting_review,planning_context
+- **管理·岗位**：planning_writer,chief_editor,deputy_editor
+- **管理·共享节点**：RB-16,RB-17
+- **管理·功能介绍**：设定：选择需要的设定，提交设计；可逐条修改、重设计或执行统一整理，确认后成为后续依据。
+- **管理·用户操作**：选择需要的设定，提交设计；可逐条修改、重设计或执行统一整理，确认后成为后续依据。
+- **管理·流程**：系统准备开书与现有设定 → 编剧逐组或逐条设计 → 需要时专项核查 → 主编统一核对及定向修订 → 作者确认
+- **管理·资料供给**：系统组包：正式开书、已确认设定、本轮候选、作者意见。超预算时由策划编剧筛选所需事实；不是每项都派资料编辑。副编仅在明确专项核查路径介入。
+- **管理·注入与压缩**：同一轮已设计的条目进入后续资料。完整组包过大时选择已有事实，保留confirmed与candidate身份。现有选择目标约10000字内、选择请求上限60000字符；这是代码约束，修改提示词不能直接改变上限。
+- **管理·格式化输入**：条目合同与既有资料分开传输；保留每条来源和版本，不把尚未确认的候选写成正史。
+- **管理·输出与校验**：候选、逐条审核和全书审核按各自JSON合同解析。对简短输出校验长度；统一审查不允许一边通过、一边留下未落实冲突。分组失败、定向修订与修复详见步骤。
+- **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
+- **管理·思考与解释**：现有通用规则不要求返回内部思维链，也不保存或展示内部推理。成员按照任务要求完成工作；需要解释时只交付简短依据、来源和问题。输出字段约束不等于给小说套固定情节模板。
+- **管理·调整边界**：本页可调整已接入提示资产的岗位、工位与执行规则：保存草稿、预览、发布、恢复历史草稿。成员绑定来自实时治理接口。执行顺序、硬性字符/Token上限、解析器、失败次数属于代码控制，不能仅改提示词使其生效；修改后须随功能发布同步说明。
 
 - **实际AI节点·AI-020**：推荐本书设定目录｜主编｜设计｜提交设定目录推荐任务。｜apps/api/src/application/books/v7-setting-editorial-service.ts:1298
 - **实际AI节点·AI-021**：修复目录推荐格式｜当前主编｜格式修复｜目录推荐无法按合同解析。｜apps/api/src/application/books/v7-setting-editorial-service.ts:1327
@@ -681,6 +745,27 @@
 
 ### RB-22 全书蓝图与方向页
 
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/planning/v7-planning-route-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
+- **管理·代码核对**：124b671e359f5a4acfd9ef755eb21e55954311433203d5accfa6cb65d8a7bc9d
+
+- **管理·共享步骤**：AI-001,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
+
+- **管理·名称**：全书方向
+- **管理·工位**：full_book_route
+- **管理·任务类型**：planning_context,planning_recipe,planning_tree,planning_review
+- **管理·岗位**：chief_editor,planning_writer,deputy_editor
+- **管理·共享节点**：RB-16,RB-17
+- **管理·功能介绍**：全书方向：在时光机提交全书目标、字数等要求，查看方向或蓝图候选，按需要调整并确认。
+- **管理·用户操作**：在时光机提交全书目标、字数等要求，查看方向或蓝图候选，按需要调整并确认。
+- **管理·流程**：系统冻结正式开书与设定 → 资料编辑选择当前任务依据 → 主编或规划成员设计 → 对应路径执行审查或融合 → 作者确认方向/结构
+- **管理·资料供给**：系统提供正式开书、设定、目标字数、已确认方向和实际进展。资料编辑负责语义选择；方法短卡由系统按层提供，AI不能把全库当必用模板。
+- **管理·注入与压缩**：先选择来源；超预算再进入共享原文分页选择和必要约束覆盖核对。原文已经在预算内则直接传递，不另压缩。路线设计与树生成是两个实际路径，审核不应假装所有路径都有。
+- **管理·格式化输入**：带来源快照、当前层责任、目标容量、任务资料计划及少量方法参考。正式规划和正文实际分别标注。
+- **管理·输出与校验**：方向/结构使用对应JSON合同与解析器；校验容量和引用，结构错误进入修复。方向审查与融合单列；树生成不能因结构合格被标为文学质量通过。
+- **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
+- **管理·思考与解释**：现有通用规则不要求返回内部思维链，也不保存或展示内部推理。成员按照任务要求完成工作；需要解释时只交付简短依据、来源和问题。输出字段约束不等于给小说套固定情节模板。
+- **管理·调整边界**：本页可调整已接入提示资产的岗位、工位与执行规则：保存草稿、预览、发布、恢复历史草稿。成员绑定来自实时治理接口。执行顺序、硬性字符/Token上限、解析器、失败次数属于代码控制，不能仅改提示词使其生效；修改后须随功能发布同步说明。
+
 - **实际AI节点·AI-046**：全书方向资料策划｜资料编辑｜资料整理｜方向任务没有已保存的共享资料计划时，选择相关资料与任务边界。｜apps/api/src/application/planning/v7-planning-route-service.ts:773
 - **实际AI节点·AI-047**：修复方向资料策划｜当前资料编辑｜格式修复｜共享资料计划不能解析或不符合合同。｜apps/api/src/application/planning/v7-planning-route-service.ts:794
 - **实际AI节点·AI-048**：方向资料策划失败换员｜后备资料编辑｜换员｜共享资料策划失败，尝试冻结名单中的下一成员。｜apps/api/src/application/planning/v7-planning-route-service.ts:750
@@ -725,6 +810,27 @@
 
 ### RB-23 卷设计页
 
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
+- **管理·代码核对**：267c5f1f9a344d00e68cf2c6fb336097925ab981b2823ee8c45b6d6acd35ee84
+
+- **管理·共享步骤**：AI-001,AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
+
+- **管理·名称**：卷设计
+- **管理·工位**：volume
+- **管理·任务类型**：planning_context,planning_recipe,planning_tree,planning_review
+- **管理·岗位**：planning_writer,chief_editor,deputy_editor
+- **管理·共享节点**：RB-16,RB-17
+- **管理·功能介绍**：卷设计：基于确认的全书方向设计当前卷，按需要比较、提出新意见或确认。
+- **管理·用户操作**：基于确认的全书方向设计当前卷，按需要比较、提出新意见或确认。
+- **管理·流程**：系统提供当前卷上游 → 资料编辑选取依据 → 规划成员设计卷 → 互动方案路径主编审查 → 作者确认
+- **管理·资料供给**：系统读取全书方向、本卷责任、正式设定及已有实际；资料编辑选择相关内容。卷结构与互动方案是两条复用路径，按实际步骤区分。
+- **管理·注入与压缩**：卷生成使用本层资料计划。超预算的原文由共享证据阅读器逐页选择；互动卷方案还使用ContextCompiler。不能认为选定卷就自动带入所有全书资料。
+- **管理·格式化输入**：当前卷任务合同、上层方向和来源版本、资料计划、必要方法参考。
+- **管理·输出与校验**：卷结构和互动候选分别解析；互动候选审核不直接覆盖候选。未通过结构校验进入修复或后备成员。
+- **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
+- **管理·思考与解释**：现有通用规则不要求返回内部思维链，也不保存或展示内部推理。成员按照任务要求完成工作；需要解释时只交付简短依据、来源和问题。输出字段约束不等于给小说套固定情节模板。
+- **管理·调整边界**：本页可调整已接入提示资产的岗位、工位与执行规则：保存草稿、预览、发布、恢复历史草稿。成员绑定来自实时治理接口。执行顺序、硬性字符/Token上限、解析器、失败次数属于代码控制，不能仅改提示词使其生效；修改后须随功能发布同步说明。
+
 - **实际AI节点·AI-141**：按新意见重新设计互动卷方案｜用户选择的规划成员｜重设计｜用户提交redesignOptions，创建新方案任务并继承修改要求，重新进入卷方案设计与审核。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:564
 
 - **实际AI节点·AI-063**：卷结构资料策划｜资料编辑｜资料整理｜生成卷结构且没有冻结资料计划时，确定当前层需要的资料。｜apps/api/src/application/planning/v7-planning-tree-generation-service.ts:589
@@ -763,6 +869,27 @@
 <a id="rb-24"></a>
 
 ### RB-24 链/故事单元页
+
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
+- **管理·代码核对**：267c5f1f9a344d00e68cf2c6fb336097925ab981b2823ee8c45b6d6acd35ee84
+
+- **管理·共享步骤**：AI-001,AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
+
+- **管理·名称**：链设计
+- **管理·工位**：chain
+- **管理·任务类型**：planning_context,planning_recipe,planning_tree,planning_review
+- **管理·岗位**：planning_writer,chief_editor,deputy_editor
+- **管理·共享节点**：RB-16,RB-17
+- **管理·功能介绍**：链设计：选择当前卷下的故事单元，生成并确认链方案，再进入章纲。
+- **管理·用户操作**：选择当前卷下的故事单元，生成并确认链方案，再进入章纲。
+- **管理·流程**：系统准备本卷与前置状态 → 资料编辑选择链所需依据 → 规划成员设计链 → 互动路径主编审核 → 作者确认
+- **管理·资料供给**：系统提供本卷责任、前置实际、相关人物及设定；资料编辑按链任务选择。该工位也可能承载章纲/正文的资料选择调用，样例会明确显示任务类型，不能把共享工位记录当作全部属于链设计。
+- **管理·注入与压缩**：沿用本层来源计划和超预算原文选取。共享chain工位的planning_context记录可能服务其他下游任务，具体用途以样例任务目标为准。
+- **管理·格式化输入**：当前链任务、上层卷、相关事实、来源与版本，以及本层方法参考。
+- **管理·输出与校验**：链结构/互动候选按JSON校验，正式采用与候选分离；不要求所有题材套同一种节拍。
+- **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
+- **管理·思考与解释**：现有通用规则不要求返回内部思维链，也不保存或展示内部推理。成员按照任务要求完成工作；需要解释时只交付简短依据、来源和问题。输出字段约束不等于给小说套固定情节模板。
+- **管理·调整边界**：本页可调整已接入提示资产的岗位、工位与执行规则：保存草稿、预览、发布、恢复历史草稿。成员绑定来自实时治理接口。执行顺序、硬性字符/Token上限、解析器、失败次数属于代码控制，不能仅改提示词使其生效；修改后须随功能发布同步说明。
 
 - **实际AI节点·AI-142**：按新意见重新设计互动链方案｜用户选择的规划成员｜重设计｜用户提交redesignOptions，创建新方案任务并继承修改要求，重新进入链方案设计与审核。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:564
 
@@ -803,6 +930,27 @@
 
 ### RB-25 章计划与章节安排
 
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
+- **管理·代码核对**：747b731b422e103020acf9ddddc0f5b402c92302aa218708d71ca8e25ce44689
+
+- **管理·共享步骤**：AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
+
+- **管理·名称**：章纲
+- **管理·工位**：chapter_outline
+- **管理·任务类型**：chapter_outline,chapter_outline_review
+- **管理·岗位**：planning_writer,chief_editor,deputy_editor
+- **管理·共享节点**：RB-16,RB-17
+- **管理·功能介绍**：章纲：确认链后设计章纲，可比较、替换候选并确认用于写正文。
+- **管理·用户操作**：确认链后设计章纲，可比较、替换候选并确认用于写正文。
+- **管理·流程**：系统核对已确认链 → 资料编辑选择章纲资料 → 规划成员设计章纲 → 主编审核 → 作者确认
+- **管理·资料供给**：系统给出链、人物与事实目录、前章落点；当前代码仍调用资料编辑选择上下文，资料选择借用chain工位，不能宣称已经直接继承链包。
+- **管理·注入与压缩**：章纲资料选择及格式修复单列；必要时原文分页筛选。主编审核读取候选和所需依据。工位样例展示章纲执行与审核，关联资料调用须按任务来源追溯。
+- **管理·格式化输入**：链责任、相关事实、章纲任务边界和来源目录；候选章纲是待审内容。
+- **管理·输出与校验**：章纲输出按章纲合同解析；审核为结构化报告，可格式修复。生成和审核结果各自保留，作者确认才进入正文依据。
+- **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
+- **管理·思考与解释**：现有通用规则不要求返回内部思维链，也不保存或展示内部推理。成员按照任务要求完成工作；需要解释时只交付简短依据、来源和问题。输出字段约束不等于给小说套固定情节模板。
+- **管理·调整边界**：本页可调整已接入提示资产的岗位、工位与执行规则：保存草稿、预览、发布、恢复历史草稿。成员绑定来自实时治理接口。执行顺序、硬性字符/Token上限、解析器、失败次数属于代码控制，不能仅改提示词使其生效；修改后须随功能发布同步说明。
+
 - **实际AI节点·AI-143**：重新设计或替换章纲候选｜用户选择的规划成员｜重设计｜generateOutlines收到regenerate或replaceCandidateId时，生成新的章纲候选，再进入主编审核。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:789
 - **实际AI节点·AI-144**：恢复未完成的章纲设计或审核｜规划成员或主编｜重试｜再次提交章纲任务时补缺失席位，并审核仍无结论的候选；已完成的候选和审查不重复生成。｜apps/api/src/application/creation/v7-creation-workflow-service.ts:896
 
@@ -834,6 +982,27 @@
 
 ### RB-26 AI正文生成
 
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
+- **管理·代码核对**：747b731b422e103020acf9ddddc0f5b402c92302aa218708d71ca8e25ce44689
+
+- **管理·共享步骤**：AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
+
+- **管理·名称**：正文生成
+- **管理·工位**：manuscript
+- **管理·任务类型**：manuscript
+- **管理·岗位**：lead_writer,deputy_editor
+- **管理·共享节点**：RB-16,RB-17
+- **管理·功能介绍**：正文生成：采用章纲后生成本章，查看审查与修订后的正文，最后决定是否采用。
+- **管理·用户操作**：采用章纲后生成本章，查看审查与修订后的正文，最后决定是否采用。
+- **管理·流程**：系统核对章纲与版本 → 资料编辑准备本章上下文 → 主笔写正文 → 独立审查 → 必要时主笔修订后复审
+- **管理·资料供给**：系统提供确认章纲与正式资料，当前ContextCompiler仍会请资料编辑选择资料；正文主笔不负责数据库检索和权限判断。
+- **管理·注入与压缩**：资料选择在共享chain工位执行；正文使用编译后的资料包。超预算按证据选择与覆盖核对处理，不能机械裁掉否定、条件或作者要求。
+- **管理·格式化输入**：确认章纲、正式来源、作者要求和本次任务；重写时另带旧稿及修订指令。
+- **管理·输出与校验**：交付正文文本，系统检查非空和不当过程内容；独立审查见审查功能。正文版本不可原地覆盖，不把结构校验当阅读质量证明。
+- **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
+- **管理·思考与解释**：现有通用规则不要求返回内部思维链，也不保存或展示内部推理。成员按照任务要求完成工作；需要解释时只交付简短依据、来源和问题。输出字段约束不等于给小说套固定情节模板。
+- **管理·调整边界**：本页可调整已接入提示资产的岗位、工位与执行规则：保存草稿、预览、发布、恢复历史草稿。成员绑定来自实时治理接口。执行顺序、硬性字符/Token上限、解析器、失败次数属于代码控制，不能仅改提示词使其生效；修改后须随功能发布同步说明。
+
 - **实际AI节点·AI-108**：正文资料选择｜资料编辑｜资料整理｜该任务请求上下文且不能复用有效资料包时，选择来源条目；这是当前实现，并非仅全书/卷/链才整理。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:263
 - **实际AI节点·AI-109**：正文资料选择修复｜当前资料编辑｜格式修复｜选择输出无法解析或来源引用不合格。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:301
 - **实际AI节点·AI-110**：正文资料选择换员｜后备资料编辑｜换员｜本成员资料选择失败后，尝试下一资料成员。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:251
@@ -860,6 +1029,27 @@
 <a id="rb-27"></a>
 
 ### RB-27 审查、比较与定向重写
+
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
+- **管理·代码核对**：747b731b422e103020acf9ddddc0f5b402c92302aa218708d71ca8e25ce44689
+
+- **管理·共享步骤**：AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
+
+- **管理·名称**：正文审查
+- **管理·工位**：review
+- **管理·任务类型**：manuscript_review
+- **管理·岗位**：independent_reviewer,deputy_editor
+- **管理·共享节点**：RB-16,RB-17
+- **管理·功能介绍**：正文审查：生成正文后自动审查，查看问题与必要修订结果，再决定采用。
+- **管理·用户操作**：生成正文后自动审查，查看问题与必要修订结果，再决定采用。
+- **管理·流程**：系统绑定待审正文版本 → 资料编辑准备审查依据 → 异底座审校成员审查 → 主笔按问题修订 → 新版本重新审查
+- **管理·资料供给**：系统提供待审正文、章纲与正式依据；当前审查资料也由ContextCompiler选择，不是把设计成员的结论当审查证据。
+- **管理·注入与压缩**：审查上下文选择在共享chain工位执行；候选正文与正式事实必须区分。超预算规则与共享证据阅读器一致。
+- **管理·格式化输入**：待审稿、当前章纲、正式资料包及审核任务，标注稿件版本。
+- **管理·输出与校验**：输出结构化审查报告；格式错误向同一审校成员修复。独立性按实际模型底座排除，不把同模型不同名字当独立审查。
+- **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
+- **管理·思考与解释**：现有通用规则不要求返回内部思维链，也不保存或展示内部推理。成员按照任务要求完成工作；需要解释时只交付简短依据、来源和问题。输出字段约束不等于给小说套固定情节模板。
+- **管理·调整边界**：本页可调整已接入提示资产的岗位、工位与执行规则：保存草稿、预览、发布、恢复历史草稿。成员绑定来自实时治理接口。执行顺序、硬性字符/Token上限、解析器、失败次数属于代码控制，不能仅改提示词使其生效；修改后须随功能发布同步说明。
 
 - **实际AI节点·AI-116**：正文审查资料选择｜资料编辑｜资料整理｜该任务请求上下文且不能复用有效资料包时，选择来源条目；这是当前实现，并非仅全书/卷/链才整理。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:263
 - **实际AI节点·AI-117**：正文审查资料选择修复｜当前资料编辑｜格式修复｜选择输出无法解析或来源引用不合格。｜apps/api/src/application/creation/v7-creation-context-compiler.ts:301
@@ -900,6 +1090,27 @@
 
 ### RB-28 采用正文与结算确认
 
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-creation-formalization-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
+- **管理·代码核对**：979983bedb416e7ee939b0271e888238cbc179f6ced971cb091ded5104e6f0d3
+
+- **管理·共享步骤**：AI-002,AI-008,AI-009
+
+- **管理·名称**：正文采用与事实提取
+- **管理·工位**：continuity_record
+- **管理·任务类型**：settlement
+- **管理·岗位**：continuity_editor
+- **管理·共享节点**：RB-16,RB-17
+- **管理·功能介绍**：正文采用与事实提取：作者采用正文后，系统保存正式版本，并处理事实提取与后续维护。
+- **管理·用户操作**：作者采用正文后，系统保存正式版本，并处理事实提取与后续维护。
+- **管理·流程**：系统保存采用版本及事件 → 结算编辑提取事实 → 系统校验来源 → 人物与规划维护处理相关事件
+- **管理·资料供给**：系统提供本次正式正文及事件快照；事实提取由记录/结算岗位执行，不把保存动作交给AI。
+- **管理·注入与压缩**：本任务依据正式正文提取维护结果；不因摘要或维护失败丢失正文。样例用于检查实际资料大小，尚未提供任意字符预算的在线修改开关。
+- **管理·格式化输入**：正式稿件版本、来源标记与本次结算任务。
+- **管理·输出与校验**：结构化事实候选与来源引用；系统执行版本、防重和事件存储。AI提取不直接覆盖作者原文。
+- **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
+- **管理·思考与解释**：现有通用规则不要求返回内部思维链，也不保存或展示内部推理。成员按照任务要求完成工作；需要解释时只交付简短依据、来源和问题。输出字段约束不等于给小说套固定情节模板。
+- **管理·调整边界**：本页可调整已接入提示资产的岗位、工位与执行规则：保存草稿、预览、发布、恢复历史草稿。成员绑定来自实时治理接口。执行顺序、硬性字符/Token上限、解析器、失败次数属于代码控制，不能仅改提示词使其生效；修改后须随功能发布同步说明。
+
 - **实际AI节点·AI-125**：从正式正文提取结算事实｜结算编辑｜事实维护｜作者采用正文后，处理尚未完成的正式化事件；保存/采用本身由系统执行。｜apps/api/src/application/creation/v7-creation-formalization-service.ts:464
 - **实际AI节点·AI-126**：事实提取失败换员｜后备结算编辑｜换员｜当前结算成员未交付，按结算后备名单尝试。｜apps/api/src/application/creation/v7-creation-formalization-service.ts:461
 - **实际AI节点·AI-127**：正式化失败重新提取｜结算编辑｜重试｜恢复失败正式化事件；只有模型事实提取未完成才重新调用。｜apps/api/src/application/creation/v7-creation-formalization-service.ts:194
@@ -921,6 +1132,27 @@
 <a id="rb-29"></a>
 
 ### RB-29 连续创作与长期记忆
+
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/planning/v7-planning-maintenance-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
+- **管理·代码核对**：905426e22b1af5391425ca011ebbbe16e31127fbd9320af802287edae21c937d
+
+- **管理·共享步骤**：AI-001,AI-008,AI-009
+
+- **管理·名称**：规划维护
+- **管理·工位**：full_book_route
+- **管理·任务类型**：planning_maintenance
+- **管理·岗位**：chief_editor,continuity_editor
+- **管理·共享节点**：RB-16,RB-17
+- **管理·功能介绍**：规划维护：正文采用与结算后处理规划维护，查看实际推进与原方向之间的调整建议。
+- **管理·用户操作**：正文采用与结算后处理规划维护，查看实际推进与原方向之间的调整建议。
+- **管理·流程**：系统提供结算事件与确认规划 → 维护成员形成建议 → 系统校验并保存候选 → 后续按正式化流程处理
+- **管理·资料供给**：系统直接提供冻结的结算与规划快照，该路径没有额外资料选择Agent调用，不冒充有语义检索证据。
+- **管理·注入与压缩**：此路径按代码组包，不能因为后台存在“资料编辑”就宣称经过压缩；真实内容及长度以样例为准。
+- **管理·格式化输入**：结算内容、已确认规划、来源版本与维护目标。
+- **管理·输出与校验**：结构化维护结果，规划描述未来、正文记录实际；维护候选不改写正式正文。
+- **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
+- **管理·思考与解释**：现有通用规则不要求返回内部思维链，也不保存或展示内部推理。成员按照任务要求完成工作；需要解释时只交付简短依据、来源和问题。输出字段约束不等于给小说套固定情节模板。
+- **管理·调整边界**：本页可调整已接入提示资产的岗位、工位与执行规则：保存草稿、预览、发布、恢复历史草稿。成员绑定来自实时治理接口。执行顺序、硬性字符/Token上限、解析器、失败次数属于代码控制，不能仅改提示词使其生效；修改后须随功能发布同步说明。
 
 - **实际AI节点·AI-128**：根据已发生事实更新规划建议｜规划维护成员｜事实维护｜正式结算触发维护，比较正文结果与已确认规划，产生维护候选。｜apps/api/src/application/planning/v7-planning-maintenance-service.ts:364
 - **实际AI节点·AI-129**：规划维护失败换员｜后备规划维护成员｜换员｜当前维护调用失败且可继续。｜apps/api/src/application/planning/v7-planning-maintenance-service.ts:354
@@ -963,6 +1195,27 @@
 <a id="rb-32"></a>
 
 ### RB-32 人物详情与人物维护
+
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/characters/v7-character-memory-service.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
+- **管理·代码核对**：ee1bdffb5e837bb519d0b14994eac8c05b9dac6b1b6f8830f1700dd4e13bd03a
+
+- **管理·共享步骤**：AI-008,AI-009
+
+- **管理·名称**：人物资料与维护
+- **管理·工位**：continuity_record
+- **管理·任务类型**：character_context,character_maintenance
+- **管理·岗位**：deputy_editor,continuity_editor
+- **管理·共享节点**：RB-16,RB-17
+- **管理·功能介绍**：人物资料与维护：查看人物资料；需要人物上下文时请求整理，正文落定后触发事实维护。
+- **管理·用户操作**：查看人物资料；需要人物上下文时请求整理，正文落定后触发事实维护。
+- **管理·流程**：系统读取人物及证据 → 资料成员整理人物包或记录成员维护事实 → 系统校验来源 → 保存结果
+- **管理·资料供给**：系统查找指定人物、关系和来源；人物资料成员做语义整理，人物维护成员处理正式证据，两类任务单独记录。
+- **管理·注入与压缩**：资料包按任务冻结预算和关系深度，不是读取全书全部人设。维护按证据来源生成变更；人物包与维护分别有失败恢复。
+- **管理·格式化输入**：人物目标、关系范围、证据引用与来源版本。
+- **管理·输出与校验**：人物资料包和维护结果按各自合同解析；成功调用先复用。不存在证据的事实不能由模型猜测后写成正式内容。
+- **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
+- **管理·思考与解释**：现有通用规则不要求返回内部思维链，也不保存或展示内部推理。成员按照任务要求完成工作；需要解释时只交付简短依据、来源和问题。输出字段约束不等于给小说套固定情节模板。
+- **管理·调整边界**：本页可调整已接入提示资产的岗位、工位与执行规则：保存草稿、预览、发布、恢复历史草稿。成员绑定来自实时治理接口。执行顺序、硬性字符/Token上限、解析器、失败次数属于代码控制，不能仅改提示词使其生效；修改后须随功能发布同步说明。
 
 - **实际AI节点·AI-131**：整理人物资料包｜人物资料成员｜资料整理｜明确请求人物上下文包，读取指定人物及关系。｜apps/api/src/application/characters/v7-character-memory-service.ts:592
 - **实际AI节点·AI-132**：人物资料包失败换员｜后备人物资料成员｜换员｜当前资料成员失败后按冻结名单接续。｜apps/api/src/application/characters/v7-character-memory-service.ts:584
@@ -1007,6 +1260,27 @@
 <a id="rb-34"></a>
 
 ### RB-34 命名与封面工作室
+
+- **管理·代码来源**：apps/api/src/application/books/v7-book-cover-design-service.ts,apps/api/src/application/books/v7-book-title-design-service.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
+- **管理·代码核对**：166793b949b9ebbf637e3750d03b9bc0e9bb38036d3042781acfc6be458746ea
+
+- **管理·共享步骤**：none
+
+- **管理·名称**：取名与封面
+- **管理·工位**：title,cover_brief,cover_render
+- **管理·任务类型**：title_design,cover_brief,cover_render
+- **管理·岗位**：planning_writer,chief_editor,visual_renderer
+- **管理·共享节点**：RB-16,RB-17
+- **管理·功能介绍**：取名与封面：提交取名需求或封面偏好，选择书名、生成并查看封面。
+- **管理·用户操作**：提交取名需求或封面偏好，选择书名、生成并查看封面。
+- **管理·流程**：取名：系统资料 → 命名成员交候选 → 作者选择；封面：系统资料 → 主编绘图工单 → 画师出图 → 系统排版保存
+- **管理·资料供给**：取名直接由系统提供开书与作者要求；封面主编整理视觉工单，图片模型接收工单，不调用另一个资料编辑组包。
+- **管理·注入与压缩**：取名只需开书卖点与当前要求；封面输入使用视觉制作单。无需把正文全文注入图片模型；当前没有通用在线压缩开关。
+- **管理·格式化输入**：书名、题材、卖点、笔名、视觉偏好；图像任务另含尺寸与格式。
+- **管理·输出与校验**：书名候选结构化解析；封面文字工单校验后交图像模型。系统叠字、文件保存不算AI。取名当前没有独立自动换员循环。
+- **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
+- **管理·思考与解释**：现有通用规则不要求返回内部思维链，也不保存或展示内部推理。成员按照任务要求完成工作；需要解释时只交付简短依据、来源和问题。输出字段约束不等于给小说套固定情节模板。
+- **管理·调整边界**：本页可调整已接入提示资产的岗位、工位与执行规则：保存草稿、预览、发布、恢复历史草稿。成员绑定来自实时治理接口。执行顺序、硬性字符/Token上限、解析器、失败次数属于代码控制，不能仅改提示词使其生效；修改后须随功能发布同步说明。
 
 - **实际AI节点·AI-137**：生成书名候选｜选定命名成员｜设计｜用户提交取名请求；该服务只有一次生成，没有独立自动格式修复/换员循环。｜apps/api/src/application/books/v7-book-title-design-service.ts:125
 - **实际AI节点·AI-138**：设计封面绘图要求｜主编｜设计｜制作封面时先生成文字绘图工单。｜apps/api/src/application/books/v7-book-cover-design-service.ts:330

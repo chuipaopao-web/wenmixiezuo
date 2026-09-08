@@ -51,11 +51,11 @@ const ASSET_TABS = [
 ] as const;
 
 const NAVIGATION = [
-  { key: 'rebuild', label: '功能地图', icon: GitBranch, group: '产品管理' },
+  { key: 'rebuild', label: '功能与AI流程', icon: GitBranch, group: '产品管理' },
   { key: 'configuration', label: '配置中心', icon: ClipboardText, group: '产品管理' },
   { key: 'features', label: '现有能力对照', icon: ClipboardText, group: '产品管理' },
   { key: 'overview', label: '资产方法论', icon: House, group: '创作资产' },
-  { key: 'agents', label: '成员与上下文', icon: Robot, group: '创作团队' },
+  { key: 'agents', label: '成员与模型', icon: Robot, group: '创作团队' },
   { key: 'creation-ops', label: '创作运行', icon: GitBranch, group: '创作团队' },
   { key: 'operations', label: '数据中控', icon: ChartLineUp, group: '平台运营' },
   { key: 'users', label: '用户与书籍', icon: Users, group: '平台运营' },
@@ -95,7 +95,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
 
   const navigate = (next: AdminSection): void => {
     if (!window.dispatchEvent(new Event('wenmi:admin-navigate', { cancelable: true }))) return;
-    if(next==='prompt-context')next='agents';
+    if(next==='prompt-context')next='rebuild';
     setSection(next);
     setDetail(null);
     const url = new URL(window.location.href);
@@ -567,7 +567,7 @@ function EmptyState({ onClear }: { onClear: () => void }): React.JSX.Element {
 
 function sectionFromUrl(): AdminSection {
   const value = new URL(window.location.href).searchParams.get('section');
-  if(value==='prompt-context')return 'agents';
+  if(value==='prompt-context')return 'rebuild';
   return [...NAVIGATION, ...ASSET_TABS].some((item) => item.key === value) ? value as AdminSection : 'rebuild';
 }
 
