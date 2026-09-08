@@ -63,13 +63,15 @@ describe('public author homepage entry', () => {
     installFetch(null);
     render(<PublicAuthorEntry />);
 
-    expect(await screen.findByRole('heading', { name: '从一个想法，开始你的小说。' })).toBeVisible();
-    expect(screen.getByText('AI 帮你展开故事，每一步都由你决定。')).toBeVisible();
+    expect(await screen.findByRole('heading', { name: '无需经验，无需文笔。' })).toBeVisible();
+    expect(screen.getByText('你决定故事方向，AI 编辑部帮你展开。')).toBeVisible();
     expect(screen.getByRole('navigation', { name: '公开入口' })).toHaveTextContent('登录');
     expect(screen.getByRole('navigation', { name: '公开入口' })).toHaveTextContent('注册');
     expect(screen.getByRole('button', { name: /开始创作/ })).toBeEnabled();
     expect(screen.getByRole('link', { name: '查看 AI 编辑部协同创作' })).toBeVisible();
-    expect(screen.getByLabelText('创作流程示意')).toBeVisible();
+    expect(screen.getByLabelText('AI编辑部代表成员')).toBeVisible();
+    expect(screen.queryByLabelText('创作流程示意')).not.toBeInTheDocument();
+    expect(document.querySelector('.public-editorial-avatar')?.getAttribute('style')).toContain('diaochan-welcome-r166.png');
     for (const copy of ['貂蝉', 'AI主编', '西施', 'AI副编', '红玉', 'AI策划编剧', '清照', 'AI主笔', '周清妍', 'AI审查编辑']) {
       expect(document.body.textContent).toContain(copy);
     }
@@ -83,7 +85,7 @@ describe('public author homepage entry', () => {
     installFetch(null, (url) => url.endsWith('/api/v1/auth/me') ? Promise.reject(new Error('network')) : null);
     render(<PublicAuthorEntry />);
 
-    expect(await screen.findByRole('heading', { name: '从一个想法，开始你的小说。' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: '无需经验，无需文笔。' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: '暂时没有打开' })).not.toBeInTheDocument();
   });
 
@@ -144,7 +146,7 @@ describe('public author homepage entry', () => {
     fireEvent.click(screen.getAllByRole('button', { name: '进入工作台' })[0]!);
     expect(window.location.pathname).toBe('/');
     expect(window.location.search).toBe('?view=home');
-    expect(await screen.findByText('创作小说')).toBeVisible();
+    expect(await screen.findByLabelText('说说您想写什么')).toBeVisible();
   });
 
   it('remounts the auth form when browser history moves between login and register', async () => {
@@ -178,7 +180,7 @@ describe('public author homepage entry', () => {
 
     await waitFor(() => expect(window.location.pathname).toBe('/'));
     expect(window.location.search).toBe('?view=home');
-    expect(await screen.findByText('创作小说')).toBeVisible();
+    expect(await screen.findByLabelText('说说您想写什么')).toBeVisible();
   });
 
   it('returns to the login form after registering, entering the workspace, and signing out', async () => {

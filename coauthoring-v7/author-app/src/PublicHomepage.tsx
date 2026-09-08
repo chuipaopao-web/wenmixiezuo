@@ -1,28 +1,12 @@
 import {
-  BookOpenTextIcon,
   CheckCircleIcon,
-  FileTextIcon,
   FlowArrowIcon,
-  LightbulbIcon,
   NotePencilIcon,
   PenNibIcon,
   ShieldCheckIcon,
-  TreeStructureIcon,
-  UsersThreeIcon
 } from '@phosphor-icons/react';
 import type { AuthorAccount } from './account-api';
-import { memberAvatarPosition, memberDisplayName } from './member-avatars';
-
-type PublicIcon = typeof LightbulbIcon;
-
-const HERO_STEPS: Array<[string, PublicIcon]> = [
-  ['想法', LightbulbIcon],
-  ['角色', UsersThreeIcon],
-  ['世界', TreeStructureIcon],
-  ['大纲', FlowArrowIcon],
-  ['章节', BookOpenTextIcon],
-  ['正文', FileTextIcon]
-];
+import { memberAvatarStyle, memberDisplayName } from './member-avatars';
 
 const PROCESS_STEPS = [
   ['01', '想法', '记录灵感与主题，确定故事方向。'],
@@ -92,7 +76,7 @@ export function PublicHomepage({
         onClick={(event) => event.currentTarget.closest('.public-homepage')?.scrollTo({ top: 0, behavior: 'smooth' })}
         aria-label="回到文秘写作首页"
       >
-        <span className="brand-mark" aria-hidden="true">文</span>
+        <img className="public-brand-image" src="/branding/wenmi-logo-r174.png" alt="" />
         <span>文秘写作</span>
       </button>
       <nav className="public-home-nav" aria-label="公开入口">
@@ -110,12 +94,13 @@ export function PublicHomepage({
 
     <section className="public-hero" aria-labelledby="public-home-title">
       <div className="public-hero-copy">
-        <h1 id="public-home-title" aria-label="从一个想法，开始你的小说。">
-          <span aria-hidden="true">从一个想法，</span>
-          <span aria-hidden="true">开始你的小说。</span>
+        <h1 id="public-home-title" aria-label="无需经验，无需文笔。">
+          <span aria-hidden="true">无需经验，</span>
+          <span aria-hidden="true">无需文笔。</span>
         </h1>
-        <p>不必先掌握复杂的写作技巧。文秘写作通过多智能体协作，辅助你设计角色、世界背景和故事框架，逐步完成大纲、章节规划与正文。</p>
-        <strong>AI 帮你展开故事，每一步都由你决定。</strong>
+        <p>多智能体协同创作，人人都可以创作出高质量网文作品。</p>
+        <p className="public-deliverables">框架、大纲、细纲、章纲、正文、角色人设、故事线，一站式原创设计。</p>
+        <strong>你决定故事方向，AI 编辑部帮你展开。</strong>
         <div className="public-hero-actions">
           <button className="public-primary-action" type="button" onClick={authenticated ? onOpenWorkspace : onStart}>
             <PenNibIcon />
@@ -124,7 +109,7 @@ export function PublicHomepage({
         </div>
         <a className="public-hero-editors" href="#collaboration" aria-label="查看 AI 编辑部协同创作">
           <span className="public-hero-avatar-stack" aria-hidden="true">
-            {EDITORIAL_MEMBERS.map((member) => <i key={member.memberKey} style={{ backgroundPosition: memberAvatarPosition(member.memberKey) }} />)}
+            {EDITORIAL_MEMBERS.map((member) => <i key={member.memberKey} style={memberAvatarStyle(member.memberKey)} />)}
           </span>
           <span>
             <strong>AI编辑部协同创作</strong>
@@ -133,29 +118,15 @@ export function PublicHomepage({
         </a>
       </div>
 
-      <div className="public-workflow-preview" aria-label="创作流程示意">
-        <header>
-          <span className="brand-mark" aria-hidden="true">文</span>
-          <div>
-            <strong>创作流程示意</strong>
-            <small>从灵感到正文的协作路径</small>
-          </div>
-        </header>
-        <div className="public-preview-grid">
-          {HERO_STEPS.map(([label, Icon], index) => <article key={label}>
-            <span><Icon aria-hidden="true" /></span>
-            <strong>{label}</strong>
-            {index < 5 && <i aria-hidden="true" />}
+      <section className="public-hero-team" id="collaboration" aria-labelledby="public-team-title">
+        <header><small>你的 AI 编辑部</small><h2 id="public-team-title">一个想法，我们一起写。</h2></header>
+        <div className="public-editorial-map" aria-label="AI编辑部代表成员">
+          {EDITORIAL_MEMBERS.map((member) => <article key={member.memberKey}>
+            <span className="public-editorial-avatar" style={memberAvatarStyle(member.memberKey)} aria-hidden="true" />
+            <span><small>{member.role}</small><strong>{memberDisplayName(member.memberKey, member.name)}</strong><p>{member.responsibility}</p></span>
           </article>)}
         </div>
-        <section className="public-manuscript-preview" aria-label="正文示意">
-          <small>第 1 章</small>
-          <p />
-          <p />
-          <p />
-          <p />
-        </section>
-      </div>
+      </section>
     </section>
 
     <section className="public-process-section" aria-labelledby="public-process-title">
@@ -184,22 +155,11 @@ export function PublicHomepage({
       </div>
     </section>
 
-    <section className="public-memory-section" id="collaboration" aria-labelledby="public-memory-title">
+    <section className="public-memory-section" aria-labelledby="public-memory-title">
       <div className="public-section-heading">
-        <h2 id="public-memory-title">AI编辑部协作，记住你的长期创作线索</h2>
-        <p>这些是文秘写作里的 AI 创作角色：主编、副编、策划、主笔与审查编辑分工协作，把你采纳过的角色、规则、伏笔和章节正文沉淀为后续参考。</p>
+        <h2 id="public-memory-title">让长篇创作，有迹可循。</h2>
       </div>
-      <div className="public-memory-layout">
-        <div className="public-editorial-map" aria-label="AI编辑部代表成员">
-          {EDITORIAL_MEMBERS.map((member) => <article key={member.memberKey}>
-            <span className="public-editorial-avatar" style={{ backgroundPosition: memberAvatarPosition(member.memberKey) }} aria-hidden="true" />
-            <span>
-              <small>{member.role}</small>
-              <strong>{memberDisplayName(member.memberKey, member.name)}</strong>
-              <p>{member.responsibility}</p>
-            </span>
-          </article>)}
-        </div>
+      <div>
         <div className="public-memory-ledger">
           <strong>长期创作记忆</strong>
           <p>保存已确认的设定与剧情线索，供后续创作查阅；你可以核对与调整，让长篇故事持续沿着自己的方向生长。</p>
@@ -213,7 +173,7 @@ export function PublicHomepage({
 
     <footer className="public-home-footer" id="contact">
       <div>
-        <span className="brand-mark" aria-hidden="true">文</span>
+        <img className="public-brand-image" src="/branding/wenmi-logo-r174.png" alt="" />
         <strong>文秘写作</strong>
         <p>让创作更有章法。</p>
       </div>
