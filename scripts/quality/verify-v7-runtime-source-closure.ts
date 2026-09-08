@@ -360,6 +360,10 @@ export function buildV7RuntimeClosure(projectRoot = DEFAULT_ROOT): V7RuntimeClos
   const unassignedStaticResources: string[] = [];
   for (const path of publicFiles) {
     const evidence = staticReferenceEvidence(root, path, staticReferenceCorpus);
+    // R174/R175 changed current references; cached entrypoints still use these exact assets.
+    if (['coauthoring-v7/author-app/public/icon.svg', 'coauthoring-v7/author-app/public/branding/wenmi-logo-r174.png'].includes(portable(root, path))) {
+      evidence.push({ kind: 'deploy-allowlist', from: 'R174/R175 cached public entrypoint compatibility' });
+    }
     if (evidence.length === 0) unassignedStaticResources.push(portable(root, path));
     else publicEvidence.set(path, evidence);
   }
