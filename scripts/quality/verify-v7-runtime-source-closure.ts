@@ -92,6 +92,8 @@ const BUILD_RESOURCES: ReadonlyArray<{
   ...workspaceBuildResources('coauthoring-v7/admin-console', 'v7-admin', false)
 ];
 const STANDALONE_OPERATIONAL_RESOURCES = [
+  // R165 explicit dual-confirmed book purge; preview and isolated rehearsal required.
+  'scripts/ops/purge-confirmed-books.py',
   // Explicit operator command npm run benchmark:opening; synthetic subscription calls only.
   'scripts/quality/opening-model-benchmark.mjs',
   // Explicit operator command npm run benchmark:setting-review; bounded synthetic review only.
