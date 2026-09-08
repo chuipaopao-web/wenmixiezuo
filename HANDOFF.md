@@ -1,5 +1,9 @@
 # 文秘写作当前交接
 
+## R175：全产品Logo统一，已上线
+
+合同coauthoring-v7/docs/worklists/PRODUCT-LOGO-175.md。补齐作者工作台/账号页、后台登录/宣传区/导航及两个站点favicon；当前统一路径/avatars/wenmi-logo-r174.png，旧branding文件保留兼容。32项相关测试、Web类型与构建通过；2026-09-09发布静态b4aaa53a5f9c59173af2，源码/opt/wenmi-releases/wm-web-r175-fb29b1c9/source。14项公网资源及后台Logo、入口、健康、401通过，不重启API/Worker。API仍R173；静态回滚R174 d6296e52b0b4abffe3ab。桌面后台与手机账号错误页视觉通过，本地API未运行，未冒充浏览器真实登录。
+
 ## R174：官网品牌与编辑部首屏
 
 合同coauthoring-v7/docs/worklists/HOMEPAGE-BRAND-174.md。原创暖金古风少女Logo、首页新貂蝉头像、编辑部首屏、新营销文案；保留登录注册与工作台入口，流程步骤下移。9项入口测试、Web类型/构建、内置浏览器桌面及390px检查通过；已静态发布d6296e52b0b4abffe3ab，来源/opt/wenmi-releases/wm-web-r174-a0640e3d/source。13项公网资源及后台入口、健康、401通过，API/Worker未重启，仍为R173版本。线上浏览器导航超时，视觉检查为本地同源页面。
