@@ -385,7 +385,7 @@ describe('V7运行时提示词分层编译', () => {
       skillKeys: ['data-boundary']
     });
     expect(result.taskContract.selectedSkillKeys).toEqual(['data-boundary']);
-    expect(result.manifest.skillVersionIds).toEqual(['skill.data-boundary@2']);
+    expect(result.manifest.skillVersionIds).toEqual(['skill.data-boundary@3']);
     expect(result.manifest.compiledPrompt).toContain('"selectedSkillKeys":["data-boundary"]');
     const cannotRelax = compileV7RuntimePrompt({
       ...base,

@@ -27,7 +27,8 @@ const SOURCE_VERSION_OVERRIDES: Readonly<Record<string, number>> = {
   'workstation.manuscript': 2,
   'skill.natural-prose': 2,
   'skill.evidence-review': 3,
-  'skill.data-boundary': 2,
+  // R164 deduplicates task triggers; preserve the immutable @2 seed.
+  'skill.data-boundary': 3,
 };
 
 export const V7_ROLE_PROMPT_ASSETS: readonly V7PromptAssetVersion[] = V7_ROLE_CONTRACTS.map((role) => asset(
@@ -100,7 +101,7 @@ export const V7_GENRE_PERSONA_ASSETS: readonly V7PromptAssetVersion[] = GENRES.m
 ));
 
 const SKILLS: ReadonlyArray<readonly [string, string, readonly V7AgentTaskKind[], readonly string[], readonly string[], readonly string[]]> = [
-  ['data-boundary', '资料可信与候选边界', V7_ROLE_CONTRACTS.flatMap((item) => item.taskKinds), ['核对账号、书籍、活动版本和任务合同', '区分作者原话、正式资料、正文实际、候选与参考', '只读取当前任务需要的最小来源'], ['正式资料读取', '版本核对', '问题反馈'], ['来源缺失或版本变化', '作者硬要求互相冲突']],
+  ['data-boundary', '资料可信与候选边界', [...new Set(V7_ROLE_CONTRACTS.flatMap((item) => item.taskKinds))].sort(), ['核对账号、书籍、活动版本和任务合同', '区分作者原话、正式资料、正文实际、候选与参考', '只读取当前任务需要的最小来源'], ['正式资料读取', '版本核对', '问题反馈'], ['来源缺失或版本变化', '作者硬要求互相冲突']],
   ['intent-translation', '作者意图转译', ['opening_design', 'setting_recommendation', 'planning_context', 'character_context'], ['保留作者原话中的明确人物、时代、关系和禁项', '区分硬要求、软倾向与开放空间', '把模糊愿望转成当前工位可执行责任'], ['作者输入读取', '问题反馈'], ['无法确认谁是主角', '两种根本方向无法同时成立']],
   ['genre-fusion', '融合题材工作档案', ['opening_design', 'planning_context'], ['确认主体题材的核心承诺', '为每个融合题材只选择一到两项辅助功能', '解决题材冲突并形成一份简短统一档案', '列出真实性检查和常见失败'], ['题材卡读取', '正式开书资料读取'], ['没有主体题材', '融合方向与作者硬禁项冲突']],
   ['option-differentiation', '候选方案差异化', ['title_design', 'planning_recipe', 'planning_tree', 'setting_design'], ['先锁定共同硬约束', '每套候选选择不同但可行的因果路径', '用故事结果说明差异，不用更换术语冒充差异'], ['正式资料读取', '少量参考读取'], ['候选实质重复', '差异会违背作者硬要求']],

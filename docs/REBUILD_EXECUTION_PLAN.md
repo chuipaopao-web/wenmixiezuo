@@ -547,6 +547,7 @@
 
 ### RB-17 上下文、来源与检索基础
 
+- **运行·提示资产版本兼容**：资料边界资产以新版本@3登记，触发任务去重排序；旧@2内容和历史任务引用保持不变。发布前以线上资产记录的内存副本验证登记与重复启动，不直接在生产库试改版本。
 - **实际AI节点·AI-003**：超预算原文逐页选取｜调用方的资料编辑｜资料整理｜全书方向、全书/卷/链结构、互动卷/链、章纲、正文、审查的资料投影超预算时启动；每页一次选取，未超预算直接返回原文。｜apps/api/src/application/creation/v7-context-evidence-reader.ts:93
 - **实际AI节点·AI-004**：原文选取格式或预算修复｜当前资料编辑｜格式修复｜该页结果有无效编号、缺必要来源或超预算时再次选择。｜apps/api/src/application/creation/v7-context-evidence-reader.ts:93
 - **实际AI节点·AI-005**：删去硬约束后的覆盖核对｜当前资料编辑｜审查｜本页移除此前标为必须保留的片段时，另一次模型调用判断是否仍被新片段覆盖。｜apps/api/src/application/creation/v7-context-evidence-reader.ts:122
@@ -584,7 +585,7 @@
 ### RB-19 AI开书页与结果采用
 
 - **管理·代码来源**：rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：54db94a1b17781d030f0840eef837909024fe28d2051e02eb5e4eb3c6daf7890
+- **管理·代码核对**：48f48388ebfcca68542f34dfed96746950e90832f57384eb8016b8cc5fac7f48
 
 - **管理·共享步骤**：none
 
@@ -638,7 +639,7 @@
 ### RB-20 作品信息与开书资料编辑
 
 - **管理·代码来源**：apps/api/src/application/books/v7-opening-book-service.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：60d7ba831b7af687351f668f9c3bbc0aebc8d02108bcec1446f7f8fe3163ce45
+- **管理·代码核对**：97cd55c6469065839b3a2785987e297f89c37da13e9c09fdb6aaf751209d09b1
 
 - **管理·共享步骤**：none
 
@@ -735,7 +736,7 @@
 - **确认方案·验收06·长篇效果**：待实施核验：工程正确性与真实模型效果分开；检查人物/资源/知情状态、规划与正史分离、跨章连续性及阅读效果，不能以测试数量或格式通过宣称百万字不崩。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/books/v7-setting-editorial-service.ts,apps/api/src/application/books/v7-task-roster-snapshot.ts,apps/api/src/infrastructure/db/repositories/setting-change-impact.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-rules.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-catalog.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-agent-support.ts,rebuild/packages/backend/src/legacy-opening/agent-governance/agent-governance-registry.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：d1c83e808200a0cc3ace6a94e4c595518151a5ff3c8a66f4749c0257d6432269
+- **管理·代码核对**：257fb796ba9fdbdd89e7253cf8cd70b956e95ddd70f0958d340cb68c63f85b06
 
 - **管理·共享步骤**：AI-008,AI-009
 
@@ -805,7 +806,7 @@
 ### RB-22 全书蓝图与方向页
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/planning/v7-planning-route-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：28e362b156202a9c4e43ea9662bda65bb0fba380e499c30901626d7853408dc5
+- **管理·代码核对**：96b7e676eb691cd9e3ef8bc21c5233a546557221dd25fb28a0786cc291cf00c2
 
 - **管理·共享步骤**：AI-001,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -870,7 +871,7 @@
 ### RB-23 卷设计页
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：f4ee55431c406b85f2b76256d7d7252e02454f45e0c7886d506991fc9357b35e
+- **管理·代码核对**：960944dd12cfedadc56158f768a21fe68a77c9cc4c2df3a8eefdef13399d3373
 
 - **管理·共享步骤**：AI-001,AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -930,7 +931,7 @@
 ### RB-24 链/故事单元页
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：f4ee55431c406b85f2b76256d7d7252e02454f45e0c7886d506991fc9357b35e
+- **管理·代码核对**：960944dd12cfedadc56158f768a21fe68a77c9cc4c2df3a8eefdef13399d3373
 
 - **管理·共享步骤**：AI-001,AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -990,7 +991,7 @@
 ### RB-25 章计划与章节安排
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：f957f7e78fbe7a6480ee2b5e7983440eb8e53f5e968421fe3e3c3df0acdace43
+- **管理·代码核对**：468dafa5cea77de3579419c551a4b2b32c20db78071d783c3754737d9fb29ce8
 
 - **管理·共享步骤**：AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1042,7 +1043,7 @@
 ### RB-26 AI正文生成
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：f957f7e78fbe7a6480ee2b5e7983440eb8e53f5e968421fe3e3c3df0acdace43
+- **管理·代码核对**：468dafa5cea77de3579419c551a4b2b32c20db78071d783c3754737d9fb29ce8
 
 - **管理·共享步骤**：AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1090,7 +1091,7 @@
 ### RB-27 审查、比较与定向重写
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：f957f7e78fbe7a6480ee2b5e7983440eb8e53f5e968421fe3e3c3df0acdace43
+- **管理·代码核对**：468dafa5cea77de3579419c551a4b2b32c20db78071d783c3754737d9fb29ce8
 
 - **管理·共享步骤**：AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1150,7 +1151,7 @@
 ### RB-28 采用正文与结算确认
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-creation-formalization-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：979983bedb416e7ee939b0271e888238cbc179f6ced971cb091ded5104e6f0d3
+- **管理·代码核对**：23f0967e0b00aa8ed3fff3647bbc7ec9c361ab59d814c5b684e54aebfcbe4893
 
 - **管理·共享步骤**：AI-002,AI-008,AI-009
 
@@ -1193,7 +1194,7 @@
 ### RB-29 连续创作与长期记忆
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/planning/v7-planning-maintenance-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：905426e22b1af5391425ca011ebbbe16e31127fbd9320af802287edae21c937d
+- **管理·代码核对**：15e10365002b9671b0920bc4ee36d4d4342a21c2d76e38566f4dad0962697712
 
 - **管理·共享步骤**：AI-001,AI-008,AI-009
 
@@ -1256,7 +1257,7 @@
 ### RB-32 人物详情与人物维护
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/characters/v7-character-memory-service.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：ee1bdffb5e837bb519d0b14994eac8c05b9dac6b1b6f8830f1700dd4e13bd03a
+- **管理·代码核对**：2592cd3594ed02278c99fa8325b49952c61cb8bcfc33335acb3fc6042d230fd0
 
 - **管理·共享步骤**：AI-008,AI-009
 
@@ -1321,7 +1322,7 @@
 ### RB-34 命名与封面工作室
 
 - **管理·代码来源**：apps/api/src/application/books/v7-book-cover-design-service.ts,apps/api/src/application/books/v7-book-title-design-service.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：166793b949b9ebbf637e3750d03b9bc0e9bb38036d3042781acfc6be458746ea
+- **管理·代码核对**：aba2cf13c5a041595f2fe219c24e9c7d6fd108d9412bf7f9391cd3d7e29bf5f2
 
 - **管理·共享步骤**：none
 

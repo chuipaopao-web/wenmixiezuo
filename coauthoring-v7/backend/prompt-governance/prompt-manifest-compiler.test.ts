@@ -89,7 +89,7 @@ describe('V7 prompt governance', () => {
     const second = compilePromptManifest(input);
     expect(first.compiledPromptHash).toBe(second.compiledPromptHash);
     expect(first.compiledPromptHash).toBe(sha256(first.compiledPrompt));
-    expect(first.skillVersionIds).toEqual(['skill.data-boundary@2', 'skill.option-differentiation@1']);
+    expect(first.skillVersionIds).toEqual(['skill.data-boundary@3', 'skill.option-differentiation@1']);
     expect(first.workstationKey).toBe('full_book_route');
     expect(first).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro', plan: 'coding', maxOutputTokens: 12_000 });
     expect(first.compiledPrompt).not.toContain('memberSupplement');

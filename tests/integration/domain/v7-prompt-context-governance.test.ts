@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   V7_PROMPT_SOURCE_ASSETS,
+  V7_ROLE_CONTRACTS,
   compilePromptManifest,
   modelBindingForProfile,
   sha256,
@@ -24,6 +25,28 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7提示词与上下文治理持久化', () => {
+  it('资料边界从旧@2升级且保留原哈希，重复启动不重写历史或重复升级', () => {
+    context = createTestContext('wenmi-r164-boundary-upgrade-');
+    const current = V7_PROMPT_SOURCE_ASSETS.find(asset => asset.assetKey === 'skill.data-boundary')!;
+    expect(current.version).toBe(3);
+    const oldContent = { ...current.content, triggerTaskKinds: V7_ROLE_CONTRACTS.flatMap(role =>
+      role.roleKey === 'planning_writer' ? role.taskKinds.filter(kind => kind !== 'setting_recommendation') : role.taskKinds) };
+    const oldSerialized = stableStringify(oldContent);
+    context.database.prepare(`INSERT INTO v7_prompt_asset_versions(
+      asset_id,asset_key,kind,version,status,governance_revision,title,summary,content_json,content_hash,created_by,created_at,published_by,published_at
+    ) VALUES(?,?,?,2,'published',1,?,?,?,?,'legacy','2026-09-01T00:00:00Z','legacy','2026-09-01T00:00:00Z')`).run(
+      'skill.data-boundary@2', current.assetKey, current.kind, current.title, current.summary, oldSerialized, sha256(oldSerialized));
+    const repository = new V7PromptGovernanceRepository(context.database);
+    repository.ensureSourceRegistrySeeded('2026-09-08T00:00:00Z');
+    expect(repository.assetById('skill.data-boundary@2')).toMatchObject({ contentHash: sha256(oldSerialized), content: oldContent, status: 'retired' });
+    expect(repository.publishedAsset(current.assetKey)).toMatchObject({ assetId: 'skill.data-boundary@3', basedOnAssetId: 'skill.data-boundary@2' });
+    const before = repository.summary();
+    repository.ensureSourceRegistrySeeded('2026-09-08T00:01:00Z');
+    expect(repository.summary()).toEqual(before);
+    const triggers = current.content.triggerTaskKinds as string[];
+    expect(new Set(triggers).size).toBe(triggers.length);
+  });
+
   it('已入库的提示资产不被覆盖，源注册表只能发布新版本并保留旧任务引用', () => {
     context = createTestContext('wenmi-v7-prompt-source-upgrade-');
     const current = V7_PROMPT_SOURCE_ASSETS.find((asset) => asset.assetKey === 'workstation.chapter_outline')!;
