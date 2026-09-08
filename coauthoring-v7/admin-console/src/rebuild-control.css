@@ -120,3 +120,4 @@
 .workflow-guide-nodes dd { margin:4px 0 0; font-size:14px; line-height:1.65; overflow-wrap:anywhere; }
 @media(max-width:1100px) { .workflow-guide-nodes { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:680px) { .workflow-guide-nodes { grid-template-columns:1fr; } }
+.workflow-guide-decision { padding:10px 12px; background:#eaf3ee; border-radius:8px; font-weight:750; color:#25483d; }

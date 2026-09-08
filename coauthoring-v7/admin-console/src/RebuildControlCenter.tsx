@@ -7,6 +7,12 @@ import { WorkflowGuide, detailText } from './WorkflowGuide';
 
 type Destination = 'agents' | 'prompt-context' | 'rhythm' | 'memberships' | 'issues' | 'features';
 type Filter = 'all' | 'active' | 'pending' | 'accepted' | 'attention';
+type MapView = 'main' | 'exceptions' | 'all';
+function readMapView(): MapView {
+  const params = new URL(window.location.href).searchParams;
+  const value = params.get('mapView');
+  return value === 'all' || value === 'exceptions' || value === 'main' ? value : params.has('unit') ? 'all' : 'main';
+}
 
 export function unitStage(unit: RebuildUnit): string {
   if (unit.acceptance === '未通过' || unit.acceptance === '阻塞') return '需要处理';
@@ -39,7 +45,12 @@ export function RebuildControlCenter({ mode, onNavigate }: {
   const [query, setQuery] = useState('');
   const [stage, setStage] = useState('all');
   const [filter, setFilter] = useState<Filter>('all');
-  const [showGuide, setShowGuide] = useState(false);
+  const [mapView, setMapView] = useState<MapView>(readMapView);
+  const changeView = (view: MapView): void => {
+    setMapView(view);
+    const url = new URL(window.location.href); url.searchParams.set('mapView', view);
+    window.history.replaceState({}, '', url);
+  };
   const [selectedId, setSelectedId] = useState(() => new URL(window.location.href).searchParams.get('unit') ?? '');
   const detailRef = useRef<HTMLElement>(null);
 
@@ -61,7 +72,7 @@ export function RebuildControlCenter({ mode, onNavigate }: {
   }, []);
 
   useEffect(() => {
-    const restore = (): void => setSelectedId(new URL(window.location.href).searchParams.get('unit') ?? '');
+    const restore = (): void => { setSelectedId(new URL(window.location.href).searchParams.get('unit') ?? ''); setMapView(readMapView()); };
     window.addEventListener('popstate', restore);
     return () => window.removeEventListener('popstate', restore);
   }, []);
@@ -84,13 +95,19 @@ export function RebuildControlCenter({ mode, onNavigate }: {
   }, [data, query, stage, filter]);
 
   const choose = (id: string): void => {
+    setMapView('all');
     setSelectedId(id);
     const url = new URL(window.location.href);
     url.searchParams.set('unit', id);
+    url.searchParams.set('mapView', 'all');
     window.history.replaceState({}, '', url);
     detailRef.current?.focus({ preventScroll: true });
     detailRef.current?.scrollIntoView({ block: 'start', behavior: 'auto' });
   };
+
+  useEffect(() => {
+    if (mapView === 'all' && selectedId) { detailRef.current?.focus({ preventScroll: true }); detailRef.current?.scrollIntoView({ block: 'start' }); }
+  }, [mapView, selectedId]);
 
   const refresh = <button type="button" className="rebuild-button" disabled={loading} onClick={() => setRevision((value) => value + 1)}>
     <ArrowClockwise aria-hidden="true" />{loading ? '读取中…' : '刷新状态'}
@@ -117,8 +134,9 @@ export function RebuildControlCenter({ mode, onNavigate }: {
     </section>
 
     {mode === 'configuration' ? <ConfigurationCenter data={data} onNavigate={onNavigate} /> : <>
-      <nav className="workflow-guide-switch" aria-label="功能地图视图"><button type="button" aria-pressed={!showGuide} onClick={() => setShowGuide(false)}>开发路线 · 全部功能</button><button type="button" aria-pressed={showGuide} onClick={() => setShowGuide(true)}>全链路AI介入导图</button></nav>
-      {showGuide && <WorkflowGuide units={data.units} onSelect={(id) => { setShowGuide(false); choose(id); }} />}
+      <nav className="workflow-guide-switch" aria-label="功能地图视图">{([['main','主流程'],['exceptions','异常处理'],['all','全部功能']] as const).map(([view,label]) => <button key={view} type="button" aria-pressed={mapView === view} onClick={() => changeView(view)}>{label}</button>)}</nav>
+      {mapView !== 'all' && <WorkflowGuide units={data.units} mode={mapView} onSelect={choose} />}
+      {mapView === 'all' && <>
       <section className="rebuild-summary" aria-label="重构进度">
         <article><span>计划工作单元</span><strong>{data.units.length}<small>项</small></strong><p>覆盖 {data.sourceFeatures.length} 项来源功能</p></article>
         <article><span>已开始待完成</span><strong>{active.length}<small>项</small></strong><p>{active[0]?.name ?? '当前没有已开始待完成的单元'}</p></article>
@@ -158,6 +176,7 @@ export function RebuildControlCenter({ mode, onNavigate }: {
         </section>
       </div>
       <button className="rebuild-text-link" type="button" onClick={() => onNavigate('features')}>查看现有产品能力对照<ArrowRight aria-hidden="true" /></button>
+      </>}
     </>}
     <footer className="rebuild-source"><span>进度来源：项目开发顺序表 v{data.source.version} · 文件更新 {displayTime(data.source.updatedAt)}</span>
       <span>运行版本：{data.runtime.releaseId}</span><p>维护者更新项目原文后，本地刷新即读取；线上展示所在发布版本的文档。每60秒自动刷新一次，隐藏页面暂停轮询。没有另存一套进度。</p></footer>
