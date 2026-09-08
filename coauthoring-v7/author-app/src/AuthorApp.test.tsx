@@ -624,7 +624,7 @@ describe('V7 author opening flow', () => {
     fireEvent.click(choice);
     fireEvent.change(screen.getByLabelText('说说您想写什么'), { target: { value: '张三穿越三国，从流民开始求生。' } });
     fireEvent.click(screen.getByRole('button',{name:/极限整活/}));
-    fireEvent.click(screen.getByRole('button',{name:'沙雕搞怪'}));
+    fireEvent.click(screen.getByRole('button',{name:'主偏向：沙雕搞怪'}));
     fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
@@ -632,6 +632,29 @@ describe('V7 author opening flow', () => {
       const body = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
       return body.selectedScreenwriterMemberKey === 'planner-kimi-k3' && (body.creativeProfile as {scale:number;styles:string[]}).scale===5 && (body.creativeProfile as {styles:string[]}).styles.includes('沙雕搞怪');
     })).toBe(true));
+  });
+
+  it('selects one main and four secondary styles, switches the main and restores the draft', async () => {
+    installFetch();
+    window.history.replaceState({}, '', '/?view=home');
+    const rendered=render(<AuthorApp />);
+    fireEvent.click(await screen.findByRole('button',{name:'主偏向：沙雕搞怪'}));
+    const secondary=['猎奇新鲜','经营成长','悬念解谜','快节奏爽'];
+    for(const style of secondary) fireEvent.click(screen.getByRole('button',{name:`辅助偏向：${style}`}));
+    expect(screen.getByRole('button',{name:'辅助偏向：群像史诗'})).toBeDisabled();
+    fireEvent.click(screen.getByRole('button',{name:'主偏向：无敌碾压'}));
+    for(const style of secondary) expect(screen.getByRole('button',{name:`辅助偏向：${style}`})).toHaveAttribute('aria-pressed','true');
+    await waitFor(()=>expect(JSON.parse(localStorage.getItem(AI_DRAFT_KEY)!).creativeProfile.styles).toEqual(['无敌碾压',...secondary]));
+    rendered.unmount();
+    render(<AuthorApp />);
+    expect(await screen.findByRole('button',{name:'主偏向：无敌碾压'})).toHaveAttribute('aria-pressed','true');
+    fireEvent.click(screen.getByRole('button',{name:'主偏向：猎奇新鲜'}));
+    expect(screen.queryByRole('button',{name:'辅助偏向：猎奇新鲜'})).not.toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'辅助偏向：群像史诗'})).toBeEnabled();
+    fireEvent.click(screen.getByRole('button',{name:'辅助偏向：经营成长'}));
+    expect(screen.getByRole('button',{name:'辅助偏向：经营成长'})).toHaveAttribute('aria-pressed','false');
+    fireEvent.click(screen.getByRole('button',{name:'由成员判断'}));
+    expect(screen.queryByRole('button',{name:'辅助偏向：群像史诗'})).not.toBeInTheDocument();
   });
 
   it('hides deferred opening fields and translates chief review field paths', async () => {

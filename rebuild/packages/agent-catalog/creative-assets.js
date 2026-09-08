@@ -783,7 +783,7 @@ export function normalizeCreativeProfile(value) {
  if(typeof value !== 'object' || Array.isArray(value)) throw new Error('创作偏好格式无效');
  const scale=value.scale ?? 4, styles=value.styles ?? [], workType=value.workType ?? 'novel';
  if(!Number.isInteger(scale) || scale<1 || scale>5) throw new Error('请选择有效的设计尺度');
- if(!Array.isArray(styles) || styles.length>3 || styles.some(style=>!READING_STYLES.includes(style))) throw new Error('风格偏向最多选择三项');
+ if(!Array.isArray(styles) || styles.length>5 || styles.some(style=>!READING_STYLES.includes(style))) throw new Error('请选择一个主偏向和最多四个辅助偏向');
  if(workType!=='novel') throw new Error('剧本工作流尚未开放，请先选择网文');
  if(value.version && value.version!==CREATIVE_ASSET_VERSION) throw new Error('创作偏好版本已更新，请刷新后再提交');
  return {version:CREATIVE_ASSET_VERSION,scale,styles:[...new Set(styles)],workType};
@@ -793,8 +793,9 @@ export function creativeDirective(profile,stage='opening') {
  const scale=CREATIVE_SCALES.find(item=>item.level===profile.scale) ?? CREATIVE_SCALES[3];
  return {
   version:profile.version,stage,scale:scale.name,styles:profile.styles,
+  primaryStyle:profile.styles[0] ?? null,secondaryStyles:profile.styles.slice(1),
   direction:scale.description,
-  preferences:'风格按所选顺序分主次；没有选择时由成员结合作者想法判断。作者明确要求优先。好玩、猎奇、爽快落实为具体玩法和回报，不只写形容词。',
+  preferences:'一个主偏向持续主导阅读体验，最多四个辅助偏向按当前节点和情节需要选用，不强行拼凑，不要求每卷、每章同时体现全部偏向；辅助不能压过主偏向。没有选择时由成员结合作者想法判断。作者明确要求优先。好玩、猎奇、爽快落实为具体玩法和回报，不只写形容词。',
   review:profile.scale>=4
    ? '审查姓名身份、作者明确要求、必要信息与输出结构。允许荒诞、偶然、卡通因果和碾压，不因不现实、战力失衡、缺乏代价或无厘头要求返工。只有缺失必要信息或改错作者要求才阻断；趣味优化只作建议。'
    : '按所选风格检查信息、人物身份和必要因果；不把审查者口味当成错误，不强制外挂付出代价。作者明确要求严密推理时检查线索与结论。',

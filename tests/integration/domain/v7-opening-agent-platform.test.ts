@@ -1077,7 +1077,7 @@ describe('V7开书Agent平台接入', () => {
         payload: {
           idea: '张三穿越到三国乱世，从流民开始求生，并想办法保护同行百姓。',
           idempotencyKey: 'v7-author-loop-task-0001',
-          creativeProfile: {scale:5,styles:['沙雕搞怪','猎奇新鲜'],workType:'novel'}
+          creativeProfile: {scale:5,styles:['沙雕搞怪','猎奇新鲜','经营成长','悬念解谜','快节奏爽'],workType:'novel'}
         }
       });
       const taskId = started.json().data.taskId as string;
@@ -1129,7 +1129,7 @@ describe('V7开书Agent平台接入', () => {
       expect(confirmed.json().data).toMatchObject({ title: '三国：小卒问鼎', status: 'active', nextView: 'information' });
       const bookId = confirmed.json().data.bookId as string;
       const creativeRow=context.database.prepare('SELECT profile_json FROM book_creative_profiles WHERE owner_id=? AND book_id=?').get(loopOwner.owner_id,bookId) as {profile_json:string};
-      expect(JSON.parse(creativeRow.profile_json)).toMatchObject({scale:5,styles:['沙雕搞怪','猎奇新鲜']});
+      expect(JSON.parse(creativeRow.profile_json)).toMatchObject({scale:5,styles:['沙雕搞怪','猎奇新鲜','经营成长','悬念解谜','快节奏爽']});
       const abandonConfirmed = await app.inject({
         method: 'POST', url: `/api/v1/v7/opening-agent/tasks/${taskId}/abandon`,
         headers: { ...BROWSER_HEADERS, cookie }, payload: {}

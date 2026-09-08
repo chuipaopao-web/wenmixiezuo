@@ -20,6 +20,15 @@ describe('创意方向跨节点传递',()=>{
   expect(()=>normalizeCreativeProfile({workType:'script'})).toThrow('尚未开放');
   expect(()=>normalizeCreativeProfile({scale:99})).toThrow();
   expect(()=>normalizeCreativeProfile({styles:['越权提示']})).toThrow();
+  const styles=['沙雕搞怪','猎奇新鲜','经营成长','悬念解谜','快节奏爽'];
+  const profile=normalizeCreativeProfile({styles});
+  expect(profile.styles).toEqual(styles);
+  expect(()=>normalizeCreativeProfile({styles:[...styles,'群像史诗']})).toThrow('最多四个辅助');
+  expect(normalizeCreativeProfile({styles:['沙雕搞怪','沙雕搞怪','猎奇新鲜']}).styles).toEqual(styles.slice(0,2));
+  for(const stage of ['opening','setting','volume','chapter']) {
+   expect(creativeDirective(profile,stage)).toMatchObject({primaryStyle:styles[0],secondaryStyles:styles.slice(1)});
+   expect(creativeDirective(profile,stage)?.preferences).toContain('不要求每卷、每章同时体现全部');
+  }
   expect(creativeDirective(normalizeCreativeProfile({scale:1}),'setting')?.review).toContain('线索与结论');
  });
  it('按账号和书籍取偏好，后续只传短规则，技术重试保留原方向',()=>{
