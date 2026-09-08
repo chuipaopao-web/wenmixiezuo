@@ -1,5 +1,9 @@
 # 文秘写作当前交接
 
+## 最新确认：R163完整设定方案已保存后台，执行待实施核验
+
+用户全部采纳上一轮完整方案，并要求后台保留便于验收。本批仅记录与发布说明，未获得本轮全面业务改造执行任务。唯一正文在docs/REBUILD_EXECUTION_PLAN.md的RB-21“确认方案·”55字段，含24主题、8类任务注入和6组验收基线，前端开发路线现有详情可直接显示。版本1.57已同步生产；源/生产解析、字段完整性、原82单元/144实际步骤、落盘比对与服务进程保持通过。证据/opt/wenmi-releases/setting-plan-163；合同coauthoring-v7/docs/worklists/SETTING-PLAN-163.md。后续实施逐项记录来源、验证和发布，不将方案存档当作完成；现有管理·字段继续表示实际执行。
+
 ## 最新修复：R162后台刷新，已发布
 
 R161版本探针误伤Service Worker转发导航：empty目标不等于后台fetch，navigate模式必须返回HTML。Caddy探针新增Sec-Fetch-Mode cors限定；生产截图路径empty/navigate与普通导航均200 HTML，旧版本探针仍204，根入口200。只热重载代理，应用版本不变。证据/opt/wenmi-releases/admin-refresh-162，合同coauthoring-v7/docs/worklists/ADMIN-REFRESH-162.md。今后导航回归必须覆盖Service Worker转发的empty/navigate组合。
