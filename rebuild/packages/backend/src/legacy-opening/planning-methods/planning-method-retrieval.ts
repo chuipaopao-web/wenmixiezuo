@@ -6,6 +6,7 @@
  * 资料策划不再替设计成员猜方法。解析器对老字段容忍一个版本周期（读取即弃）。
  */
 export interface V7PlanningMethodSearchRequest {
+  objectRequirements?: Array<{ name:string; status:'existing'|'new'; requiredSettingSourceIds:string[] }>;
   schema: 'v7-planning-method-search-v1';
   publicGoal: string;
   scaleHint: string;
@@ -27,10 +28,11 @@ export interface V7PlanningTaskPersona {
 
 export function parsePlanningMethodSearchRequest(
   output: string,
-  options: { minimumSettingSources?: 0 | 1; requireTaskProfile?: boolean } = {}
+  options: { minimumSettingSources?: 0 | 1; requireTaskProfile?: boolean; requireDependencies?: boolean } = {}
 ): V7PlanningMethodSearchRequest {
   const value = parseJsonObject(output);
   if (value.schema !== 'v7-planning-method-search-v1') throw new Error('资料策划请求格式不完整');
+  if(options.requireDependencies&&value.objectRequirements===undefined)throw new Error('缺少本次对象依赖核对结果');
   const taskPersona = value.taskPersona === undefined ? undefined : parseTaskPersona(value.taskPersona);
   const taskResponsibilities = value.taskResponsibilities === undefined
     ? undefined
@@ -38,6 +40,16 @@ export function parsePlanningMethodSearchRequest(
   const creativeSpace = value.creativeSpace === undefined
     ? undefined
     : uniqueTextList(value.creativeSpace, '创意空间', 1, 5);
+  const objectRequirements = value.objectRequirements === undefined ? undefined : (()=>{
+    if(!Array.isArray(value.objectRequirements)||value.objectRequirements.length>40)throw new Error('对象资料清单格式无效');
+    return value.objectRequirements.map((entry:unknown)=>{
+      if(typeof entry!=='object'||entry===null||Array.isArray(entry))throw new Error('对象资料格式无效');
+      const item=entry as Record<string,unknown>;
+      if(item.status!=='existing'&&item.status!=='new')throw new Error('对象身份必须区分已有或新候选');
+      return {name:requiredText(item.name,'对象名称'),status:item.status as 'existing'|'new',
+        requiredSettingSourceIds:uniqueTextList(item.requiredSettingSourceIds,'对象依赖规则',0,24)};
+    });
+  })();
   if (options.requireTaskProfile === true
     && (taskPersona === undefined || taskResponsibilities === undefined || creativeSpace === undefined)) {
     throw new Error('资料策划缺少任务期题材身份、任务责任或创意空间');
@@ -50,12 +62,13 @@ export function parsePlanningMethodSearchRequest(
     // or an over-complete list deterministically instead of paying for a
     // second model call; source selection and missing hard inputs stay strict.
     avoidNotes: softTextList(value.avoidNotes, '避坑说明', 8),
-    relevantSettingSourceIds: uniqueTextList(
+    relevantSettingSourceIds: [...new Set([...uniqueTextList(
       value.relevantSettingSourceIds,
       '相关设定资料',
-      options.minimumSettingSources ?? 1,
+      options.minimumSettingSources ?? 0,
       24
-    ),
+    ),...(objectRequirements ?? []).flatMap(item=>item.requiredSettingSourceIds)])],
+    ...(objectRequirements === undefined ? {} : {objectRequirements}),
     missingCriticalInputs: criticalInputList(value.missingCriticalInputs, 0, 8),
     ...(taskPersona === undefined ? {} : { taskPersona }),
     ...(taskResponsibilities === undefined ? {} : { taskResponsibilities }),
@@ -89,9 +102,10 @@ export function planningMethodSearchPrompt(input: {
     '身份、责任和创意空间只能说明工作方法，不能另定披露时机、人物能力、事件顺序或结局，更不能推翻作者原话。excerpts为有路径的原文节选，正式设定的编辑说明不能冒充其实际规则。',
     '正式开书资料、作者本次目标、上级确认内容和正文实际必须保留；设定总账只负责导航，不要把总账sourceId填入relevantSettingSourceIds。已确认设定必须从schema="v7-setting-fact-source-v1"的逐项事实源中挑选本席确实需要的资料；relevantSettingSourceIds只能填写这些逐项事实源的sourceId，不得编造。',
     '如果缺少会导致设计无法可靠进行的硬信息，写入missingCriticalInputs。预计总字数是开书阶段唯一必须提前确定的规划尺度，默认按番茄连载场景工作，不要重复报缺。建议卷数、商业受众和追读定位是每席全书路线自己必须产出的结果，不是上游缺口。普通创作留白不是缺口，能在方案中合理创作的内容不要上报；信息齐全时返回空数组。不得自行脑补作者已经明确但本次资料中缺失的硬事实。',
+    '同时返回objectRequirements数组，每项{name,status,requiredSettingSourceIds}：name为本次关键人物/势力/地点/物品，status区分已有existing与尚待采用的新候选new；requiredSettingSourceIds只填写目录中该对象行动必须遵守的规则sourceId，系统会精确补入。已有对象找不到关键事实、或新对象必须改变已确认世界规则才能成立时，写入missingCriticalInputs并说明需要作者决定的具体内容；不要虚构编号或用新候选覆盖正史。',
     '输出字段：schema="v7-planning-method-search-v1",publicGoal,scaleHint,avoidNotes,relevantSettingSourceIds,missingCriticalInputs,taskPersona,taskResponsibilities,creativeSpace。missingCriticalInputs每项优先写成一句可直接给作者看的大白话；如需说明影响和待确认内容，也可写成{issue,impact,needed}，系统会合并展示。',
     'taskPersona必须把本书题材融合档案转成只属于当前任务的临时执行身份，字段为publicLabel,workingIdentity,priorities,authenticityChecks,avoidPatterns；不得绑定成员姓名或岗位专业人设。taskResponsibilities写2—6条大白话责任，creativeSpace写1—5条可组合、放弃资产或自主设计的空间。',
-    '所有复数字段必须是JSON数组，不能写成单个字符串、编号对象或逗号拼接文本：avoidNotes为0—8条，relevantSettingSourceIds为1—24项，missingCriticalInputs为0—8项，taskResponsibilities为2—6条，creativeSpace为1—5条；taskPersona中的priorities、authenticityChecks、avoidPatterns也都必须是1—8条字符串数组。',
+    '所有复数字段必须是JSON数组，不能写成单个字符串、编号对象或逗号拼接文本：avoidNotes为0—8条，relevantSettingSourceIds为0—24项，没有相关逐项设定时为空，不能为凑数量编造来源；missingCriticalInputs为0—8项，taskResponsibilities为2—6条，creativeSpace为1—5条；taskPersona中的priorities、authenticityChecks、avoidPatterns也都必须是1—8条字符串数组。',
     `正式资料快照：${JSON.stringify(input.sourceSnapshot)}`
   ].join('\n\n');
 }

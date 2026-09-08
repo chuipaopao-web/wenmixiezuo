@@ -7,7 +7,7 @@ import './setting-experience.css';
 import type { SettingRecoveryFocus } from './navigation';
 import {
   AuthorApiError,
-  confirmSettingItem, createSettingBatch, createSettingFinalReview, createSettingItemReviewTask, createSettingRecommendation, fetchSettingBatch,
+  confirmSettingItem, confirmAllSettingItems, createSettingBatch, createSettingFinalReview, createSettingItemReviewTask, createSettingRecommendation, fetchSettingBatch,
   fetchCurrentSettingFinalReview, fetchCurrentSettingRecommendation, fetchCurrentSettingRedesignTask, fetchSettingDepartment, fetchSettingRedesignTask, fuseSettingItem, redesignSettingItem, restartSettingBatch, retrySettingBatch, retrySettingFinalReview, retrySettingRecommendation, retrySettingRedesignTask,
   type SettingBatchView, type SettingCatalogRecommendationView, type SettingDepartmentView, type SettingFinalReviewView, type SettingItemView, type SettingRedesignCandidate, type SettingRedesignTaskView
 } from './opening-api';
@@ -39,7 +39,7 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const value = await fetchSettingDepartment(bookId, signal);
-    const existingKeys = new Set(value.confirmedItems.flatMap((item) => [item.itemKey, item.topicKey ?? item.itemKey]));
+    const existingKeys = new Set(value.confirmedItems.map((item) => item.itemKey));
     const recommendation = value.recommendation ?? null;
     const recommended = recommendation?.status === 'ready' ? recommendation.result?.requiredKeys ?? [] : [];
     setDepartment({ ...value, recommendation }); setBatch(value.activeBatch); setFinalReview(value.finalReview); setSelected(new Set(recommended.filter((key) => !existingKeys.has(key))));
@@ -96,7 +96,7 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
         setDepartment((current) => current === null ? current : { ...current, recommendation: next, recommendedKeys: next.result?.requiredKeys ?? [] });
         setError(null);
         if (next.status === 'ready' && next.result !== null) {
-          const existingKeys = new Set(department?.confirmedItems.flatMap((item) => [item.itemKey, item.topicKey ?? item.itemKey]) ?? []);
+          const existingKeys = new Set(department?.confirmedItems.map((item) => item.itemKey) ?? []);
           setSelected(new Set(next.result.requiredKeys.filter((key) => !existingKeys.has(key))));
           setShowCatalog(true);
         } else if (['queued', 'working'].includes(next.status)) timer = window.setTimeout(() => void poll(), 1_200);
@@ -145,7 +145,7 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
   const start = async (): Promise<void> => {
     setBusy(true); setError(null);
     try {
-      const existingKeys = new Set(department?.confirmedItems.flatMap((item) => [item.itemKey, item.topicKey ?? item.itemKey]) ?? []);
+      const existingKeys = new Set(department?.confirmedItems.map((item) => item.itemKey) ?? []);
       const next = await createSettingBatch(bookId, { selectedItemKeys: [...selected].filter((key) => !existingKeys.has(key)), customItems: customItems.filter((item) => item.label.trim() && item.prompt.trim()), authorNotes: {}, designMemberKey });
       setBatch(next); setSelected(new Set()); setCustomItems([]); setShowCatalog(false); setFinalReview(null); setFinalReviewOpen(false); setFinalSaved(false);
     } catch (reason) { setError(message(reason)); } finally { setBusy(false); }
@@ -231,7 +231,7 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
     ? <div className="setting-loading" role="status">正在准备设定编辑部…</div>
     : <div className="setting-load-failed" role="alert"><WarningCircleIcon /><strong>设定编辑部暂时没有准备好</strong><span>{error}</span><button type="button" className="primary-action" onClick={() => { setError(null); void load().catch((reason: unknown) => setError(message(reason))); }}>重新连接</button></div>;
   const items = mergeSettingItems(department.confirmedItems, batch?.items ?? []);
-  const existingKeys = new Set(department.confirmedItems.flatMap((item) => [item.itemKey, item.topicKey ?? item.itemKey]));
+  const existingKeys = new Set(department.confirmedItems.map((item) => item.itemKey));
   const selectableCount = [...selected].filter((key) => !existingKeys.has(key)).length + customItems.filter((item) => item.label.trim() && item.prompt.trim()).length;
   const batchKeys = new Set(batch?.items.map((item) => item.itemKey) ?? []);
   const priorItemCount = department.confirmedItems.filter((item) => !batchKeys.has(item.itemKey)).length;
@@ -316,7 +316,13 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
               setBatch(next); setFinalReview(null); setFinalReviewOpen(false); setFinalSaved(false);
             } catch (reason) { setError(message(reason)); } finally { setOptimizingItemKey(null); }
           }}
-          onConfirm={async () => { try { const next = await confirmSettingItem(bookId, item.itemKey, item.revision); updateItem(next, setBatch, setDepartment); } catch (reason) { setError(message(reason)); } }}
+          onConfirm={async () => { try {
+            if(item.continuity?.status === 'required') {
+              const next=await createSettingItemReviewTask(bookId,item.itemKey,{content:item.content ?? '',instruction:'核对本次设定修改与旧正式设定、当前规划和已采用正文的差异、遗漏及冲突；不要改写原文。'});
+              setBatch(next);setFinalReview(null);return;
+            }
+            const next = await confirmSettingItem(bookId, item.itemKey, item.revision, item.continuity?.status === 'changes'); updateItem(next, setBatch, setDepartment);
+          } catch (reason) { setError(message(reason)); } }}
         />)}
       </section>}
 
@@ -371,13 +377,15 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
           detail={finalSaved || pendingConfirmation.length === 0 ? '设定已经安全保存，可以查看全书框架。' : `确认后保存当前 ${pendingConfirmation.length} 项设定。`}
           primary={finalSaved || pendingConfirmation.length === 0
             ? <button type="button" className="primary-action" disabled={onOpenTimeMachine === undefined} onClick={onOpenTimeMachine}>进入时光机</button>
-            : <button type="button" className="primary-action" disabled={savingAll} onClick={() => {
+            : <button type="button" className="primary-action" disabled={savingAll || pendingConfirmation.some(item=>item.continuity?.status === 'conflicts')} onClick={() => {
+                if(pendingConfirmation.some(item=>item.continuity?.status === 'required')) { void beginFinalReview(); return; }
                 setSavingAll(true); setError(null);
                 void (async () => {
-                  for (const item of pendingConfirmation) updateItem(await confirmSettingItem(bookId, item.itemKey, item.revision), setBatch, setDepartment);
+                  const saved=await confirmAllSettingItems(bookId,pendingConfirmation.map(item=>({itemKey:item.itemKey,expectedRevision:item.revision,...(item.continuity?.status === 'changes' ? {acceptRuleChanges:true} : {})})));
+                  for (const item of saved) updateItem(item, setBatch, setDepartment);
                   setFinalSaved(true);
-                })().catch((reason: unknown) => setError(`已保存成功的条目会保留；${message(reason)}`)).finally(() => setSavingAll(false));
-              }}><CheckCircleIcon />{savingAll ? '正在逐项保存…' : `保存当前设定（${pendingConfirmation.length}项）`}</button>}
+                })().catch((reason: unknown) => setError(`本次尚未保存；${message(reason)}`)).finally(() => setSavingAll(false));
+              }}><CheckCircleIcon />{savingAll ? '正在保存…' : pendingConfirmation.some(item=>item.continuity?.status === 'conflicts') ? '请先处理设定冲突' : pendingConfirmation.some(item=>item.continuity?.status === 'required') ? '核对修改后保存' : pendingConfirmation.some(item=>item.continuity?.status === 'changes') ? `确认规则变更并保存（${pendingConfirmation.length}项）` : `保存当前设定（${pendingConfirmation.length}项）`}</button>}
         />}
       </section>}
 
@@ -536,7 +544,7 @@ function SettingResultCard(props: SettingResultCardProps): React.JSX.Element {
       {active && assigned ? <div className="setting-active-member" role="status">
         <span className="setting-active-avatar" style={memberAvatarStyle(assigned.memberKey)} aria-hidden="true"/>
         <span><strong>{memberDisplayName(assigned.memberKey, assigned.displayName)}</strong><small>{assignedStatus}</small></span>
-      </div> : <div className="setting-result-status"><em>{item.state === 'confirmed' ? <><CheckCircleIcon />已确认</> : stateText}</em>{item.issues.length > 0 && <small>需要决定 {item.issues.length} 项</small>}</div>}
+      </div> : <div className="setting-result-status"><em>{item.state === 'confirmed' ? <><CheckCircleIcon />已确认</> : stateText}</em>{item.state !== 'confirmed' && item.issues.length > 0 && <small>需要决定 {item.issues.length} 项</small>}</div>}
       <button type="button" className="setting-detail-toggle" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? '收起详情' : '查看详情'}</button>
     </header>
     {!expanded && !compact && item.content !== null && <p className="setting-result-preview">{compactPreview(item.content, 88)}</p>}
@@ -550,13 +558,14 @@ function SettingResultCard(props: SettingResultCardProps): React.JSX.Element {
         {rule.objects.length > 0 && <small>涉及：{rule.objects.join('、')}</small>}
       </li>)}</ul> : item.content !== null && <p className="setting-final-content">{item.content}</p>}
       {expanded && item.content !== null && item.designRationale !== null && <details className="setting-rationale"><summary><span>设计思路</span><small>展开查看</small></summary><div><h4>为什么这样设计</h4><p>{item.designRationale}</p>{item.storyConsequences.length > 0 && <><h4>会影响后续什么</h4><ul>{item.storyConsequences.map((entry) => <li key={entry}>{entry}</li>)}</ul></>}</div></details>}
-      {!active && item.issues.length > 0 && <div className="chief-issues"><strong><WarningCircleIcon />需要您决定</strong>{item.issues.map((issue) => <p key={`${issue.problem}-${issue.suggestion}`}><b>{issue.problem}</b><span>{issue.suggestion}</span></p>)}<small>采用提醒后会把当前完整内容直接交给主编复审；您确认后才会正式采用。</small><button type="button" disabled={optimizing || props.readOnly} onClick={props.onAdoptChief}><SparkleIcon />{optimizing ? '正在创建优化任务…' : '按提醒优化'}</button></div>}
+      {!active && item.state !== 'confirmed' && item.issues.length > 0 && <div className="chief-issues"><strong><WarningCircleIcon />需要您决定</strong>{item.issues.map((issue) => <p key={`${issue.problem}-${issue.suggestion}`}><b>{issue.problem}</b><span>{issue.suggestion}</span></p>)}<small>采用提醒后会把当前完整内容直接交给主编复审；您确认后才会正式采用。</small><button type="button" disabled={optimizing || props.readOnly} onClick={props.onAdoptChief}><SparkleIcon />{optimizing ? '正在创建优化任务…' : '按提醒优化'}</button></div>}
       {item.changeImpact && (item.changeImpact.planning.length > 0 || item.changeImpact.finishedChapters > 0) && <aside className="setting-change-impact">
         <strong>这项规则已经被后续内容引用</strong>
         <p>{item.changeImpact.planning.length}处规划、{item.changeImpact.finishedChapters}章定稿引用过此设定。采用修改后，需要核对这些内容是否仍然一致；已定稿正文会保留原文。</p>
         {item.changeImpact.planning.length > 0 && <p>{item.changeImpact.planning.map((entry) => entry.name).join('、')}</p>}
       </aside>}
-      {!active && !props.readOnly && <footer><button type="button" aria-expanded={editing} onClick={props.onEdit}><PencilSimpleIcon />修改内容</button><button type="button" aria-expanded={redesigning} onClick={props.onRedesign}><RobotIcon />重新设计</button>{item.state !== 'confirmed' && <button type="button" className="confirm-setting" onClick={props.onConfirm}><CheckIcon />确认采用</button>}</footer>}
+      {item.state !== 'confirmed' && item.continuity && <p className="setting-change-impact">{item.continuity.status === 'required' ? '这次修改需要与正式资料核对，原设定仍然有效。' : item.continuity.status === 'conflicts' ? '核对发现需要处理的冲突或遗漏，请修改后再采用。定稿正文保持原样。' : item.continuity.status === 'changes' ? '这会改变旧规则。请查看上方差异，确认符合您的意图后采用。' : `已核对${item.continuity.checkedSources}份依据，${item.continuity.change === 'wording' ? '事实含义保持一致' : '本次事实变更未发现冲突'}。`}</p>}
+      {!active && !props.readOnly && <footer><button type="button" aria-expanded={editing} onClick={props.onEdit}><PencilSimpleIcon />修改内容</button><button type="button" aria-expanded={redesigning} onClick={props.onRedesign}><RobotIcon />重新设计</button>{item.state !== 'confirmed' && <button type="button" className="confirm-setting" disabled={item.continuity?.status === 'conflicts'} onClick={props.onConfirm}><CheckIcon />{item.continuity?.status === 'required' ? '核对这次修改' : item.continuity?.status === 'changes' ? '采用新规则' : '确认采用'}</button>}</footer>}
       {editing && <InlineEditPanel bookId={props.bookId} item={item} onClose={props.onCloseInline} onTaskStarted={props.onTaskStarted}/>}
       {redesigning && <InlineRedesignPanel bookId={props.bookId} item={item} members={members.filter((member) => publicRoleLabel(member.role) === '策划编剧')} onClose={props.onCloseInline} onTaskStarted={props.onTaskStarted}/>}
     </>}

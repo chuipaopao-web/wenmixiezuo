@@ -786,7 +786,7 @@ export class V7PlanningRouteService {
         let acceptedRequestId = result.requestId;
         let request: V7PlanningMethodSearchRequest;
         try {
-          request = parsePlanningMethodSearchRequest(result.output, { requireTaskProfile: true });
+          request = parsePlanningMethodSearchRequest(result.output, { requireTaskProfile: true, requireDependencies: true });
           focusedPlanningSnapshot(snapshot, request);
         } catch (contractError) {
           const repairLogicalTaskId = `${logicalTaskId}:repair`;
@@ -804,7 +804,7 @@ export class V7PlanningRouteService {
           this.ensureActive(run);
           const repairedSourceIssues = extractPlanningCriticalInputs(repaired.output);
           if (repairedSourceIssues.length > 0) throw new PlanningSourceIssuesError(repairedSourceIssues);
-          request = parsePlanningMethodSearchRequest(repaired.output, { requireTaskProfile: true });
+          request = parsePlanningMethodSearchRequest(repaired.output, { requireTaskProfile: true, requireDependencies: true });
           focusedPlanningSnapshot(snapshot, request);
           acceptedRequestId = repaired.requestId;
         }
@@ -1508,7 +1508,7 @@ function storedMethodSearchRequest(row: V7PlanningMethodSearchRow): V7PlanningMe
 }
 function planningTaskContextPlan(
   request: V7PlanningMethodSearchRequest
-): Pick<V7PlanningMethodSearchRequest, 'publicGoal' | 'taskPersona' | 'taskResponsibilities' | 'creativeSpace'> {
+): Pick<V7PlanningMethodSearchRequest, 'publicGoal' | 'taskPersona' | 'taskResponsibilities' | 'creativeSpace' | 'objectRequirements'> {
   if (request.taskPersona === undefined || request.taskResponsibilities === undefined || request.creativeSpace === undefined) {
     throw new Error('资料策划记录缺少任务期题材身份、任务责任或创意空间');
   }
@@ -1516,7 +1516,8 @@ function planningTaskContextPlan(
     publicGoal: request.publicGoal,
     taskPersona: request.taskPersona,
     taskResponsibilities: request.taskResponsibilities,
-    creativeSpace: request.creativeSpace
+    creativeSpace: request.creativeSpace,
+    objectRequirements:request.objectRequirements ?? []
   };
 }
 function focusedPlanningSnapshot(

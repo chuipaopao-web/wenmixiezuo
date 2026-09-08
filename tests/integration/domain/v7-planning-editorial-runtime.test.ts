@@ -2142,7 +2142,7 @@ function methodSearchOutput(prompt = ''): string {
     ? ['world-stage']
     : ['planning-setting-version'];
   return JSON.stringify({
-    schema: 'v7-planning-method-search-v1',
+    schema: 'v7-planning-method-search-v1',objectRequirements:[],
     publicGoal: '为三百万字历史长篇寻找全书递进、因果和追读方法。',
     taskPersona: {
       publicLabel: '历史成长与家国线融合策划身份',

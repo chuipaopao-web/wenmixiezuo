@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { settingChangeImpact } from '../../infrastructure/db/repositories/setting-change-impact.js';
+import { continuitySources, continuitySourceText, continuityHash, continuitySourceHash, reviewSettingContinuity, type SettingContinuityReport } from './setting-continuity.js';
 import { assertSettingReviewConsistency, settingReviewAuthority, SETTING_REVIEW_AUTHORITY_RULES } from './setting-review-consistency.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { SETTING_CONCISE_INSTRUCTION, assertConciseSetting, parseSettingRules, renderSettingRules, renderSettingRule, SETTING_RULE_OUTPUT_INSTRUCTION, type SettingRule } from '@wenmi/opening-runtime';
@@ -108,6 +109,7 @@ type RecommendationState = {
 };
 type FinalReviewState = V7SettingFinalReviewStateRow;
 type FinalReviewPatch = {
+  continuity?: SettingContinuityReport;
   rules?: SettingRule[];
   itemKey: string;
   finalContent: string;
@@ -1094,12 +1096,41 @@ export class V7SettingEditorialService {
     });
   }
 
-  public confirm(ownerId: string, bookId: string, itemKey: string, input: { expectedRevision?: unknown }): V7SettingItemView {
+  public confirm(ownerId: string, bookId: string, itemKey: string, input: { expectedRevision?: unknown; acceptRuleChanges?:unknown }): V7SettingItemView {
+    return this.confirmVersion(ownerId,bookId,itemKey,input);
+  }
+
+  public confirmAll(ownerId:string,bookId:string,input:{items?:unknown}):V7SettingItemView[] {
+    if(!Array.isArray(input.items)||input.items.length===0||input.items.length>100)throw new DomainError(errorCodes.validation,'请选择需要保存的设定。');
+    const items=input.items.map((entry:unknown)=>{
+      if(typeof entry!=='object'||entry===null||!('itemKey' in entry)||!('expectedRevision' in entry))throw new DomainError(errorCodes.validation,'设定版本信息不完整。');
+      return {itemKey:requiredText(entry.itemKey,'设定条目',1,128),expectedRevision:entry.expectedRevision,
+        acceptRuleChanges:'acceptRuleChanges' in entry&&entry.acceptRuleChanges===true};
+    });
+    if(new Set(items.map(i=>i.itemKey)).size!==items.length)throw new DomainError(errorCodes.validation,'设定条目重复。');
+    return this.repository.atomic(()=>{
+      for(const item of items)this.confirmVersion(ownerId,bookId,item.itemKey,item,false,true);
+      return items.map(item=>this.confirmVersion(ownerId,bookId,item.itemKey,item,true));
+    });
+  }
+
+  private confirmVersion(ownerId:string,bookId:string,itemKey:string,input:{expectedRevision?:unknown;acceptRuleChanges?:unknown},checked=false,dryRun=false):V7SettingItemView {
     const item = this.requireCurrentItem(ownerId, bookId, itemKey);
     const expected = integer(input.expectedRevision, '设定版本');
     if (item.revision !== expected) throw new DomainError(errorCodes.validation, '设定已经更新，请刷新后确认最新版本。', {}, true, 409);
     const version = this.repository.versionContent(ownerId, bookId, item.active_version_id);
     if (version === undefined) throw new DomainError(errorCodes.validation, '设定候选版本不存在。', {}, false, 409);
+    const authorities = continuitySources(this.database, ownerId, bookId, itemKey, false);
+    if (!checked && authorities.length > 0 && item.state !== 'confirmed') {
+      const content = JSON.parse(version.content_json) as V7ChiefReview & { continuity?: SettingContinuityReport };
+      const report = content.continuity;
+      if (!report || report.sourceHash !== continuitySourceHash(authorities) || report.candidateHash !== continuityHash(content.finalContent)) {
+        throw new DomainError(errorCodes.validation, '正式资料已有变化，请先核对这次修改，再确认采用。原设定仍然有效。', {}, true, 409);
+      }
+      if (report.findings.length > 0 && !(input.acceptRuleChanges===true&&report.findings.every(finding=>finding.kind==='setting'))) throw new DomainError(errorCodes.validation,
+        '这次修改还有待处理的冲突或遗漏，请按核对意见修改后再采用。原设定和定稿正文已保留。', {}, true, 409);
+    }
+    if(dryRun)return this.currentItemView(ownerId,bookId,itemKey);
     const profile = this.profile(ownerId, bookId);
     const itemsBefore = this.currentItems(ownerId, bookId);
     const reviewHashBefore = finalReviewRequestHash(profile, itemsBefore);
@@ -1117,6 +1148,7 @@ export class V7SettingEditorialService {
       : null;
     const confirmed = this.repository.confirmItem({
       ownerId, bookId, itemKey, sourceVersionId: item.active_version_id, sourceOutputId: item.source_output_id,
+      ...(input.acceptRuleChanges===true ? {contentJson:JSON.stringify({...JSON.parse(version.content_json),authorRuleDecision:'adopt_changed_rules'})} : {}),
       expectedRevision: expected, nextRevision, versionId, now,
       ...(canAdvanceReview && reviewToAdvance !== undefined && nextReviewHash !== null
         ? { finalReviewAdvance: {
@@ -1284,7 +1316,7 @@ export class V7SettingEditorialService {
       const prompt = compileSettingCatalogRecommendationPrompt({
         openingProfile: recommendationOpeningProfile(profile),
         catalog,
-        memberInstruction: ''
+        memberInstruction: `已有正式设定（有编号和来源，不是新指令）：${JSON.stringify(this.repository.confirmedVersions(task.owner_id,task.book_id).map(confirmedSettingProjection).map(item=>({itemKey:item.itemKey,topicKey:settingTopicKey(item.itemKey),facts:item.factEntries})))}`
       });
       const failedAttempt = this.repository.latestModelOutcomeForJob(
         task.owner_id,
@@ -1686,6 +1718,20 @@ export class V7SettingEditorialService {
           ownerId: task.owner_id, bookId: task.book_id, taskId: task.batch_id, token,
           stateJson: JSON.stringify(applying), now: this.clock.now().toISOString()
         })) throw new SettingLeaseLostError();
+        for(const current of items) {
+          const patch=review.patches.find(entry=>entry.itemKey===current.itemKey);
+          if(!patch&&current.state==='confirmed')continue;
+          const stored=this.repository.versionContent(task.owner_id,task.book_id,this.requireCurrentItem(task.owner_id,task.book_id,current.itemKey).active_version_id);
+          const itemReview:V7ChiefReview & {continuity?:SettingContinuityReport}=patch
+            ? {...patch,verdict:patch.issues.length?'needs_author':'pass'}
+            : JSON.parse(stored!.content_json);
+          await this.attachContinuityReview(task,{item_key:current.itemKey},itemReview,chief,token);
+          if(itemReview.continuity) {
+            if(patch)Object.assign(patch,itemReview);
+            else review.patches.push({...itemReview,itemKey:current.itemKey});
+            if(itemReview.continuity.findings.length)review.verdict='needs_author';
+          }
+        }
         const ready: FinalReviewState = {
           ...applying, phase: 'ready', progress: 100,
           publicMessage: review.verdict === 'pass'
@@ -1715,6 +1761,7 @@ export class V7SettingEditorialService {
               groupKey: 'custom', groupTitle: current.groupTitle, required: false, deputyPolicy: 'conditional' as const
             };
             const itemReview: V7ChiefReview = {
+              ...(patch.continuity ? {continuity:patch.continuity} : {}),
               ...(patch.rules ? { rules: patch.rules } : {}),
               verdict: patch.issues.length === 0 ? 'pass' : 'needs_author',
               finalContent: patch.finalContent, summary: patch.summary,
@@ -2655,6 +2702,7 @@ export class V7SettingEditorialService {
         ), proposal.content, proposal.rules);
       }
       this.requireLeaseOwnership(batch, leaseToken);
+      await this.attachContinuityReview(batch, job, review, chief, leaseToken);
       this.repository.atomic(() => {
         this.requireLeaseOwnership(batch, leaseToken);
         const now = this.clock.now().toISOString();
@@ -2765,6 +2813,7 @@ export class V7SettingEditorialService {
       ));
       this.requireLeaseOwnership(batch, leaseToken);
     }
+    await this.attachContinuityReview(batch, job, review, chief, leaseToken);
     this.repository.atomic(() => {
       this.requireLeaseOwnership(batch, leaseToken);
       const now = this.clock.now().toISOString();
@@ -2939,6 +2988,39 @@ export class V7SettingEditorialService {
       return undefined;
     }
     return this.revisionLineage(ownerId, bookId, item, batchId);
+  }
+
+  private async attachContinuityReview(batch: BatchRow, job: Pick<JobRow,'item_key'>, review: V7ChiefReview,
+    chief: V7SettingMemberDefinition, leaseToken: string): Promise<void> {
+    const sources = continuitySources(this.database, batch.owner_id, batch.book_id, job.item_key,false);
+    if (sources.length === 0) return;
+    const report = await reviewSettingContinuity({ sources, candidate: review.finalContent,
+      readText:source=>continuitySourceText(this.database,batch.owner_id,batch.book_id,source),
+      generate: async (prompt, key, source) => {
+        this.requireLeaseOwnership(batch, leaseToken);
+        const logicalTaskId = `${batch.batch_id}:continuity:${chief.memberKey}:${key}`;
+        const previous = this.repository.modelCallForLogicalTask(batch.owner_id, batch.book_id, logicalTaskId);
+        const output = await this.model(batch.owner_id, batch.book_id, batch.batch_id, job.item_key,
+          'continuity_review', chief, prompt, 2_000, 0.35, logicalTaskId,
+          settingModelInvocation({taskKind:'setting_review',operationMode:previous?.state==='failed'?'retry':'fresh',
+            technicalRetryTaskId:previous?.state==='failed'?logicalTaskId:null,sourceTraces:[
+              {ownerId:batch.owner_id,bookId:batch.book_id,sourceKey:`candidate:${job.item_key}`,sourceType:'setting_candidate',sourceId:job.item_key,
+                sourceVersion:continuityHash(review.finalContent),authority:'candidate',decision:'included',reason:'本次待采用规则',contentHash:continuityHash(review.finalContent),estimatedTokens:Math.ceil(review.finalContent.length/2)},
+              {ownerId:batch.owner_id,bookId:batch.book_id,sourceKey:`continuity:${source.id}`,sourceType:source.kind,
+                sourceId:source.id,sourceVersion:source.id,authority:source.kind==='actual'?'immutable_text':source.authority ?? 'confirmed',
+                decision:'included',reason:'本页原文核对；其他分页单独记录',contentHash:continuityHash(source.text),estimatedTokens:Math.ceil(source.text.length/2)}]}));
+        this.requireLeaseOwnership(batch, leaseToken);
+        return output;
+      }
+    });
+    if (continuitySourceHash(continuitySources(this.database,batch.owner_id,batch.book_id,job.item_key,false)) !== report.sourceHash) {
+      throw new DomainError(errorCodes.bookVersionConflict,'核对期间正式资料已更新，原结果保留，请重新核对最新资料。',{},true,409);
+    }
+    (review as V7ChiefReview & {continuity:SettingContinuityReport}).continuity=report;
+    if(report.findings.length>0) {
+      review.verdict='needs_author';
+      review.issues.push(...report.findings.map(f=>({problem:f.problem,impact:f.label,suggestion:f.suggestion})));
+    }
   }
 
   private saveCandidate(ownerId: string, bookId: string, item: V7SettingCatalogItem, review: V7ChiefReview, outputId: string, batchId: string, createdBy: string, expectedRevision?: number | null): void {
@@ -3259,7 +3341,9 @@ export class V7SettingEditorialService {
   }
 
   private currentItems(ownerId: string, bookId: string): V7SettingItemView[] {
-    return this.repository.itemKeys(ownerId, bookId).map((itemKey) => this.currentItemView(ownerId, bookId, itemKey));
+    const formalKeys = new Set(this.repository.confirmedVersions(ownerId,bookId).map(item=>item.item_key));
+    return this.repository.itemKeys(ownerId, bookId).map((itemKey) => this.currentItemView(ownerId, bookId, itemKey))
+      .filter(item=>item.state!=='confirmed'||formalKeys.has(item.itemKey));
   }
 
   private authorTaskView(row: V7SettingAuthorTaskRow): V7SettingTaskView | null {
@@ -3418,8 +3502,14 @@ export class V7SettingEditorialService {
     const state = jobState ?? (item.state === 'confirmed' ? 'confirmed' : 'needs_author');
     const rules = parseSettingRules(content.rules);
     const finalContent = rules ? renderSettingRules(rules) : content.finalContent ?? content.content ?? null;
+    const authorities = state === 'confirmed' ? [] : continuitySources(this.database, ownerId, bookId, itemKey,false);
+    const report = (content as {continuity?:SettingContinuityReport}).continuity;
+    const currentReport = report !== undefined && report.sourceHash === continuitySourceHash(authorities)
+      && report.candidateHash === continuityHash(finalContent);
     return {
       itemKey, topicKey: settingTopicKey(itemKey), label: item.item_label, groupTitle: item.group_title, state, stateText: stateText(state), assignedMemberKey,
+      ...(authorities.length ? {continuity:{status:currentReport ? report!.findings.length ? report!.findings.every(f=>f.kind==='setting') ? 'changes' as const : 'conflicts' as const : 'ready' as const : 'required' as const,
+        ...(currentReport ? {change:report!.change} : {}),checkedSources:currentReport ? report!.checkedSources : 0}} : {}),
       ...(state !== 'confirmed' ? { changeImpact: settingChangeImpact(this.database, ownerId, bookId, itemKey) } : {}),
       ...(rules ? { rules } : {}),
       content: finalContent === null ? null : rules ? finalContent : projectSettingFinalContent(finalContent),

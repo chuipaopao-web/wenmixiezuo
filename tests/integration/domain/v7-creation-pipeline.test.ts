@@ -1774,7 +1774,7 @@ function contextSelectionOutput(prompt: string, excludeOneOptionalSource: boolea
   const planningLayers = JSON.parse(/当前任务允许检索的层级只有：(\[[^\n]+\])/u.exec(prompt)?.[1] ?? '["chapter_execution"]') as string[];
   const settlement = prompt.includes('methodStrategy.mode必须为none');
   return JSON.stringify({
-    schema: 'v7-creation-context-v1', publicSummary: '只保留本次创作需要的正式资料和当前状态。',
+    schema: 'v7-creation-context-v1', publicSummary: '只保留本次创作需要的正式资料和当前状态。',criticalGaps:[],objectRequirements:[],
     selectedSourceKeys: keys, selectionReasons: keys.map((sourceKey) => ({ sourceKey, reason: '当前任务需要。' })),
     excludedSourceKeys: candidates.filter((item) => !keys.includes(item.sourceKey)).map((item) => item.sourceKey), openQuestions: [],
     taskPersona: {

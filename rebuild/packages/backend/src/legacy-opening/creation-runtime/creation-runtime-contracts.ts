@@ -98,6 +98,8 @@ export interface V7CreationSourceCandidate {
 }
 
 export interface V7CreationContextSelection {
+  criticalGaps?: string[];
+  objectRequirements?: Array<{ name: string; status: 'existing' | 'new'; sourceKeys: string[]; requiredRuleKeys: string[] }>;
   schema: typeof V7_CREATION_CONTEXT_SCHEMA;
   publicSummary: string;
   selectedSourceKeys: string[];
@@ -146,6 +148,7 @@ export interface V7CreationMethodPlan extends V7CreationMethodStrategy {
 }
 
 export interface V7CreationContextPack {
+  objectRequirements?: V7CreationContextSelection['objectRequirements'];
   schema: typeof V7_CREATION_CONTEXT_SCHEMA;
   taskKind: V7CreationTaskKind;
   taskId: string;
@@ -195,7 +198,8 @@ export function creationPromptContext(value: unknown): unknown {
       label: source.label,
       content: source.content
     })),
-    openQuestions: pack.openQuestions ?? []
+    openQuestions: pack.openQuestions ?? [],
+    ...(pack.objectRequirements === undefined ? {} : {objectRequirements:pack.objectRequirements})
   };
 }
 

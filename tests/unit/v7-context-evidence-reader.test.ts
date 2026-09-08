@@ -17,6 +17,12 @@ const selection: V7CreationContextSelection = {
 };
 
 describe('分批原文证据与预算', () => {
+  it('关键缺口阻止依赖生成，不通过换员编造答案，普通悬念不作为缺口',async()=>{
+    let called=false;
+    await expect(compilePack({ownerId:'o',bookId:'b',workflowId:'w',taskKind:'volume',taskId:'t',taskBrief:'卷设计',firstVolume:true},[],
+      {...selection,criticalGaps:['已确认主角持有哪一种通行证？']},async()=>{called=true;return '';})).rejects.toThrow('通行证');
+    expect(called).toBe(false);
+  });
   it('已确认全书规则即使未被模型选中也完整保留条件和例外', async () => {
     const rule = { level: 'global', statement: '驿路不能跨越封锁区。', scope: '全书',
       conditions: ['封锁尚未解除'], costs: [], exceptions: ['持守军通行令可以通行'], objects: [] };

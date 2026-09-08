@@ -96,6 +96,7 @@ export interface V7SettingMemberPublicView {
 }
 
 export interface V7SettingItemView {
+  continuity?: { status: 'required' | 'ready' | 'changes' | 'conflicts'; change?: 'wording' | 'fact'; checkedSources: number };
   topicKey?: string;
   changeImpact?: { planning: Array<{ kind: string; name: string }>; finishedChapters: number };
   rules?: SettingRule[];

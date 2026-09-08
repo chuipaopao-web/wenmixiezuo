@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { activeSettingVersions } from './setting-version-selection.js';
 
 export type V7PlanningSnapshotPurpose = 'recipe_design' | 'tree_generation' | 'settlement_maintenance';
 export type V7PlanningSnapshotAuthority = 'formal' | 'goal' | 'actual';
@@ -281,14 +282,15 @@ export class V7PlanningRuntimeRepository {
   }
 
   public confirmedSettings(ownerId: string, bookId: string): Array<Record<string, unknown>> {
-    return this.database.prepare(`SELECT i.item_key,i.item_label,v.version_id,v.revision,v.content_json
+    const rows = this.database.prepare(`SELECT i.item_key,i.item_label,v.version_id,v.revision,v.content_json
       FROM v7_setting_items i JOIN v7_setting_item_versions v
         ON v.owner_id=i.owner_id AND v.book_id=i.book_id AND v.item_key=i.item_key
         AND v.status='confirmed' AND v.revision=(SELECT MAX(formal.revision) FROM v7_setting_item_versions formal
           WHERE formal.owner_id=i.owner_id AND formal.book_id=i.book_id AND formal.item_key=i.item_key AND formal.status='confirmed')
       WHERE i.owner_id=? AND i.book_id=?
       ORDER BY i.group_title,i.item_label,i.item_key`)
-      .all(ownerId, bookId) as Array<Record<string, unknown>>;
+      .all(ownerId, bookId) as Array<{item_key:string;item_label:string;version_id:string;revision:number;content_json:string}>;
+    return activeSettingVersions(rows);
   }
 
   public confirmedTree(

@@ -641,6 +641,7 @@ export interface SettingMemberView {
 }
 export interface SettingIssue { problem: string; impact: string; suggestion: string; }
 export interface SettingItemView {
+  continuity?: { status: 'required' | 'ready' | 'changes' | 'conflicts'; change?: 'wording' | 'fact'; checkedSources: number };
   topicKey?: string;
   changeImpact?: { planning: Array<{ kind: string; name: string }>; finishedChapters: number };
   rules?: Array<{ level: 'global' | 'topic' | 'object'; statement: string; scope: string;
@@ -817,8 +818,11 @@ export function retrySettingFinalReview(bookId: string, taskId: string): Promise
     method: 'POST', body: JSON.stringify({})
   }).then(normalizeSettingFinalReviewView);
 }
-export function confirmSettingItem(bookId: string, itemKey: string, expectedRevision: number): Promise<SettingItemView> {
-  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-items/${encodeURIComponent(itemKey)}/confirm`, { method: 'POST', body: JSON.stringify({ expectedRevision }) });
+export function confirmSettingItem(bookId: string, itemKey: string, expectedRevision: number, acceptRuleChanges = false): Promise<SettingItemView> {
+  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-items/${encodeURIComponent(itemKey)}/confirm`, { method: 'POST', body: JSON.stringify({ expectedRevision, ...(acceptRuleChanges ? {acceptRuleChanges:true} : {}) }) });
+}
+export function confirmAllSettingItems(bookId:string,items:Array<{itemKey:string;expectedRevision:number;acceptRuleChanges?:boolean}>):Promise<SettingItemView[]> {
+  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-items/confirm-all`,{method:'POST',body:JSON.stringify({items})});
 }
 export function createSettingItemReviewTask(bookId: string, itemKey: string, input: {
   content?: string; instruction?: string; sourceRedesignTaskId?: string; sourceOutputId?: string;

@@ -599,12 +599,12 @@ export class V7PlanningTreeGenerationService {
         });
         this.ensureActive(run);
         const missing = extractPlanningCriticalInputs(result.output);
-        if (missing.length > 0) throw new Error(`资料仍有关键缺口：${missing.join('；')}`);
+        if (missing.length > 0) throw new DomainError(errorCodes.validation,`继续设计前需要补充：${missing.join('；')}。请补充设定或本次要求后继续，已完成内容保留。`,{},true,409);
         let request: V7PlanningMethodSearchRequest;
         try {
           request = normalizePlanningSettingSourceIds(
             snapshot,
-            parsePlanningMethodSearchRequest(result.output, { requireTaskProfile: true })
+            parsePlanningMethodSearchRequest(result.output, { requireTaskProfile: true, requireDependencies: true })
           );
           focusedPlanningTreeSnapshot(snapshot, request);
         } catch {
@@ -623,10 +623,10 @@ export class V7PlanningTreeGenerationService {
           });
           this.ensureActive(run);
           const repairedMissing = extractPlanningCriticalInputs(repaired.output);
-          if (repairedMissing.length > 0) throw new Error(`资料仍有关键缺口：${repairedMissing.join('；')}`);
+          if (repairedMissing.length > 0) throw new DomainError(errorCodes.validation,`继续设计前需要补充：${repairedMissing.join('；')}。请补充设定或本次要求后继续，已完成内容保留。`,{},true,409);
           request = normalizePlanningSettingSourceIds(
             snapshot,
-            parsePlanningMethodSearchRequest(repaired.output, { requireTaskProfile: true })
+            parsePlanningMethodSearchRequest(repaired.output, { requireTaskProfile: true, requireDependencies: true })
           );
           focusedPlanningTreeSnapshot(snapshot, request);
         }
@@ -809,7 +809,7 @@ function focusedPlanningTreeSnapshot(
   snapshot: V7PlanningCompiledSnapshot,
   request: V7PlanningMethodSearchRequest
 ): V7PlanningCompiledSnapshot {
-  if (request.missingCriticalInputs.length > 0) throw new Error(`资料仍有关键缺口：${request.missingCriticalInputs.join('；')}`);
+  if (request.missingCriticalInputs.length > 0) throw new DomainError(errorCodes.validation,`继续设计前需要补充：${request.missingCriticalInputs.join('；')}。`,{},true,409);
   const settingSources = snapshot.sources.filter((source) => source.sourceKind === 'setting');
   const ledgers = settingSources.filter(isSettingLedgerSource);
   const itemSources = settingSources.filter((source) => !isSettingLedgerSource(source));
@@ -818,7 +818,7 @@ function focusedPlanningTreeSnapshot(
   const unknown = [...requested].filter((sourceId) => !allowed.has(sourceId));
   if (unknown.length > 0) throw new Error('资料策划选择了不属于本书的设定资料');
   const selectedItems = itemSources.filter((source) => requested.has(source.sourceId));
-  if (selectedItems.length === 0) throw new Error('资料策划没有选出本任务需要的正式设定资料');
+  if (selectedItems.length === 0 && itemSources.length > 0) throw new Error('资料策划没有选出本任务需要的正式设定资料');
   const selectedSources = snapshot.sources.filter((source) => source.sourceKind !== 'setting'
     || ledgers.some((ledger) => ledger.sourceId === source.sourceId)
     || requested.has(source.sourceId));
@@ -883,7 +883,7 @@ function isSettingLedgerSource(source: V7PlanningCompiledSnapshot['sources'][num
 
 function planningTaskContextPlan(
   request: V7PlanningMethodSearchRequest
-): Pick<V7PlanningMethodSearchRequest, 'publicGoal' | 'taskPersona' | 'taskResponsibilities' | 'creativeSpace'> {
+): Pick<V7PlanningMethodSearchRequest, 'publicGoal' | 'taskPersona' | 'taskResponsibilities' | 'creativeSpace' | 'objectRequirements'> {
   if (request.taskPersona === undefined || request.taskResponsibilities === undefined || request.creativeSpace === undefined) {
     throw new Error('资料策划记录缺少任务期题材身份、任务责任或创意空间');
   }
@@ -891,7 +891,8 @@ function planningTaskContextPlan(
     publicGoal: request.publicGoal,
     taskPersona: request.taskPersona,
     taskResponsibilities: request.taskResponsibilities,
-    creativeSpace: request.creativeSpace
+    creativeSpace: request.creativeSpace,
+    objectRequirements:request.objectRequirements ?? []
   };
 }
 

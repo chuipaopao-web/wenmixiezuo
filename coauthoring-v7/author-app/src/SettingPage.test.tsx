@@ -53,6 +53,7 @@ describe('V7设定页面', () => {
       if (url.endsWith('/setting-batches') && init?.method === 'POST') return json(working);
       if (url.includes('/setting-batches/batch-1')) return json(working);
       if (url.endsWith('/setting-items/world-stage/confirm')) return json({ ...resultItem, state: 'confirmed', stateText: '已确认', revision: 2 });
+      if (url.endsWith('/setting-items/confirm-all')) return json([{ ...resultItem, state: 'confirmed', stateText: '已确认', revision: 2 }]);
       if (url.endsWith('/setting-items/world-stage/review-tasks')) return json(reviewTask);
       if (url.endsWith('/setting-items/world-stage/redesigns/current') && currentRedesignResponse !== null) return json(currentRedesignResponse);
       if (url.endsWith('/setting-items/world-stage/redesigns')) return json({ taskId: 'redesign-1', status: 'working', statusText: '三位编剧正在分别设计。', candidates: [], failedMemberKeys: [] });
@@ -67,6 +68,24 @@ describe('V7设定页面', () => {
       return new Response(JSON.stringify({ error: { message: '未模拟请求' } }), { status: 404, headers: { 'content-type': 'application/json' } });
     });
     vi.stubGlobal('fetch', fetchMock);
+  });
+
+  it.each(['required','changes','conflicts'] as const)('规则核对%s显示明确操作，冲突不能直接采用',async(status)=>{
+    fetchMock.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      const url=String(input);
+      if(url.endsWith('/setting-department'))return json({catalog:[],recommendedKeys:[],recommendation:null,members,activeBatch:null,finalReview:null,
+        confirmedItems:[{...resultItem,continuity:{status,change:'fact',checkedSources:3}}]});
+      if(url.endsWith('/confirm'))return json({...resultItem,state:'confirmed'});
+      if(url.endsWith('/review-tasks'))return json({batchId:'review-new',status:'working',items:[],members,progress:{completed:0,total:1,percent:0}});
+      return json({});
+    });
+    render(<SettingPage bookId="book-1" />);
+    const title=await screen.findByText('世界舞台');fireEvent.click(title.closest('article')!.querySelector('header button')!);
+    const button=await screen.findByRole('button',{name:status==='required'?'核对这次修改':status==='changes'?'采用新规则':'确认采用'});
+    if(status==='conflicts'){expect(button).toBeDisabled();expect(screen.getByRole('button',{name:'修改内容'})).toBeEnabled();return;}
+    fireEvent.click(button);
+    await waitFor(()=>expect(fetchMock.mock.calls.some(([url])=>String(url).endsWith(status==='required'?'/review-tasks':'/confirm'))).toBe(true));
+    if(status==='changes')expect(JSON.parse(String(fetchMock.mock.calls.find(([url])=>String(url).endsWith('/confirm'))?.[1]?.body))).toMatchObject({acceptRuleChanges:true});
   });
 
   it('只展示本轮真实参与成员，并把同一成员的旧工位快照合并为一张卡', async () => {
@@ -544,7 +563,7 @@ describe('V7设定页面', () => {
     expect(await screen.findByText('人物、年代、组织称呼和世界规则已经统一。')).toBeInTheDocument();
     expect(screen.getByText('貂蝉 · 统一整理')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '保存当前设定（1项）' }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/setting-items/world-stage/confirm'), expect.objectContaining({ method: 'POST' })));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/setting-items/confirm-all'), expect.objectContaining({ method: 'POST' })));
     expect(await screen.findByRole('button', { name: '进入时光机' })).toBeDisabled();
     expect(screen.getByText('设定已经安全保存，可以查看全书框架。')).toBeInTheDocument();
   });

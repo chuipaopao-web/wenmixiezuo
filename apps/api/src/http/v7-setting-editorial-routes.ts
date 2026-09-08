@@ -158,9 +158,13 @@ export async function registerV7SettingEditorialRoutes(
     const resolved = scope(request, request.params.bookId);
     return success(service.createItemReviewTask(resolved.ownerId, resolved.bookId, request.params.itemKey, request.body ?? {}), request.id);
   });
-  app.post<{ Params: { bookId: string; itemKey: string }; Body: { expectedRevision?: unknown } }>('/api/v1/v7/books/:bookId/setting-items/:itemKey/confirm', async (request) => {
+  app.post<{ Params: { bookId: string; itemKey: string }; Body: { expectedRevision?: unknown; acceptRuleChanges?:unknown } }>('/api/v1/v7/books/:bookId/setting-items/:itemKey/confirm', async (request) => {
     const resolved = scope(request, request.params.bookId);
     return success(service.confirm(resolved.ownerId, resolved.bookId, request.params.itemKey, request.body ?? {}), request.id);
+  });
+  app.post<{Params:{bookId:string};Body:{items?:unknown}}>('/api/v1/v7/books/:bookId/setting-items/confirm-all',async(request)=>{
+    const resolved=scope(request,request.params.bookId);
+    return success(service.confirmAll(resolved.ownerId,resolved.bookId,request.body ?? {}),request.id);
   });
 }
 

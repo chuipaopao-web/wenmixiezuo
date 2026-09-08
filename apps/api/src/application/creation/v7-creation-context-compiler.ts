@@ -306,7 +306,7 @@ export class V7CreationContextCompiler {
         });
         let selection: V7CreationContextSelection;
         try {
-          selection = parseContextSelection(result.output, candidates, maximumSources, input.taskKind);
+          selection = parseContextSelection(result.output, candidates, maximumSources, input.taskKind, true);
         } catch {
           if (this.creation.workflow(input.ownerId, input.bookId, input.workflowId)?.status === 'cancelled') {
             throw new DomainError(errorCodes.validation, '这项工作已经停止，已保留完成的内容。');
@@ -328,7 +328,7 @@ export class V7CreationContextCompiler {
             operationMode: 'repair', basedOnTaskId: result.requestId, authorInstructionVersion: null,
             sourceTraces: [], prompt: repairPrompt, maxOutputTokens: 4_000, temperature: 0.18
           });
-          selection = parseContextSelection(repaired.output, candidates, maximumSources, input.taskKind);
+          selection = parseContextSelection(repaired.output, candidates, maximumSources, input.taskKind, true);
         }
         const content = await this.compileSelectedPack(input, pack, candidates, selection, member);
         const contentHash = sha256(stableJson(content));
@@ -798,6 +798,7 @@ export function inheritCreationSelection(
     selectionReasons: candidates.map((item) => ({ sourceKey: item.sourceKey,
       reason: selectedKeys.has(item.sourceKey) ? '已确认上级资料或当前节点必需来源。' : '未在上级选定范围内，本轮不主动注入。' })),
     openQuestions: [...parent.openQuestions],
+    ...(parent.objectRequirements === undefined ? {} : {objectRequirements:parent.objectRequirements}),
     taskPersona: { ...parent.taskPersona, workingIdentity: input.taskKind === 'review' ? '依据正式资料独立审查本章' : '承接已确认规划完成当前任务' },
     taskResponsibilities: [input.taskBrief],
     creativeSpace: ['在已确认规则和当前规划范围内自然表达，不把未来计划冒充已经发生的事实。'],
@@ -812,6 +813,8 @@ export async function compilePack(
   generate: EvidenceGenerate,
   rhythm?: RhythmPolicySnapshot | null
 ): Promise<V7CreationContextPack> {
+  const gaps=[...(selection.criticalGaps ?? []),...(selection.methodStrategy.searchRequest?.missingCriticalInputs ?? [])];
+  if(gaps.length)throw gate(`继续设计前需要补充：${[...new Set(gaps)].join('；')}。请在设定或本次要求中补充后继续，已完成内容保留。`);
   const selectedCandidates = candidates.filter((item) => selection.selectedSourceKeys.includes(item.sourceKey));
   let selected = selectedCandidates.map(exactSource);
   const reasons = new Map(selection.selectionReasons.map((item) => [item.sourceKey, item.reason]));
@@ -867,6 +870,7 @@ export async function compilePack(
     selectedSources: selected,
     excludedSources: excluded,
     openQuestions: selection.openQuestions,
+    ...(selection.objectRequirements === undefined ? {} : {objectRequirements:selection.objectRequirements}),
     taskPersona: selection.taskPersona,
     taskResponsibilities: selection.taskResponsibilities,
     creativeSpace: selection.creativeSpace,
@@ -884,6 +888,7 @@ export async function compilePack(
       selectedSources: selected,
       excludedSources: excluded,
       openQuestions: selection.openQuestions,
+      ...(selection.objectRequirements === undefined ? {} : {objectRequirements:selection.objectRequirements}),
       taskPersona: selection.taskPersona,
       taskResponsibilities: selection.taskResponsibilities,
       creativeSpace: selection.creativeSpace,
@@ -913,6 +918,7 @@ function packedCharacterCount(
     selectedSources,
     excludedSources: [],
     openQuestions: selection.openQuestions,
+    ...(selection.objectRequirements === undefined ? {} : {objectRequirements:selection.objectRequirements}),
     taskPersona: selection.taskPersona,
     taskResponsibilities: selection.taskResponsibilities,
     creativeSpace: selection.creativeSpace,

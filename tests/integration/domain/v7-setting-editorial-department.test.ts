@@ -5,6 +5,7 @@ import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infras
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { V7PlanningSourceCompiler } from '../../../apps/api/src/application/planning/v7-planning-source-compiler.js';
 import { settingChangeImpact } from '../../../apps/api/src/infrastructure/db/repositories/setting-change-impact.js';
+import {continuitySources,continuitySourceHash,continuityHash} from '../../../apps/api/src/application/books/setting-continuity.js';
 import { V7SettingLedgerReader } from '../../../apps/api/src/application/books/v7-setting-ledger-reader.js';
 import { V7SettingEditorialRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.js';
 import { V7_SETTING_CATALOG, V7_SETTING_MEMBERS, validateSettingEditorialRoster } from '@wenmi/v7-backend';
@@ -23,6 +24,38 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7设定编辑部', () => {
+  it('采用变更须核对当前来源，作者规则取舍不能绕过正文冲突，历史版本不变',async()=>{
+    context=createTestContext('r164-confirm-');
+    const app=await createServer(context.config,context.database,{v7OpeningModelAdapters:new SettingResolver(false)});
+    try {
+      const cookie=await register(app,'rule-change@example.test','变更测试','rule-change-password');
+      const bookId=await createBook(app,cookie,'规则变更','r164-confirm-book','历史脑洞');
+      const url=`/api/v1/v7/books/${bookId}`;
+      const created=await app.inject({method:'POST',url:url+'/setting-batches',headers:{...HEADERS,cookie},payload:{selectedItemKeys:['world-stage'],idempotencyKey:'r164-confirm'}});
+      const batch=await pollBatch(app,cookie,bookId,created.json().data.batchId);
+      const accepted=await app.inject({method:'POST',url:url+'/setting-items/world-stage/confirm',headers:{...HEADERS,cookie},payload:{expectedRevision:batch.items[0].revision}});
+      expect(accepted.statusCode,accepted.body).toBe(200);
+      const ownerId=String(context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId)!.owner_id);
+      const repo=new V7SettingEditorialRepository(context.database);
+      const old=repo.confirmedVersions(ownerId,bookId)[0]!;
+      const data=JSON.parse(old.content_json);data.finalContent='新制度规定持证者才能入城。';
+      data.continuity={sourceHash:'stale',candidateHash:continuityHash(data.finalContent),change:'fact',checkedSources:2,mergedVersionIds:[],
+        findings:[{sourceId:old.version_id,label:'旧规则',kind:'actual',problem:'正文冲突',suggestion:'修改候选'}]};
+      const outputId=String(context.database.prepare('SELECT source_output_id FROM v7_setting_item_versions WHERE version_id=?').get(old.version_id)!.source_output_id);
+      repo.saveCandidate({versionId:'r164-changed',ownerId,bookId,item:V7_SETTING_CATALOG.find(i=>i.key==='world-stage')!,contentJson:JSON.stringify(data),outputId,batchId:created.json().data.batchId,createdBy:'author',now:'2026-09-09T00:00:00Z',expectedRevision:accepted.json().data.revision});
+      const current=Number(context.database.prepare('SELECT revision FROM v7_setting_items WHERE book_id=? AND item_key=?').get(bookId,'world-stage')!.revision);
+      const confirm=()=>app.inject({method:'POST',url:url+'/setting-items/world-stage/confirm',headers:{...HEADERS,cookie},payload:{expectedRevision:current,acceptRuleChanges:true}});
+      expect((await confirm()).statusCode).toBe(409);
+      data.continuity.sourceHash=continuitySourceHash(continuitySources(context.database,ownerId,bookId,'world-stage',false));
+      context.database.prepare('UPDATE v7_setting_item_versions SET content_json=? WHERE version_id=?').run(JSON.stringify(data),'r164-changed');
+      expect((await confirm()).statusCode).toBe(409);
+      data.continuity.findings[0].kind='setting';
+      context.database.prepare('UPDATE v7_setting_item_versions SET content_json=? WHERE version_id=?').run(JSON.stringify(data),'r164-changed');
+      const done=await confirm();expect(done.statusCode,done.body).toBe(200);
+      expect(context.database.prepare('SELECT content_json FROM v7_setting_item_versions WHERE version_id=?').get(old.version_id)!.content_json).toBe(old.content_json);
+      expect(JSON.parse(repo.confirmedVersions(ownerId,bookId)[0]!.content_json).authorRuleDecision).toBe('adopt_changed_rules');
+    }finally{await app.close();}
+  });
   it('必要设定已被开书资料覆盖时可继续，缺失、跨用户或过期分类不能绕过准备', async () => {
     context = createTestContext('r164-covered-');
     const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
@@ -1017,16 +1050,15 @@ describe('V7设定编辑部', () => {
       expect(department.statusCode).toBe(200);
       expect(department.json().data.finalReview.taskId).toBe(completed.taskId);
       expect(department.json().data.finalReview.status).toBe('ready');
-      for (const item of department.json().data.confirmedItems as Array<{ itemKey: string; revision: number; state: string }>) {
-        if (item.state === 'confirmed') continue;
-        const confirmed = await app.inject({
-          method: 'POST',
-          url: `/api/v1/v7/books/${bookId}/setting-items/${item.itemKey}/confirm`,
-          headers: { ...HEADERS, cookie },
-          payload: { expectedRevision: item.revision }
-        });
-        expect(confirmed.statusCode, confirmed.body).toBe(200);
-      }
+      const items=(department.json().data.confirmedItems as Array<{itemKey:string;revision:number;state:string}>)
+        .filter(item=>item.state!=='confirmed').map(item=>({itemKey:item.itemKey,expectedRevision:item.revision}));
+      const before=context.database.prepare('SELECT * FROM v7_setting_item_versions WHERE book_id=? ORDER BY version_id').all(bookId);
+      const stale=await app.inject({method:'POST',url:`/api/v1/v7/books/${bookId}/setting-items/confirm-all`,headers:{...HEADERS,cookie},
+        payload:{items:items.map((item,index)=>({...item,expectedRevision:item.expectedRevision+(index===items.length-1?1:0)}))}});
+      expect(stale.statusCode).toBe(409);
+      expect(context.database.prepare('SELECT * FROM v7_setting_item_versions WHERE book_id=? ORDER BY version_id').all(bookId)).toEqual(before);
+      const confirmed=await app.inject({method:'POST',url:`/api/v1/v7/books/${bookId}/setting-items/confirm-all`,headers:{...HEADERS,cookie},payload:{items}});
+      expect(confirmed.statusCode,confirmed.body).toBe(200);
       const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
         .get(bookId) as { owner_id: string }).owner_id);
       expect(() => new V7PlanningSourceCompiler(context!.database, new SequenceIds(), new FixedClock()).compile({
@@ -2127,7 +2159,9 @@ class SettingResolver implements V7OpeningModelAdapterResolver {
         }
       }
       const stagePrompt = settingStagePrompt(request.prompt);
-      const output = stagePrompt.includes('v7_setting_group_design_v1')
+      const output = request.prompt.includes('你是设定连续性审查员')
+        ? JSON.stringify({change:'wording',covered:true,conflicts:[]})
+        : stagePrompt.includes('v7_setting_group_design_v1')
         ? groupedSettingOutput(stagePrompt)
         : stagePrompt.includes('v7_setting_batch_final_review_patch_v1')
         ? batchFinalReviewPatchOutput(stagePrompt)

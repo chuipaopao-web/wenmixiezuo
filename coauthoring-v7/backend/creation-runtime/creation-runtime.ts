@@ -119,7 +119,8 @@ export function contextSelectionPrompt(input: {
     '你是文秘写作资料策划。只返回JSON对象，不要Markdown，不要思维过程。',
     '你负责理解当前任务、选择最小充分资料，并把本书题材融合档案转成只适合当前任务的临时执行身份。你不写故事方案或正文。后台方法、配方和模式由系统按当前层确定性提供给执行成员，成员凭自身方法论知识自选、组合或完全原创，你不需要也不能替他们检索或指定方法。',
     'required=true的正式源必须保留；不得选择其他书、过期候选或无来源推断。任务身份只属于本书本任务，不得给成员或岗位建立长期专业人设。',
-    '如果资料不足，请在openQuestions说明，不得自行补事实。',
+    'openQuestions只放可保留的故事悬念。阻碍本次设计的关键资料缺口单独写criticalGaps，普通创作留白不是缺口。criticalGaps必须返回数组，没有则[]；不要自行补造既有事实。',
+    '另返回objectRequirements数组：逐个列本次涉及的关键人物、势力、地点和道具，字段name,status,sourceKeys,requiredRuleKeys。status只能existing或new。existing必须用sourceKeys引用本次目录中的确切依据；new表示尚待作者采用的新候选，不冒充已存在。requiredRuleKeys引用该对象行动所需的正式设定sourceKey，系统自动补入原文，不需要另请成员搬运。没有依据却又不能自由创作的条件写入criticalGaps，清楚说明缺什么和影响；全部编号只能取目录。',
     '任务身份只说明工作方法，不能替作者决定披露时机、剧情顺序、人物能力或结局；任何建议不得推翻作者明确要求。不要把编辑修改说明当作设定事实。',
     `最多选择${input.maximumSources}项；硬事实和当前任务优先，方法参考宁少勿杂。`,
     input.maximumInputCharacters === undefined
@@ -162,12 +163,25 @@ export function parseContextSelection(
   output: string,
   candidates: readonly V7CreationSourceCandidate[],
   maximumSources: number,
-  taskKind?: V7CreationTaskKind
+  taskKind?: V7CreationTaskKind,
+  requireDependencies = false
 ): V7CreationContextSelection {
   const value = jsonObject(output);
   if (value.schema !== V7_CREATION_CONTEXT_SCHEMA) throw new Error('资料编辑返回格式无效');
+  if(requireDependencies&&(value.criticalGaps===undefined||value.objectRequirements===undefined))throw new Error('缺少关键资料与对象依赖核对结果');
   const allowed = new Set(candidates.map((item) => item.sourceKey));
   const selectedSourceKeys = textList(value.selectedSourceKeys, '入选资料', false);
+  const criticalGaps = value.criticalGaps === undefined ? undefined : boundedTextList(value.criticalGaps,'关键资料缺口',0,8);
+  const objectRequirements = value.objectRequirements === undefined ? undefined : objectList(value.objectRequirements,'对象资料').map(item=>{
+    const status=enumValue(item.status,['existing','new'] as const,'对象身份');
+    const sourceKeys=textList(item.sourceKeys,'对象依据',true);
+    const requiredRuleKeys=textList(item.requiredRuleKeys,'对象规则依据',true);
+    if(status==='existing'&&sourceKeys.length===0)throw new Error('已有对象缺少可核对的依据');
+    if([...sourceKeys,...requiredRuleKeys].some(key=>!allowed.has(key)))throw new Error('对象资料引用不存在或不属于本书');
+    if(requiredRuleKeys.some(key=>!candidates.some(source=>source.sourceKey===key&&source.sourceKind==='setting')))throw new Error('对象规则引用不是正式设定');
+    for(const key of [...sourceKeys,...requiredRuleKeys])if(!selectedSourceKeys.includes(key))selectedSourceKeys.push(key);
+    return {name:requiredText(item.name,'对象名称'),status,sourceKeys,requiredRuleKeys};
+  });
   if (selectedSourceKeys.length > maximumSources || selectedSourceKeys.some((key) => !allowed.has(key))) throw new Error('资料编辑选择了无效来源');
   for (const required of candidates.filter((item) => item.required)) {
     if (!selectedSourceKeys.includes(required.sourceKey)) throw new Error('资料编辑遗漏了必要正式来源');
@@ -205,9 +219,11 @@ export function parseContextSelection(
   return {
     schema: V7_CREATION_CONTEXT_SCHEMA,
     publicSummary: requiredText(value.publicSummary, '资料说明'),
+    ...(criticalGaps === undefined ? {} : {criticalGaps}),
+    ...(objectRequirements === undefined ? {} : {objectRequirements}),
     selectedSourceKeys: unique(selectedSourceKeys),
     selectionReasons: reasons,
-    excludedSourceKeys: unique(excludedSourceKeys),
+    excludedSourceKeys: unique(excludedSourceKeys).filter(key=>!selectedSourceKeys.includes(key)),
     openQuestions: boundedTextList(value.openQuestions, '开放问题', 0, 8),
     taskPersona: {
       publicLabel: requiredText(taskPersona.publicLabel, '任务身份名称'),

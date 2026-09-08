@@ -80,6 +80,19 @@ describe('V7创作资料策划输入预算', () => {
     expect(() => parseContextSelection(JSON.stringify(output), candidates, 12, 'volume')).toThrow('无效来源');
   });
 
+  it('新对象规则由系统精确补入，已有对象无依据和跨书引用拒收', () => {
+    const setting=settingCandidate();const candidates=[requiredCandidate(),setting];
+    const base=contextSelectionFixture(candidates);
+    const output={...base,selectedSourceKeys:[requiredCandidate().sourceKey],excludedSourceKeys:[],
+      selectionReasons:[{sourceKey:requiredCandidate().sourceKey,reason:'正式目标'}],criticalGaps:[],
+      objectRequirements:[{name:'新城镇',status:'new',sourceKeys:[],requiredRuleKeys:[setting.sourceKey]}]};
+    expect(parseContextSelection(JSON.stringify(output),candidates,12,'volume').selectedSourceKeys).toContain(setting.sourceKey);
+    output.objectRequirements[0]!.status='existing';
+    expect(()=>parseContextSelection(JSON.stringify(output),candidates,12,'volume')).toThrow('缺少可核对');
+    output.objectRequirements[0]!.status='new';output.objectRequirements[0]!.requiredRuleKeys=['other-book'];
+    expect(()=>parseContextSelection(JSON.stringify(output),candidates,12,'volume')).toThrow('不属于本书');
+  });
+
   it('补交保留完整原任务与编号，损坏草稿包含转义字符时仍遵守字符预算', () => {
     const originalPrompt = contextSelectionPrompt({
       taskKind: 'volume', taskBrief: '不可更改的作者要求', candidates: [settingCandidate()], maximumSources: 12

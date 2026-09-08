@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { V7SettingBatchView, V7SettingCatalogItem, V7SettingItemView } from '@wenmi/v7-backend';
+import { activeSettingVersions } from './setting-version-selection.js';
 
 export interface V7SettingBatchRow {
   batch_id: string; owner_id: string; book_id: string; idempotency_key: string; request_hash: string;
@@ -562,19 +563,20 @@ export class V7SettingEditorialRepository {
     versionId: string;
     now: string;
     finalReviewAdvance?: { taskId: string; expectedResultHash: string; nextResultHash: string };
+    contentJson?:string;
   }): boolean {
-    this.database.exec('BEGIN IMMEDIATE');
+    this.database.exec('SAVEPOINT setting_confirm');
     try {
       this.database.prepare(`INSERT INTO v7_setting_item_versions
         (version_id,owner_id,book_id,item_key,revision,status,content_json,source_output_id,source_batch_id,created_by,created_at)
-        SELECT ?,owner_id,book_id,item_key,?,'confirmed',content_json,source_output_id,source_batch_id,'author',?
+        SELECT ?,owner_id,book_id,item_key,?,'confirmed',COALESCE(?,content_json),source_output_id,source_batch_id,'author',?
         FROM v7_setting_item_versions WHERE owner_id=? AND book_id=? AND version_id=?`)
-        .run(input.versionId, input.nextRevision, input.now, input.ownerId, input.bookId, input.sourceVersionId);
+        .run(input.versionId, input.nextRevision, input.contentJson ?? null, input.now, input.ownerId, input.bookId, input.sourceVersionId);
       const updated = this.database.prepare(`UPDATE v7_setting_items SET state='confirmed',active_version_id=?,revision=?,updated_at=?
         WHERE owner_id=? AND book_id=? AND item_key=? AND revision=?`)
         .run(input.versionId, input.nextRevision, input.now, input.ownerId, input.bookId, input.itemKey, input.expectedRevision);
       if (updated.changes !== 1) {
-        this.database.exec('ROLLBACK');
+        this.database.exec('ROLLBACK TO setting_confirm; RELEASE setting_confirm');
         return false;
       }
       this.database.prepare(`UPDATE v7_setting_item_jobs SET state='confirmed',revision=?,updated_at=?
@@ -595,14 +597,14 @@ export class V7SettingEditorialRepository {
             input.finalReviewAdvance.expectedResultHash
           );
         if (advanced.changes !== 1) {
-          this.database.exec('ROLLBACK');
+          this.database.exec('ROLLBACK TO setting_confirm; RELEASE setting_confirm');
           return false;
         }
       }
-      this.database.exec('COMMIT');
+      this.database.exec('RELEASE setting_confirm');
       return true;
     } catch (error) {
-      this.database.exec('ROLLBACK');
+      this.database.exec('ROLLBACK TO setting_confirm; RELEASE setting_confirm');
       throw error;
     }
   }
@@ -752,11 +754,12 @@ export class V7SettingEditorialRepository {
   }
 
   public confirmedVersions(ownerId: string, bookId: string): Array<{ item_key: string; item_label: string; version_id: string; revision: number; content_json: string }> {
-    return this.database.prepare(`SELECT i.item_key,i.item_label,v.version_id,v.revision,v.content_json FROM v7_setting_items i
+    const rows = this.database.prepare(`SELECT i.item_key,i.item_label,v.version_id,v.revision,v.content_json FROM v7_setting_items i
       JOIN v7_setting_item_versions v ON v.owner_id=i.owner_id AND v.book_id=i.book_id AND v.item_key=i.item_key
         AND v.status='confirmed' AND v.revision=(SELECT MAX(formal.revision) FROM v7_setting_item_versions formal
           WHERE formal.owner_id=i.owner_id AND formal.book_id=i.book_id AND formal.item_key=i.item_key AND formal.status='confirmed')
       WHERE i.owner_id=? AND i.book_id=? ORDER BY i.item_key`).all(ownerId, bookId) as Array<{ item_key: string; item_label: string; version_id: string; revision: number; content_json: string }>;
+    return activeSettingVersions(rows);
   }
 
   public modelCall(requestId: string, ownerId: string, bookId: string): { state: string; output_text: string | null; failure_message: string | null } | undefined {
