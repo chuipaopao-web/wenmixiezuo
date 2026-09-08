@@ -1,5 +1,9 @@
 # 文秘写作当前交接
 
+## R176：设定续作资料分页，已上线
+
+合同coauthoring-v7/docs/worklists/SETTING-RECOVERY-176.md。管理员书籍5项续作原先源提示23665/20000导致0模型调用；改完整事实分页及有限归并选择，保留原版本和4项设计批次。52项相关回归、类型、服务器构建/闭包/模块通过；发布wm-v7-20260909-090000-e980c594，静态仍b4aaa53a5f9c59173af2，源码/opt/wenmi-releases/wm-v7-20260909-090000-e980c594/source。真实续作批次3d70fcbb-c18f-46ba-a29e-208f38e908ae已成功完成两页资料选择，进入writer_group，原有版本哈希保持不变；剩余结果见/tmp/r176-resume-result.json。旧API回滚R173，静态R175保持。
+
 ## R175：全产品Logo统一，已上线
 
 合同coauthoring-v7/docs/worklists/PRODUCT-LOGO-175.md。补齐作者工作台/账号页、后台登录/宣传区/导航及两个站点favicon；当前统一路径/avatars/wenmi-logo-r174.png，旧branding文件保留兼容。32项相关测试、Web类型与构建通过；2026-09-09发布静态b4aaa53a5f9c59173af2，源码/opt/wenmi-releases/wm-web-r175-fb29b1c9/source。14项公网资源及后台Logo、入口、健康、401通过，不重启API/Worker。API仍R173；静态回滚R174 d6296e52b0b4abffe3ab。桌面后台与手机账号错误页视觉通过，本地API未运行，未冒充浏览器真实登录。
