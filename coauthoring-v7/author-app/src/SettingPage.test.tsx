@@ -22,7 +22,7 @@ const finalReview = {
   retryable: false, restartable: false, restartNeedsConfirmation: false, createdAt: '', updatedAt: ''
 };
 describe('V7设定页面', () => {
-  it('旧辅助事实直接完整展示，无规则详情入口；阅读不会创建重写任务', async () => {
+  it('按用户要求仅显示正文，不显示旧辅助小字或规则详情，阅读不创建重写任务', async () => {
     const original = fetchMock.getMockImplementation()! as (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).endsWith('/setting-department')) {
@@ -37,7 +37,8 @@ describe('V7设定页面', () => {
     render(<SettingPage bookId="book-1" />);
     fireEvent.click(await screen.findByRole('button', { name: '查看详情' }));
     const text = screen.getByText(/普通伤病用常规丹药。/).textContent!;
-    for (const fact of ['修士', '经脉受损需高阶丹药', '消耗灵物', '未修复会修为倒退']) expect(text).toContain(fact);
+    expect(text).toBe('普通伤病用常规丹药。');
+    for (const fact of ['经脉受损需高阶丹药', '消耗灵物', '未修复会修为倒退']) expect(screen.queryByText(new RegExp(fact))).not.toBeInTheDocument();
     expect(screen.queryByText('规则详情')).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
   });
