@@ -5,6 +5,7 @@ import {
   contextSelectionRepairPrompt,
   parseContextSelection,
   type V7CreationSourceCandidate,
+  type V7CreationContextPack,
   type V7CreationTaskKind
 } from '@wenmi/v7-backend';
 import {
@@ -12,8 +13,27 @@ import {
   boundProjectionTexts,
   compileCreationContextPlannerPrompt
 } from '../../apps/api/src/application/creation/v7-creation-context-compiler.js';
+import { inheritCreationSelection } from '../../apps/api/src/application/creation/v7-creation-context-compiler.js';
 
 describe('V7创作资料策划输入预算', () => {
+  it('章纲继承已确认上级的设定选择，系统加入必需来源，不重新搬入无关主题', () => {
+    const setting = settingCandidate();
+    const unrelated = { ...setting, sourceKey: 'formal:setting:other', sourceId: 'other' };
+    const parent = { ...contextSelectionFixture([setting]), selectedSources: [setting] } as unknown as V7CreationContextPack;
+    const result = inheritCreationSelection({ taskKind: 'outline', taskBrief: '展开当前链' }, [setting, unrelated, requiredCandidate()], parent);
+    expect(result?.selectedSourceKeys).toEqual([setting.sourceKey, requiredCandidate().sourceKey]);
+    expect(result?.excludedSourceKeys).toEqual([unrelated.sourceKey]);
+    expect(result?.taskResponsibilities).toEqual(['展开当前链']);
+    expect(result?.methodStrategy.mode).toBe('none');
+  });
+
+  it('正式规则版本改变或缺失时必须重新整理，不能沿用旧选择', () => {
+    const setting = settingCandidate();
+    const parent = { ...contextSelectionFixture([setting]), selectedSources: [setting] } as unknown as V7CreationContextPack;
+    expect(inheritCreationSelection({ taskKind: 'manuscript', taskBrief: '写本章' }, [{ ...setting, sourceVersion: '3' }], parent)).toBeNull();
+    expect(inheritCreationSelection({ taskKind: 'review', taskBrief: '审本章' }, [], parent)).toBeNull();
+    expect(inheritCreationSelection({ taskKind: 'volume', taskBrief: '规划新卷' }, [setting], parent)).toBeNull();
+  });
   it.each(['full', 'compact', 'optional-minimum', 'required-minimum'] as const)(
     '%s目录始终提供正式设定编号，不要求模型猜测被压缩掉的编号',
     (tier) => {

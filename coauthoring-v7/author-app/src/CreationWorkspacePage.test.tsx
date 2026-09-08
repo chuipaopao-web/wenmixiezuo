@@ -172,7 +172,7 @@ describe('V7卷链章创作工作台', () => {
     render(<CreationWorkspacePage bookId="book-1" focus="chapter" onNavigate={vi.fn()} />);
     expect(await screen.findByText('第2章正文')).toBeVisible();
     expect(screen.getAllByText('清照 · 主笔').some((node) => node.closest('.creation-result-members') !== null)).toBe(true);
-    expect(screen.getByText('顾清辞 · 独立审查')).toBeVisible();
+    expect(screen.getByText('顾清辞 · 审查编辑')).toBeVisible();
     fireEvent.click(screen.getByText('完整审查'));
     expect(screen.getByText('必须处理')).toBeVisible();
     expect(screen.getByText('军营时间与上章冲突。')).toBeInTheDocument();

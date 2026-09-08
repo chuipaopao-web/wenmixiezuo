@@ -32,7 +32,7 @@ export function resolveSettingTaskRoster(
   return cloneSettingRoster(parsed);
 }
 
-/** Read a recommendation task's frozen chief for historical display only. */
+/** Read the frozen recommendation member; old chief assignments remain readable. */
 export function readOpeningChiefTaskSnapshot(snapshotJson: string): V7OpeningMemberDefinition[] {
   const snapshot = parseJsonArray(snapshotJson);
   if (snapshot === null) throw new Error('设定清单主编快照无效');
@@ -84,11 +84,11 @@ function parseOpeningChief(value: unknown, index: number): V7OpeningMemberDefini
   const memberKey = text(row?.memberKey);
   const displayName = text(row?.displayName);
   const model = modelBinding(row?.model);
-  if (!memberKey || !displayName || row?.roleKey !== 'chief_editor' || model === undefined) return undefined;
+  if (!memberKey || !displayName || (row?.roleKey !== 'chief_editor' && row?.roleKey !== 'screenwriter') || model === undefined) return undefined;
   return {
     memberKey,
     displayName,
-    roleKey: 'chief_editor',
+    roleKey: row.roleKey,
     enabledByDefault: true,
     defaultForRole: typeof row.defaultForRole === 'boolean' ? row.defaultForRole : index === 0,
     fallbackPriority: positiveInteger(row.fallbackPriority) ?? index + 1,

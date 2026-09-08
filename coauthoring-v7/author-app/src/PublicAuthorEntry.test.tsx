@@ -70,7 +70,7 @@ describe('public author homepage entry', () => {
     expect(screen.getByRole('button', { name: /开始创作/ })).toBeEnabled();
     expect(screen.getByRole('link', { name: '查看 AI 编辑部协同创作' })).toBeVisible();
     expect(screen.getByLabelText('创作流程示意')).toBeVisible();
-    for (const copy of ['貂蝉', 'AI主编', '西施', 'AI副编', '红玉', 'AI策划编剧', '清照', 'AI主笔', '周行简', 'AI审查编辑']) {
+    for (const copy of ['貂蝉', 'AI主编', '西施', 'AI副编', '红玉', 'AI策划编剧', '清照', 'AI主笔', '周清妍', 'AI审查编辑']) {
       expect(document.body.textContent).toContain(copy);
     }
     expect(document.body.textContent).toContain('短剧创作：规划中。');

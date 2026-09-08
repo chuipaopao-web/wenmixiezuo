@@ -147,7 +147,7 @@ describe('V7统一成员与模型治理', () => {
 
     const creation = creationRosterFromGlobal(effective);
     expect(creation.filter((member) => member.roleKey === 'independent_reviewer').map((member) => member.model.modelId))
-      .toEqual(['kimi-k3', 'glm-5.3', 'deepseek-v4-pro']);
+      .toEqual(['deepseek-v4-pro', 'glm-5.3', 'kimi-k3']);
     expect(creation.filter((member) => member.roleKey === 'settlement_editor').map((member) => member.model.modelId))
       .toEqual(['deepseek-v4-pro', 'kimi-k3', 'glm-5.3']);
 

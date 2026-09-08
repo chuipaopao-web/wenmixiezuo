@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { settingChangeImpact } from '../../infrastructure/db/repositories/setting-change-impact.js';
 import { assertSettingReviewConsistency, settingReviewAuthority, SETTING_REVIEW_AUTHORITY_RULES } from './setting-review-consistency.js';
 import type { DatabaseSync } from 'node:sqlite';
-import { SETTING_CONCISE_INSTRUCTION, assertConciseSetting } from '@wenmi/opening-runtime';
+import { SETTING_CONCISE_INSTRUCTION, assertConciseSetting, parseSettingRules, renderSettingRules, renderSettingRule, SETTING_RULE_OUTPUT_INSTRUCTION, type SettingRule } from '@wenmi/opening-runtime';
 import { SETTING_EVALUATION_REPORT, settingReviewRanking } from '@wenmi/agent-catalog';
 import {
   V7_OPENING_MEMBERS,
@@ -26,6 +27,7 @@ import {
   projectSettingFinalContent,
   sanitizeAuthorFacingSettingText,
   settingItemByKey,
+  settingTopicKey,
   type V7AgentTaskKind,
   type V7ContextSourceTrace,
   type V7TaskOperationMode,
@@ -83,7 +85,7 @@ const SETTING_GROUP_SIZE = 5;
 // 设定目录、提示词取舍规则或解析硬门禁变化时必须提升版本。
 // 旧清单作为审计保留，但作者再次点击时要能创建一轮新任务，不能
 // 因开书资料未变而永久复用已经不符合当前合同的结果。
-const SETTING_RECOMMENDATION_CONTRACT_VERSION = 2;
+const SETTING_RECOMMENDATION_CONTRACT_VERSION = 3;
 // 轻量总审过去只能“指出”跨条目冲突，却可能让页面误以为正文已经
 // 改好。版本 2 会把受影响条目分成小资料包，再交给同一位主编真正
 // 写回候选正文；旧结果保留审计，但不会被当前页面继续复用。
@@ -106,6 +108,7 @@ type RecommendationState = {
 };
 type FinalReviewState = V7SettingFinalReviewStateRow;
 type FinalReviewPatch = {
+  rules?: SettingRule[];
   itemKey: string;
   finalContent: string;
   summary: string;
@@ -794,8 +797,8 @@ export class V7SettingEditorialService {
     const source = this.requireCurrentItem(ownerId, bookId, itemKey);
     const current = this.currentItemView(ownerId, bookId, itemKey);
     const content = input.content === undefined
-      ? requiredText(current.content, '当前设定内容', 1, 2_000)
-      : requiredText(input.content, '设定内容', 1, 2_000);
+      ? requiredText(current.content, '当前设定内容', 1, 12_000)
+      : requiredText(input.content, '设定内容', 1, 12_000);
     const instruction = note(input.instruction);
     const sourceRedesignTaskId = optionalIdentifier(input.sourceRedesignTaskId, '重新设计任务');
     const sourceOutputId = optionalIdentifier(input.sourceOutputId, '重新设计方案');
@@ -1181,7 +1184,7 @@ export class V7SettingEditorialService {
     }
     const chief = this.availableRecommendationChiefs()[0];
     if (chief === undefined) {
-      throw new DomainError(errorCodes.operationIncomplete, '主编们今天都在请假，暂时无法整理设定清单。', {}, true, 409);
+      throw new DomainError(errorCodes.operationIncomplete, '设定设计成员暂时无法接单，已有资料仍保留。', {}, true, 409);
     }
     const taskId = this.ids.next();
     const now = this.clock.now().toISOString();
@@ -1191,7 +1194,7 @@ export class V7SettingEditorialService {
       progress: 8,
       assignedMemberKey: chief.memberKey,
       attemptedMemberKeys: [],
-      publicMessage: '主人稍等，主编正在接收您已经确认的开书资料。'
+      publicMessage: '设计成员正在接收已确认的开书资料，判断本书需要的设定。'
     };
     this.repository.createRecommendationTask({
       taskId,
@@ -1441,7 +1444,7 @@ export class V7SettingEditorialService {
   }
 
   private availableRecommendationChiefs(): V7OpeningMemberDefinition[] {
-    return this.openingRoster().filter((member) => member.roleKey === 'chief_editor' && member.enabledByDefault && (
+    return this.openingRoster().filter((member) => member.roleKey === 'screenwriter' && member.enabledByDefault && (
       member.model.plan === 'coding' ? this.credentials.codingPlan : this.credentials.agentPlan
     )).toSorted((left, right) => Number(right.defaultForRole) - Number(left.defaultForRole) || left.fallbackPriority - right.fallbackPriority).map((member) => ({ ...member, model: { ...member.model } }));
   }
@@ -1542,9 +1545,8 @@ export class V7SettingEditorialService {
         const projections = this.currentSettingProjections(task.owner_id, task.book_id, items);
         const reviewPrompt = compileBatchFinalReviewPrompt(profile, items, projections, conciseReview ? 11_000 : 12_000);
         const reviewTokens = conciseReview ? 6_000 : 12_000;
-        const conciseKeys = new Set(items.filter((item) => item.state !== 'confirmed' && Array.from(item.content ?? '').length <= 600).map((item) => item.itemKey));
         const checkPatches = (patches: FinalReviewPatch[]): FinalReviewPatch[] => {
-          if (conciseReview) for (const patch of patches) if (conciseKeys.has(patch.itemKey)) assertConciseSetting({
+          for (const patch of patches) assertConciseSetting({
             content: patch.finalContent, contextSummary: patch.contextSummary, factEntries: patch.factEntries,
             designRationale: '', storyConsequences: [], dependencies: [], risks: []
           });
@@ -1561,7 +1563,7 @@ export class V7SettingEditorialService {
           if (Array.isArray(payload.compactModeRules)) payload.compactModeRules = payload.compactModeRules.filter((rule: string) => !rule.includes('factLedger'));
           payload.delivery = '只检查明确冲突并返回必要修订；没有冲突则pass、简短summary、空patches即可。不要重新抄写所有条目。事实账本和分组索引由系统从已保存版本及本次有效修订组装，不输出factLedger、groupSummaries、contextSummary。';
           payload.conciseDelivery = SETTING_CONCISE_INSTRUCTION;
-          payload.preservedContent = '原来600字以内的待确认条目修订后仍保持精练；原有较长内容不因篇幅自动改写。';
+          payload.preservedContent = '修订只解决实际冲突，保留全部不冲突的规则、条件、代价与例外；不按原文字数限制内容。';
           const result = JSON.stringify(payload);
           if (Array.from(result).length > 12_000) throw new Error('统一核对所需资料超过安全预算，已完成设定保留。');
           return result;
@@ -1713,6 +1715,7 @@ export class V7SettingEditorialService {
               groupKey: 'custom', groupTitle: current.groupTitle, required: false, deputyPolicy: 'conditional' as const
             };
             const itemReview: V7ChiefReview = {
+              ...(patch.rules ? { rules: patch.rules } : {}),
               verdict: patch.issues.length === 0 ? 'pass' : 'needs_author',
               finalContent: patch.finalContent, summary: patch.summary,
               contextSummary: patch.contextSummary, factEntries: patch.factEntries,
@@ -2474,7 +2477,7 @@ export class V7SettingEditorialService {
     let authorRevisionSourceTaskId: string | null = null;
     if (storedAuthorRevision !== undefined) {
       const stored = JSON.parse(storedAuthorRevision.content_json) as { content?: unknown; sourceRedesignTaskId?: unknown };
-      authorRevisionContent = requiredText(stored.content, '作者修改稿', 1, 2_000);
+      authorRevisionContent = requiredText(stored.content, '作者修改稿', 1, 12_000);
       authorRevisionSourceTaskId = optionalIdentifier(stored.sourceRedesignTaskId, '重新设计任务');
     }
     const failedAttempt = this.repository.latestModelOutcomeForJob(
@@ -2623,7 +2626,7 @@ export class V7SettingEditorialService {
       );
       let review: V7ChiefReview;
       let reviewTaskId = chiefTask.logicalTaskId;
-      try { review = parseChiefReview(rawReview); }
+      try { review = parseChiefReview(rawReview, proposal.rules ? proposal.content : undefined, proposal.rules); }
       catch {
         const repairTask = taskFor(
           'chief_repair', chief.memberKey, `${chiefTask.logicalTaskId}-repair`
@@ -2649,7 +2652,7 @@ export class V7SettingEditorialService {
             sourceTraces: settingContextSourceTraces(pack),
             technicalRetryTaskId: repairTask.technicalRetryTaskId
           })
-        ), proposal.content);
+        ), proposal.content, proposal.rules);
       }
       this.requireLeaseOwnership(batch, leaseToken);
       this.repository.atomic(() => {
@@ -3413,10 +3416,13 @@ export class V7SettingEditorialService {
     if (version === undefined) throw new DomainError(errorCodes.validation, '设定版本不存在或不属于本书。', {}, false, 404);
     const content = JSON.parse(version.content_json) as Partial<V7ChiefReview & V7WriterProposal>;
     const state = jobState ?? (item.state === 'confirmed' ? 'confirmed' : 'needs_author');
-    const finalContent = content.finalContent ?? content.content ?? null;
+    const rules = parseSettingRules(content.rules);
+    const finalContent = rules ? renderSettingRules(rules) : content.finalContent ?? content.content ?? null;
     return {
-      itemKey, label: item.item_label, groupTitle: item.group_title, state, stateText: stateText(state), assignedMemberKey,
-      content: finalContent === null ? null : projectSettingFinalContent(finalContent),
+      itemKey, topicKey: settingTopicKey(itemKey), label: item.item_label, groupTitle: item.group_title, state, stateText: stateText(state), assignedMemberKey,
+      ...(state !== 'confirmed' ? { changeImpact: settingChangeImpact(this.database, ownerId, bookId, itemKey) } : {}),
+      ...(rules ? { rules } : {}),
+      content: finalContent === null ? null : rules ? finalContent : projectSettingFinalContent(finalContent),
       designRationale: content.designRationale === undefined ? null : sanitizeAuthorFacingSettingText(content.designRationale),
       storyConsequences: (content.storyConsequences ?? []).map(sanitizeAuthorFacingSettingText).filter(Boolean),
       issues: (content.issues ?? []).map((issue) => ({
@@ -3548,6 +3554,7 @@ function compileBatchFinalReviewPrompt(
     ],
     hardRules: [
       ...SETTING_REVIEW_AUTHORITY_RULES,
+      SETTING_RULE_OUTPUT_INSTRUCTION,
       '不能把候选计划、可能情节或主编推测写成已经发生的事实。',
       '不能新增开书资料没有授权的系统、超能力、游戏、修仙、后宫或其他题材。',
       '不能用空泛大词替换原有具体有效信息。',
@@ -3565,7 +3572,7 @@ function compileBatchFinalReviewPrompt(
       conflicts: [{ itemKeys: ['涉及条目键'], problem: '冲突', decision: '如何统一', impact: '不统一会影响什么' }],
       patches: [{
         itemKey: '必须来自currentSettingCandidates.itemKey',
-        finalContent: '统一后的完整条目正文，不能只返回差异',
+        rules: [{ level: 'topic', statement: '完整修订后的规则', scope: '', conditions: [], costs: [], exceptions: [], objects: [] }],
         summary: '本项改了什么',
         contextSummary: '修改后供检索的一句话摘要',
         factEntries: ['修改后从finalContent提取的硬事实'],
@@ -3593,6 +3600,10 @@ function compileBatchFinalReviewPrompt(
   const projectionByKey = new Map(projections.map((projection) => [projection.itemKey, projection]));
   const compactPayload = {
     ...common,
+    // This pass only locates conflicts; revision contracts are sent later with
+    // the affected complete rules, not repeated in every navigation request.
+    hardRules: common.hardRules.filter((rule) => rule !== SETTING_RULE_OUTPUT_INSTRUCTION),
+    outputSchema: { ...common.outputSchema, patches: [] },
     reviewInputMode: 'layered_semantic_index',
     responsibility: `${common.responsibility} 当前条目较多，本轮只读取各条目设计时同步生成的语义索引，完整原文保留在逐项版本中。`,
     currentSettingCandidates: items.map((item) => {
@@ -3679,6 +3690,7 @@ function compileBatchFinalReviewPatchPrompts(
     })),
     hardRules: [
       ...SETTING_REVIEW_AUTHORITY_RULES.slice(0, 2),
+      SETTING_RULE_OUTPUT_INSTRUCTION,
       'patches必须逐项完整覆盖affectedItems，不能遗漏，也不能返回其他条目。',
       'finalContent必须是改好后的完整正文，不能只给差异或一句决定。',
       '即使某个条目已经采用最终口径，也要原样保留有效内容并返回完整正文，确保本组结果可原子核对。',
@@ -3690,7 +3702,7 @@ function compileBatchFinalReviewPatchPrompts(
     outputSchema: {
       patches: [{
         itemKey: '必须来自affectedItems.itemKey',
-        finalContent: '统一后的完整条目正文，2000字以内',
+        rules: [{ level: 'topic', statement: '完整修订后的规则', scope: '', conditions: [], costs: [], exceptions: [], objects: [] }],
         summary: '本项实际改了什么',
         contextSummary: '供后续检索的一句话摘要',
         factEntries: ['从finalContent逐条提取的硬事实'],
@@ -3731,13 +3743,15 @@ function parseBatchFinalReviewPatchGroup(raw: string, expectedItemKeys: readonly
       impact: requiredText(issue.impact, '问题影响', 1, 500),
       suggestion: requiredText(issue.suggestion, '处理建议', 1, 500)
     }));
-    const finalContent = requiredText(entry.finalContent, '统一后内容', 1, 2_000);
+    const rules = parseSettingRules(entry.rules);
+    const finalContent = rules ? renderSettingRules(rules) : requiredText(entry.finalContent, '统一后内容', 1, 12_000);
     return {
       itemKey,
       finalContent,
+      ...(rules ? { rules } : {}),
       summary: requiredText(entry.summary, '修订摘要', 1, 500),
       contextSummary: requiredText(entry.contextSummary ?? entry.summary, '修订检索摘要', 1, 300),
-      factEntries: Array.isArray(entry.factEntries) && entry.factEntries.length > 0
+      factEntries: rules ? rules.map(renderSettingRule) : Array.isArray(entry.factEntries) && entry.factEntries.length > 0
         ? finalStringArray(entry.factEntries, '修订设定事实', 1, 24)
         : [finalContent],
       issues,
@@ -3833,6 +3847,8 @@ function parseBatchFinalReview(
   });
   const seen = new Set<string>();
   const patches = finalObjectArray(value.patches, '修订条目').map((entry): FinalReviewPatch => {
+    const rules = parseSettingRules(entry.rules);
+    const finalContent = rules ? renderSettingRules(rules) : requiredText(entry.finalContent, '统一后内容', 1, 12_000);
     const itemKey = requiredText(entry.itemKey, '修订条目键', 1, 160);
     if (!allowed.has(itemKey) || seen.has(itemKey)) throw new Error('修订条目重复或不属于本书');
     seen.add(itemKey);
@@ -3843,12 +3859,13 @@ function parseBatchFinalReview(
     }));
     return {
       itemKey,
-      finalContent: requiredText(entry.finalContent, '统一后内容', 1, 2_000),
+      finalContent,
+      ...(rules ? { rules } : {}),
       summary: requiredText(entry.summary, '修订摘要', 1, 500),
       contextSummary: requiredText(entry.contextSummary ?? entry.summary, '修订检索摘要', 1, 300),
-      factEntries: Array.isArray(entry.factEntries) && entry.factEntries.length > 0
+      factEntries: rules ? rules.map(renderSettingRule) : Array.isArray(entry.factEntries) && entry.factEntries.length > 0
         ? finalStringArray(entry.factEntries, '修订设定事实', 1, 24)
-        : [requiredText(entry.finalContent, '统一后内容', 1, 2_000)],
+        : [finalContent],
       issues,
       suggestions: finalStringArray(entry.suggestions, '补充建议', 0, 12)
     };

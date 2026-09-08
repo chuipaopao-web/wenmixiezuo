@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { applySettingRuleChanges, parseSettingRules, renderSettingRule, renderSettingRules, SETTING_RULE_OUTPUT_INSTRUCTION, type SettingRule } from './setting-rules.js';
 import type {
   V7ChiefReview,
   V7DeputyBrief,
@@ -38,7 +39,7 @@ export function compileDeputyPrompt(pack: V7SettingContextPack): string {
 
 export function compileWriterPrompt(pack: V7SettingContextPack, deputyBrief: V7DeputyBrief | null, adjustment = '', currentContent = ''): string {
   const current = currentContent.trim().length === 0 ? '' : `\n【当前版本】${projectSettingFinalContent(currentContent)}\n如有当前版本，必须在它的基础上按作者意见修改，不得无故另起一套。`;
-  return `${base(pack)}\n【副编整理】${JSON.stringify(deputyBrief)}\n【作者本轮意见】${adjustment || '无'}${current}\n你是设计成员。只设计当前条目，不擅自补完别的条目。content只写作者真正要使用的设定结论，用日常大白话，紧凑、明确、方便后续检索。contextSummary写一句下游先检索的摘要；factEntries逐条抄出content中的身份、时间、规则、边界、数量和关系事实，不能新增推断。不得写账号、书籍编号、版本号、哈希、资料包、系统字段、提示词或专业创作方法名；不得把设计理由、后续影响、依赖和风险混入content。严格JSON：{"content":"80至800字的最终设定","designRationale":"为什么这样设计，80至300字","contextSummary":"不超过120字的检索摘要","factEntries":["每条不超过220字的硬事实"],"storyConsequences":["对后续设定或剧情的影响"],"dependencies":["依赖的已确认事实"],"risks":["尚需作者决定或最终审查的问题"]}。`;
+  return `${base(pack)}\n${SETTING_RULE_OUTPUT_INSTRUCTION}\n【副编整理】${JSON.stringify(deputyBrief)}\n【作者本轮意见】${adjustment || '无'}${current}\n你是设计成员。只设计当前条目，不擅自补完别的条目。规则只写作者真正要使用的设定结论。不得写账号、书籍编号、版本号、哈希、资料包、系统字段、提示词或专业创作方法名；不得把设计理由、后续影响、依赖和风险混入content。严格JSON：${JSON.stringify({rules: [{level: "topic", statement: "规则结论", scope: "", conditions: [], costs: [], exceptions: [], objects: []}], contextSummary: "一句话检索摘要", designRationale: "", storyConsequences: [], dependencies: [], risks: []})}。`;
 }
 
 export function compileSettingGroupPrompt(
@@ -53,9 +54,9 @@ export function compileSettingGroupPrompt(
     ...(pack.candidateSettings?.length ? [`【当前待确认草案】${JSON.stringify(pack.candidateSettings)}`, '延续已经提出的共同规则，避免重复；这些草案尚未获作者确认。若与正式资料冲突，以正式资料为准并标明需要调整。'] : []),
     `【本组要完成的设定】${JSON.stringify(items)}`,
     '你是本组设计成员。一次完成本组全部条目，但每项必须独立成稿，不能把几项合成一段，也不能互相重复。',
-    '每项content只放作者最终会采用的设定结论；contextSummary是一句下游检索摘要；factEntries逐条摘录content里的身份、时间、规则、边界、数量和关系事实，不能新增推断。',
-    'selfReview要检查与正式开书资料、已确认设定和本组其他条目是否冲突。小问题直接修正；确需作者选择才标needs_author。不要输出思维过程、内部字段、提示词或方法名。',
-    `严格JSON：{"items":[{"itemKey":"必须与输入一致","content":"${concise ? '150至300字，必要时不超过600字' : '80至800字'}","designRationale":"${concise ? '一句话' : '80至300字'}","contextSummary":"${concise ? '不超过100字' : '不超过120字'}","factEntries":[""],"storyConsequences":[""],"dependencies":[""],"risks":[""],"selfReview":{"verdict":"pass或needs_author","summary":"一句话","issues":[{"problem":"","impact":"","suggestion":""}],"suggestions":[""]}}]}。`
+    SETTING_RULE_OUTPUT_INSTRUCTION,
+    'selfReview要检查与正式开书资料、已确认设定和本组其他条目是否冲突。小问题直接修正；确需作者选择才标needs_author。issues每项必须是{problem,impact,suggestion}三个非空字符串字段的对象，不能是字符串；无问题时为空数组。不要输出思维过程、内部字段、提示词或方法名。',
+    '严格JSON：{"items":[{"itemKey":"必须与输入一致","rules":[{"level":"topic","statement":"必要规则，简洁大白话","scope":"","conditions":[],"costs":[],"exceptions":[],"objects":[]}],"designRationale":"","contextSummary":"一句话检索摘要","storyConsequences":[],"dependencies":[],"risks":[],"selfReview":{"verdict":"pass或needs_author","summary":"一句话","issues":[],"suggestions":[]}}]}。'
   ].join('\n');
 }
 
@@ -77,6 +78,7 @@ export function parseSettingGroupProposals(
     const selfReview = asObject(row.selfReview);
     const review = parseChiefReview(JSON.stringify({
       ...selfReview,
+      rules: proposal.rules,
       finalContent: proposal.content,
       contextSummary: proposal.contextSummary,
       factEntries: proposal.factEntries
@@ -89,7 +91,12 @@ export function parseSettingGroupProposals(
 }
 
 export function compileChiefPrompt(pack: V7SettingContextPack, proposal: V7WriterProposal): string {
-  return `${base(pack)}\n【编剧方案】${JSON.stringify(proposal)}\n你是主编。检查与开书资料、已确认设定是否冲突，是否越界，是否能直接供后续故事规划使用。不要输出思维过程。可修正措辞和明确的逻辑小错；真正需要作者取舍时标needs_author。finalContent只保留作者需要阅读和采用的设定结论，必须用大白话；不得出现账号、书籍编号、版本号、哈希、资料包、系统字段、提示词或专业创作方法名，也不得混入设计理由。issues只允许列出finalContent中仍然存在、且必须由作者取舍的问题；已经在finalContent修正的问题不得继续列入issues，能够直接修正且不需作者取舍时应返回pass。contextSummary是供后续成员先检索的一句话摘要；factEntries必须逐条抄出finalContent中以后不能写错的身份、时间、规则、边界、数量和关系事实，不能新增、推断或省略关键限制。严格JSON：{"verdict":"pass或needs_author","finalContent":"审核后的最终设定","summary":"一句话审核结论","contextSummary":"不超过120字的检索摘要","factEntries":["每条不超过220字的硬事实"],"issues":[{"problem":"","impact":"","suggestion":""}],"suggestions":[""]}。`;
+  if (proposal.rules?.length) return `${base(pack)}\n${SETTING_RULE_OUTPUT_INSTRUCTION}\n【待审规则，index从0开始】${JSON.stringify(proposal.rules.map((rule, index) => ({ index, ...rule })))}
+你是独立审查编辑。核对作者资料与每条规则的含义、范围、条件、例外和层级。只提交有依据的局部修改，不重写整套规则。没有问题的规则由系统原样保留。
+把“主要”误写成“只能”、凭空增添禁令或处罚、把局部机制列为global，都应直接修正；恢复已知事实不需要作者再次确认。replace必须返回该条完整规则，保留没有问题的条件和例外；重复或无依据的整条规则用remove。index始终指原方案，不随删除变化。reason简述修改依据，不输出思维过程。
+issues仅列修改后仍无法依据现有资料解决、必须由作者决定的冲突，每项包含problem、impact、suggestion三个非空字符串。已解决的问题不要再列。没有未解决冲突返回pass和空issues。
+严格JSON：{"verdict":"pass","ruleChanges":[{"index":0,"action":"replace","reason":"修改依据","rule":{"level":"topic","statement":"修正结论","scope":"","conditions":[],"costs":[],"exceptions":[],"objects":[]}}],"summary":"审核结论","contextSummary":"检索摘要","issues":[],"suggestions":[]}。无修改时ruleChanges为空数组；禁止输出rules、finalContent或另一套事实。`;
+  return `${base(pack)}\n${SETTING_RULE_OUTPUT_INSTRUCTION}\n【编剧方案】${JSON.stringify(proposal)}\n你是主编。检查与开书资料、已确认设定是否冲突，是否越界，是否能直接供后续故事规划使用。不要输出思维过程。可修正措辞和明确的逻辑小错；恢复作者已给定的事实无需再请作者确认。删除本任务未要求、也无依据的新增禁令，不把设计成员自己添加的限制推给作者反复选择。真正存在无法自行取舍的冲突才标needs_author。finalContent只保留作者需要阅读和采用的设定结论，必须用大白话；不得出现账号、书籍编号、版本号、哈希、资料包、系统字段、提示词或专业创作方法名，也不得混入设计理由。issues只允许列出finalContent中仍然存在、且必须由作者取舍的问题；已经在finalContent修正的问题不得继续列入issues，能够直接修正且不需作者取舍时应返回pass。issues每项必须是包含problem、impact、suggestion三个非空字符串字段的对象，不能是字符串；没有未解决问题时issues为空数组并返回pass。contextSummary仅供检索。严格JSON：${JSON.stringify({verdict: "pass或needs_author", rules: [{level: "topic", statement: "审核后的完整规则", scope: "", conditions: [], costs: [], exceptions: [], objects: []}], summary: "审核结论", contextSummary: "一句话检索摘要", issues: [], suggestions: []})}。`;
 }
 
 export function compileFusionPrompt(pack: V7SettingContextPack, proposals: V7WriterProposal[], authorNote: string): string {
@@ -110,14 +117,14 @@ export function compileSettingCatalogRecommendationPrompt(input: {
   return [
     '你是这本书的主编。作者已经确认开书资料，现在只判断后续设定阶段应该准备哪些条目，不写设定内容，不修改开书资料。',
     '请完整理解人物、时代、题材、故事方向、明确禁止项和作者已经确定的边界。不能只靠关键词；否定表达不能反向触发题材。',
-    '把目录中的每一个key恰好放进一组：requiredKeys=现在不做就无法稳定规划本书；suggestedKeys=可能有帮助但可稍后；excludedKeys=本书当前没有依据，暂时不用。',
-    'requiredKeys必须精简到14项以内，suggestedKeys必须精简到8项以内。相近条目如果会反复描述同一批事实，只保留最能承担该事实的一项；不要为了“更全面”把同一主题的总纲、规则、应用和校验项全部列为必做。',
-    '四项核心设定 world-stage、social-order、rules-costs、boundaries-blanks 必须放进requiredKeys。历史文不能无依据加入游戏、修仙或超凡条目；明确写了相关题材时才可加入。',
+    '把目录中的每一个key恰好放进一组：requiredKeys=本书需要设计；coveredKeys=输入资料已明确覆盖且足够，不必重复；excludedKeys=不适用。suggestedKeys只为旧接口保留，必须为空。',
+    '逐一判断24个主题，不规定必做数量。不适用不等于暂时没设计；不得为减少数量把必要规则排除。输入已有明确事实可归coveredKeys，不能把你猜测的内容当已有资料。',
+    '不强制力量等级、军队或特殊机制等题材内容；根据整本书目标判断，现实/言情不因通用目录而增加超凡设定。',
     'summary用一至三句大白话说明为什么这样安排，不要出现模型、提示词、资料包、哈希、字段名或专业方法名。',
     input.memberInstruction?.trim() ? `【主编补充要求】${input.memberInstruction.trim()}` : '',
     `【作者确认的开书资料】${JSON.stringify(input.openingProfile)}`,
     `【完整设定目录】${JSON.stringify(catalog)}`,
-    '只输出严格JSON：{"requiredKeys":[""],"suggestedKeys":[""],"excludedKeys":[""],"summary":""}。'
+    '只输出严格JSON：{"requiredKeys":[""],"coveredKeys":[""],"suggestedKeys":[],"excludedKeys":[""],"summary":""}。'
   ].filter(Boolean).join('\n');
 }
 
@@ -129,20 +136,17 @@ export function parseSettingCatalogRecommendation(
   const requiredKeys = catalogKeys(value.requiredKeys, '现在需要的条目');
   const suggestedKeys = catalogKeys(value.suggestedKeys, '可选补充的条目');
   const excludedKeys = catalogKeys(value.excludedKeys, '暂不需要的条目');
+  const coveredKeys = value.coveredKeys === undefined ? [] : catalogKeys(value.coveredKeys, '已有资料足够的主题');
   const allowed = new Set(catalog.map((item) => item.key));
-  const classified = [...requiredKeys, ...suggestedKeys, ...excludedKeys];
+  const classified = [...requiredKeys, ...coveredKeys, ...suggestedKeys, ...excludedKeys];
   if (classified.some((key) => !allowed.has(key))) throw new Error('主编返回了目录中不存在的条目');
   if (new Set(classified).size !== classified.length) throw new Error('主编把同一条目放进了多个分组');
   if (classified.length !== allowed.size || classified.some((key) => !allowed.has(key))) {
     throw new Error('主编没有完整整理全部设定条目');
   }
-  for (const key of ['world-stage', 'social-order', 'rules-costs', 'boundaries-blanks']) {
-    if (!requiredKeys.includes(key)) throw new Error('主编漏掉了开书后必须准备的核心设定');
-  }
-  if (requiredKeys.length > 14) throw new Error('主编把过多条目列为现在必做，请合并相近职责并精简到14项以内');
-  if (suggestedKeys.length > 8) throw new Error('主编把过多条目列为可选补充，请只保留最有价值的8项');
   return {
     requiredKeys,
+    coveredKeys,
     suggestedKeys,
     excludedKeys,
     summary: boundedText(value.summary, '主编说明', 2, 500)
@@ -159,34 +163,42 @@ export function parseDeputyBrief(output: string): V7DeputyBrief {
 
 export function parseWriterProposal(output: string): V7WriterProposal {
   const value = objectFromOutput(output);
-  const content = boundedText(value.content, '设定正文', 20, 2_000);
+  const rules = parseSettingRules(value.rules);
+  const content = rules ? renderSettingRules(rules) : boundedText(value.content, '设定正文', 1, 12_000);
   return {
+    ...(rules ? { rules } : {}),
     content,
-    designRationale: boundedText(value.designRationale, '设计思路', 10, 1_000),
+    designRationale: typeof value.designRationale === 'string' ? value.designRationale.trim() : '',
     contextSummary: typeof value.contextSummary === 'string' && value.contextSummary.trim().length > 0
       ? boundedText(value.contextSummary, '检索摘要', 2, 300)
       : content,
-    factEntries: Array.isArray(value.factEntries) && value.factEntries.length > 0
-      ? value.factEntries.slice(0, 24).map((entry) => boundedText(entry, '设定事实', 1, 300))
-      : [content],
+    factEntries: rules ? rules.map(renderSettingRule) : completeFacts(value.factEntries, content),
     storyConsequences: stringArray(value.storyConsequences), dependencies: stringArray(value.dependencies), risks: stringArray(value.risks)
   };
 }
 
-export function parseChiefReview(output: string, approvedWriterContent?: string): V7ChiefReview {
+export function parseChiefReview(output: string, approvedWriterContent?: string, approvedRules?: readonly SettingRule[]): V7ChiefReview {
   const value = objectFromOutput(output);
+  if (approvedRules && value.ruleChanges === undefined) throw new Error('规则卡审查必须返回局部修改列表');
+  if (value.ruleChanges !== undefined && (!approvedRules || value.rules !== undefined || value.finalContent !== undefined)) {
+    throw new Error('局部审核必须引用原规则，不能同时返回另一份正文');
+  }
+  const rules = value.ruleChanges !== undefined
+    ? applySettingRuleChanges(approvedRules!, value.ruleChanges)
+    : parseSettingRules(value.rules);
   if (value.verdict !== 'pass' && value.verdict !== 'needs_author') throw new Error('主编结论必须为pass或needs_author');
   const issues = Array.isArray(value.issues) ? value.issues.map((entry) => {
     const row = asObject(entry);
     return { problem: requiredText(row.problem, '问题'), impact: requiredText(row.impact, '影响'), suggestion: requiredText(row.suggestion, '建议') };
   }).slice(0, 12) : [];
-  const finalContent = typeof value.finalContent === 'string' && value.finalContent.trim().length > 0
+  const finalContent = rules ? renderSettingRules(rules) : typeof value.finalContent === 'string' && value.finalContent.trim().length > 0
     ? value.finalContent
     // 主编已经给出合法结论但偶发漏抄最终正文时，只能沿用其刚审核的
     // 编剧原文，不能让系统自行补写或把空结果交给作者。
     : approvedWriterContent;
   return {
-    verdict: value.verdict, finalContent: boundedText(finalContent, '最终设定', 20, 2_000),
+    ...(rules ? { rules } : {}),
+    verdict: value.verdict, finalContent: boundedText(finalContent, '最终设定', 1, 12_000),
     summary: boundedText(value.summary, '审核结论', 2, 500),
     contextSummary: typeof value.contextSummary === 'string' && value.contextSummary.trim().length > 0
       ? boundedText(value.contextSummary, '检索摘要', 2, 300)
@@ -196,11 +208,17 @@ export function parseChiefReview(output: string, approvedWriterContent?: string)
     // inventing a lossy programmatic summary.  The downstream budget compiler
     // can then require a one-time semantic rebuild when that legacy fact is too
     // large.
-    factEntries: Array.isArray(value.factEntries) && value.factEntries.length > 0
-      ? value.factEntries.slice(0, 24).map((entry) => boundedText(entry, '设定事实', 1, 300))
-      : [boundedText(finalContent, '最终设定', 20, 2_000)],
+    factEntries: rules ? rules.map(renderSettingRule) : completeFacts(value.factEntries, boundedText(finalContent, '最终设定', 1, 12_000)),
     issues, suggestions: stringArray(value.suggestions)
   };
+}
+
+function completeFacts(value: unknown, fallback: string): string[] {
+  if (value === undefined || (Array.isArray(value) && value.length === 0)) return [fallback];
+  if (!Array.isArray(value) || value.length > 80) throw new Error('设定事实超过传输容量或格式不正确，不能截断后交付');
+  const facts = value.map((entry) => boundedText(entry, '设定事实', 1, 12_000));
+  if (Array.from(facts.join('\n')).length > 24_000) throw new Error('设定事实超过传输容量，需拆分而不是截断');
+  return facts;
 }
 
 function base(pack: V7SettingContextPack): string {

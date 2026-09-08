@@ -22,7 +22,7 @@ export const V7_ROLE_CONTRACTS: readonly V7RoleContract[] = [
     ['正式资料读取', '版本核对', '最小充分资料包', '问题反馈'],
     '资料包必须来源明确、范围最小且不得把未来计划写成已经发生。', true),
   role('planning_writer', '策划编剧', '设计开书、设定、全书路线、卷、链和章纲等未来方案。',
-    ['opening_design', 'setting_design', 'planning_recipe', 'planning_tree', 'chapter_outline', 'title_design'],
+    ['opening_design', 'setting_recommendation', 'setting_design', 'planning_recipe', 'planning_tree', 'chapter_outline', 'title_design'],
     ['创意方案', '结构规划', '人物设计', '商业节奏', '题材适配', '大白话表达'],
     ['方法候选读取', '正式资料读取', '设定目录读取', '问题反馈', '任务交接'],
     '方案必须完整、可修改、可追溯；未确认内容只能是候选。', true),

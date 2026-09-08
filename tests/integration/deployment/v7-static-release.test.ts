@@ -64,7 +64,10 @@ describe('V7 组合静态发布包', () => {
     expect(caddy).not.toContain('/opt/wenmi/apps/web/dist');
     expect(caddy).toMatch(/handle \/v7\/\*/u);
     expect(caddy).toMatch(/try_files \{path\} \/v7\/index\.html/u);
-    expect(caddy).toMatch(/admin\.wenmixiezuo\.com[\s\S]*handle \{\s+redir \* \/v7\/ 308/u);
+    const admin = caddy.slice(caddy.indexOf('admin.wenmixiezuo.com {'));
+    expect(admin).toContain('rewrite * /v7/index.html');
+    expect(admin).toMatch(/@adminVersionProbe \{[^}]*header Sec-Fetch-Dest empty[^}]*header Sec-Fetch-Mode cors/u);
+    expect(admin).not.toMatch(/handle \{\s+redir \* \/v7\/ 308/u);
   });
 
   it('把作者端放在根、后台放在 /v7，并生成可重复校验的内容发布号', async () => {

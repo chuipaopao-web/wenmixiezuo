@@ -4,12 +4,12 @@ import { canonicalMemberIdentityKey, publicRoleKey, publicRoleLabel, publicStatu
 describe('作者端成员与岗位投影', () => {
   it('把历史临时席位统一翻译成七类固定岗位', () => {
     expect(publicRoleKey('structure_deputy')).toBe('deputy_editor');
-    expect(publicRoleLabel('commercial_deputy')).toBe('副编');
-    expect(publicRoleLabel('资料编审')).toBe('副编');
+    expect(publicRoleLabel('commercial_deputy')).toBe('资料编辑');
+    expect(publicRoleLabel('资料编审')).toBe('资料编辑');
     expect(publicRoleLabel('outline_writer')).toBe('策划编剧');
     expect(publicRoleLabel('planning_maintainer')).toBe('记录编辑');
-    expect(publicRoleLabel('independent_reviewer')).toBe('独立审查');
-    expect(publicRoleLabel('visual_renderer')).toBe('视觉编剧');
+    expect(publicRoleLabel('independent_reviewer')).toBe('审查编辑');
+    expect(publicRoleLabel('visual_renderer')).toBe('封面画师');
   });
 
   it('按全局成员身份去重，并让有真实工作的快照优先', () => {

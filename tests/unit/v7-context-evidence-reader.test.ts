@@ -17,6 +17,18 @@ const selection: V7CreationContextSelection = {
 };
 
 describe('分批原文证据与预算', () => {
+  it('已确认全书规则即使未被模型选中也完整保留条件和例外', async () => {
+    const rule = { level: 'global', statement: '驿路不能跨越封锁区。', scope: '全书',
+      conditions: ['封锁尚未解除'], costs: [], exceptions: ['持守军通行令可以通行'], objects: [] };
+    const result = await readBudgetedEvidence({ task: '设计本章', budget: 1600,
+      sources: [{ key: 'rules', label: '正式规则', authority: 'formal', required: true,
+        content: { rules: [rule], optional: '无关资料。'.repeat(1800) } }],
+      generate: async () => JSON.stringify({ keepIds: [], essentialIds: [] }) });
+    const rendered = JSON.stringify(result);
+    expect(rendered).toContain('封锁尚未解除');
+    expect(rendered).toContain('持守军通行令可以通行');
+    expect(rendered).not.toContain('无关资料');
+  });
   it('小资料完全保留，不产生额外模型调用', async () => {
     const content = { actual: '正文已发生事实', future: '未来计划' };
     expect(await readBudgetedEvidence({ task: '续写', sources: [{ ...source, content }], budget: 3000,

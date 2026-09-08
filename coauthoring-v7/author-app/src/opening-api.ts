@@ -641,6 +641,10 @@ export interface SettingMemberView {
 }
 export interface SettingIssue { problem: string; impact: string; suggestion: string; }
 export interface SettingItemView {
+  topicKey?: string;
+  changeImpact?: { planning: Array<{ kind: string; name: string }>; finishedChapters: number };
+  rules?: Array<{ level: 'global' | 'topic' | 'object'; statement: string; scope: string;
+    conditions: string[]; costs: string[]; exceptions: string[]; objects: string[] }>;
   itemKey: string; label: string; groupTitle: string;
   state: 'queued' | 'working' | 'chief_review' | 'needs_author' | 'confirmed' | 'failed';
   stateText: string; assignedMemberKey: string | null; content: string | null; designRationale: string | null;
@@ -683,7 +687,7 @@ export interface SettingCatalogRecommendationView {
   progress: number;
   member: { memberKey: string; displayName: string } | null;
   attemptedMembers: Array<{ memberKey: string; displayName: string }>;
-  result: { requiredKeys: string[]; suggestedKeys: string[]; excludedKeys: string[]; summary: string } | null;
+  result: { requiredKeys: string[]; suggestedKeys: string[]; coveredKeys?: string[]; excludedKeys: string[]; summary: string } | null;
   retryable: boolean;
   restartable: boolean;
   createdAt: string;

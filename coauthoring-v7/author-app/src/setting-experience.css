@@ -22,6 +22,13 @@
 .setting-handoff { margin: 0; color: #37675b; font-size: 14px; }
 .setting-delivery>small { color: var(--ink-soft); }
 .setting-page .setting-final-content { font-size: 16px; line-height: 1.8; margin: 12px 0; }
+.setting-page .setting-rule-list { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 14px; }
+.setting-page .setting-rule-list li { border-left: 3px solid #c7d9d0; padding-left: 12px; overflow-wrap: anywhere; }
+.setting-page .setting-rule-list p { margin: 0 0 4px; line-height: 1.8; color: #2e3e39; }
+.setting-page .setting-rule-list small { display: inline; line-height: 1.7; color: #536b62; white-space: pre-wrap; }
+.setting-page .setting-rule-list small + small::before { content: '；'; }
+.setting-page .setting-change-impact { margin: 14px 0; padding: 12px 14px; border-left: 3px solid #b99662; background: #faf7f0; color: #65583f; border-radius: 4px; }
+.setting-page .setting-change-impact p { margin: 6px 0 0; line-height: 1.7; }
 .setting-page .setting-result-card > footer { display: flex; flex-wrap: wrap; gap: 8px; }
 .setting-page .setting-result-card > footer button { min-height: 44px; justify-content: center; }
 @media(max-width:600px) {

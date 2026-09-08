@@ -4,6 +4,8 @@ import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/m
 import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { V7PlanningSourceCompiler } from '../../../apps/api/src/application/planning/v7-planning-source-compiler.js';
+import { settingChangeImpact } from '../../../apps/api/src/infrastructure/db/repositories/setting-change-impact.js';
+import { V7SettingLedgerReader } from '../../../apps/api/src/application/books/v7-setting-ledger-reader.js';
 import { V7SettingEditorialRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.js';
 import { V7_SETTING_CATALOG, V7_SETTING_MEMBERS, validateSettingEditorialRoster } from '@wenmi/v7-backend';
 import { createTestContext as createBaseTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
@@ -21,6 +23,84 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7设定编辑部', () => {
+  it('必要设定已被开书资料覆盖时可继续，缺失、跨用户或过期分类不能绕过准备', async () => {
+    context = createTestContext('r164-covered-');
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
+    try {
+      const cookie = await register(app, 'covered@example.test', '覆盖测试', 'covered-test-password');
+      const bookId = await createBook(app, cookie, '已有完整资料', 'r164-covered-book', '历史脑洞');
+      const owner = context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string };
+      const reader = new V7SettingLedgerReader(context.database);
+      const input = { ownerId: owner.owner_id, bookId, openingVersion: 1, settings: [] };
+      expect(() => reader.readCurrent(input)).toThrow('必要设定');
+      const created = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-recommendations`, headers: { ...HEADERS, cookie }, payload: {} });
+      const result = await pollRecommendation(app, cookie, bookId, created.json().data.taskId);
+      expect(result.status).toBe('ready');
+      const classification = { requiredKeys: [], suggestedKeys: [], coveredKeys: ['world-stage'],
+        excludedKeys: V7_SETTING_CATALOG.filter((item) => item.key !== 'world-stage').map((item) => item.key), summary: '必要规则已有依据' };
+      context.database.prepare('UPDATE v7_setting_batches SET selected_items_json=? WHERE batch_id=?')
+        .run(JSON.stringify({ taskKind: 'catalog_recommendation', result: classification }), result.taskId);
+      expect(reader.readCurrent(input).content.summary).toContain('正式开书资料覆盖');
+      expect(reader.readCurrent(input).projections).toEqual([]);
+      expect(() => reader.readCurrent({ ...input, openingVersion: 2 })).toThrow('必要设定');
+      expect(() => reader.readCurrent({ ...input, ownerId: 'other-user' })).toThrow('必要设定');
+      classification.excludedKeys.pop();
+      context.database.prepare('UPDATE v7_setting_batches SET selected_items_json=? WHERE batch_id=?')
+        .run(JSON.stringify({ taskKind: 'catalog_recommendation', result: classification }), result.taskId);
+      expect(() => reader.readCurrent(input)).toThrow('必要设定');
+    } finally { await app.close(); }
+  });
+
+  it('新规则经过设计、保存和页面读取仍保留完整条件，正文与事实同源', async () => {
+    context = createTestContext('r164-rules-');
+    const delegate = new SettingResolver(false);
+    const resolver: V7OpeningModelAdapterResolver = { resolve(provider, modelId, purpose) {
+      const adapter = delegate.resolve(provider, modelId, purpose);
+      return { ...adapter, generate: async (request, signal) => {
+        const stage = settingStagePrompt(request.prompt);
+        if (stage.includes('v7_setting_batch_final_review_v1')) return successfulModelResult(provider, modelId,
+          JSON.stringify({ verdict: 'pass', summary: '现有规则一致', unifiedDecisions: [], conflicts: [], patches: [] }));
+        if (!stage.includes('v7_setting_group_design_v1')) return adapter.generate(request, signal);
+        const output = JSON.parse(groupedSettingOutput(stage));
+        for (const item of output.items) {
+          item.rules = [{ level: 'global', statement: '本书没有超自然力量。', scope: '全书',
+            conditions: [], costs: [], exceptions: ['传闻和人物误解不能当作事实'], objects: [] }];
+          item.content = '系统不会采用的冲突副本：主角能施法。';
+          item.factEntries = ['主角能施法'];
+        }
+        return successfulModelResult(provider, modelId, JSON.stringify(output));
+      }};
+    }};
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'canonical-rules@example.test', '规则作者', 'rules-test-password');
+      const bookId = await createBook(app, cookie, '规则验证', 'r164-rule-book', '历史脑洞');
+      const response = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`,
+        headers: { ...HEADERS, cookie }, payload: { selectedItemKeys: ['world-stage'], designMemberKey: 'planner-deepseek-v4-pro', idempotencyKey: 'r164-rule-batch' } });
+      expect(response.statusCode, response.body).toBe(200);
+      const batch = await pollBatch(app, cookie, bookId, response.json().data.batchId);
+      expect(batch.status).toBe('awaiting_author');
+      expect(batch.items[0].content).toContain('传闻和人物误解不能当作事实');
+      expect(batch.items[0].content).not.toContain('主角能施法');
+      const versions = context.database.prepare('SELECT content_json FROM v7_setting_item_versions WHERE book_id=?').all(bookId) as Array<{content_json: string}>;
+      expect(versions.length).toBeGreaterThan(0);
+      const saved = JSON.parse(versions.at(-1)!.content_json);
+      expect(saved.rules[0].level).toBe('global');
+      expect(saved.finalContent).toBe(saved.factEntries.join('\n\n'));
+      const confirmed = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-items/world-stage/confirm`,
+        headers: { ...HEADERS, cookie }, payload: { expectedRevision: batch.items[0].revision } });
+      expect(confirmed.statusCode, confirmed.body).toBe(200);
+      const owner = context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as {owner_id: string};
+      const formal = new V7SettingEditorialRepository(context.database).confirmedVersions(owner.owner_id, bookId)[0]!;
+      context.database.prepare(`INSERT INTO v7_planning_tree_versions
+        (tree_version_id,owner_id,book_id,tree_kind,scope_id,revision,lifecycle,schema_version,content_json,content_hash,source_refs_json,created_by,created_at)
+        VALUES (?,?,?,'book',?,1,'confirmed','v7-planning-tree-v1',?,?,?,'author',?)`).run(
+        'rule-impact-tree', owner.owner_id, bookId, bookId, JSON.stringify({title:'全书方向'}), 'a'.repeat(64),
+        JSON.stringify([{sourceKind:'setting',sourceId:formal.version_id,version:String(formal.revision)}]), '2026-09-08T00:00:00Z');
+      expect(settingChangeImpact(context.database, owner.owner_id, bookId, 'world-stage').planning).toEqual([{kind:'book',name:'全书方向'}]);
+      expect(settingChangeImpact(context.database, 'another-owner', bookId, 'world-stage').planning).toEqual([]);
+    } finally { await app.close(); }
+  });
   it.each(['repair', 'reject'] as const)('来源身份明确且矛盾通过结论走既有%s路径，不污染正式设定', async mode => {
     context=createTestContext('r154-'+mode+'-');
     const delegate=new SettingResolver(false);let calls=0;const prompts:string[]=[];
@@ -32,7 +112,7 @@ describe('V7设定编辑部', () => {
         calls++;prompts.push(stage);
         const repaired=mode==='repair'&&stage.includes('上次结果：');
         return successfulModelResult(provider,modelId,JSON.stringify({verdict:repaired?'needs_author':'pass',summary:repaired?'功效尚需确认。':'检查通过。',unifiedDecisions:[],conflicts:[],patches:[{
-          itemKey:'history-baseline',finalContent:'该候选办法的实际功效还没有可靠依据，需要作者决定是否作为虚构规则采用。',summary:'保留待决定问题。',contextSummary:'功效尚待确认。',factEntries:['该候选办法的实际功效还没有可靠依据。'],issues:[{problem:'功效未经核实',impact:'可能影响设定成立',suggestion:'核实或明确为虚构规则'}],suggestions:[]
+          itemKey:'history',finalContent:'该候选办法的实际功效还没有可靠依据，需要作者决定是否作为虚构规则采用。',summary:'保留待决定问题。',contextSummary:'功效尚待确认。',factEntries:['该候选办法的实际功效还没有可靠依据。'],issues:[{problem:'功效未经核实',impact:'可能影响设定成立',suggestion:'核实或明确为虚构规则'}],suggestions:[]
         }]}));
       }};
     }};
@@ -40,7 +120,7 @@ describe('V7设定编辑部', () => {
     try{
       const cookie=await register(app,'r154-'+mode+'@example.test','审查验收','fixture-pass-154');
       const bookId=await createBook(app,cookie,'审查验收','r154-book-'+mode,'历史脑洞');const url=`/api/v1/v7/books/${bookId}`;
-      const seeded=await app.inject({method:'POST',url:url+'/setting-batches',headers:{...HEADERS,cookie},payload:{selectedItemKeys:['world-stage','history-baseline'],idempotencyKey:'r154-seed-'+mode}});
+      const seeded=await app.inject({method:'POST',url:url+'/setting-batches',headers:{...HEADERS,cookie},payload:{selectedItemKeys:['world-stage','history'],idempotencyKey:'r154-seed-'+mode}});
       await pollBatch(app,cookie,bookId,seeded.json().data.batchId);
       const department=await app.inject({method:'GET',url:url+'/setting-department',headers:{...HEADERS,cookie}});
       const world=department.json().data.confirmedItems.find((item:{itemKey:string})=>item.itemKey==='world-stage');
@@ -53,12 +133,12 @@ describe('V7设定编辑部', () => {
       const result=await pollFinalReview(app,cookie,bookId);
       const payload=JSON.parse(prompts[0]!);
       expect(payload.currentSettingCandidates.find((item:{itemKey:string})=>item.itemKey==='world-stage').authority).toBe('confirmed');
-      expect(payload.currentSettingCandidates.find((item:{itemKey:string})=>item.itemKey==='history-baseline').authority).toBe('candidate');
+      expect(payload.currentSettingCandidates.find((item:{itemKey:string})=>item.itemKey==='history').authority).toBe('candidate');
       if(mode==='repair'){
         expect(calls).toBe(2);expect(result.status).toBe('ready');expect(result.result.verdict).toBe('needs_author');
-        const current=context.database.prepare('SELECT state FROM v7_setting_items WHERE book_id=? AND item_key=?').get(bookId,'history-baseline');
+        const current=context.database.prepare('SELECT state FROM v7_setting_items WHERE book_id=? AND item_key=?').get(bookId,'history');
         expect(current?.state).toBe('candidate');
-        const view=(await app.inject({method:'GET',url:url+'/setting-department',headers:{...HEADERS,cookie}})).json().data.confirmedItems.find((item:{itemKey:string})=>item.itemKey==='history-baseline');
+        const view=(await app.inject({method:'GET',url:url+'/setting-department',headers:{...HEADERS,cookie}})).json().data.confirmedItems.find((item:{itemKey:string})=>item.itemKey==='history');
         expect(view.state).toBe('needs_author');expect(view.issues).toHaveLength(1);
       }else{
         expect(result.status).toBe('failed');expect(calls).toBeGreaterThanOrEqual(2);
@@ -123,7 +203,7 @@ describe('V7设定编辑部', () => {
           for (const item of value.items) {
             item.content += '渡船每次最多12人，夜间停航；只有官署急令可破例。';
             item.factEntries.push('渡船每次最多12人，夜间停航；只有官署急令可破例。');
-            if (first && mode === 'repair') item.content += '重复的解释。'.repeat(110);
+            if (first && mode === 'repair') item.content += '超出技术容量。'.repeat(1800);
           }
           first = false;
           return {provider, modelId, output: JSON.stringify(value), inputTokens: 100, outputTokens: 100, cashCostCny: 0, state: 'succeeded'};
@@ -142,7 +222,7 @@ describe('V7设定编辑部', () => {
       const bookId = await createBook(app, cookie, '江城渡船', 'r139-book-' + mode, '历史脑洞');
       const url = '/api/v1/v7/books/' + bookId;
       const created = await app.inject({method: 'POST', url: url + '/setting-batches', headers: {...HEADERS, cookie},
-        payload: {selectedItemKeys: ['world-stage', 'geography'], designMemberKey: 'planner-deepseek-v4-pro', idempotencyKey: 'r139-batch-' + mode}});
+        payload: {selectedItemKeys: ['world-stage', 'governance'], designMemberKey: 'planner-deepseek-v4-pro', idempotencyKey: 'r139-batch-' + mode}});
       expect(created.statusCode, created.body).toBe(200);
       const batchId = created.json().data.batchId;
       const completed = await pollBatch(app, cookie, bookId, batchId);
@@ -253,7 +333,7 @@ describe('V7设定编辑部', () => {
       const refreshed = await app.inject({ method: 'GET', url: `${url}/book-profile`, headers: { ...HEADERS, cookie } });
       expect(refreshed.json().data).toMatchObject({ title: '新资料设定接入', version: profile.version + 1, mustFollow: expect.arrayContaining([boundary]) });
       const callOffset = resolver.prompts.length;
-      const second = await app.inject({ method: 'POST', url: `${url}/setting-batches`, headers: { ...HEADERS, cookie }, payload: { selectedItemKeys: ['social-order'], idempotencyKey: 'r138-second-0001' } });
+      const second = await app.inject({ method: 'POST', url: `${url}/setting-batches`, headers: { ...HEADERS, cookie }, payload: { selectedItemKeys: ['governance'], idempotencyKey: 'r138-second-0001' } });
       expect(second.statusCode).toBe(200);
       const secondId = second.json().data.batchId as string;
       expect((await pollBatch(app, cookie, bookId, secondId)).status).toBe('awaiting_author');
@@ -289,7 +369,7 @@ describe('V7设定编辑部', () => {
       const department = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-department`, headers: { host: HEADERS.host, cookie } });
       expect(department.statusCode).toBe(200);
       expect(department.json().data.recommendation).toBeNull();
-      expect(department.json().data.catalog.some((item: { key: string }) => item.key === 'history-baseline')).toBe(true);
+      expect(department.json().data.catalog.some((item: { key: string }) => item.key === 'history')).toBe(true);
       expect(department.json().data.catalog.some((item: { key: string }) => item.key === 'game-entry')).toBe(true);
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=? AND node_key='catalog_recommendation'`).get(bookId)).toEqual({ count: 0 });
 
@@ -299,10 +379,10 @@ describe('V7设定编辑部', () => {
       const internalFailure = context.database.prepare(`SELECT internal_reason FROM v7_setting_member_events
         WHERE book_id=? AND event_type='leave' ORDER BY created_at DESC LIMIT 1`).get(bookId);
       expect(completed.status, `${JSON.stringify(completed)}\n${JSON.stringify(internalFailure)}`).toBe('ready');
-      expect(completed.result.requiredKeys).toContain('history-baseline');
+      expect(completed.result.requiredKeys).toContain('history');
       expect(completed.result.requiredKeys).not.toContain('game-entry');
       expect(completed.result.requiredKeys).not.toContain('cultivation');
-      expect(completed.result.excludedKeys).toEqual(expect.arrayContaining(['game-entry', 'cultivation']));
+      expect(completed.result.excludedKeys).toEqual(expect.arrayContaining(['game-entry', 'levels']));
       expect(completed.retryable).toBe(false);
       const repeated = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-recommendations`, headers: { ...HEADERS, cookie }, payload: {} });
       expect(repeated.statusCode).toBe(200);
@@ -564,11 +644,11 @@ describe('V7设定编辑部', () => {
 
       const department = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${firstBook}/setting-department`, headers: { host: HEADERS.host, cookie } });
       expect(department.statusCode).toBe(200);
-      expect(department.json().data.catalog.some((item: { key: string }) => item.key === 'history-baseline')).toBe(true);
+      expect(department.json().data.catalog.some((item: { key: string }) => item.key === 'history')).toBe(true);
       expect(department.json().data.members).toHaveLength(13);
       expect(JSON.stringify(department.json().data.members)).not.toMatch(/modelId|provider|凭据|失败|timeout/iu);
 
-      const payload = { selectedItemKeys: ['world-stage', 'history-baseline'], customItems: [], authorNotes: {}, idempotencyKey: 'setting-batch-0001' };
+      const payload = { selectedItemKeys: ['world-stage', 'history'], customItems: [], authorNotes: {}, idempotencyKey: 'setting-batch-0001' };
       const created = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-batches`, headers: { ...HEADERS, cookie }, payload });
       expect(created.statusCode).toBe(200);
       const batchId = created.json().data.batchId as string;
@@ -580,7 +660,7 @@ describe('V7设定编辑部', () => {
       expect(resolver.prompts.join('\n')).toContain('东汉末年');
       expect(resolver.prompts.join('\n')).not.toContain('主角处于社会底层');
       expect(resolver.prompts.join('\n')).not.toContain('危机中醒来');
-      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_member_events WHERE owner_id=(SELECT owner_id FROM books WHERE book_id=?) AND book_id=? AND event_type='handoff'`).get(firstBook, firstBook)).toEqual({ count: 1 });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_member_events WHERE owner_id=(SELECT owner_id FROM books WHERE book_id=?) AND book_id=? AND event_type='handoff'`).get(firstBook, firstBook)).toEqual({ count: 2 });
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_jobs WHERE book_id=? AND context_hash IS NOT NULL`).get(firstBook)).toEqual({ count: 2 });
       const settingSources = context.database.prepare(`SELECT DISTINCT s.owner_id AS ownerId,s.book_id AS bookId,
         s.source_type AS sourceType,s.authority,s.decision
@@ -598,7 +678,8 @@ describe('V7设定编辑部', () => {
       expect(repeated.statusCode).toBe(200);
       expect(repeated.json().data.batchId).toBe(batchId);
       const callCount = (context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=?`).get(firstBook) as { count: number }).count;
-      expect(callCount).toBeGreaterThanOrEqual(5);
+      // 同组两项共享一次设计；首位失败后仅交接一次，不重复派出逐项审查。
+      expect(callCount).toBe(2);
 
       const firstItem = completed.items.find((item: { itemKey: string }) => item.itemKey === 'world-stage');
       const confirmed = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-items/world-stage/confirm`, headers: { ...HEADERS, cookie }, payload: { expectedRevision: firstItem.revision } });
@@ -621,13 +702,19 @@ describe('V7设定编辑部', () => {
       expect(revisedReady.status).toBe('awaiting_author');
       expect(revisedReady.items.find((item: { itemKey: string }) => item.itemKey === 'world-stage')?.state)
         .toBe('needs_author');
+      const settingOwner = context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(firstBook) as {owner_id: string};
+      const formalWhileEditing = new V7SettingEditorialRepository(context.database).confirmedVersions(settingOwner.owner_id, firstBook)
+        .find((entry) => entry.item_key === 'world-stage');
+      expect(formalWhileEditing).toBeDefined();
+      expect(formalWhileEditing!.revision).toBeLessThan(revisedReady.items.find((item: {itemKey: string}) => item.itemKey === 'world-stage').revision);
+      expect(formalWhileEditing!.content_json).not.toContain('这是作者修改后的世界舞台');
       expect(context.database.prepare(`SELECT operation_mode AS operationMode,based_on_task_id AS basedOnTaskId,
         author_instruction_version AS authorInstructionVersion FROM v7_task_contracts
         WHERE book_id=? AND task_id=?`).get(firstBook, `${revisionBatchId}-world-stage-chief`)).toEqual({
         operationMode: 'revise', basedOnTaskId: sourceBeforeAuthorRevision.taskId, authorInstructionVersion: 1
       });
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_versions WHERE book_id=? AND item_key='world-stage'`).get(firstBook)).toEqual({ count: 3 });
-      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=? AND node_key IN ('chief','chief_repair')`).get(firstBook)).toEqual({ count: 6 });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=? AND node_key IN ('chief','chief_repair')`).get(firstBook)).toEqual({ count: 2 });
       const repeatedRevision = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-items/world-stage/revisions`, headers: { ...HEADERS, cookie }, payload: { content: '这是作者修改后的世界舞台，新版本保留旧版，不原地覆盖。', idempotencyKey: 'setting-author-revision-0001' } });
       expect(repeatedRevision.statusCode).toBe(200);
       expect(repeatedRevision.json().data.batchId).toBe(revisionBatchId);
@@ -686,7 +773,7 @@ describe('V7设定编辑部', () => {
       const secondDepartment = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${secondBook}/setting-department`, headers: { host: HEADERS.host, cookie } });
       expect(secondDepartment.statusCode).toBe(200);
       expect(secondDepartment.json().data.confirmedItems).toEqual([]);
-      expect(secondDepartment.json().data.catalog.some((item: { key: string }) => item.key === 'technology-boundary')).toBe(true);
+      expect(secondDepartment.json().data.catalog.some((item: { key: string }) => item.key === 'civilization')).toBe(true);
 
       const crossOwner = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${firstBook}/setting-department`, headers: { host: HEADERS.host, cookie: other } });
       expect(crossOwner.statusCode).toBe(404);
@@ -856,7 +943,7 @@ describe('V7设定编辑部', () => {
       const created = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
         payload: {
-          selectedItemKeys: ['world-stage', 'social-order', 'rules-costs', 'boundaries-blanks'],
+          selectedItemKeys: ['world-stage', 'geography', 'hazards', 'civilization'],
           customItems: [], authorNotes: {}, idempotencyKey: 'setting-grouped-batch-0001'
         }
       });
@@ -909,7 +996,7 @@ describe('V7设定编辑部', () => {
       const bookId = await createBook(app, cookie, '设定统一整理测试', 'final-review-book-0001', '历史脑洞');
       const created = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
-        payload: { selectedItemKeys: ['world-stage', 'history-baseline'], customItems: [], authorNotes: {}, idempotencyKey: 'final-review-items-0001' }
+        payload: { selectedItemKeys: ['world-stage', 'history'], customItems: [], authorNotes: {}, idempotencyKey: 'final-review-items-0001' }
       });
       expect(created.statusCode).toBe(200);
       await pollBatch(app, cookie, bookId, created.json().data.batchId as string);
@@ -1012,7 +1099,7 @@ describe('V7设定编辑部', () => {
       verdict: 'pass', summary: '两项设定已经统一。', unifiedDecisions: [], conflicts: [],
       patches: [
         { itemKey: 'world-stage', finalContent: '统一后的世界舞台。', summary: '世界舞台已统一。', issues: [], suggestions: [] },
-        { itemKey: 'history-baseline', finalContent: '统一后的历史基线。', summary: '历史基线已统一。', issues: [], suggestions: [] }
+        { itemKey: 'history', finalContent: '统一后的历史基线。', summary: '历史基线已统一。', issues: [], suggestions: [] }
       ]
     });
     const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
@@ -1022,14 +1109,14 @@ describe('V7设定编辑部', () => {
       const seedResponse = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
         payload: {
-          selectedItemKeys: ['world-stage', 'history-baseline'], customItems: [], authorNotes: {},
+          selectedItemKeys: ['world-stage', 'history'], customItems: [], authorNotes: {},
           idempotencyKey: 'final-review-atomic-seed'
         }
       });
       await pollBatch(app, cookie, bookId, seedResponse.json().data.batchId as string);
       context.database.exec(`CREATE TRIGGER fail_second_final_review_output
         BEFORE INSERT ON v7_setting_outputs
-        WHEN NEW.item_key='history-baseline' AND NEW.kind='chief_review'
+        WHEN NEW.item_key='history' AND NEW.kind='chief_review'
         BEGIN SELECT RAISE(ABORT,'simulated local commit failure'); END`);
       const reviewResponse = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-final-reviews`, headers: { ...HEADERS, cookie },
@@ -1055,7 +1142,7 @@ describe('V7设定编辑部', () => {
       expect(retried.statusCode, retried.body).toBe(200);
       const completed = await pollFinalReview(app, cookie, bookId);
       expect(completed.status).toBe('ready');
-      expect(completed.result.patchedItemKeys).toEqual(['world-stage', 'history-baseline']);
+      expect(completed.result.patchedItemKeys).toEqual(['world-stage', 'history']);
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_versions WHERE source_batch_id=?`).get(taskId))
         .toEqual({ count: 2 });
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
@@ -1409,18 +1496,18 @@ describe('V7设定编辑部', () => {
 
       const supplement = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
-        payload: { selectedItemKeys: ['world-stage', 'history-baseline'], customItems: [], authorNotes: {}, idempotencyKey: 'incremental-second-0001' }
+        payload: { selectedItemKeys: ['world-stage', 'history'], customItems: [], authorNotes: {}, idempotencyKey: 'incremental-second-0001' }
       });
       expect(supplement.statusCode).toBe(200);
       const completed = await pollBatch(app, cookie, bookId, supplement.json().data.batchId as string);
       expect(completed.progress).toEqual({ completed: 1, total: 1, percent: 100 });
-      expect(completed.items.map((item: { itemKey: string }) => item.itemKey)).toEqual(['history-baseline']);
+      expect(completed.items.map((item: { itemKey: string }) => item.itemKey)).toEqual(['history']);
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_jobs WHERE book_id=? AND batch_id=?`).get(bookId, completed.batchId)).toEqual({ count: 1 });
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_versions WHERE book_id=? AND item_key='world-stage'`).get(bookId)).toEqual(oldVersionCount);
 
       const repeated = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
-        payload: { selectedItemKeys: ['world-stage', 'history-baseline'], customItems: [], authorNotes: {}, idempotencyKey: 'incremental-second-0001' }
+        payload: { selectedItemKeys: ['world-stage', 'history'], customItems: [], authorNotes: {}, idempotencyKey: 'incremental-second-0001' }
       });
       expect(repeated.statusCode).toBe(200);
       expect(repeated.json().data.batchId).toBe(completed.batchId);
@@ -1472,7 +1559,7 @@ describe('V7设定编辑部', () => {
       const created = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
         payload: {
-          selectedItemKeys: ['game-entry', 'player-npc'], customItems: [], authorNotes: {},
+          selectedItemKeys: ['game-entry', 'formula'], customItems: [], authorNotes: {},
           idempotencyKey: 'setting-lease-fence-batch'
         }
       });
@@ -1695,7 +1782,7 @@ describe('V7设定编辑部', () => {
       const bookId = await createBook(app, cookie, '设定重试测试', 'setting-retry-book-0001', '历史脑洞');
       const created = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
-        payload: { selectedItemKeys: ['history-baseline'], customItems: [], authorNotes: {}, idempotencyKey: 'setting-retry-batch-0001' }
+        payload: { selectedItemKeys: ['history'], customItems: [], authorNotes: {}, idempotencyKey: 'setting-retry-batch-0001' }
       });
       expect(created.statusCode).toBe(200);
       const batchId = created.json().data.batchId as string;
@@ -1797,7 +1884,7 @@ describe('V7设定编辑部', () => {
       // 两个分组的最低预算校验可以通过，但第一组真实预占后，第二组会在
       // 模型发送前被门禁阻断，以复现生产“部分完成”的真实边界。
       context.database.prepare('UPDATE user_memberships SET token_quota=35000 WHERE owner_id=?').run(owner.owner_id);
-      const selectedItemKeys = ['game-entry', 'player-npc', 'game-panel', 'class-skill', 'loot', 'quest-instance', 'ranking'];
+      const selectedItemKeys = ['world-stage', 'geography', 'hazards', 'civilization', 'history', 'governance', 'class'];
       const created = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
         payload: { selectedItemKeys, customItems: [], authorNotes: {}, idempotencyKey: 'setting-membership-batch-0001' }
@@ -1916,7 +2003,7 @@ describe('V7设定编辑部', () => {
       const bookId = await createBook(app, cookie, '未知结果测试', 'setting-unknown-book-0001', '历史脑洞');
       const created = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
-        payload: { selectedItemKeys: ['history-baseline'], customItems: [], authorNotes: {}, idempotencyKey: 'setting-unknown-batch-0001' }
+        payload: { selectedItemKeys: ['history'], customItems: [], authorNotes: {}, idempotencyKey: 'setting-unknown-batch-0001' }
       });
       const batchId = created.json().data.batchId as string;
       expect((await pollBatch(app, cookie, bookId, batchId)).status).toBe('partially_failed');
@@ -1940,7 +2027,7 @@ describe('V7设定编辑部', () => {
       const owner = context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string };
       const roster = V7_SETTING_MEMBERS.map((member) => ({ ...member, model: { ...member.model } }));
       roster[0] = { ...roster[0]!, model: { ...roster[0]!.model, modelId: 'glm-5.2' } };
-      const item = V7_SETTING_CATALOG.find((candidate) => candidate.key === 'history-baseline')!;
+      const item = V7_SETTING_CATALOG.find((candidate) => candidate.key === 'history')!;
       const repository = new V7SettingEditorialRepository(context.database);
       repository.createBatchWithJobs({
         batch: {
@@ -2316,8 +2403,8 @@ function settingStagePrompt(compiledPrompt: string): string {
 }
 
 function recommendationOutput(): string {
-  const requiredKeys = ['world-stage', 'social-order', 'rules-costs', 'boundaries-blanks', 'history-baseline', 'politics-military'];
-  const suggestedKeys = ['territory'];
+  const requiredKeys = ['world-stage', 'governance', 'history', 'military'];
+  const suggestedKeys: string[] = [];
   const used = new Set([...requiredKeys, ...suggestedKeys]);
   return JSON.stringify({
     requiredKeys,

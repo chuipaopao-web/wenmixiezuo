@@ -53,7 +53,7 @@ export function parsePlanningMethodSearchRequest(
     relevantSettingSourceIds: uniqueTextList(
       value.relevantSettingSourceIds,
       '相关设定资料',
-      options.minimumSettingSources ?? 1,
+      options.minimumSettingSources ?? 0,
       24
     ),
     missingCriticalInputs: criticalInputList(value.missingCriticalInputs, 0, 8),
@@ -91,7 +91,7 @@ export function planningMethodSearchPrompt(input: {
     '如果缺少会导致设计无法可靠进行的硬信息，写入missingCriticalInputs。预计总字数是开书阶段唯一必须提前确定的规划尺度，默认按番茄连载场景工作，不要重复报缺。建议卷数、商业受众和追读定位是每席全书路线自己必须产出的结果，不是上游缺口。普通创作留白不是缺口，能在方案中合理创作的内容不要上报；信息齐全时返回空数组。不得自行脑补作者已经明确但本次资料中缺失的硬事实。',
     '输出字段：schema="v7-planning-method-search-v1",publicGoal,scaleHint,avoidNotes,relevantSettingSourceIds,missingCriticalInputs,taskPersona,taskResponsibilities,creativeSpace。missingCriticalInputs每项优先写成一句可直接给作者看的大白话；如需说明影响和待确认内容，也可写成{issue,impact,needed}，系统会合并展示。',
     'taskPersona必须把本书题材融合档案转成只属于当前任务的临时执行身份，字段为publicLabel,workingIdentity,priorities,authenticityChecks,avoidPatterns；不得绑定成员姓名或岗位专业人设。taskResponsibilities写2—6条大白话责任，creativeSpace写1—5条可组合、放弃资产或自主设计的空间。',
-    '所有复数字段必须是JSON数组，不能写成单个字符串、编号对象或逗号拼接文本：avoidNotes为0—8条，relevantSettingSourceIds为1—24项，missingCriticalInputs为0—8项，taskResponsibilities为2—6条，creativeSpace为1—5条；taskPersona中的priorities、authenticityChecks、avoidPatterns也都必须是1—8条字符串数组。',
+    '所有复数字段必须是JSON数组，不能写成单个字符串、编号对象或逗号拼接文本：avoidNotes为0—8条，relevantSettingSourceIds为0—24项，没有相关逐项设定时为空，不能为凑数量编造来源；missingCriticalInputs为0—8项，taskResponsibilities为2—6条，creativeSpace为1—5条；taskPersona中的priorities、authenticityChecks、avoidPatterns也都必须是1—8条字符串数组。',
     `正式资料快照：${JSON.stringify(input.sourceSnapshot)}`
   ].join('\n\n');
 }

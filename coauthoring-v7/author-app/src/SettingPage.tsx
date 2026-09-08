@@ -39,7 +39,7 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const value = await fetchSettingDepartment(bookId, signal);
-    const existingKeys = new Set(value.confirmedItems.map((item) => item.itemKey));
+    const existingKeys = new Set(value.confirmedItems.flatMap((item) => [item.itemKey, item.topicKey ?? item.itemKey]));
     const recommendation = value.recommendation ?? null;
     const recommended = recommendation?.status === 'ready' ? recommendation.result?.requiredKeys ?? [] : [];
     setDepartment({ ...value, recommendation }); setBatch(value.activeBatch); setFinalReview(value.finalReview); setSelected(new Set(recommended.filter((key) => !existingKeys.has(key))));
@@ -96,7 +96,7 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
         setDepartment((current) => current === null ? current : { ...current, recommendation: next, recommendedKeys: next.result?.requiredKeys ?? [] });
         setError(null);
         if (next.status === 'ready' && next.result !== null) {
-          const existingKeys = new Set(department?.confirmedItems.map((item) => item.itemKey) ?? []);
+          const existingKeys = new Set(department?.confirmedItems.flatMap((item) => [item.itemKey, item.topicKey ?? item.itemKey]) ?? []);
           setSelected(new Set(next.result.requiredKeys.filter((key) => !existingKeys.has(key))));
           setShowCatalog(true);
         } else if (['queued', 'working'].includes(next.status)) timer = window.setTimeout(() => void poll(), 1_200);
@@ -145,7 +145,7 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
   const start = async (): Promise<void> => {
     setBusy(true); setError(null);
     try {
-      const existingKeys = new Set(department?.confirmedItems.map((item) => item.itemKey) ?? []);
+      const existingKeys = new Set(department?.confirmedItems.flatMap((item) => [item.itemKey, item.topicKey ?? item.itemKey]) ?? []);
       const next = await createSettingBatch(bookId, { selectedItemKeys: [...selected].filter((key) => !existingKeys.has(key)), customItems: customItems.filter((item) => item.label.trim() && item.prompt.trim()), authorNotes: {}, designMemberKey });
       setBatch(next); setSelected(new Set()); setCustomItems([]); setShowCatalog(false); setFinalReview(null); setFinalReviewOpen(false); setFinalSaved(false);
     } catch (reason) { setError(message(reason)); } finally { setBusy(false); }
@@ -231,7 +231,7 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
     ? <div className="setting-loading" role="status">正在准备设定编辑部…</div>
     : <div className="setting-load-failed" role="alert"><WarningCircleIcon /><strong>设定编辑部暂时没有准备好</strong><span>{error}</span><button type="button" className="primary-action" onClick={() => { setError(null); void load().catch((reason: unknown) => setError(message(reason))); }}>重新连接</button></div>;
   const items = mergeSettingItems(department.confirmedItems, batch?.items ?? []);
-  const existingKeys = new Set(department.confirmedItems.map((item) => item.itemKey));
+  const existingKeys = new Set(department.confirmedItems.flatMap((item) => [item.itemKey, item.topicKey ?? item.itemKey]));
   const selectableCount = [...selected].filter((key) => !existingKeys.has(key)).length + customItems.filter((item) => item.label.trim() && item.prompt.trim()).length;
   const batchKeys = new Set(batch?.items.map((item) => item.itemKey) ?? []);
   const priorItemCount = department.confirmedItems.filter((item) => !batchKeys.has(item.itemKey)).length;
@@ -245,10 +245,10 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
   const finalReviewChief = finalReview?.member ?? uniqueByMemberKey(batch?.members ?? department.members).find((member) => publicRoleLabel(member.role) === '主编') ?? null;
   return (
     <section className="setting-page" aria-labelledby="setting-title">
-      <header className="setting-page-heading"><p id="setting-title">主编先挑出本书真正需要的设定，您也可以随时补充。</p>{(items.length > 0 || department.recommendation?.status === 'ready') && <button type="button" className="secondary-action setting-catalog-toggle" aria-expanded={showCatalog} onClick={() => setShowCatalog((value) => !value)}><ClipboardTextIcon />{showCatalog ? '收起完整设定库' : '打开完整设定库'}</button>}</header>
+      <header className="setting-page-heading"><p id="setting-title">设计成员先挑出本书需要的设定，您可以调整设计范围。</p>{(items.length > 0 || department.recommendation?.status === 'ready') && <button type="button" className="secondary-action setting-catalog-toggle" aria-expanded={showCatalog} onClick={() => setShowCatalog((value) => !value)}><ClipboardTextIcon />{showCatalog ? '收起完整设定库' : '打开完整设定库'}</button>}</header>
       {error && <div className="error-notice" role="alert">{error}</div>}
 
-      {(batch === null || department.recommendation?.status !== 'ready') && <SettingRecommendationPanel
+      {(items.length === 0 || department.recommendation?.status !== 'ready') && <SettingRecommendationPanel
         recommendation={department.recommendation}
         catalog={department.catalog}
         busy={recommendationBusy}
@@ -259,6 +259,14 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
         onRefresh={() => void refreshRecommendation()}
         onOpenCatalog={() => setShowCatalog(true)}
       />}
+
+      {items.length === 0 && department.recommendation?.status === 'ready'
+        && department.recommendation.result?.requiredKeys.length === 0
+        && (department.recommendation.result.suggestedKeys?.length ?? 0) === 0
+        && (department.recommendation.result.coveredKeys?.length ?? 0) > 0
+        && <WorkflowActionDock mode="card" title="开书资料已覆盖当前必要设定"
+          detail="可以直接规划全书，也可以在设定库中补充自己的规则。"
+          primary={<button type="button" className="primary-action" disabled={onOpenTimeMachine === undefined} onClick={onOpenTimeMachine}>进入时光机</button>} />}
 
       {showCatalog && <section className="setting-catalog-card" aria-labelledby="catalog-title">
         <div className="setting-section-title"><div><ClipboardTextIcon /><span><strong id="catalog-title">完整设定库</strong><small>只勾选这次新增的内容，已经设计好的不会重做</small></span></div><span>{selectableCount} 项新增</span></div>
@@ -400,25 +408,25 @@ function SettingRecommendationPanel({
 }): React.JSX.Element {
   const member = recommendation?.member ?? null;
   const lookup = new Map(catalog.map((item) => [item.key, item.label]));
-  if (recommendation === null) return <section className="setting-recommendation-card ready-to-start" aria-label="主编整理设定清单">
+  if (recommendation === null) return <section className="setting-recommendation-card ready-to-start" aria-label="准备设定清单">
     <span className="setting-recommendation-placeholder" aria-hidden="true"><SparkleIcon /></span>
-    <div><strong>主编整理设定清单</strong><p>开书资料已经保存。主编会先读懂这本书，再挑出真正需要准备的设定。</p><small>确认后开始整理，不会在您不知情时重复下单。</small></div>
+    <div><strong>准备本书设定</strong><p>设计成员根据开书资料，挑出本书需要设计的主题。</p><small>已保存的资料会直接使用。</small></div>
     {actionsEnabled && <WorkflowActionDock
       mode="card"
-      title="先让主编理解这本书"
+      title="先确定设计范围"
       detail="任务只会创建一次，离开页面也会保留进度。"
-      primary={<button type="button" className="primary-action" disabled={busy} onClick={onStart}><SparkleIcon />{busy ? '正在下单…' : '请主编整理设定清单'}</button>}
+      primary={<button type="button" className="primary-action" disabled={busy} onClick={onStart}><SparkleIcon />{busy ? '正在准备…' : '整理设定清单'}</button>}
     />}
   </section>;
   const active = recommendation.status === 'queued' || recommendation.status === 'working';
   if (active) return <section className="setting-recommendation-card working" aria-live="polite">
     {member === null ? <span className="setting-recommendation-placeholder" aria-hidden="true"><SparkleIcon /></span> : <span className="setting-recommendation-avatar" style={memberAvatarStyle(member.memberKey)} aria-hidden="true" />}
-    <div><strong>{member === null ? '主编' : memberDisplayName(member.memberKey, member.displayName)} · 主编</strong><p>{publicStatusCopy(recommendation.statusText, recommendation.status === 'queued' ? '任务已经排队，开始后会更新进度。' : '正在整理本书需要的设定。')}</p><small>当前工位：{publicStatusCopy(recommendation.phaseText, '整理设定清单')}</small></div>
+    <div><strong>{member === null ? '设计成员' : memberDisplayName(member.memberKey, member.displayName)} · 设定准备</strong><p>{publicStatusCopy(recommendation.statusText, recommendation.status === 'queued' ? '任务已经排队，开始后会更新进度。' : '正在整理本书需要的设定。')}</p><small>{publicStatusCopy(recommendation.phaseText, '整理设定清单')}</small></div>
     <div className="setting-recommendation-progress" role="progressbar" aria-label={`整理进度${recommendation.progress}%`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={recommendation.progress}><span style={{ width: `${recommendation.progress}%` }} /></div>
   </section>;
   if (recommendation.status === 'failed') return <section className="setting-recommendation-card failed" role="alert">
     {member === null ? <span className="setting-recommendation-placeholder" aria-hidden="true"><WarningCircleIcon /></span> : <span className="setting-recommendation-avatar" style={memberAvatarStyle(member.memberKey)} aria-hidden="true" />}
-    <div><strong>{member === null ? '主编' : memberDisplayName(member.memberKey, member.displayName)} · 主编</strong><p>{publicFailureCopy(recommendation.statusText)}</p><small>开书资料和已经完成的结果都已保留。</small></div>
+    <div><strong>{member === null ? '设计成员' : memberDisplayName(member.memberKey, member.displayName)} · 设定准备</strong><p>{publicFailureCopy(recommendation.statusText)}</p><small>开书资料和已经完成的结果都已保留。</small></div>
     {actionsEnabled && <WorkflowActionDock
       mode="card"
       title={recommendation.restartable ? '开书资料已保留，可按最新要求重新发起' : '当前整理结果需要重新核对'}
@@ -436,16 +444,17 @@ function SettingRecommendationPanel({
   </section>;
   const result = recommendation.result;
   const labels = (keys: string[]) => keys.map((key) => lookup.get(key)).filter((item): item is string => item !== undefined);
-  return <section className="setting-recommendation-card completed" aria-label="主编设定清单">
-    <header>{member === null ? <span className="setting-recommendation-placeholder" aria-hidden="true"><CheckCircleIcon /></span> : <span className="setting-recommendation-avatar" style={memberAvatarStyle(member.memberKey)} aria-hidden="true" />}<span><strong>{member === null ? '主编已经整理好了' : `${memberDisplayName(member.memberKey, member.displayName)}已经整理好了`}</strong><small>{result?.summary ?? '本书需要的设定已经分好轻重。'}</small></span></header>
+  return <section className="setting-recommendation-card completed" aria-label="本书设定清单">
+    <header>{member === null ? <span className="setting-recommendation-placeholder" aria-hidden="true"><CheckCircleIcon /></span> : <span className="setting-recommendation-avatar" style={memberAvatarStyle(member.memberKey)} aria-hidden="true" />}<span><strong>{member === null ? '设定清单已准备好' : `${memberDisplayName(member.memberKey, member.displayName)}已经整理好了`}</strong><small>{result?.summary ?? '本书需要的设定已经分类。'}</small></span></header>
     {result !== null && <div className="setting-recommendation-groups">
-      <details open><summary>建议先设计 <em>{result.requiredKeys.length}项</em></summary><p>{labels(result.requiredKeys).join('、')}</p></details>
-      <details><summary>可以以后补 <em>{result.suggestedKeys.length}项</em></summary><p>{labels(result.suggestedKeys).join('、') || '暂无'}</p></details>
-      <details><summary>这本书暂时用不到 <em>{result.excludedKeys.length}项</em></summary><p>{labels(result.excludedKeys).join('、') || '暂无'}</p></details>
+      <details open><summary>本书需要设计 <em>{result.requiredKeys.length}项</em></summary><p>{labels(result.requiredKeys).join('、') || '已有资料已覆盖本书需要'}</p></details>
+      <details><summary>已有资料足够 <em>{result.coveredKeys?.length ?? 0}项</em></summary><p>{labels(result.coveredKeys ?? []).join('、') || '暂无'}</p></details>
+      {result.suggestedKeys.length > 0 && <details><summary>旧清单中的可选项 <em>{result.suggestedKeys.length}项</em></summary><p>{labels(result.suggestedKeys).join('、')}</p></details>}
+      <details><summary>本书不适用 <em>{result.excludedKeys.length}项</em></summary><p>{labels(result.excludedKeys).join('、') || '暂无'}</p></details>
     </div>}
     {!catalogOpen && actionsEnabled && <WorkflowActionDock
       mode="card"
-      title="设定清单已经按轻重整理好"
+      title="本书的设定清单已整理好"
       detail="先查看建议，再决定本轮真正需要设计哪些条目。"
       primary={<button type="button" className="primary-action" onClick={onOpenCatalog}>查看并开始设计</button>}
     />}
@@ -509,7 +518,7 @@ interface SettingResultCardProps {
 
 function SettingResultCard(props: SettingResultCardProps): React.JSX.Element {
   const { item, members, editing, redesigning, optimizing } = props;
-  const compact = item.content !== null && Array.from(item.content).length <= 600;
+  const compact = Boolean(item.rules?.length) || (item.content !== null && Array.from(item.content).length <= 600);
   const [expanded, setExpanded] = useState(false);
   const active = item.state === 'queued' || item.state === 'working' || item.state === 'chief_review';
   const assignedKey = item.assignedMemberKey === null ? null : canonicalMemberIdentityKey(item.assignedMemberKey);
@@ -532,11 +541,23 @@ function SettingResultCard(props: SettingResultCardProps): React.JSX.Element {
     </header>
     {!expanded && !compact && item.content !== null && <p className="setting-result-preview">{compactPreview(item.content, 88)}</p>}
     {(expanded || compact) && <>
-      {item.content !== null && <p className="setting-final-content">{item.content}</p>}
+      {item.rules?.length ? <ul className="setting-rule-list">{item.rules.map((rule, index) => <li key={index}>
+        <p>{rule.statement}</p>
+        {rule.scope && <small>适用：{rule.scope}</small>}
+        {rule.conditions.length > 0 && <small>条件：{rule.conditions.join('；')}</small>}
+        {rule.costs.length > 0 && <small>代价：{rule.costs.join('；')}</small>}
+        {rule.exceptions.length > 0 && <small>限制与例外：{rule.exceptions.join('；')}</small>}
+        {rule.objects.length > 0 && <small>涉及：{rule.objects.join('、')}</small>}
+      </li>)}</ul> : item.content !== null && <p className="setting-final-content">{item.content}</p>}
       {expanded && item.content !== null && item.designRationale !== null && <details className="setting-rationale"><summary><span>设计思路</span><small>展开查看</small></summary><div><h4>为什么这样设计</h4><p>{item.designRationale}</p>{item.storyConsequences.length > 0 && <><h4>会影响后续什么</h4><ul>{item.storyConsequences.map((entry) => <li key={entry}>{entry}</li>)}</ul></>}</div></details>}
       {!active && item.issues.length > 0 && <div className="chief-issues"><strong><WarningCircleIcon />需要您决定</strong>{item.issues.map((issue) => <p key={`${issue.problem}-${issue.suggestion}`}><b>{issue.problem}</b><span>{issue.suggestion}</span></p>)}<small>采用提醒后会把当前完整内容直接交给主编复审；您确认后才会正式采用。</small><button type="button" disabled={optimizing || props.readOnly} onClick={props.onAdoptChief}><SparkleIcon />{optimizing ? '正在创建优化任务…' : '按提醒优化'}</button></div>}
+      {item.changeImpact && (item.changeImpact.planning.length > 0 || item.changeImpact.finishedChapters > 0) && <aside className="setting-change-impact">
+        <strong>这项规则已经被后续内容引用</strong>
+        <p>{item.changeImpact.planning.length}处规划、{item.changeImpact.finishedChapters}章定稿引用过此设定。采用修改后，需要核对这些内容是否仍然一致；已定稿正文会保留原文。</p>
+        {item.changeImpact.planning.length > 0 && <p>{item.changeImpact.planning.map((entry) => entry.name).join('、')}</p>}
+      </aside>}
       {!active && !props.readOnly && <footer><button type="button" aria-expanded={editing} onClick={props.onEdit}><PencilSimpleIcon />修改内容</button><button type="button" aria-expanded={redesigning} onClick={props.onRedesign}><RobotIcon />重新设计</button>{item.state !== 'confirmed' && <button type="button" className="confirm-setting" onClick={props.onConfirm}><CheckIcon />确认采用</button>}</footer>}
-      {editing && <InlineEditPanel bookId={props.bookId} item={item} onClose={props.onCloseInline} onTaskStarted={props.onTaskStarted}/>} 
+      {editing && <InlineEditPanel bookId={props.bookId} item={item} onClose={props.onCloseInline} onTaskStarted={props.onTaskStarted}/>}
       {redesigning && <InlineRedesignPanel bookId={props.bookId} item={item} members={members.filter((member) => publicRoleLabel(member.role) === '策划编剧')} onClose={props.onCloseInline} onTaskStarted={props.onTaskStarted}/>}
     </>}
   </article>;
@@ -557,7 +578,7 @@ function InlineEditPanel({ bookId, item, onClose, onTaskStarted }: { bookId: str
   };
   return <section className="setting-inline-panel setting-inline-edit" aria-label={`修改${item.label}`}>
     <header><span><strong>修改后重新检查</strong><small>保存会创建新任务，旧审查不会直接沿用。</small></span><button type="button" aria-label="收起修改内容" onClick={onClose}><XIcon /></button></header>
-    <textarea aria-label={`修改${item.label}内容`} maxLength={2000} value={content} onChange={(event) => setContent(event.target.value)}/><span className="field-count">{Array.from(content).length}/2000</span>
+    <textarea aria-label={`修改${item.label}内容`} maxLength={12000} value={content} onChange={(event) => setContent(event.target.value)}/><span className="field-count">{Array.from(content).length}字</span>
     {error && <div className="error-notice">{error}</div>}
     <footer><button type="button" onClick={onClose}>取消</button><button type="button" className="primary-action" disabled={busy || !content.trim()} onClick={() => void save()}>{busy ? '正在创建任务…' : '保存并交主编复审'}</button></footer>
   </section>;

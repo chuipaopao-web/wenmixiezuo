@@ -21,7 +21,7 @@ describe('V7统一岗位、模型与任务参数', () => {
     const design=roster.filter(m=>m.roleKey==='screenwriter'&&m.fallbackPriority<100).sort((a,b)=>a.fallbackPriority-b.fallbackPriority);
     expect(design.map(m=>m.model.modelId)).toEqual(['deepseek-v4-pro','deepseek-v4-flash','kimi-k2.7-code']);
     const reviewers=roster.filter(m=>m.roleKey==='chief_editor'&&m.fallbackPriority<100).sort((a,b)=>a.fallbackPriority-b.fallbackPriority);
-    expect(reviewers.map(m=>m.model.modelId)).toEqual(['kimi-k3','doubao-seed-2.1-turbo','glm-5.3-flash']);
+    expect(reviewers.map(m=>m.model.modelId)).toEqual(['glm-5.3-flash','kimi-k3','doubao-seed-2.1-turbo']);
     const extra=reviewers.find(m=>m.model.modelId==='glm-5.3-flash')!;
     expect(repository.resolveTaskPolicy(extra.memberKey,'setting_review').temperature).toBe(.25);
     expect(()=>repository.resolveTaskPolicy(extra.memberKey,'setting_design')).toThrow();
@@ -43,7 +43,8 @@ describe('V7统一岗位、模型与任务参数', () => {
     expect(service.snapshot().members.filter((member) => member.fixedRoleKey === 'chief_editor' && member.defaultForRole)).toHaveLength(1);
     service.updateMember('admin', before.memberKey, { expectedRevision: service.snapshot().revision, modelProfileKey: 'kimi-k3' });
     const after = service.snapshot().members.find((member) => member.memberKey === before.memberKey)!;
-    expect(after.displayName).toBe(before.displayName);
+    expect(after.displayName.split('·')[0]).toBe(before.displayName.split('·')[0]);
+    expect(after.displayName.endsWith('·K3')).toBe(true);
     expect(after.fixedRoleKey).toBe(before.fixedRoleKey);
     expect(frozen.modelProfileKey).toBe('deepseek-v4-pro');
     expect(after.modelProfileKey).toBe('kimi-k3');
@@ -79,7 +80,7 @@ describe('V7统一岗位、模型与任务参数', () => {
     });
     expect(() => service.updateMember('admin', 'planner-glm-5-3', {
       expectedRevision: service.snapshot().revision, enabled: true
-    })).toThrow('尚未完成');
+    })).not.toThrow(); // The verified opening-design binding may resume; setting admission remains separate.
     expect(() => service.updateMember('admin', 'chief-glm-5-3', {
       expectedRevision: service.snapshot().revision,
       modelProfileKey: 'doubao-seed-2.1-turbo'

@@ -1,11 +1,14 @@
+import { parseSettingRules, renderSettingRule, type SettingRule } from './setting-rules.js';
+
 export interface V7SettingContextProjection {
+  rules?: SettingRule[];
   itemKey: string;
   label: string;
   versionId: string;
   revision: number;
   contextSummary: string;
   factEntries: string[];
-  projectionSource: 'agent_projection' | 'legacy_exact';
+  projectionSource: 'canonical_rules' | 'agent_projection' | 'legacy_exact';
   needsSemanticRebuild: boolean;
 }
 
@@ -27,6 +30,15 @@ const MAXIMUM_SAFE_LEGACY_EXACT_CHARACTERS = 700;
  */
 export function confirmedSettingProjection(input: V7ConfirmedSettingProjectionInput): V7SettingContextProjection {
   const parsed = parseObject(input.content_json);
+  const rules = parseSettingRules(parsed.rules);
+  if (rules) {
+    return {
+      itemKey: input.item_key, label: input.item_label, versionId: input.version_id,
+      revision: input.revision, rules,
+      contextSummary: text(parsed.contextSummary) ?? input.item_label,
+      factEntries: rules.map(renderSettingRule), projectionSource: 'canonical_rules', needsSemanticRebuild: false
+    };
+  }
   const projectedFacts = stringArray(parsed.factEntries);
   const projectedSummary = text(parsed.contextSummary);
   if (projectedSummary !== null && projectedFacts.length > 0) {
@@ -77,7 +89,7 @@ function parseObject(value: string): Record<string, unknown> {
 function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((entry): entry is string => typeof entry === 'string')
-    .map((entry) => entry.trim()).filter(Boolean).slice(0, 32);
+    .map((entry) => entry.trim()).filter(Boolean);
 }
 
 function text(value: unknown): string | null {

@@ -37,6 +37,8 @@ const SOURCE_ROOTS = [
 
 const OPERATIONAL_ENTRY_DEFINITIONS = [
   { path: 'scripts/start.mjs', invokedBy: 'package.json#scripts.start' },
+  { path: 'scripts/verify-function-management.mjs', invokedBy: 'coauthoring-v7/admin-console/vite.config.mjs' },
+  { path: 'scripts/verify-function-management.test.mjs', invokedBy: 'node --test scripts/verify-function-management.test.mjs' },
   { path: 'scripts/clean.mjs', invokedBy: 'package.json#scripts.clean' },
   { path: 'scripts/evaluation/production-backup-verify.ts', invokedBy: 'package.json#scripts.verify:backup' },
   { path: 'scripts/evaluation/subscription-model-connectivity.ts', invokedBy: 'package.json#scripts.runtime:model-connectivity' },

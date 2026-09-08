@@ -439,6 +439,12 @@ describe('V7规划正式资料快照', () => {
 
       context.database.prepare(`UPDATE v7_setting_items SET updated_at='2026-07-16T00:02:00.000Z'
         WHERE owner_id=? AND book_id=? AND item_key='setting-1'`).run(ownerId, bookId);
+      // Editing metadata does not invalidate the still-adopted version.
+      expect(() => compiler.compile({ ownerId, bookId, treeKind: 'book', scopeId: bookId, purpose: 'tree_generation' })).not.toThrow();
+      context.database.prepare(`INSERT INTO v7_setting_item_versions
+        (version_id,owner_id,book_id,item_key,revision,status,content_json,created_by,created_at)
+        SELECT version_id || '-new',owner_id,book_id,item_key,revision+1,'confirmed',content_json,'author','2026-07-16T00:02:00.000Z'
+        FROM v7_setting_item_versions WHERE owner_id=? AND book_id=? AND item_key='setting-1' AND revision=1`).run(ownerId, bookId);
       expect(() => compiler.compile({ ownerId, bookId, treeKind: 'book', scopeId: bookId, purpose: 'tree_generation' }))
         .toThrow('重新统一整理当前版本');
     } finally {
@@ -553,6 +559,10 @@ describe('V7设定总账门禁只校验导航投影', () => {
   function insertItemRows(bookId: string, itemKeys: string[]): void {
     const db = context!.database;
     itemKeys.forEach((key, index) => {
+      db.prepare(`INSERT INTO v7_setting_item_versions
+        (version_id,owner_id,book_id,item_key,revision,status,content_json,created_by,created_at)
+        VALUES (?,?,?,?,1,'confirmed','{}','author',?)`)
+        .run(`ledger-version-${index + 1}`, OWNER_ID, bookId, key, ITEM_TIME);
       db.prepare(`INSERT INTO v7_setting_items
         (owner_id,book_id,item_key,item_label,group_title,item_prompt,state,active_version_id,revision,updated_at)
         VALUES (?,?,?,?,?,?, 'confirmed',?,1,?)`)
@@ -669,13 +679,11 @@ describe('V7设定总账门禁只校验导航投影', () => {
     try {
       const reader = new V7SettingLedgerReader(context!.database);
 
-      // 无设定：没有可用总审 → 兼容总账，空事实账
+      // No adopted rules requires a current complete applicability check.
       const emptyBook = 'book-ledger-gate-empty';
-      const emptyLedger = reader.readCurrent({
+      expect(() => reader.readCurrent({
         ownerId: OWNER_ID, bookId: emptyBook, openingVersion: OPENING_VERSION, settings: []
-      });
-      expect(emptyLedger.sourceId).toBe(`setting-ledger:${emptyBook}`);
-      expect(emptyLedger.content.factLedger).toEqual([]);
+      })).toThrow('必要设定');
 
       // 少量设定（≤8）＋ 失败总审 → 兼容总账，逐项事实账保留
       const smallBook = 'book-ledger-gate-small';

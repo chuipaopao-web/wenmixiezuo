@@ -71,7 +71,7 @@ describe('V7设定页面', () => {
 
   it('只展示本轮真实参与成员，并把同一成员的旧工位快照合并为一张卡', async () => {
     render(<SettingPage bookId="book-1" />);
-    expect(await screen.findByText('主编先挑出本书真正需要的设定，您也可以随时补充。')).toBeInTheDocument();
+    expect(await screen.findByText('设计成员先挑出本书需要的设定，您可以调整设计范围。')).toBeInTheDocument();
     expect(screen.queryByText('完整设定库')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '打开完整设定库' }));
     expect(screen.getByText('完整设定库')).toBeInTheDocument();
@@ -111,11 +111,11 @@ describe('V7设定页面', () => {
       return new Response(JSON.stringify({ error: { message: '未模拟请求' } }), { status: 404, headers: { 'content-type': 'application/json' } });
     });
     render(<SettingPage bookId="book-1" />);
-    expect(await screen.findByRole('button', { name: '请主编整理设定清单' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '整理设定清单' })).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/setting-recommendations'))).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: '请主编整理设定清单' }));
+    fireEvent.click(screen.getByRole('button', { name: '整理设定清单' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/setting-recommendations'), expect.objectContaining({ method: 'POST' })));
-    expect(await screen.findByText((_content, element) => element?.textContent === '当前工位：正在理解作品')).toBeInTheDocument();
+    expect(await screen.findByText('正在理解作品')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: '整理进度28%' })).toBeInTheDocument();
   });
 
@@ -242,7 +242,7 @@ describe('V7设定页面', () => {
 
   it('设定页不再重复显示开书资料', async () => {
     render(<SettingPage bookId="book-1" />);
-    await screen.findByText('主编先挑出本书真正需要的设定，您也可以随时补充。');
+    await screen.findByText('设计成员先挑出本书需要的设定，您可以调整设计范围。');
     expect(screen.queryByText('开书资料')).not.toBeInTheDocument();
   });
 
@@ -263,7 +263,7 @@ describe('V7设定页面', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('设定编辑部暂时没有准备好');
     expect(screen.getByRole('alert')).toHaveTextContent('对不起，这次操作没有完成，请稍后再试');
     fireEvent.click(screen.getByRole('button', { name: '重新连接' }));
-    expect(await screen.findByText('主编先挑出本书真正需要的设定，您也可以随时补充。')).toBeInTheDocument();
+    expect(await screen.findByText('设计成员先挑出本书需要的设定，您可以调整设计范围。')).toBeInTheDocument();
   });
 
   it('修改内容在条目内展开，保存后创建可恢复的复审任务', async () => {

@@ -5,6 +5,9 @@ import { describe, expect, it } from 'vitest';
 const CURRENT_SQL_APPLICATION_FILES = new Set([
   'books/book-onboarding-service.ts',
   'books/positioning-service.ts',
+  // Existing pre-R164 services; new setting impact queries live in repositories.
+  'admin/commercial-summary.ts',
+  'planning/v7-rhythm-policy-store.ts',
 ]);
 
 describe('应用层数据库边界', () => {

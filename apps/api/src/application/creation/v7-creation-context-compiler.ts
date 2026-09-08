@@ -46,7 +46,7 @@ import { readBudgetedEvidence, type EvidenceGenerate } from './v7-context-eviden
 
 const MAXIMUM_SELECTED_SOURCES = 12;
 const CONTEXT_REPAIR_RESERVE_CHARACTERS = 1_200;
-const CONTEXT_PROJECTION_VERSION = 'layered-context-projection-v10-evidence';
+const CONTEXT_PROJECTION_VERSION = 'layered-context-projection-v11-canonical-rules';
 
 interface FormalOpeningRow {
   opening_blueprint_id: string;
@@ -74,6 +74,8 @@ interface ConfirmedTreeRow {
 }
 
 export interface V7CreationContextCompileInput {
+  /** Exact accepted parent artifact supplies this pack; never a recency guess. */
+  inheritContextPackId?: string;
   recoveryKey?: string;
   ownerId: string;
   bookId: string;
@@ -136,6 +138,7 @@ export class V7CreationContextCompiler {
       taskKind: input.taskKind,
       taskId: input.taskId,
       firstVolume: input.firstVolume,
+      inheritContextPackId: input.inheritContextPackId ?? null,
       sources: candidates.map((item) => ({
         sourceKey: item.sourceKey,
         sourceVersion: item.sourceVersion,
@@ -178,6 +181,26 @@ export class V7CreationContextCompiler {
       now: this.now()
     });
 
+    const inherited = input.inheritContextPackId
+      ? this.creation.contextPack(input.ownerId, input.bookId, input.inheritContextPackId) : undefined;
+    const inheritedSelection = inherited?.status === 'active' && inherited.content_json !== null
+      ? inheritCreationSelection(input, candidates, JSON.parse(inherited.content_json) as V7CreationContextPack) : null;
+    if (inheritedSelection !== null) {
+      // No selection-model call. Budget overflow alone may request bounded evidence selection.
+      try {
+        const content = await this.compileSelectedPack(input, pack, candidates, inheritedSelection, firstMember);
+        this.creation.activateContext({ ownerId: input.ownerId, bookId: input.bookId,
+          contextPackId: pack.context_pack_id, selection: inheritedSelection, content,
+          contentHash: sha256(stableJson(content)), now: this.now() });
+        return { contextPackId: pack.context_pack_id, sourceFingerprint, selection: inheritedSelection, content,
+          sourceTraces: contextSourceTraces(input.ownerId, input.bookId, candidates, inheritedSelection) };
+      } catch (error) {
+        this.creation.failContext({ ownerId: input.ownerId, bookId: input.bookId, contextPackId: pack.context_pack_id,
+          status: error instanceof V7CreationModelError && error.outcomeUnknown ? 'unknown' : 'failed',
+          message: publicFailure(error), now: this.now() });
+        throw error;
+      }
+    }
     const failures: string[] = [];
     const workflowCalls = this.creation.modelCallsForWorkflow(input.ownerId, input.bookId, input.workflowId);
     const recoverableCalls = workflowCalls.toReversed().filter((call) => call.run_kind === 'context'
@@ -399,7 +422,6 @@ export class V7CreationContextCompiler {
     const opening = this.planning.formalOpening(input.ownerId, input.bookId) as unknown as FormalOpeningRow | undefined;
     if (opening === undefined) throw gate('请先完成并确认开书资料。');
     const settings = this.planning.confirmedSettings(input.ownerId, input.bookId) as unknown as ConfirmedSettingRow[];
-    if (settings.length === 0) throw gate('请先确认本书设定，再继续创作。');
     const ledger = this.settingLedger.readCurrent({
       ownerId: input.ownerId,
       bookId: input.bookId,
@@ -429,11 +451,15 @@ export class V7CreationContextCompiler {
       sourceVersion: ledger.sourceVersion,
       authority: 'formal',
       label: '当前设定事实账本',
-      content: ledger.content,
+      content: {
+        ...settingLedgerContextProjection(ledger.content, input.taskKind),
+        // Keep version references, not every topic's facts, in the always-included navigation.
+        factLedger: ledger.content.factLedger.map(({ facts: _facts, ...reference }) => reference)
+      },
       selectionContent: settingLedgerContextProjection(ledger.content, input.taskKind),
       contentHash: ledger.contentHash,
       required: input.taskKind !== 'settlement',
-      includedReason: '这是主编签发的整书摘要和分组边界；完整设定仍按条目保存，需要时才回查。'
+      includedReason: '这是已确认设定的导航与全书规则；主题原文按当前任务相关性取用。'
     })];
     settings.forEach((setting, index) => {
       const projection = settingProjections[index]!;
@@ -444,13 +470,15 @@ export class V7CreationContextCompiler {
         sourceVersion: String(setting.revision),
         authority: 'formal',
         label: `设定原文：${setting.item_label}`,
-        content: jsonObject(setting.content_json, `设定“${setting.item_label}”`),
+        content: projection.rules ? { schema: 'setting-rules-v1', itemKey: projection.itemKey, rules: projection.rules }
+          : jsonObject(setting.content_json, `设定“${setting.item_label}”`),
         selectionContent: {
           schema: 'v7-setting-fact-source-v1',
           itemKey: projection.itemKey,
           label: projection.label,
           contextSummary: projection.contextSummary,
-          facts: reviewedFacts.get(projection.itemKey) ?? projection.factEntries,
+          ...(projection.rules ? { rules: projection.rules }
+            : { facts: reviewedFacts.get(projection.itemKey) ?? projection.factEntries }),
           factCount: (reviewedFacts.get(projection.itemKey) ?? projection.factEntries).length,
           projectionSource: projection.projectionSource
         },
@@ -746,6 +774,35 @@ export function compileCreationContextPlannerPrompt(input: {
     throw new DomainError(errorCodes.validation, '资料整理没有留足安全补交空间，已保留原有资料，请反馈给管理员处理。');
   }
   return allMinimalDirectoryPrompt;
+}
+
+export function inheritCreationSelection(
+  input: Pick<V7CreationContextCompileInput, 'taskKind' | 'taskBrief'>,
+  candidates: readonly V7CreationSourceCandidate[], parent: V7CreationContextPack
+): V7CreationContextSelection | null {
+  if (!['outline', 'manuscript', 'review'].includes(input.taskKind)) return null;
+  const current = new Map(candidates.map((item) => [item.sourceKey, item]));
+  // Updated canon requires a new relevance decision; do not silently reuse a stale selection.
+  for (const source of parent.selectedSources) {
+    if (source.authority !== 'formal' || source.sourceKind === 'planning_tree') continue;
+    const latest = current.get(source.sourceKey);
+    if (!latest || latest.sourceVersion !== source.sourceVersion || latest.contentHash !== source.contentHash) return null;
+  }
+  const parentKeys = new Set(parent.selectedSources.map((item) => item.sourceKey));
+  const selected = candidates.filter((item) => item.required || parentKeys.has(item.sourceKey));
+  const selectedKeys = new Set(selected.map((item) => item.sourceKey));
+  return {
+    schema: V7_CREATION_CONTEXT_SCHEMA, publicSummary: '沿用已确认上级任务的资料，并由系统补入当前任务和最新正文实际。',
+    selectedSourceKeys: [...selectedKeys],
+    excludedSourceKeys: candidates.filter((item) => !selectedKeys.has(item.sourceKey)).map((item) => item.sourceKey),
+    selectionReasons: candidates.map((item) => ({ sourceKey: item.sourceKey,
+      reason: selectedKeys.has(item.sourceKey) ? '已确认上级资料或当前节点必需来源。' : '未在上级选定范围内，本轮不主动注入。' })),
+    openQuestions: [...parent.openQuestions],
+    taskPersona: { ...parent.taskPersona, workingIdentity: input.taskKind === 'review' ? '依据正式资料独立审查本章' : '承接已确认规划完成当前任务' },
+    taskResponsibilities: [input.taskBrief],
+    creativeSpace: ['在已确认规则和当前规划范围内自然表达，不把未来计划冒充已经发生的事实。'],
+    methodStrategy: { mode: 'none', publicSummary: '沿用已确认规划中的节奏，本节点不重新选择全书方法。', searchRequest: null }
+  };
 }
 
 export async function compilePack(
@@ -1095,6 +1152,7 @@ function settingLedgerContextProjection(
     : [];
   const common = {
     schema: 'v7-setting-ledger-context-projection-v1',
+    globalRules: content.globalRules,
     summary: content.summary,
     unifiedDecisions: content.unifiedDecisions,
     unresolvedConflicts: content.unresolvedConflicts

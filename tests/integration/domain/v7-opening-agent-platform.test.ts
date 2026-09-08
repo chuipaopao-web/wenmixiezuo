@@ -448,7 +448,7 @@ describe('V7开书Agent平台接入', () => {
         taskId,
         status: 'awaiting_author_confirmation',
         isRunning: false,
-        selectedMembers: { chiefEditor: { memberKey: 'chief-kimi-k3', displayName: '沈知微' } },
+        selectedMembers: { chiefEditor: { memberKey: 'chief-kimi-k3', displayName: '沈知微·K3' } },
         idea: input.idea,
         resultBookId: null,
         workflowStyle: 'direct_design_review',
@@ -844,7 +844,7 @@ describe('V7开书Agent平台接入', () => {
       `).get(taskId) as { member_roster_json: string };
       const frozenRoster = JSON.parse(frozen.member_roster_json) as Array<{ memberKey: string }>;
       expect(frozenRoster).toContainEqual(expect.objectContaining({
-        memberKey: 'chief-kimi-k3', enabled: true, defaultForRole: true, fallbackPriority: 1,
+        memberKey: 'chief-kimi-k3', enabled: true, defaultForRole: false, fallbackPriority: 2,
         promptInstruction: ''
       }));
       expect(frozenRoster).toContainEqual(expect.objectContaining({ memberKey: 'planner-deepseek-v4-pro' }));
@@ -1103,7 +1103,7 @@ describe('V7开书Agent平台接入', () => {
       const activePackage = latestCandidate(reviewed, 'opening_package');
       expect(activePackage).toMatchObject({
         version: 3,
-        createdBy: { memberKey: 'planner-deepseek-v4-pro', displayName: '红玉' },
+        createdBy: { memberKey: 'planner-deepseek-v4-pro', displayName: '红玉·4p' },
         content: {
           title: '三国：小卒问鼎',
           protagonists: [expect.objectContaining({ age: '24岁' })],

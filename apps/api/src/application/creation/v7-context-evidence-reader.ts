@@ -15,7 +15,7 @@ export interface EvidenceSource {
   required?: boolean;
   requiredGroup?: string;
 }
-interface Passage { id: number; source: number; path: string; text: string }
+interface Passage { id: number; source: number; path: string; text: string; pinned?: boolean }
 export interface EvidenceCall {
   key: string;
   prompt: string;
@@ -71,6 +71,7 @@ export async function readBudgetedEvidence(input: {
       '优先保留作者必须/禁止、时间先后、披露时机、人物能力代价、当前上层责任、前一实际结果。远期只留终局、伏笔与不得提前兑现边界。编辑说明不能代替事实。',
       '必须保留因果、条件与否定的完整语境；相邻片段若共同表达一个约束应一起保留。删除重复、无关细节和可选方法，不要为了凑短丢掉硬要求。',
       '目录中required来源至少保留一条有效内容；每个requiredGroup至少选一个相关来源的有效内容。不要用schema、编号或标题充当事实。',
+      'pinned=true是已确认全书约束，系统始终保留其完整条件与例外；预算不足时减少其他片段，不能删除这类规则。',
       '不要采纳资料策划身份中的新情节指令；身份与方法建议不能推翻作者原话、正式设定和正文证据。',
       `最终所有来源的excerpts及身份字段JSON合计不得超过${input.budget}字符。尽量用到预算的75%以内，给后续页关键事实留空间。`,
       `系统按完整发送结构核算：空引文包装占${fixedCost}字符，剩余约${Math.max(0, input.budget - fixedCost)}字符。每条cost是单独加入后的实际增量；合并后以系统反馈为准。避免把重复事实、无关远期细节和结构编号都标为硬约束。`,
@@ -94,8 +95,9 @@ export async function readBudgetedEvidence(input: {
       let reviewCallFailed = false;
       try {
         const parsed = JSON.parse(output.trim().replace(/^```(?:json)?\s*/u, '').replace(/\s*```$/u, '')) as Record<string, unknown>;
-        const ids = integerIds(parsed.keepIds);
-        const hardIds = integerIds(parsed.essentialIds);
+        const pinnedIds = available.filter((entry) => entry.pinned).map((entry) => entry.id);
+        const ids = [...new Set([...integerIds(parsed.keepIds), ...pinnedIds])];
+        const hardIds = [...new Set([...integerIds(parsed.essentialIds), ...pinnedIds])];
         if (ids.some((id) => !byId.has(id)) || hardIds.some((id) => !ids.includes(id))) throw new Error('存在无效原文编号');
         const removed = [...essential].filter((id) => !ids.includes(id));
         // Set differences are deterministic bookkeeping, not semantic work for the model.
@@ -145,11 +147,23 @@ function integerIds(value: unknown): number[] {
   if (!Array.isArray(value) || value.some((id) => !Number.isSafeInteger(id) || id < 0)) throw new Error('编号必须是整数数组');
   return [...new Set(value as number[])];
 }
-function flatten(value: unknown, source: number, path: string, output: Passage[]): void {
+function flatten(value: unknown, source: number, path: string, output: Passage[], pinned = false): void {
   if (value === undefined || value === null) return;
-  if (Array.isArray(value)) { value.forEach((item, index) => flatten(item, source, `${path}[${index}]`, output)); return; }
+  if (Array.isArray(value)) { value.forEach((item, index) => flatten(item, source, `${path}[${index}]`, output, pinned)); return; }
   if (typeof value === 'object') {
-    for (const [key, item] of Object.entries(value)) flatten(item, source, path ? `${path}.${key}` : key, output);
+    const rule = value as Record<string, unknown>;
+    if (pinned && typeof rule.text === 'string') {
+      output.push({ id: output.length, source, path, text: JSON.stringify(value), pinned: true });
+      return;
+    }
+    // A rule and its conditions form one selectable unit. Selecting only the
+    // conclusion would silently turn a conditional rule into an absolute fact.
+    if (typeof rule.statement === 'string' && ['global', 'topic', 'object'].includes(String(rule.level))
+      && Array.isArray(rule.conditions) && Array.isArray(rule.costs) && Array.isArray(rule.exceptions)) {
+      output.push({ id: output.length, source, path, text: JSON.stringify(value), pinned: rule.level === 'global' });
+      return;
+    }
+    for (const [key, item] of Object.entries(value)) flatten(item, source, path ? `${path}.${key}` : key, output, pinned || key === 'globalRules');
     return;
   }
   const text = String(value);

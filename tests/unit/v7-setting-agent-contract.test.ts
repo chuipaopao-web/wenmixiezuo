@@ -18,28 +18,28 @@ import {
 
 describe('V7设定Agent合同', () => {
   it('完整目录能按题材扩展，只在作者明确要求查证时召集副编', () => {
-    expect(V7_SETTING_CATALOG.length).toBeGreaterThanOrEqual(50);
-    expect(activeSettingCatalog('历史脑洞 秦汉三国').map((item) => item.key)).toEqual(expect.arrayContaining(['world-stage', 'history-baseline', 'politics-military']));
-    expect(activeSettingCatalog('科幻末世 星际机甲').map((item) => item.key)).toEqual(expect.arrayContaining(['technology-boundary', 'science-cost']));
+    expect(V7_SETTING_CATALOG).toHaveLength(24);
+    expect(new Set(V7_SETTING_CATALOG.map((item) => item.key)).size).toBe(24);
+    expect(new Set(V7_SETTING_CATALOG.map((item) => item.label)).size).toBe(24);
+    expect(activeSettingCatalog('历史脑洞 秦汉三国').map((item) => item.key)).toEqual(expect.arrayContaining(['world-stage', 'history', 'governance']));
+    expect(settingItemByKey('technology-boundary')?.label).toBe(settingItemByKey('civilization')?.label);
     expect(deputyNeeded(settingItemByKey('formula')!, '')).toBe(false);
     expect(deputyNeeded(settingItemByKey('formula')!, '请帮我考据这套体系是否合理')).toBe(true);
     expect(deputyNeeded(settingItemByKey('world-stage')!, '')).toBe(false);
   });
 
-  it('禁止项不会反向激活游戏和超凡扩展', () => {
+  it('系统提供完整主题供语义判断，不靠题材关键词增加条目或强制生成', () => {
     const forbidden = '不得引入玄幻、修仙、系统等超现实元素；不要游戏和网游设定。';
     const historical = activeSettingCatalog('男频 历史脑洞 秦汉三国 穿越 种田', forbidden).map((item) => item.key);
-    expect(historical).toContain('history-baseline');
-    expect(historical).toContain('territory');
-    expect(historical).not.toContain('game-entry');
-    expect(historical).not.toContain('cultivation');
-    expect(activeSettingCatalog('男频 游戏电竞 网游', '不使用系统面板').map((item) => item.key)).toContain('game-entry');
-    expect(activeSettingCatalog('男频 玄幻 修仙', '').map((item) => item.key)).toContain('cultivation');
+    expect(historical).toEqual(activeSettingCatalog('男频 游戏电竞 网游', '').map((item) => item.key));
+    expect(V7_SETTING_CATALOG.every((item) => !item.required)).toBe(true);
+    expect(historical).not.toContain('history-baseline');
+    expect(settingItemByKey('history-baseline')?.key).toBe('history-baseline');
   });
 
   it('主编推荐提示词读取完整资料与完整目录，解析时要求每项只归入一组', () => {
     const catalog = V7_SETTING_CATALOG.map((item) => ({ ...item }));
-    const requiredKeys = ['world-stage', 'social-order', 'rules-costs', 'boundaries-blanks', 'history-baseline'];
+    const requiredKeys = ['world-stage', 'governance', 'history'];
     const excludedKeys = catalog.map((item) => item.key).filter((key) => !requiredKeys.includes(key));
     const prompt = compileSettingCatalogRecommendationPrompt({
       openingProfile: { category: '历史脑洞', era: '北宋', mustFollow: ['不要系统、不要修仙、不要游戏'] },
@@ -48,13 +48,13 @@ describe('V7设定Agent合同', () => {
     expect(prompt).toContain('北宋');
     expect(prompt).toContain('完整设定目录');
     expect(prompt).toContain('否定表达不能反向触发题材');
-    expect(prompt).toContain('精简到14项以内');
+    expect(prompt).toContain('不规定必做数量');
     expect(parseSettingCatalogRecommendation(JSON.stringify({ requiredKeys, suggestedKeys: [], excludedKeys, summary: '这是一部写实历史穿越文，先把时代规则和历史边界准备清楚。' }), catalog)).toMatchObject({ requiredKeys, suggestedKeys: [] });
-    expect(() => parseSettingCatalogRecommendation(JSON.stringify({ requiredKeys, suggestedKeys: ['history-baseline'], excludedKeys, summary: '重复归类' }), catalog)).toThrow(/多个分组/u);
+    expect(() => parseSettingCatalogRecommendation(JSON.stringify({ requiredKeys, coveredKeys: ['history'], suggestedKeys: [], excludedKeys, summary: '重复归类' }), catalog)).toThrow(/多个分组/u);
     expect(() => parseSettingCatalogRecommendation(JSON.stringify({ requiredKeys, suggestedKeys: [], excludedKeys: excludedKeys.slice(1), summary: '漏掉条目' }), catalog)).toThrow(/完整整理/u);
     const tooManyRequired = catalog.slice(0, 15).map((item) => item.key);
     const remaining = catalog.map((item) => item.key).filter((key) => !tooManyRequired.includes(key));
-    expect(() => parseSettingCatalogRecommendation(JSON.stringify({ requiredKeys: tooManyRequired, suggestedKeys: [], excludedKeys: remaining, summary: '把大量相近条目都列为必做。' }), catalog)).toThrow(/14项以内/u);
+    expect(parseSettingCatalogRecommendation(JSON.stringify({ requiredKeys: tooManyRequired, suggestedKeys: [], coveredKeys: remaining, excludedKeys: [], summary: '复杂世界需要这些主题，其余资料已经足够。' }), catalog).coveredKeys).toEqual(remaining);
   });
 
   it('资料包冻结范围与来源，输出解析拒绝不完整结构', () => {

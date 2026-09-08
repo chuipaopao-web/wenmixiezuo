@@ -810,7 +810,10 @@ export class V7CreationWorkflowService {
     const requestedCount = planningCandidateCount(input.candidateCount);
     const rawMemberKeys = input.memberKeys ?? (input.memberKey === undefined ? undefined : [input.memberKey]);
     const selectedMembers = this.outlineCandidateMembers(rawMemberKeys, requestedCount);
+    const chainDecision = this.repository.decision(ownerId, bookId, workflowId, 'chain_option');
+    const chainOption = chainDecision ? this.repository.option(ownerId, bookId, chainDecision.target_id) : undefined;
     const context = await this.contexts.compile({
+      ...(chainOption ? { inheritContextPackId: chainOption.context_pack_id } : {}),
       ownerId, bookId, workflowId, taskKind: 'outline', taskId: run.chain_scope_id,
       taskBrief: '把已确认单元链拆成可执行、叙事作用清楚的章纲；节奏依本书需要，不强制每章变化或回报。', firstVolume: run.first_volume === 1,
       authorInput: run.author_goal, requiredTree: { treeKind: 'chain', scopeId: run.chain_scope_id }
@@ -1032,6 +1035,7 @@ export class V7CreationWorkflowService {
     try {
     const context = await this.contexts.compile({
       ownerId, bookId, workflowId, taskKind: 'manuscript', taskId: `${sequence.sequence_id}:${chapterNumber}`,
+      inheritContextPackId: sequence.context_pack_id,
       taskBrief: `按照已确认章纲完成第${chapterNumber}章正文，保持连续性和人物知情边界。`,
       firstVolume: run.first_volume === 1
     });
@@ -1080,6 +1084,7 @@ export class V7CreationWorkflowService {
       if (latestManuscript === null) throw new Error('正文工作没有产生可审校草稿');
       const reviewContext = await this.contexts.compile({
         ownerId, bookId, workflowId, taskKind: 'review', taskId: latestManuscript.manuscript_version_id,
+        inheritContextPackId: latestManuscript.context_pack_id,
         taskBrief: `独立审查第${chapterNumber}章是否符合正式资料、人物连续性、章纲责任和阅读质量。`,
         firstVolume: run.first_volume === 1
       });
@@ -2020,11 +2025,14 @@ function creationFailureMessage(message: string): string {
 }
 
 function fastOptionPriority(member: V7CreationMemberDefinition): number {
-  return ['deepseek-v4-pro', 'doubao-seed-2.1-turbo'].indexOf(member.model.modelId);
+  return member.model.modelId === 'deepseek-v4-pro' ? 0 : member.fallbackPriority + 1;
 }
 
 function fastOptionMember(member: V7CreationMemberDefinition): boolean {
-  return fastOptionPriority(member) >= 0 || member.model.provider.startsWith('local-deterministic');
+  // The shared roster already enforces structured-output eligibility. A second
+  // obsolete model-name allowlist used to remove every fallback after Doubao
+  // left that roster, leaving the lead with no possible handoff.
+  return member.roleKey === 'planning_writer' && member.enabledByDefault;
 }
 
 function actorViews(calls: V7CreationActorCallRow[], run: V7CreationWorkflowRow, roster: readonly V7CreationMemberDefinition[], deliveredOptionNodes: ReadonlySet<string>, contextMemberKey: string | null): V7CreationWorkflowView['actors'] {

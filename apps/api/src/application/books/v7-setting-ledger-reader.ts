@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { V7SettingFinalReviewResult } from '@wenmi/v7-backend';
+import { renderSettingRule, V7_SETTING_CATALOG } from '@wenmi/opening-runtime';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import {
   V7SettingEditorialRepository,
@@ -21,6 +22,7 @@ export interface V7CompactSettingLedger {
   sourceVersion: string;
   contentHash: string;
   content: {
+    globalRules?: Array<{ itemKey: string; versionId: string; revision: number; text: string }>;
     schema: 'v7-compact-setting-ledger-v1';
     summary: string;
     groups: Array<{ groupTitle: string; summary: string; itemKeys: string[] }>;
@@ -62,11 +64,41 @@ export class V7SettingLedgerReader {
     openingVersion: number;
     settings: readonly V7ConfirmedSettingProjectionInput[];
   }): V7CompactSettingLedger {
+    if (input.settings.length === 0) {
+      const recommendation = this.repository.latestRecommendationForBook(input.ownerId, input.bookId);
+      let covered = false;
+      try {
+        const stored = JSON.parse(recommendation?.selected_items_json ?? '{}');
+        const result = stored.result;
+        const keys = [...(result?.coveredKeys ?? []), ...(result?.excludedKeys ?? [])];
+        covered = stored.taskKind === 'catalog_recommendation'
+          && recommendation?.status === 'awaiting_author'
+          && recommendation.opening_version === input.openingVersion
+          && Array.isArray(result.requiredKeys) && result.requiredKeys.length === 0
+          && Array.isArray(result.suggestedKeys) && result.suggestedKeys.length === 0
+          && Array.isArray(result.coveredKeys) && result.coveredKeys.length > 0
+          && Array.isArray(result.excludedKeys)
+          && keys.length === V7_SETTING_CATALOG.length
+          && new Set(keys).size === keys.length
+          && V7_SETTING_CATALOG.every((item) => keys.includes(item.key));
+      } catch { /* An incomplete classification cannot bypass the setting gate. */ }
+      if (!covered) throw gate('请先整理本书的设定清单，确认必要设定后再继续');
+      const ledger = this.compatibilityLedger(input.bookId, []);
+      ledger.content.summary = '本书必要设定已由当前正式开书资料覆盖；本次没有新增逐项设定。';
+      ledger.sourceVersion = `${input.openingVersion}:${recommendation!.batch_id}`;
+      ledger.contentHash = sha256(stableJson(ledger.content));
+      return ledger;
+    }
     const projections = input.settings.map(confirmedSettingProjection);
     try {
       requireUsableSettingProjections(projections);
     } catch (error) {
       throw gate(error instanceof Error ? error.message : String(error));
+    }
+    // Canonical cards already contain complete adopted rules. A newer review
+    // of unadopted candidates must never replace them via a parallel summary.
+    if (projections.length > 0 && projections.every((projection) => projection.rules !== undefined)) {
+      return this.compatibilityLedger(input.bookId, projections);
     }
     const latest = this.repository.latestFinalReview(input.ownerId, input.bookId);
     if (latest === undefined) return this.compatibilityLedger(input.bookId, projections);
@@ -89,6 +121,7 @@ export class V7SettingLedgerReader {
     }
     const content: V7CompactSettingLedger['content'] = {
       schema: 'v7-compact-setting-ledger-v1',
+      globalRules: globalRules(projections),
       summary: result.contextSummary,
       groups: result.groupSummaries,
       unifiedDecisions: result.unifiedDecisions,
@@ -101,7 +134,7 @@ export class V7SettingLedgerReader {
           label: entry.label,
           versionId: projection.versionId,
           revision: projection.revision,
-          facts: [...entry.facts]
+          facts: [...projection.factEntries]
         };
       }),
       // A successful final review already provides the broad semantic map.
@@ -128,7 +161,7 @@ export class V7SettingLedgerReader {
     if (row.status !== 'awaiting_author' && row.status !== 'completed') {
       throw gate('当前设定总审还没有完成，请先让主编完成统一整理');
     }
-    const latestItemUpdate = this.repository.latestSettingItemUpdatedAt(input.ownerId, input.bookId);
+    const latestItemUpdate = this.repository.latestConfirmedSettingUpdatedAt(input.ownerId, input.bookId);
     if (
       row.opening_version !== input.openingVersion
       || latestItemUpdate === null
@@ -151,11 +184,13 @@ export class V7SettingLedgerReader {
   }
 
   private compatibilityLedger(bookId: string, projections: readonly V7SettingContextProjection[]): V7CompactSettingLedger {
-    if (projections.length > MAXIMUM_COMPATIBILITY_ITEMS_WITHOUT_FINAL_REVIEW) {
+    if (projections.length > MAXIMUM_COMPATIBILITY_ITEMS_WITHOUT_FINAL_REVIEW
+      && !projections.every((projection) => projection.rules !== undefined)) {
       throw gate('设定条目较多，请先让主编完成一次全书统一整理');
     }
     const content: V7CompactSettingLedger['content'] = {
       schema: 'v7-compact-setting-ledger-v1',
+      globalRules: globalRules(projections),
       summary: '当前按已确认设定的逐项轻量索引工作；完整原文仍按条目保存并可回查。',
       groups: [],
       unifiedDecisions: [],
@@ -220,9 +255,17 @@ function finalReviewResultHash(row: V7SettingBatchRow): string | null {
  * 逐项事实账 factLedger 与条目索引 itemIndex 只作为审计与精确取用来源，
  * 不会作为一个整体注入规划提示，因此不计入门禁，也绝不能被截断、删除或改写。
  */
+function globalRules(projections: readonly V7SettingContextProjection[]): NonNullable<V7CompactSettingLedger['content']['globalRules']> {
+  return projections.flatMap((projection) => (projection.rules ?? [])
+    .filter((rule) => rule.level === 'global')
+    .map((rule) => ({ itemKey: projection.itemKey, versionId: projection.versionId,
+      revision: projection.revision, text: renderSettingRule(rule) })));
+}
+
 function requireCompactLedger(content: V7CompactSettingLedger['content']): void {
   const navigationProjection = {
     schema: content.schema,
+    globalRules: content.globalRules,
     summary: content.summary,
     groups: content.groups,
     unifiedDecisions: content.unifiedDecisions,

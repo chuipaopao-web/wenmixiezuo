@@ -9,5 +9,6 @@ export * from './setting-agent/setting-agent-support.js';
 export * from './setting-agent/setting-catalog.js';
 export * from './setting-agent/setting-editorial-roster.js';
 export * from './setting-agent/setting-context-projection.js';
+export * from './setting-agent/setting-rules.js';
 export const SETTING_RUNTIME_RELEASE = 'setting-runtime-139';
 export * from './setting-agent/setting-delivery-policy.js';

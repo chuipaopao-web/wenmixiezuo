@@ -80,7 +80,7 @@ describe('fixed member slots and replaceable model bindings', () => {
     expect(service.snapshot().revision).toBe(revision);
     expect(repository.candidateSlots()).toHaveLength(33);
     const view=service.adminView() as {summary:{memberCount:number;candidateCount:number;unboundCount:number};roles:Array<{members:Array<{configurationOnly?:boolean;enabled:boolean}>}>};
-    expect(view.summary).toMatchObject({memberCount:56,candidateCount:20,unboundCount:13});
+    expect(view.summary).toMatchObject({memberCount:56,candidateCount:15,unboundCount:13});
     expect(view.roles.flatMap(role=>role.members).filter(member=>member.configurationOnly).every(member=>!member.enabled)).toBe(true);
   });
 });

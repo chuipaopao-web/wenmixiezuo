@@ -392,6 +392,12 @@ export class V7SettingEditorialRepository {
       ORDER BY updated_at DESC,created_at DESC LIMIT 1`).get(...values) as V7SettingBatchRow | undefined;
   }
 
+  public latestConfirmedSettingUpdatedAt(ownerId: string, bookId: string): string | null {
+    const row = this.database.prepare(`SELECT MAX(created_at) AS updated_at FROM v7_setting_item_versions
+      WHERE owner_id=? AND book_id=? AND status='confirmed'`).get(ownerId, bookId) as { updated_at: string | null };
+    return row.updated_at;
+  }
+
   public latestSettingItemUpdatedAt(ownerId: string, bookId: string): string | null {
     const row = this.database.prepare(`SELECT MAX(updated_at) AS updated_at FROM v7_setting_items
       WHERE owner_id=? AND book_id=?`).get(ownerId, bookId) as { updated_at: string | null };
@@ -747,8 +753,10 @@ export class V7SettingEditorialRepository {
 
   public confirmedVersions(ownerId: string, bookId: string): Array<{ item_key: string; item_label: string; version_id: string; revision: number; content_json: string }> {
     return this.database.prepare(`SELECT i.item_key,i.item_label,v.version_id,v.revision,v.content_json FROM v7_setting_items i
-      JOIN v7_setting_item_versions v ON v.version_id=i.active_version_id AND v.owner_id=i.owner_id AND v.book_id=i.book_id
-      WHERE i.owner_id=? AND i.book_id=? AND i.state='confirmed' ORDER BY i.updated_at`).all(ownerId, bookId) as Array<{ item_key: string; item_label: string; version_id: string; revision: number; content_json: string }>;
+      JOIN v7_setting_item_versions v ON v.owner_id=i.owner_id AND v.book_id=i.book_id AND v.item_key=i.item_key
+        AND v.status='confirmed' AND v.revision=(SELECT MAX(formal.revision) FROM v7_setting_item_versions formal
+          WHERE formal.owner_id=i.owner_id AND formal.book_id=i.book_id AND formal.item_key=i.item_key AND formal.status='confirmed')
+      WHERE i.owner_id=? AND i.book_id=? ORDER BY i.item_key`).all(ownerId, bookId) as Array<{ item_key: string; item_label: string; version_id: string; revision: number; content_json: string }>;
   }
 
   public modelCall(requestId: string, ownerId: string, bookId: string): { state: string; output_text: string | null; failure_message: string | null } | undefined {

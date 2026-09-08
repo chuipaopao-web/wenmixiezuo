@@ -19,8 +19,17 @@ import { creationWorkflowBindingsAreCurrent } from '../../../apps/api/src/applic
 import { V7CreationRuntimeRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-creation-runtime-repository.js';
 import { V7PlanningTreeService } from '../../../apps/api/src/application/planning/v7-planning-tree-service.js';
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
-import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { FixedClock, SequenceIds, createTestContext as createBaseTestContext, type TestContext } from '../../helpers/test-context.js';
 import { v7GenreProfileFixtureResult } from '../../helpers/v7-genre-profile-model-fixture.js';
+
+function createTestContext(prefix?: string): TestContext {
+  const context = createBaseTestContext(prefix);
+  // Model adapters are synthetic; enable both configured channels so fallback
+  // tests exercise the roster instead of silently testing missing credentials.
+  context.config.modelRuntime.endpoints.coding.apiKey = 'fixture-only-no-network';
+  context.config.modelRuntime.endpoints.agent.apiKey = 'fixture-only-no-network';
+  return context;
+}
 
 const HEADERS = {
   host: '127.0.0.1:43111', origin: 'http://127.0.0.1:43110',
@@ -54,7 +63,7 @@ describe('V7全链路创作总线', () => {
       const ready = await pollWorkflow(app, cookie, bookId, id, 'volume_decision');
       expect(ready.actors).toEqual(expect.arrayContaining([
         expect.objectContaining({ memberKey: 'planner-deepseek-v4-pro', status: 'handed_over' }),
-        expect.objectContaining({ memberKey: 'planner-doubao-turbo', status: 'completed', message: '我的方案已交付，您可以查看和选择。' })
+        expect.objectContaining({ memberKey: 'planner-kimi-k3', status: 'completed', message: '我的方案已交付，您可以查看和选择。' })
       ]));
       const repository = new V7CreationRuntimeRepository(context.database);
       const run = repository.workflow(ownerId, bookId, id)!;
@@ -206,7 +215,7 @@ describe('V7全链路创作总线', () => {
       expect(volumeReady).toMatchObject({ status: 'waiting_for_you', completedOptions: 3, expectedOptions: 3, firstVolume: true });
       expect(volumeReady.options).toHaveLength(3);
       expect(new Set(volumeReady.options.map((item: { name: string }) => item.name)).size).toBe(3);
-      expect(new Set(volumeReady.options.map((item: { memberName: string }) => item.memberName)).size).toBe(2);
+      expect(new Set(volumeReady.options.map((item: { memberName: string }) => item.memberName)).size).toBe(3);
       expect(volumeReady.options.map((item: { seat: string }) => item.seat)).toEqual(['方案一', '方案二', '方案三']);
       for (const option of volumeReady.options) {
         expect(option).toMatchObject({
@@ -295,7 +304,7 @@ describe('V7全链路创作总线', () => {
       const chainReady = await pollWorkflow(app, cookie, bookId, workflowId, 'chain_decision');
       expect(chainReady).toMatchObject({ status: 'waiting_for_you', chainScopeId: 'chain-1', completedOptions: 3 });
       expect(chainReady.options).toHaveLength(3);
-      expect(new Set(chainReady.options.map((item: { memberName: string }) => item.memberName)).size).toBe(2);
+      expect(new Set(chainReady.options.map((item: { memberName: string }) => item.memberName)).size).toBe(3);
       for (const option of chainReady.options) expect(option.steps.length).toBeGreaterThan(0);
 
       const chosenChain = await request(app, cookie, 'POST',
@@ -442,7 +451,11 @@ describe('V7全链路创作总线', () => {
       const successfulContextCalls = Number((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_creation_model_calls
         WHERE owner_id=? AND book_id=? AND run_kind='context' AND state='succeeded'
           AND request_id LIKE 'creation-context:%'`).get(ownerId, bookId) as { count: number }).count);
-      expect(successfulContextCalls).toBe(activeContextPacks);
+      const inheritedPacks = Number((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_creation_context_packs
+        WHERE owner_id=? AND book_id=? AND status='active' AND task_kind IN ('outline','manuscript','review')`)
+        .get(ownerId, bookId) as { count: number }).count);
+      expect(inheritedPacks).toBeGreaterThan(0);
+      expect(successfulContextCalls).toBe(activeContextPacks - inheritedPacks);
       const contextCandidates = (context.database.prepare(`SELECT candidate_sources_json FROM v7_creation_context_packs
         WHERE owner_id=? AND book_id=? ORDER BY created_at,context_pack_id`).all(ownerId, bookId) as Array<{
           candidate_sources_json: string;
@@ -736,7 +749,7 @@ describe('V7全链路创作总线', () => {
       expect(ready.options.map((option: { optionId: string }) => option.optionId)).toEqual(
         expect.arrayContaining(preservedOptionIds)
       );
-      expect(new Set(ready.options.map((item: { memberName: string }) => item.memberName)).size).toBeLessThanOrEqual(2);
+      expect(new Set(ready.options.map((item: { memberName: string }) => item.memberName)).size).toBeLessThanOrEqual(3);
       expect(context.database.prepare(`SELECT DISTINCT contract.operation_mode,contract.based_on_task_id
         FROM v7_task_contracts contract
         INNER JOIN v7_creation_model_calls call ON call.request_id=contract.task_id
@@ -765,7 +778,7 @@ describe('V7全链路创作总线', () => {
       const workflowId = created.json().data.workflowId as string;
       const ready = await pollWorkflow(app, cookie, bookId, workflowId, 'volume_decision');
       expect(ready.options).toHaveLength(3);
-      expect(new Set(ready.options.map((option: { memberName: string }) => option.memberName)).size).toBe(2);
+      expect(new Set(ready.options.map((option: { memberName: string }) => option.memberName)).size).toBe(3);
       const lineage = context.database.prepare(`SELECT call.request_id,call.node_key,call.member_key,
           contract.operation_mode,contract.based_on_task_id
         FROM v7_creation_model_calls call
@@ -875,7 +888,7 @@ describe('V7全链路创作总线', () => {
     }
   });
 
-  it('三套方案可由两位快速编剧独立完成，作者也可重复选同一编剧', async () => {
+  it('三套方案可由三位准入编剧独立完成，作者也可重复选同一编剧', async () => {
     context = createTestContext('wenmi-v7-creation-distinct-writers-');
     const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new CreationResolver() });
     try {
@@ -890,8 +903,8 @@ describe('V7全链路创作总线', () => {
       expect(roster.some((member) => ['structure_writer', 'commercial_writer', 'character_writer'].includes(member.roleKey))).toBe(false);
       expect(roster.some((member) => member.roleKey === 'outline_writer')).toBe(false);
       const planningMembers = roster.filter((member) => member.roleKey === 'planning_writer');
-      expect(planningMembers).toHaveLength(4);
-      expect(new Set(planningMembers.map((member) => member.memberKey)).size).toBe(4);
+      expect(planningMembers).toHaveLength(3);
+      expect(new Set(planningMembers.map((member) => member.memberKey)).size).toBe(3);
       const first = planningMembers[0]!;
 
       const rejected = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/creation-workflows`, {
@@ -919,7 +932,7 @@ describe('V7全链路创作总线', () => {
     expect(parsed.risks).toEqual([]);
   });
 
-  it('GLM不可用也不进入方案队列，三套分别保存且如实显示两名实际成员', async () => {
+  it('GLM明确失败后由准入成员接手，三套分别保存且如实显示实际成员', async () => {
     context = createTestContext('wenmi-v7-creation-option-technical-cover-');
     const resolver = new GlmPlanningFailureResolver();
     const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
@@ -942,7 +955,7 @@ describe('V7全链路创作总线', () => {
       expect(partial.chiefReview).not.toBeNull();
       expect(context.database.prepare(`SELECT state FROM v7_creation_model_calls
         WHERE owner_id=? AND book_id=? AND workflow_id=? AND model_id='glm-5.3' AND run_kind='option'`)
-        .get(ownerId, bookId, workflowId)).toBeUndefined();
+        .get(ownerId, bookId, workflowId)).toEqual({ state: 'failed' });
       expect(context.database.prepare(`SELECT MAX(member_count) AS count FROM (
         SELECT COUNT(*) AS member_count FROM v7_creation_options
         WHERE owner_id=? AND book_id=? AND workflow_id=? GROUP BY member_key

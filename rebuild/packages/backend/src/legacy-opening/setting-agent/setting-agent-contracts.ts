@@ -1,4 +1,5 @@
 import type { V7MemberModelBinding } from '../agents/agent-roster.js';
+import type { SettingRule } from './setting-rules.js';
 
 export type V7SettingRoleKey = 'chief_editor' | 'deputy_editor' | 'screenwriter';
 export type V7SettingMemberPresence = 'ready' | 'working' | 'leave';
@@ -58,6 +59,7 @@ export interface V7DeputyBrief {
 }
 
 export interface V7WriterProposal {
+  rules?: SettingRule[];
   content: string;
   designRationale: string;
   /** 由设计成员生成的下游检索摘要，避免后续重复读取完整正文。 */
@@ -70,6 +72,7 @@ export interface V7WriterProposal {
 }
 
 export interface V7ChiefReview {
+  rules?: SettingRule[];
   verdict: 'pass' | 'needs_author';
   finalContent: string;
   summary: string;
@@ -93,6 +96,9 @@ export interface V7SettingMemberPublicView {
 }
 
 export interface V7SettingItemView {
+  topicKey?: string;
+  changeImpact?: { planning: Array<{ kind: string; name: string }>; finishedChapters: number };
+  rules?: SettingRule[];
   itemKey: string;
   label: string;
   groupTitle: string;
@@ -148,6 +154,8 @@ export interface V7SettingFinalReviewView {
 export interface V7SettingCatalogRecommendation {
   requiredKeys: string[];
   suggestedKeys: string[];
+  /** Topics sufficiently covered by the supplied confirmed opening/setting material. */
+  coveredKeys?: string[];
   excludedKeys: string[];
   summary: string;
 }

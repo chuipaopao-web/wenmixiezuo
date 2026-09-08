@@ -34,7 +34,8 @@ describe('opening node ranking and bounded admission',()=>{
   expect(service.openingRoster().filter(m=>m.roleKey==='screenwriter')[0]?.memberKey).toBe('planner-deepseek-v4-pro');
   expect(openingRanking('design')[0]?.profileKey).toBe('glm-5.3');
   expect(()=>repository.resolveTaskPolicy('planner-glm-5-3','opening_design')).not.toThrow();
-  expect(service.adminView().settingSelection.some(m=>m.modelId==='glm-5.3'&&m.roleKey==='screenwriter')).toBe(false);
+  const admin = service.adminView() as { settingSelection: Array<{ modelId: string; roleKey: string }> };
+  expect(admin.settingSelection.some(m=>m.modelId==='glm-5.3'&&m.roleKey==='screenwriter')).toBe(false);
  });
  it('keeps design and review independent, excludes invalid and retired results',()=>{
   const report={version:'test',testedAt:'2026-09-06',scope:'test',rows:[row('deepseek-v4-pro','design',50),row('kimi-k3','review',1),row('deepseek-v4-flash','design',2,false),row('glm-5.2','design',1),row('kimi-k2.7-code','design',30)]};

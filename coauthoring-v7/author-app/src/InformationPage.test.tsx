@@ -120,7 +120,7 @@ describe('V7开书资料页', () => {
     await screen.findByRole('heading', { name: '边军起势' });
     fireEvent.click(screen.getByRole('button', { name: /设计封面/ }));
     expect(await screen.findByRole('dialog', { name: '设计封面' })).toBeInTheDocument();
-    expect(screen.getByText('绘真 · 视觉编剧')).toBeInTheDocument();
+    expect(screen.getByText('绘真 · 封面画师')).toBeInTheDocument();
     expect(document.querySelectorAll('.visual-member-strip')).toHaveLength(1);
     expect(screen.queryByText(/visual_renderer|cover_artist|minimax|prompt|internal/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '商业插画' })).toBeEnabled();

@@ -75,7 +75,7 @@ describe('V7随时设计书名', () => {
     );
     governance.updateMember('admin', 'chief-deepseek-v4-pro', {
       expectedRevision: governance.snapshot().revision,
-      modelProfileKey: 'glm-5.3'
+      modelProfileKey: 'kimi-k3'
     });
     const resolve = vi.fn<V7OpeningModelAdapterResolver['resolve']>((provider, modelId) => ({
       provider,
@@ -107,10 +107,10 @@ describe('V7随时设计书名', () => {
       idempotencyKey: 'title-model-profile-0001'
     });
 
-    expect(resolve).toHaveBeenCalledWith('volcengine-ark-coding-plan', 'glm-5.3', 'structured_planning');
+    expect(resolve).toHaveBeenCalledWith('volcengine-ark-agent-plan', 'kimi-k3', 'structured_planning');
     expect(context.database.prepare(`SELECT member_key,model_profile_key FROM v7_prompt_manifests
       WHERE owner_id=? AND book_id=? AND task_kind='title_design'`).get(context.config.ownerId, book.bookId))
-      .toEqual({ member_key: 'chief-deepseek-v4-pro', model_profile_key: 'glm-5.3' });
+      .toEqual({ member_key: 'chief-deepseek-v4-pro', model_profile_key: 'kimi-k3' });
   });
 
   it('供应商结果未知时保留算力预留，不把可能已消耗的调用记成失败', async () => {

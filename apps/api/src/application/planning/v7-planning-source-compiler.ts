@@ -116,9 +116,6 @@ export class V7PlanningSourceCompiler {
     const opening = this.requireOpening(input.ownerId, input.bookId);
     const settings = this.confirmedSettings(input.ownerId, input.bookId);
     const excludedSources: string[] = [];
-    if (settings.length === 0) {
-      throw new DomainError(errorCodes.validation, '请先确认至少一项设定，再开始规划全书。', {}, false, 409);
-    }
 
     const rawOpeningContent = { title: opening.title, ...jsonObject(opening.blueprint_json, '开书资料') };
     if (input.treeKind === 'book') requirePlanningScaleProfileFromOpening(rawOpeningContent);
@@ -157,6 +154,7 @@ export class V7PlanningSourceCompiler {
         itemKey: projection.itemKey,
         label: projection.label,
         contextSummary: projection.contextSummary,
+        ...(projection.rules ? { rules: projection.rules } : {}),
         facts: reviewedFacts.get(projection.itemKey) ?? projection.factEntries
       };
       sources.push({
