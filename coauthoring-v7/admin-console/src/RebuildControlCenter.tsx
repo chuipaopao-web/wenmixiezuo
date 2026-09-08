@@ -3,6 +3,7 @@ import { ArrowClockwise, ArrowRight, CheckCircle, GearSix, GitBranch, Magnifying
 import type { RebuildControlData, RebuildUnit } from '../../backend/admin/rebuild-control-types.js';
 import { fetchRebuildControl } from './platform-api';
 import './rebuild-control.css';
+import { WorkflowGuide, detailText } from './WorkflowGuide';
 
 type Destination = 'agents' | 'prompt-context' | 'rhythm' | 'memberships' | 'issues' | 'features';
 type Filter = 'all' | 'active' | 'pending' | 'accepted' | 'attention';
@@ -38,6 +39,7 @@ export function RebuildControlCenter({ mode, onNavigate }: {
   const [query, setQuery] = useState('');
   const [stage, setStage] = useState('all');
   const [filter, setFilter] = useState<Filter>('all');
+  const [showGuide, setShowGuide] = useState(false);
   const [selectedId, setSelectedId] = useState(() => new URL(window.location.href).searchParams.get('unit') ?? '');
   const detailRef = useRef<HTMLElement>(null);
 
@@ -115,6 +117,8 @@ export function RebuildControlCenter({ mode, onNavigate }: {
     </section>
 
     {mode === 'configuration' ? <ConfigurationCenter data={data} onNavigate={onNavigate} /> : <>
+      <nav className="workflow-guide-switch" aria-label="功能地图视图"><button type="button" aria-pressed={!showGuide} onClick={() => setShowGuide(false)}>开发路线 · 全部功能</button><button type="button" aria-pressed={showGuide} onClick={() => setShowGuide(true)}>全链路AI介入导图</button></nav>
+      {showGuide && <WorkflowGuide units={data.units} onSelect={(id) => { setShowGuide(false); choose(id); }} />}
       <section className="rebuild-summary" aria-label="重构进度">
         <article><span>计划工作单元</span><strong>{data.units.length}<small>项</small></strong><p>覆盖 {data.sourceFeatures.length} 项来源功能</p></article>
         <article><span>已开始待完成</span><strong>{active.length}<small>项</small></strong><p>{active[0]?.name ?? '当前没有已开始待完成的单元'}</p></article>
@@ -173,6 +177,11 @@ function UnitDetail({ unit, data, onSelect, onNavigate }: {
   ];
   return <>
     <header><span className="rebuild-eyebrow">第 {unit.order} 项 · {unit.id}</span><h3>{unit.name}</h3><span className="rebuild-state">{unitStage(unit)}</span></header>
+    <section className="rebuild-detail-section" aria-label="功能方案概览"><h4>功能简介</h4><p>{detailText(unit, '设计·功能简介') ?? detailText(unit, '讨论') ?? '尚未登记功能简介。'}</p>
+      <h4>功能逻辑</h4><p>{detailText(unit, '设计·功能逻辑') ?? detailText(unit, '后端逐项实现') ?? '尚未登记功能逻辑。'}</p>
+      <h4>已确认的设计方案</h4><p>{detailText(unit, '设计·已确认方案') ?? '本单元尚未单独整理确认决定；下方保留原讨论与交付记录，不自动视为已确认方案。'}</p>
+      <h4>待确认 / 待验证</h4><p>{detailText(unit, '设计·待验证') ?? '按下方设计状态、验收要求和证据判断；没有记录不代表已经验证。'}</p>
+    </section>
     <dl className="rebuild-status-grid">{[['设计', unit.design], ['前端', unit.frontend], ['后端', unit.backend], ['验收', unit.acceptance], ['上线', unit.deployment]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
     <section className="rebuild-evidence"><h4>BUG与当前可用性</h4><p><strong>缺陷核查：</strong>{issues?.text ?? '尚未完成该功能的专项缺陷核查；不能据此判断没有BUG。'}</p>
       <p><strong>业务畅通：</strong>{failed > 0 ? `相关现有链路观察到 ${failed} 条失败记录，需在问题记录核查。` : recordedRun ? '已有本批运行验证记录，见下方；当前实时业务畅通仍未验证。' : signals.length ? '相关现有链路有任务记录；尚无本功能完整探针，仍为未验证。' : '尚无本功能的完整运行证据，未验证。'}</p>
@@ -180,10 +189,12 @@ function UnitDetail({ unit, data, onSelect, onNavigate }: {
       <button type="button" onClick={() => onNavigate('issues')}>打开问题记录<ArrowRight aria-hidden="true" /></button>
     </section>
     {sections.map(([key, title]) => {
+      if (key === '讨论' && !detailText(unit, '设计·功能简介')) return null;
+      if (key === '后端逐项实现' && !detailText(unit, '设计·功能逻辑')) return null;
       const detail = unit.details.find((item) => item.label === key);
       return detail ? <section key={key} className="rebuild-detail-section"><h4>{title}</h4><p>{detail.text}</p></section> : null;
     })}
-    {unit.details.filter((item) => item.label.startsWith('设计·')).map((detail) => <section key={detail.label} className="rebuild-detail-section"><h4>{detail.label.slice(3)} · 设计与处理逻辑</h4><p>{detail.text}</p></section>)}
+    {unit.details.filter((item) => !sections.some(([key]) => key === item.label) && !['已知问题', '设计·功能简介', '设计·功能逻辑', '设计·已确认方案', '设计·待验证', '设计·流程序号'].includes(item.label)).map((detail, index) => <section key={`${detail.label}-${index}`} className="rebuild-detail-section"><h4>{detail.label.replace(/^设计·/, '')} · 设计与处理逻辑</h4><p>{detail.text}</p></section>)}
     <section className="rebuild-detail-section"><h4>前置功能</h4>{unit.dependencies.length ? <div className="rebuild-dependencies">{unit.dependencies.map((id) => {
       const dependency = data.units.find((item) => item.id === id)!;
       return <button type="button" key={id} onClick={() => onSelect(id)}>{id} {dependency.name}<small>{unitStage(dependency)}</small><ArrowRight aria-hidden="true" /></button>;

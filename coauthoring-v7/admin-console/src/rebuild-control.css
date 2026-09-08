@@ -103,3 +103,20 @@
   .rebuild-configurations { grid-template-columns: 1fr; }
   .rebuild-configurations article { padding: 20px; }
 }
+.workflow-guide-switch { display:flex; flex-wrap:wrap; gap:8px; margin:18px 0; }
+.workflow-guide-switch button { min-height:44px; padding:10px 18px; border:1px solid #c8d9d1; border-radius:12px; background:white; color:#25483d; cursor:pointer; font-weight:700; }
+.workflow-guide-switch button[aria-pressed="true"] { background:#25483d; color:white; }
+.workflow-guide { margin:18px 0 28px; color:#25483d; }
+.workflow-guide header h3 { font-size:24px; margin:0 0 10px; }
+.workflow-guide p { line-height:1.7; }
+.workflow-guide-rule { padding:14px 18px; border-left:3px solid #54836f; background:#eaf3ee; }
+.workflow-guide-nodes { list-style:none; padding:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.workflow-guide-nodes li { background:white; border:1px solid #d4e1da; border-radius:16px; padding:18px; min-width:0; }
+.workflow-guide-nodes button { display:grid; gap:8px; text-align:left; border:0; background:none; color:inherit; width:100%; cursor:pointer; padding:0 0 14px; }
+.workflow-guide-nodes button strong { font-size:18px; }
+.workflow-guide-nodes button span,.workflow-guide-nodes button small { font-size:12px; color:#587768; }
+.workflow-guide-nodes dl { margin:0; display:grid; gap:12px; }
+.workflow-guide-nodes dt { font-size:12px; font-weight:700; color:#587768; }
+.workflow-guide-nodes dd { margin:4px 0 0; font-size:14px; line-height:1.65; overflow-wrap:anywhere; }
+@media(max-width:1100px) { .workflow-guide-nodes { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:680px) { .workflow-guide-nodes { grid-template-columns:1fr; } }

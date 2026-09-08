@@ -32,6 +32,28 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('功能地图与配置中心', () => {
+  it('导图使用文档职责并跳转到对应功能，保留未归类设计说明', async () => {
+    mockedFetch.mockResolvedValueOnce({ ...data, units: [{ ...unit, details: [...unit.details,
+      { label: '设计·流程序号', text: '1' }, { label: '设计·系统直供', text: '系统直接读取当前版本，不调用AI。' },
+      { label: '设计·资料编辑介入', text: '仅复杂关联需要资料编辑。' }, { label: '设计·执行与复查', text: '系统保存，作者确认。' },
+      { label: '设计·已确认方案', text: '已确认保留身份。' }, { label: '补充记录', text: '不能隐藏这条设计记录。' }
+    ] }] });
+    render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '全链路AI介入导图' }));
+    const guide = screen.getByRole('region', { name: '全链路AI介入导图' });
+    expect(within(guide).getByText('系统直接读取当前版本，不调用AI。')).toBeVisible();
+    fireEvent.click(within(guide).getByRole('button', { name: /注册页/ }));
+    expect(screen.queryByRole('region', { name: '全链路AI介入导图' })).not.toBeInTheDocument();
+    expect(screen.getByText('已确认保留身份。')).toBeVisible();
+    expect(screen.getByText('不能隐藏这条设计记录。')).toBeVisible();
+    expect(window.location.search).toContain('unit=RB-01');
+  });
+
+  it('没有导图登记时说明缺失，不臆造成员介入', async () => {
+    render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '全链路AI介入导图' }));
+    expect(screen.getByText(/当前路线文档尚未登记导图节点/)).toBeVisible();
+  });
   it('显示登记的当前批次，按开发顺序筛选、查看技术路线与前置功能', async () => {
     render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);
     expect(await screen.findByText('当前批次：第122批：保留功能接入与分批发布')).toBeVisible();
