@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { openingRanking, ROLES, MEMBER_SLOTS, memberNameWithModel } from '@wenmi/agent-catalog';
 import {MemberWorkspace} from './MemberWorkspace';
-import {PromptContextCenter} from './PromptContextCenter';
 import { ArrowClockwise, CheckCircle, Robot, WarningCircle } from '@phosphor-icons/react';
 import { publicMemberIdentity, V7_MEMBER_AVATAR_SIZE, V7_MEMBER_AVATAR_SPRITE } from '../../backend/agent-governance/member-identities';
 import {
@@ -16,13 +15,11 @@ export function UnifiedAgentGovernance(): React.JSX.Element {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [tab, setTab] = useState<'members' | 'evaluation' | 'policies' | 'configuration'>(()=>new URL(location.href).searchParams.get('section')==='prompt-context'?'configuration':'members');
+  const [tab, setTab] = useState<'members' | 'evaluation' | 'policies'>('members');
   const [memberKey,setMemberKey]=useState<string|null>(()=>new URL(location.href).searchParams.get('member'));
-  const [configurationDirty,setConfigurationDirty]=useState(false);
-  useEffect(()=>{if(!configurationDirty)return;const guard=(e:Event)=>{e.preventDefault();setError('请先保存当前共用配置草稿，再切换。');};window.addEventListener('wenmi:admin-navigate',guard);return()=>window.removeEventListener('wenmi:admin-navigate',guard);},[configurationDirty]);
   useEffect(()=>{const restore=()=>setMemberKey(new URL(location.href).searchParams.get('member'));window.addEventListener('popstate',restore);return()=>window.removeEventListener('popstate',restore);},[]);
   function openMember(key:string|null){const url=new URL(location.href);url.searchParams.set('section','agents');if(key)url.searchParams.set('member',key);else url.searchParams.delete('member');history.pushState({},'',url);setMemberKey(key);}
-  function changeTab(next:typeof tab){if(configurationDirty){setError('请先保存当前共用配置草稿，再切换。');return;}setTab(next);}
+  function changeTab(next:typeof tab){setTab(next);}
   const [roleFilter, setRoleFilter] = useState('all');
   const [memberFilter, setMemberFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -57,7 +54,7 @@ export function UnifiedAgentGovernance(): React.JSX.Element {
   if(memberKey&&selectedRole&&selectedMember)return <><div role="status">{notice}</div>{error&&<p role="alert">{error}</p>}<MemberWorkspace key={memberKey} role={selectedRole} member={selectedMember} onBack={()=>openMember(null)} configuration={<MemberCard data={data} role={selectedRole} member={selectedMember} busy={busy!==null} update={updateMember}/>}/></>;
   if(memberKey)return <section><h2>当前后台未找到该成员</h2><p>请核对连接的环境和成员目录版本。</p><button onClick={()=>openMember(null)}>返回全部成员</button></section>;
   return <div className="agent-team-page">
-    <header className="agent-team-heading"><div><span>EDITORIAL WORKSPACE</span><h1>成员与上下文</h1><p>按岗位管理成员。进入成员详情，查看模型、工位规则和最近收到的资料。</p></div><button type="button" disabled={configurationDirty} onClick={() => void load()}><ArrowClockwise/>刷新</button></header>
+    <header className="agent-team-heading"><div><span>EDITORIAL WORKSPACE</span><h1>成员与模型</h1><p>按岗位管理成员、模型绑定与在岗状态。提示词和上下文统一进入“功能与AI流程”管理。</p></div><button type="button" onClick={() => void load()}><ArrowClockwise/>刷新</button></header>
     {data.summary.memberCount!==MEMBER_SLOTS.length&&<p role="alert" className="prompt-context-notice error">当前连接的服务返回{data.summary.memberCount}位成员，与共用目录的{MEMBER_SLOTS.length}位不一致。请更新该环境后端；这里不伪造缺失成员或在岗状态。</p>}
     <div className="agent-team-metrics"><Metric label="岗位" value={`${data.summary.roleCount}`} detail="职责互不混用"/><Metric label="成员" value={`${data.summary.memberCount}`} detail="全局唯一身份"/><Metric label="在岗" value={`${data.summary.onDutyCount}`} detail="可以接新任务"/><Metric label="请假" value={`${data.summary.leaveCount}`} detail="自动交接" warning={data.summary.leaveCount > 0}/></div>
     {(notice || error) && <div className={`agent-team-notice ${error ? 'error' : 'success'}`}>{error ? <WarningCircle/> : <CheckCircle/>}<span>{error ?? notice}</span></div>}
@@ -66,10 +63,8 @@ export function UnifiedAgentGovernance(): React.JSX.Element {
       <button role="tab" aria-selected={tab === 'members'} onClick={() => changeTab('members')}>全部成员（{data.summary.memberCount}）</button>
       <button role="tab" aria-selected={tab === 'evaluation'} onClick={() => changeTab('evaluation')}>模型速度与准入</button>
       <button role="tab" aria-selected={tab === 'policies'} onClick={() => changeTab('policies')}>任务参数</button>
-      <button role="tab" aria-selected={tab === 'configuration'} onClick={() => changeTab('configuration')}>共用规则与题材模板</button>
     </div>
     {tab === 'evaluation' && <><SettingEvaluation data={data}/><OpeningEvaluation data={data}/></>}
-    {tab === 'configuration' && <><p>统一管理共用配置。按成员查看最近资料，请返回全部成员并进入详情。</p><PromptContextCenter editorOnly onDirtyChange={setConfigurationDirty}/></>}
     {tab === 'members' && <>
     <p>文字岗位各9位，封面画师2位。待验证 {data.summary.candidateCount ?? 0} 位，未绑定 {data.summary.unboundCount ?? 0} 位。成员身份已建立不代表所有节点都已准入；开书接单单独标注。</p>
     <div className="admin-context-filters">
@@ -89,7 +84,7 @@ export function UnifiedAgentGovernance(): React.JSX.Element {
       <p>当前显示 {members.length} / {role.members.length} 位</p>
       <div className="agent-member-list member-summary-grid">{members.map((member) => {
         const identity=publicMemberIdentity(member.memberKey);
-        return <article className="agent-member-card" key={member.memberKey}><div className="agent-member-identity"><span className="agent-avatar" aria-hidden="true" style={{backgroundImage:`url('${identity?.avatarPath??V7_MEMBER_AVATAR_SPRITE}')`,backgroundSize:identity?.avatarSize??V7_MEMBER_AVATAR_SIZE,backgroundPosition:identity?.avatarPosition}}/><div><h3>{member.displayName}</h3><p>{role.publicName}</p></div></div><p>{member.modelName}</p><p>{member.openingNode?'开书接单':member.status==='on_duty'?'在岗':member.status==='unbound'?'未绑定':member.status==='candidate'?'待验证':'停岗'}</p><button type="button" aria-label={`管理${member.displayName}的资料与工位`} onClick={()=>openMember(member.memberKey)}>资料、工位与模型 →</button></article>;
+        return <article className="agent-member-card" key={member.memberKey}><div className="agent-member-identity"><span className="agent-avatar" aria-hidden="true" style={{backgroundImage:`url('${identity?.avatarPath??V7_MEMBER_AVATAR_SPRITE}')`,backgroundSize:identity?.avatarSize??V7_MEMBER_AVATAR_SIZE,backgroundPosition:identity?.avatarPosition}}/><div><h3>{member.displayName}</h3><p>{role.publicName}</p></div></div><p>{member.modelName}</p><p>{member.openingNode?'开书接单':member.status==='on_duty'?'在岗':member.status==='unbound'?'未绑定':member.status==='candidate'?'待验证':'停岗'}</p><button type="button" aria-label={`管理${member.displayName}的模型与状态`} onClick={()=>openMember(member.memberKey)}>管理模型与状态 →</button></article>;
       })}</div>
     </section>})}</div></>}
     {tab === 'policies' && <section className="agent-role-panel"><header><div className="agent-role-icon"><Robot/></div><div><span>按任务控制</span><h2>性能与温度</h2><p>不同任务使用不同温度区间，不再给所有成员套同一个数值。</p></div></header><div className="agent-member-list">{data.taskPolicies.map((policy) => <PolicyCard key={policy.taskKind} policy={policy} busy={busy !== null} update={updatePolicy}/>)}</div></section>}

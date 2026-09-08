@@ -25,7 +25,7 @@ export function FunctionManagement({ units, onDetails, onDirtyChange }: {
   const functions = units.filter(u => field(u, '功能介绍'));
   const [id, setId] = useState(() => new URL(window.location.href).searchParams.get('function') ?? 'RB-19');
   const [query, setQuery] = useState('');
-  const [view, setView] = useState<View>('overview');
+  const [view, setView] = useState<View>(() => new URL(window.location.href).searchParams.get('functionView') === 'sample' ? 'sample' : 'overview');
   const [editor, setEditor] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -54,29 +54,6 @@ export function FunctionManagement({ units, onDetails, onDirtyChange }: {
     const refresh = () => { if (!editor && document.visibilityState === 'visible') setRevision(r => r + 1); };
     const timer = setInterval(refresh, 30_000); window.addEventListener('focus', refresh);
     return () => { clearInterval(timer); window.removeEventListener('focus', refresh); };
-  }, [editor]);
-  useEffect(() => {
-    // A static-only deployment does not change the API release id. Compare the
-    // entry module so a long-open management page does not keep an old UI.
-    if (editor || window.location.protocol !== 'https:') return;
-    const loaded = [...document.querySelectorAll<HTMLScriptElement>('script[type="module"][src]')]
-      .map(s => new URL(s.src, window.location.href).pathname).filter(p => p.startsWith('/v7/assets/')).sort().join(',');
-    if (!loaded) return;
-    const c = new AbortController(); let pending = false;
-    const check = async () => {
-      if (pending || document.visibilityState !== 'visible') return;
-      pending = true;
-      try {
-        const response = await fetch('/v7/', { cache: 'no-store', signal: c.signal });
-        if (!response.ok) return;
-        const entry = new DOMParser().parseFromString(await response.text(), 'text/html');
-        const published = [...entry.querySelectorAll('script[type="module"][src]')].map(s => new URL(s.getAttribute('src')!, window.location.href).pathname).filter(p => p.startsWith('/v7/assets/')).sort().join(',');
-        if (!c.signal.aborted && published && published !== loaded) window.location.reload();
-      } catch { /* Keep the usable page on a temporary network failure. */ }
-      finally { pending = false; }
-    };
-    const timer = setInterval(() => void check(), 30_000); void check();
-    return () => { c.abort(); clearInterval(timer); };
   }, [editor]);
   function leave(action: () => void) { if (dirty) { setError('修改尚未保存，请先保存草稿再切换。'); return; } action(); setError(''); }
   const choose = (next: string) => leave(() => { setId(next); setView('overview'); setEditor(null); const url = new URL(window.location.href); url.searchParams.set('function', next); window.history.replaceState({}, '', url); });

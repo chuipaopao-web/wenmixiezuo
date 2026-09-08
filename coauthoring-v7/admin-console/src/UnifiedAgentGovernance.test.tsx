@@ -44,6 +44,7 @@ describe('V7统一成员治理后台', () => {
       if (url.includes('/agent-governance/members/') && init?.method === 'PATCH') return json({ ...governance, revision: 8 });
       if (url.includes('/agent-governance/task-policies/') && init?.method === 'PATCH') return json({ ...governance, revision: 8 });
       if(url.includes('/prompt-context/assets')||url.includes('/prompt-context/manifests?'))return json([]);
+      if(url.endsWith('/admin/rebuild-control'))return json({units:[{id:'RB-26',name:'正文',details:[{label:'管理·功能介绍',text:'生成正文'},{label:'管理·岗位',text:'lead_writer'},{label:'管理·名称',text:'正文生成'}]}]});
       return new Response('{}', { status: 404 });
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -51,7 +52,7 @@ describe('V7统一成员治理后台', () => {
 
   it('统一显示固定主笔、独立审查和按任务温度', async () => {
     render(<AgentGovernancePage/>);
-    expect(await screen.findByRole('heading', { name: '成员与上下文' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: '成员与模型' })).toBeVisible();
     expect(screen.getByText('林黛玉')).toBeVisible();
     expect(screen.getByText('陆婉宁')).toBeVisible();
     fireEvent.change(screen.getByLabelText('查找成员或模型'), { target: { value: 'DeepSeek' } });
@@ -77,13 +78,13 @@ describe('V7统一成员治理后台', () => {
     expect(within(report).getByText(/第1名/)).toBeVisible();
   });
 
-  it('成员独立页按成员读取资料，并携带全局版本保存模型', async () => {
+  it('成员页仅展示关联功能与记录，并携带全局版本保存模型', async () => {
     render(<AgentGovernancePage/>);
-    fireEvent.click(await screen.findByRole('button',{name:'管理林黛玉的资料与工位'}));
+    fireEvent.click(await screen.findByRole('button',{name:'管理林黛玉的模型与状态'}));
     expect(new URL(location.href).searchParams.get('member')).toBe('writer-glm-5-3');
-    expect(await screen.findByText(/还没有可展示的调用记录/)).toBeVisible();
+    expect(await screen.findByRole('link',{name:'正文生成'})).toHaveAttribute('href','?section=rebuild&mapView=functions&function=RB-26');
+    expect(screen.queryByText('管理岗位共用规则')).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([url])=>String(url).includes('memberKey=writer-glm-5-3'))).toBe(true);
-    fireEvent.click(screen.getByRole('tab',{name:'模型与状态'}));
     const card = screen.getByLabelText('绑定模型').closest('article');
     expect(card).not.toBeNull();
     expect(screen.queryByText('成员补充提示')).not.toBeInTheDocument();

@@ -111,6 +111,15 @@ admin.wenmixiezuo.com {
     redir * /v7/ 308
   }
 
+  # 兼容旧后台的版本轮询；不触发正在使用页面的强制刷新。
+  @adminVersionProbe {
+    path /v7/
+    header Sec-Fetch-Dest empty
+  }
+  handle @adminVersionProbe {
+    respond "" 204
+  }
+
   handle /v7/* {
     root * /opt/wenmi/releases/current
     encode gzip zstd
