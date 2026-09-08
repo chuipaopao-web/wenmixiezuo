@@ -115,6 +115,7 @@ admin.wenmixiezuo.com {
   @adminVersionProbe {
     path /v7/
     header Sec-Fetch-Dest empty
+    header Sec-Fetch-Mode cors
   }
   handle @adminVersionProbe {
     respond "" 204

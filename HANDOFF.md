@@ -1,5 +1,9 @@
 # 文秘写作当前交接
 
+## 最新修复：R162后台刷新，已发布
+
+R161版本探针误伤Service Worker转发导航：empty目标不等于后台fetch，navigate模式必须返回HTML。Caddy探针新增Sec-Fetch-Mode cors限定；生产截图路径empty/navigate与普通导航均200 HTML，旧版本探针仍204，根入口200。只热重载代理，应用版本不变。证据/opt/wenmi-releases/admin-refresh-162，合同coauthoring-v7/docs/worklists/ADMIN-REFRESH-162.md。今后导航回归必须覆盖Service Worker转发的empty/navigate组合。
+
 ## 最新交付：R161成员与模型职责收敛，已静默发布
 
 代码0f4fe6b，静态0f39feb36167722f6174，回滚28ed241da0929b5cd259；路线1.56。成员列表标题/按钮统一，移除成员内及全局共用规则编辑器，保留模型/准入/温度设置，关联功能和最近记录跳转唯一功能上下文入口。覆盖R159静态自动重载策略：移除重载，Caddy兼容旧版/v7/空目标版本探针返回204，导航200；管理员当前页面不主动刷新，新打开或手动刷新采用新版。9项相关组件、类型构建、线上资源/健康/401/进程保持验证通过；无生产配置写入和收费调用。API仍R154，合包须包含R155—161静态源码及R160—161代理配置。合同coauthoring-v7/docs/worklists/MEMBER-CONTEXT-161.md。
