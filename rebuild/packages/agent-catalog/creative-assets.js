@@ -806,4 +806,3 @@ export function creativeDirective(profile,stage='opening') {
  };
 }
 export function openingCreativeCatalog(){return CREATIVE_ASSETS.map(card=>[card.id,card.name,card.summary]);}
-

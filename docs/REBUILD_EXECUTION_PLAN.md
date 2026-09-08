@@ -586,7 +586,7 @@
 ### RB-19 AI开书页与结果采用
 
 - **管理·代码来源**：rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,rebuild/packages/agent-catalog/creative-assets.js,rebuild/packages/backend/src/legacy-opening/opening-agent/opening-prompt-compiler.ts,apps/api/src/application/books/v7-opening-agent-service.ts,coauthoring-v7/author-app/src/NewNovelPage.tsx,coauthoring-v7/author-app/src/AuthorApp.tsx
-- **管理·代码核对**：edf1a6f0b2bcde416db67d292d6fa472a265c03309080cc06fd6ed368c63147b
+- **管理·代码核对**：18cc3763523ad8be73ce8acde5a1461e97baca344d0ef5770bd6c465571e881b
 
 - **管理·共享步骤**：none
 - **第166批确认方案**：首页直接开书，新貂蝉为亲切可爱的成年古风女性；尺度为常规发挥/趣味加料/反差脑洞/荒诞猎奇/极限整活，默认4。风格最多三项按选择顺序区分主次。完整机制库允许自由组合与原创，不宣称全网最全。后台“资产方法论→创意与金手指”查看同源卡片和节点规则；正式调用快照在本功能的上下文样例中追溯。开发中，完成验证与发布后更新状态。
