@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { selectSettingContext, SettingContextPreparationError } from './setting-context-selection.js';
 import { settingChangeImpact } from '../../infrastructure/db/repositories/setting-change-impact.js';
 import { continuitySources, continuitySourceText, continuityHash, continuitySourceHash, reviewSettingContinuity, type SettingContinuityReport } from './setting-continuity.js';
 import { assertSettingReviewConsistency, settingReviewAuthority, SETTING_REVIEW_AUTHORITY_RULES } from './setting-review-consistency.js';
@@ -2187,24 +2188,23 @@ export class V7SettingEditorialService {
       const facts = [...input.confirmedSettings.map((item) => ({ ...item, authority: 'confirmed' })),
         ...input.candidateSettings.map((item) => ({ ...item, authority: 'candidate' }))].flatMap((item, itemIndex) =>
           item.content.split('\n').filter((line) => line.trim()).map((text, factIndex) => ({ id: `${itemIndex}:${factIndex}`, itemKey: item.itemKey, label: item.label, authority: item.authority, text })));
-      const prompt = ['整理本次设定所需事实。只选择事实ID，不改写任何事实。保留作者硬边界、当前任务直接依赖、完整条件和例外；暂不相关的细节不携带。草案只供延续本轮思路，不是正式依据。若必要事实无法容纳，返回blocked说明，不得伪称已经完整。',
+      const prefix = ['整理本次设定所需事实。本次可能分页提供资料，每页只选直接相关的完整事实ID，不改写任何事实。保留作者硬边界、当前任务直接依赖、完整条件和例外；暂不相关的细节不携带。草案只供延续思路，不是正式依据。必要事实无法容纳时返回blocked，不得遗漏关键条件。',
         `【开书资料】${input.openingSummary}`, `【本轮任务】${JSON.stringify(input.itemContract)}`, `【作者要求】${input.authorNote}`,
-        `选中事实总长度请控制在${Math.max(0, 10_000 - Array.from(input.openingSummary + input.authorNote + JSON.stringify(input.itemContract)).length)}字以内。`,
-        `【可选事实】${JSON.stringify(facts)}`, '只返回JSON：{"selectedFactIds":["0:0"],"blocked":false}。'].join('\n');
-      if (Array.from(prompt).length > 60_000) throw new Error('现有设定过多，无法在本轮安全整理。已保存内容保留，请分批调整设定。');
+        `全部入选事实合计目标不超过${Math.max(0, 10_000 - Array.from(input.openingSummary + input.authorNote + JSON.stringify(input.itemContract)).length)}字；不可为满足字数舍弃必要事实。`].join('\n');
       const writers = this.executableSettingRoster(batch).filter((member) => member.roleKey === 'screenwriter');
       const ordered = [lead, ...writers.filter((member) => member.memberKey !== lead.memberKey)];
       let last: unknown = new Error('本轮必要设定尚未整理完成');
       for (const member of ordered.slice(0, MAX_HANDOFFS + 1)) {
         try {
-          this.requireLeaseOwnership(batch, token);
-          const raw = await this.model(batch.owner_id, batch.book_id, batch.batch_id, input.itemKey, 'setting_context_select', member,
-            prompt, 2_000, 0.2, `${batch.batch_id}-context-${input.itemKey}-${member.memberKey}`,
-            settingModelInvocation({ taskKind: 'setting_design', operationMode: 'fresh', sourceTraces: settingContextSourceTraces(input) }));
-          const value = JSON.parse(raw.replace(/^\s*```(?:json)?\s*/u, '').replace(/\s*```\s*$/u, '')) as { selectedFactIds?: unknown; blocked?: boolean };
-          if (value.blocked || !Array.isArray(value.selectedFactIds) || value.selectedFactIds.length === 0) throw new Error('必要事实尚未整理完整');
-          const selected = new Set(value.selectedFactIds);
-          if ([...selected].some((id) => !facts.some((fact) => fact.id === id))) throw new Error('资料整理引用了不存在的事实');
+          return await selectSettingContext({
+            facts, prefix,
+            select: (prompt, round, page) => {
+              this.requireLeaseOwnership(batch, token);
+              return this.model(batch.owner_id, batch.book_id, batch.batch_id, input.itemKey, 'setting_context_select', member,
+                prompt, 2_000, 0.2, `${batch.batch_id}-context-${input.itemKey}-r${round}-p${page}-${member.memberKey}`,
+                settingModelInvocation({ taskKind: 'setting_design', operationMode: 'fresh', sourceTraces: settingContextSourceTraces(input) }));
+            },
+            build: (selected) => {
           const project = (entries: typeof input.confirmedSettings, authority: string) => entries.flatMap((item) => {
             const content = facts.filter((fact) => selected.has(fact.id) && fact.itemKey === item.itemKey && fact.authority === authority).map((fact) => fact.text).join('\n');
             return content ? [{ ...item, content }] : [];
@@ -2215,6 +2215,8 @@ export class V7SettingEditorialService {
             : source.sourceType === 'setting_candidate'
               ? next.candidateSettings.some((item) => item.itemKey === source.sourceId) : true);
           return buildSettingContextPack(next);
+            }
+          });
         } catch (error) {
           if (error instanceof SettingLeaseLostError || isSettingPreDispatchFailure(error) || settingOutcomeUnknown(error)) throw error;
           last = error;
@@ -4190,6 +4192,7 @@ function settingOutcomeUnknown(error: unknown): boolean {
 }
 
 function isSettingPreDispatchFailure(error: unknown): boolean {
+  if (error instanceof SettingContextPreparationError) return true;
   const code = settingDomainCode(error);
   return code !== null && [
     errorCodes.membershipRequired,
@@ -4208,6 +4211,10 @@ function settingDomainCode(error: unknown): string | null {
 function settingBatchFailure(error: unknown): SettingBatchFailure {
   const storedMessage = (error instanceof Error ? error.message : String(error)).slice(0, 1_000);
   const code = settingDomainCode(error);
+  if (error instanceof SettingContextPreparationError) return {
+    code: errorCodes.operationIncomplete, stage: 'pre_dispatch', retrySafety: 'manual_redesign',
+    storedMessage, publicMessage: storedMessage
+  };
   if (code === errorCodes.membershipRequired) {
     return {
       code,
@@ -4292,6 +4299,7 @@ function settingBatchStatusText(batch: BatchRow, completedCount: number): string
 }
 
 function settingBatchFailureFromRow(batch: BatchRow): string {
+  if (batch.failure_stage === 'pre_dispatch' && batch.error_code === errorCodes.operationIncomplete) return '本轮必要资料尚未整理完成，已完成设定已保留，请调整设计范围后继续；';
   if (batch.error_code === errorCodes.membershipRequired) return '当前会员暂不包含这项创作服务；';
   if (batch.error_code === errorCodes.membershipExpired) return '会员已经到期；';
   if (batch.error_code === errorCodes.membershipQuotaExhausted) return '本期剩余算力不足以继续，补充额度后可接着完成；';

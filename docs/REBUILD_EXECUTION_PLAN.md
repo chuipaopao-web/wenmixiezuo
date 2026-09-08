@@ -690,6 +690,8 @@
 
 ### RB-21 设定页
 
+- **第176批恢复修复**：长设定续作时，资料选择按完整事实分页，单次源提示上限40000字符；每页保留作者要求、当前主题、来源身份和原文。成员选ID，系统合并，设计包仍超容量时最多再筛选两轮，不截断事实或把草案变成正式依据。分页调用分别留存；无法安全缩减时显示资料准备失败。重新发起只处理未完成条目，原版本保留。证据见[第176批](../coauthoring-v7/docs/worklists/SETTING-RECOVERY-176.md)。
+
 - **第173批确认方案（替代172批规则详情）**：每批最多4项不变。设计成员直接交付完整、简短的大白话；必要条件、适用范围、代价、例外、对象和精确数字融进statement，不另列重复字段。兼容字段留空，旧格式仍可读。交付前自行检查独有信息和重复；不增加思维链展示、不提高温度、不新增固定精简岗位，不设统一字数质量门槛。
 - **第173批流程与上下文**：现有统一整理主编检查冲突、分散表达与重复；遇旧辅助字段，即使无事实冲突，也按完整原文分组定向合并，沿用已有修复、缓存、换员与版本核对。系统只识别字段是否存在，不用正则判断语义重复。合并结果是新版本，保留旧版本与正式采用规则；页面、事实投影使用同一完整规则。移除规则详情入口；按用户最新要求不再显示旧辅助小字，用户会重新设计测试内容；底层旧事实保留，不把隐藏当作已经语义合并，阅读页面不自动调用模型。没有旧字段或实际问题的条目不额外重写。
 - **第173批状态与边界**：2026-09-09 06:54:56上线wm-v7-20260909-070000-5a79d5c2，静态e97fe5ace776fee3d4dd。61项后端回归、27项最终作者组件、完整类型及追加作者类型、390/1440浏览器通过；独立构建、运行模块、13功能来源、在途连续30秒零、公网入口资源/401、API与Worker健康检查通过，无近期服务错误日志。DeepSeek四条合成表达约5.3秒，保留关键事实但一项scope仍重复；Kimi此次小样失败，不能声称全模型通过。唯一记录[SETTING-INTEGRATED-173](../coauthoring-v7/docs/worklists/SETTING-INTEGRATED-173.md)。按用户要求直接隐藏旧辅助小字，由用户重新设计，不表示已批量重写旧书；底层旧事实保留。设定选材提示超过工位20k预算的独立问题仍待修复。
@@ -754,8 +756,8 @@
 - **确认方案·验收05·交互与兼容**：已实现并通过工程验证：三阶段页面、头像选人、批量原子确认，旧条目重新归并有完整覆盖凭证。作者有意改变旧规则可明确确认；规划、其他正式依据或定稿冲突不能借此跳过。核对期间来源变化则凭证过期，旧正式版本和定稿保持。
 - **确认方案·验收06·长篇效果**：工程链路及少量真实语义小样持续核验：两卷规划与定稿的隔离资料检查了来源、冲突、版本失效和正文保护；三次Kimi审查分别约4.8/5.1/2.6秒，识别限制扩大、正文矛盾与明确未来生效的合理变化。百万字连续阅读质量尚无实证，作为后续持续评测项，不伪称完成。
 
-- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/books/v7-setting-editorial-service.ts,apps/api/src/application/books/v7-task-roster-snapshot.ts,apps/api/src/infrastructure/db/repositories/setting-change-impact.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-rules.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-catalog.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-agent-support.ts,rebuild/packages/backend/src/legacy-opening/agent-governance/agent-governance-registry.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/books/setting-continuity.ts,apps/api/src/infrastructure/db/repositories/setting-version-selection.ts,apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.ts,coauthoring-v7/author-app/src/SettingPage.tsx,apps/api/src/infrastructure/db/repositories/setting-continuity-repository.ts,apps/api/src/application/agents/book-creative-context.ts
-- **管理·代码核对**：9d2b36b6c5c09ca2084773e8f407336d5fb7b83fec6c452e84b087937c4f619a
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/books/v7-setting-editorial-service.ts,apps/api/src/application/books/v7-task-roster-snapshot.ts,apps/api/src/infrastructure/db/repositories/setting-change-impact.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-rules.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-catalog.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-agent-support.ts,rebuild/packages/backend/src/legacy-opening/agent-governance/agent-governance-registry.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/books/setting-continuity.ts,apps/api/src/infrastructure/db/repositories/setting-version-selection.ts,apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.ts,coauthoring-v7/author-app/src/SettingPage.tsx,apps/api/src/infrastructure/db/repositories/setting-continuity-repository.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/books/setting-context-selection.ts
+- **管理·代码核对**：cf2b2700da02c32c07a909104d6f1059280a6a0442053d69a7df5c1dcca85b38
 
 - **管理·共享步骤**：AI-008,AI-009
 

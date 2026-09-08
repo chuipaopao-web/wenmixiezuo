@@ -347,7 +347,7 @@ describe('V7设定编辑部', () => {
     } finally { await app.close(); }
   });
 
-  it('旧长草案超出上下文时选择完整相关事实，保留原文并完成新设定', async () => {
+  it.each([740, 3000])('旧长草案每条%s字时选择完整相关事实，保留原文并完成新设定', async (draftLength) => {
     context = createTestContext('wenmi-r139-context-');
     const delegate = new SettingResolver(false);
     let selectionCalls = 0;
@@ -356,7 +356,8 @@ describe('V7设定编辑部', () => {
       return {provider, modelId, generate: async (request, signal) => {
         if (request.prompt.includes('【可选事实】')) {
           selectionCalls++;
-          return {provider, modelId, output: '{"selectedFactIds":["0:0"],"blocked":false}', inputTokens:100, outputTokens:20, cashCostCny:0, state:'succeeded'};
+          const selectedFactIds = request.prompt.includes('旧草案0：') ? ['0:0'] : [];
+          return {provider, modelId, output: JSON.stringify({selectedFactIds,blocked:false}), inputTokens:100, outputTokens:20, cashCostCny:0, state:'succeeded'};
         }
         return adapter.generate(request, signal);
       }};
@@ -370,7 +371,7 @@ describe('V7设定编辑部', () => {
         const key='r139-draft-'+index, version='r139-version-'+index;
         context.database.prepare(`INSERT INTO v7_setting_item_versions (version_id,owner_id,book_id,item_key,revision,status,content_json,created_by,created_at)
           VALUES (?,?,?,?,1,'candidate',?,'author','2026-01-01T00:00:00.000Z')`).run(version,ownerId,bookId,key,JSON.stringify({
-            finalContent: ('渡船最多12人，夜间停航；官署急令例外。旧草案'+index+'：').padEnd(740,'详'),
+            finalContent: ('渡船最多12人，夜间停航；官署急令例外。旧草案'+index+'：').padEnd(draftLength,'详'),
             contextSummary:'渡船人数与夜间禁航规则。',factEntries:['渡船最多12人，夜间停航；官署急令例外。']
           }));
         context.database.prepare(`INSERT INTO v7_setting_items (owner_id,book_id,item_key,item_label,group_title,item_prompt,state,active_version_id,revision,updated_at)
@@ -382,7 +383,8 @@ describe('V7设定编辑部', () => {
       expect(created.statusCode,created.body).toBe(200);
       const completed=await pollBatch(app,cookie,bookId,created.json().data.batchId);
       expect(completed.status,JSON.stringify(completed)).toBe('awaiting_author');
-      expect(selectionCalls).toBe(1);
+      if (draftLength === 740) expect(selectionCalls).toBe(1);
+      else expect(selectionCalls).toBeGreaterThan(1);
       const prompt=delegate.prompts.find(prompt=>prompt.includes('v7_setting_group_design_v1'))!;
       expect(prompt).toContain('渡船最多12人，夜间停航；官署急令例外。');
       expect(prompt).not.toContain('旧草案19');
