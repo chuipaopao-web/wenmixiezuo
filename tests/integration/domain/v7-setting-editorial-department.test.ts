@@ -24,6 +24,56 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7设定编辑部', () => {
+  it('无冲突的旧辅助字段仍交现有主编合并，完整来源保留且不凭索引改写', async () => {
+    context = createTestContext('r173-integrated-');
+    const base = new SettingResolver(false);
+    const oldRule = { level: 'topic', statement: '加急公文走驿站。', scope: '官用驿路',
+      conditions: ['持合法驿券'], costs: ['征用马匹'], exceptions: ['战乱封路停递'], objects: ['驿站'] };
+    const merged = '官用驿路凭合法驿券传递加急公文，沿途征用马匹；战乱封路停递。';
+    let mergeCalls = 0;
+    const resolver: V7OpeningModelAdapterResolver = { resolve(provider, modelId, purpose) {
+      const adapter = base.resolve(provider, modelId, purpose);
+      return { ...adapter, generate: async (request, signal) => {
+        const stage = settingStagePrompt(request.prompt);
+        let output: string | undefined;
+        if (stage.includes('v7_setting_group_design_v1')) {
+          const draft = JSON.parse(groupedSettingOutput(stage));
+          draft.items[0].rules = [oldRule];
+          output = JSON.stringify(draft);
+        } else if (stage.includes('v7_setting_batch_final_review_patch_v1')) {
+          mergeCalls++;
+          const payload = JSON.parse(stage);
+          expect(payload.affectedItems[0].rules).toEqual([oldRule]);
+          expect(payload.affectedItems[0].currentContent).toBeUndefined();
+          output = JSON.stringify({ patches: [{ itemKey: 'world-stage',
+            rules: [{ level: 'topic', statement: merged, scope: '', conditions: [], costs: [], exceptions: [], objects: [] }],
+            summary: '合并重复表达，条件和例外不变', contextSummary: '官用驿路', issues: [], suggestions: [] }] });
+        } else if (stage.includes('v7_setting_batch_final_review_v1')) {
+          output = JSON.stringify({ verdict: 'pass', summary: '无事实冲突', conflicts: [], unifiedDecisions: [], patches: [] });
+        }
+        return output === undefined ? adapter.generate(request, signal)
+          : { provider, modelId, output, inputTokens: 80, outputTokens: 160, cashCostCny: 0, state: 'succeeded' };
+      } };
+    } };
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'r173@example.com', '合并作者', 'strong-pass-173');
+      const bookId = await createBook(app, cookie, '驿路规则', 'r173-book', '历史脑洞');
+      const seed = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`,
+        headers: { ...HEADERS, cookie }, payload: { selectedItemKeys: ['world-stage'], designMemberKey: 'planner-deepseek-v4-pro',
+          customItems: [], authorNotes: {}, idempotencyKey: 'r173-seed' } });
+      expect((await pollBatch(app, cookie, bookId, seed.json().data.batchId)).status).toBe('awaiting_author');
+      const original = context.database.prepare('SELECT version_id,content_json FROM v7_setting_item_versions WHERE book_id=?').all(bookId);
+      const start = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-final-reviews`,
+        headers: { ...HEADERS, cookie }, payload: { idempotencyKey: 'r173-merge' } });
+      expect(start.statusCode, start.body).toBe(200);
+      expect(await pollFinalReview(app, cookie, bookId)).toMatchObject({ status: 'ready' });
+      expect(mergeCalls).toBe(1);
+      for (const row of original) expect(context.database.prepare('SELECT version_id,content_json FROM v7_setting_item_versions WHERE version_id=?').get(row.version_id as string)).toEqual(row);
+      const department = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-department`, headers: { ...HEADERS, cookie } });
+      expect(JSON.stringify(department.json().data)).toContain(merged);
+    } finally { await app.close(); }
+  });
   it('采用变更须核对当前来源，作者规则取舍不能绕过正文冲突，历史版本不变',async()=>{
     context=createTestContext('r164-confirm-');
     const app=await createServer(context.config,context.database,{v7OpeningModelAdapters:new SettingResolver(false)});

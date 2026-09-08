@@ -9,6 +9,20 @@ const rule = {
 };
 
 describe('设定规则单一来源', () => {
+  it('主编合并辅助事实后展示和注入仅含完整短句，旧版本仍保留原条件', () => {
+    const source = parseWriterProposal(JSON.stringify({ rules: [rule], contextSummary: '驿路' }));
+    const statement = '官用驿路凭合法驿券传递加急公文，沿途征用马匹；战乱封路时停递。';
+    const review = parseChiefReview(JSON.stringify({ verdict: 'pass', summary: '合并重复表达', issues: [],
+      ruleChanges: [{ index: 0, action: 'replace', reason: '保留范围、条件、代价和例外',
+        rule: { level: 'topic', statement, scope: '', conditions: [], costs: [], exceptions: [], objects: [] } }]
+    }), source.content, source.rules);
+    const projection = confirmedSettingProjection({ item_key: 'information', item_label: '信息传播',
+      version_id: 'merged', revision: 2, content_json: JSON.stringify(review) });
+    expect(review.finalContent).toBe(statement);
+    expect(projection.factEntries).toEqual([statement]);
+    expect(source.rules?.[0]?.conditions).toEqual(['持有合法驿券']);
+    expect(source.content).toContain('战乱封路时停递');
+  });
   it('局部审查使用原始索引，保留未修改规则及其限定，不修改源方案', () => {
     const original = parseWriterProposal(JSON.stringify({ rules: [rule, { ...rule, statement: '错误规则' },
       { ...rule, statement: '另一条规则' }], contextSummary: '传递规则' }));

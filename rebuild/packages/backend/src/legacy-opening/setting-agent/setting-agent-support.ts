@@ -93,6 +93,7 @@ export function parseSettingGroupProposals(
 export function compileChiefPrompt(pack: V7SettingContextPack, proposal: V7WriterProposal): string {
   if (proposal.rules?.length) return `${base(pack)}\n${SETTING_RULE_OUTPUT_INSTRUCTION}\n【待审规则，index从0开始】${JSON.stringify(proposal.rules.map((rule, index) => ({ index, ...rule })))}
 你是独立审查编辑。核对作者资料与每条规则的含义、范围、条件、例外和层级。只提交有依据的局部修改，不重写整套规则。没有问题的规则由系统原样保留。
+旧规则若把条件、代价、适用范围或例外分在辅助字段，使用replace把独有信息融入statement，去掉语义重复，并清空兼容字段。完整短句是目标，不是截短摘要；不得靠删掉限制来变短。没有分散或重复表达的规则不为精简而改写。
 把“主要”误写成“只能”、凭空增添禁令或处罚、把局部机制列为global，都应直接修正；恢复已知事实不需要作者再次确认。replace必须返回该条完整规则，保留没有问题的条件和例外；重复或无依据的整条规则用remove。index始终指原方案，不随删除变化。reason简述修改依据，不输出思维过程。
 issues仅列修改后仍无法依据现有资料解决、必须由作者决定的冲突，每项包含problem、impact、suggestion三个非空字符串。已解决的问题不要再列。没有未解决冲突返回pass和空issues。
 严格JSON：{"verdict":"pass","ruleChanges":[{"index":0,"action":"replace","reason":"修改依据","rule":{"level":"topic","statement":"修正结论","scope":"","conditions":[],"costs":[],"exceptions":[],"objects":[]}}],"summary":"审核结论","contextSummary":"检索摘要","issues":[],"suggestions":[]}。无修改时ruleChanges为空数组；禁止输出rules、finalContent或另一套事实。`;

@@ -93,7 +93,7 @@ const SETTING_RECOMMENDATION_CONTRACT_VERSION = 3;
 // 轻量总审过去只能“指出”跨条目冲突，却可能让页面误以为正文已经
 // 改好。版本 2 会把受影响条目分成小资料包，再交给同一位主编真正
 // 写回候选正文；旧结果保留审计，但不会被当前页面继续复用。
-const SETTING_FINAL_REVIEW_CONTRACT_VERSION = 2;
+const SETTING_FINAL_REVIEW_CONTRACT_VERSION = 3;
 const FINAL_REVIEW_PATCH_PROMPT_LIMIT = 12_000;
 const FINAL_REVIEW_PATCH_GROUP_SIZE = 4;
 
@@ -1596,9 +1596,9 @@ export class V7SettingEditorialService {
             delete payload.outputSchema.contextSummary;
           }
           if (Array.isArray(payload.compactModeRules)) payload.compactModeRules = payload.compactModeRules.filter((rule: string) => !rule.includes('factLedger'));
-          payload.delivery = '只检查明确冲突并返回必要修订；没有冲突则pass、简短summary、空patches即可。不要重新抄写所有条目。事实账本和分组索引由系统从已保存版本及本次有效修订组装，不输出factLedger、groupSummaries、contextSummary。';
+          payload.delivery = '检查明确冲突及规则表达：将分散的条件、适用、代价和例外融入完整短句，删除语义重复，返回必要修订。没有问题则pass、简短summary、空patches即可。不要重新抄写所有条目，不为改短重写全部内容。索引模式只能定位问题，必须查到完整原文后才修改。事实账本和分组索引由系统从已保存版本及本次有效修订组装，不输出factLedger、groupSummaries、contextSummary。';
           payload.conciseDelivery = SETTING_CONCISE_INSTRUCTION;
-          payload.preservedContent = '修订只解决实际冲突，保留全部不冲突的规则、条件、代价与例外；不按原文字数限制内容。';
+          payload.preservedContent = '修订解决实际冲突、分散表达与重复，保留全部有效规则及条件、代价、例外、否定、范围和数值；不按原文字数限制内容。';
           const result = JSON.stringify(payload);
           if (Array.from(result).length > 12_000) throw new Error('统一核对所需资料超过安全预算，已完成设定保留。');
           return result;
@@ -1644,8 +1644,16 @@ export class V7SettingEditorialService {
           detectedReview = parseReview(repaired);
         }
         const repairedPatches = [...detectedReview.patches];
-        if (!reviewPrompt.allowPatches && detectedReview.conflicts.length > 0) {
-          const patchPrompts = compileBatchFinalReviewPatchPrompts(profile, items, detectedReview, conciseReview ? 11_000 : 12_000);
+        // Field presence is a structural signal, not a semantic decision. The same
+        // chief receives the complete source and decides how to merge it losslessly.
+        const mergeKeys = items.filter((item) => item.rules?.some((rule) => rule.scope
+          || rule.conditions.length || rule.costs.length || rule.exceptions.length || rule.objects.length))
+          .filter((item) => !detectedReview.patches.some((patch) => patch.itemKey === item.itemKey))
+          .map((item) => item.itemKey);
+        if ((!reviewPrompt.allowPatches && detectedReview.conflicts.length > 0) || mergeKeys.length > 0) {
+          const patchPrompts = compileBatchFinalReviewPatchPrompts(profile, items,
+            reviewPrompt.allowPatches ? { ...detectedReview, conflicts: [] } : detectedReview,
+            conciseReview ? 11_000 : 12_000, mergeKeys);
           for (const [index, patchPrompt] of patchPrompts.entries()) {
             patchPrompt.prompt = compactReviewPrompt(patchPrompt.prompt);
             const patchItemKey = `__batch_final_review_patch__:${index + 1}`;
@@ -3636,7 +3644,7 @@ function compileBatchFinalReviewPrompt(
 ): { prompt: string; allowPatches: boolean } {
   const common = {
     operation: 'v7_setting_batch_final_review_v1',
-    responsibility: '作为本书设定总审主编，跨条目统一核对全部候选设定。只修复明确冲突和影响后续检索的歧义，不重写已经优秀且一致的内容。',
+    responsibility: '作为本书设定总审主编，跨条目统一核对全部候选设定。修复明确冲突、歧义与重复，将分散的条件、代价、适用和例外融入完整短句。保留独有事实，不重写已经简洁完整且一致的内容。',
     confirmedOpeningProfile: recommendationOpeningProfile(profile),
     reviewOrder: [
       '先核对作者原意、主角身份、时代、题材与明确禁项。',
@@ -3758,9 +3766,10 @@ function compileBatchFinalReviewPatchPrompts(
   profile: BookProfileView,
   items: readonly V7SettingItemView[],
   review: FinalReviewModelResult,
-  budgetChars = FINAL_REVIEW_PATCH_PROMPT_LIMIT
+  budgetChars = FINAL_REVIEW_PATCH_PROMPT_LIMIT,
+  mergeKeys: readonly string[] = []
 ): Array<{ itemKeys: string[]; prompt: string }> {
-  const affectedKeys = [...new Set(review.conflicts.flatMap((conflict) => conflict.itemKeys))];
+  const affectedKeys = [...new Set([...review.conflicts.flatMap((conflict) => conflict.itemKeys), ...mergeKeys])];
   const affected = affectedKeys.map((itemKey) => {
     const item = items.find((candidate) => candidate.itemKey === itemKey);
     if (item === undefined || item.content === null) throw new Error('设定总审冲突引用了没有正文的条目');
@@ -3768,7 +3777,7 @@ function compileBatchFinalReviewPatchPrompts(
   });
   const build = (group: readonly V7SettingItemView[]): string => JSON.stringify({
     operation: 'v7_setting_batch_final_review_patch_v1',
-    responsibility: '作为本书设定总审主编，根据已经完成的全书级冲突判断，把本组受影响条目真正改回正文。只修复列明的冲突，不扩写剧情，不改变作者原意。',
+    responsibility: '作为本书设定总审主编，修复本组列明的冲突，并把分散在条件、代价、适用和例外里的独有信息融入完整短句，去除重复。只整理表达，不扩写剧情，不改变作者原意；原本完整简洁的规则保留。',
     confirmedOpeningProfile: recommendationOpeningProfile(profile),
     unifiedDecisions: review.unifiedDecisions,
     conflicts: review.conflicts.filter((conflict) => conflict.itemKeys.some((itemKey) => group.some((item) => item.itemKey === itemKey))),
@@ -3776,7 +3785,8 @@ function compileBatchFinalReviewPatchPrompts(
       itemKey: item.itemKey,
       label: item.label,
       groupTitle: item.groupTitle,
-      currentContent: item.content,
+      currentContent: item.rules?.length ? undefined : item.content,
+      rules: item.rules,
       authority: settingReviewAuthority(item),
       existingIssues: item.issues
     })),

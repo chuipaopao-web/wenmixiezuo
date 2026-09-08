@@ -1,6 +1,6 @@
 # 文秘写作全产品重构执行文档与开发顺序表
 
-> 版本1.68 · 2026-09-09 · 第172批四项批次与全部辅助字段折叠已验证上线
+> 版本1.69 · 2026-09-09 · 第173批完整短句与旧规则合并，验证发布中
 >
 > 本文是全产品重构的**唯一执行顺序和进度来源**；[详细开发规格](REBUILD_DEVELOPMENT_SPEC.md)保留产品与工程设计解释。
 >
@@ -686,6 +686,10 @@
 
 ### RB-21 设定页
 
+- **第173批确认方案（替代172批规则详情）**：每批最多4项不变。设计成员直接交付完整、简短的大白话；必要条件、适用范围、代价、例外、对象和精确数字融进statement，不另列重复字段。兼容字段留空，旧格式仍可读。交付前自行检查独有信息和重复；不增加思维链展示、不提高温度、不新增固定精简岗位，不设统一字数质量门槛。
+- **第173批流程与上下文**：现有统一整理主编检查冲突、分散表达与重复；遇旧辅助字段，即使无事实冲突，也按完整原文分组定向合并，沿用已有修复、缓存、换员与版本核对。系统只识别字段是否存在，不用正则判断语义重复。合并结果是新版本，保留旧版本与正式采用规则；页面、事实投影使用同一完整规则。移除规则详情入口；旧字段未完成语义合并前在对应规则正文后完整兼容显示，不靠隐藏或删字段伪装精简，阅读页面不自动调用模型。没有旧字段或实际问题的条目不额外重写。
+- **第173批状态与边界**：实现验证中，发布证据待补；唯一检查记录[SETTING-INTEGRATED-173](../coauthoring-v7/docs/worklists/SETTING-INTEGRATED-173.md)。本批不等于已批量重写线上旧书。已定位的设定选材提示超过工位20k预算问题尚未修复，不能把折叠/合并文字当作该故障已经解决。
+
 - **第172批发布（覆盖171批）**：2026-09-09 05:44:32上线wm-v7-20260909-060000-b6aecb6a，静态0cdeb165a28f33c833c0。59项后端完整回归（artifacts/r172-backend.log）、26项作者组件、完整类型、390/1440浏览器通过；5项同类主题验证为4+1，辅助字段展开完整且无写入。服务器独立构建/模块/13功能来源校验通过，在途连续30秒零后切换，健康/新Worker心跳/公网入口资源/401通过，无近期错误日志。完整源码/opt/wenmi-releases/wm-v7-20260909-060000-b6aecb6a/source；无迁移、作品清理或额外真实模型调用。
 
 - **第172批确认方案（覆盖171批）**：用户明确决定每次4项，相关主题最多4项一批，余项单独处理，不回并为5/6项；负责人顺序接续，完成即保存，再读取最新已完成草案。已确认规则与草案区分，资料超预算时挑完整相关事实，不截断条件。保留失败换员与未知调用保护，预算随批次数估计。查看详情展开完整正文与操作，收起短预览；条件、适用、涉及、代价、限制与例外全部放入唯一小字“规则详情”，正文区域不再逐条显示辅助小字。仅有代价或例外仍可展开。折叠只改变作者页面，不改rules存储或后台renderSettingRule完整投影，不影响AI及后续资料包读取，作者无需先展开。[检查记录](../coauthoring-v7/docs/worklists/SETTING-FOUR-TOPICS-172.md)。
@@ -740,14 +744,14 @@
 - **确认方案·长篇连续性与实施顺序**：设定管世界怎样运行，状态管现在发生到哪里。必须配合人物资源状态更新、角色知情范围、未来规划与已发生事实分离。先目录合并/输出规范，再按任务注入/变更影响；依赖已存在能力按证据复用，不凭本方案宣布完成。
 - **确认方案·验收与后续更新规则**：下列验收项初始均为待实施核验，不等同旧能力全无：后续逐项更新实现状态、代码/配置来源、验证结果、发布版本及未完成边界。只有该项实际达标才标完成；局部上线不得把整套方案标完成。当前管理·字段保持现状说明，确认方案·字段保存目标，两者分别维护。
 - **确认方案·验收01·目录覆盖**：已实现并通过工程验证：60旧键映射24主题；需要设计、已有资料足够、不适用三类完整分类。别名映射不冒充事实全覆盖；归并须核对旧规则与例外，只有作者采用完整承接的新主题才隐藏精确旧版本，历史不删。
-- **确认方案·验收02·规则与表达**：已实现并通过工程验证：Agent直接交付大白话规则卡，条件、例外、代价单列；同一规则同时供页面与事实索引读取，取消600字质量门槛。局部审查保留未改规则；真实小样能识别“主要→只能”的限制扩大，仍不承诺零幻觉。
+- **确认方案·验收02·规则与表达**：第173批改为把条件、例外、代价融入完整短句，取消独立规则详情；旧格式兼容保留信息，语义合并由现有主编执行。页面与事实索引同源，仍无600字质量门槛。局部审查保留未改规则和历史版本；工程及真实模型证据见第173批记录，不承诺零幻觉。
 - **确认方案·验收03·生成与恢复**：已实现并通过工程验证：一名成员分组接续、前序资料进入后续、异模型主编审查、冻结后备接替、已成功步骤缓存、未知调用保护。新增变更审查按来源页缓存，结构最多修复一次；统一整理失败仍沿原后备主编恢复。
 - **确认方案·验收04·全链路取用**：已实现并通过工程验证：全书/卷/链由资料岗位按任务选规则与对象依赖；章纲、正文、审稿沿已采用上级资料包继承，失效时重新选择。系统校验来源归属、版本、硬约束和预算；关键缺资料停止依赖生成并指出具体补充项，故事悬念不当作缺资料。
 - **确认方案·验收05·交互与兼容**：已实现并通过工程验证：三阶段页面、头像选人、批量原子确认，旧条目重新归并有完整覆盖凭证。作者有意改变旧规则可明确确认；规划、其他正式依据或定稿冲突不能借此跳过。核对期间来源变化则凭证过期，旧正式版本和定稿保持。
 - **确认方案·验收06·长篇效果**：工程链路及少量真实语义小样持续核验：两卷规划与定稿的隔离资料检查了来源、冲突、版本失效和正文保护；三次Kimi审查分别约4.8/5.1/2.6秒，识别限制扩大、正文矛盾与明确未来生效的合理变化。百万字连续阅读质量尚无实证，作为后续持续评测项，不伪称完成。
 
-- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/books/v7-setting-editorial-service.ts,apps/api/src/application/books/v7-task-roster-snapshot.ts,apps/api/src/infrastructure/db/repositories/setting-change-impact.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-rules.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-catalog.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-agent-support.ts,rebuild/packages/backend/src/legacy-opening/agent-governance/agent-governance-registry.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/books/setting-continuity.ts,apps/api/src/infrastructure/db/repositories/setting-version-selection.ts,apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.ts,coauthoring-v7/author-app/src/SettingPage.tsx,apps/api/src/infrastructure/db/repositories/setting-continuity-repository.ts,apps/api/src/application/agents/book-creative-context.ts
-- **管理·代码核对**：4dec511b9413be99b8dabe7b8a9dd8167678b4b0d07bf07a14c7870e95e729d7
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/books/v7-setting-editorial-service.ts,apps/api/src/application/books/v7-task-roster-snapshot.ts,apps/api/src/infrastructure/db/repositories/setting-change-impact.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-rules.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-catalog.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-agent-support.ts,rebuild/packages/backend/src/legacy-opening/agent-governance/agent-governance-registry.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/books/setting-continuity.ts,apps/api/src/infrastructure/db/repositories/setting-version-selection.ts,apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.ts,coauthoring-v7/author-app/src/SettingPage.tsx,apps/api/src/infrastructure/db/repositories/setting-continuity-repository.ts,apps/api/src/application/agents/book-creative-context.ts,coauthoring-v7/author-app/src/setting-rule-text.ts
+- **管理·代码核对**：7f823b99b20d78961cdd22c6465fc99eebaccb6612f2a119c045e361735848c0
 
 - **管理·共享步骤**：AI-008,AI-009
 

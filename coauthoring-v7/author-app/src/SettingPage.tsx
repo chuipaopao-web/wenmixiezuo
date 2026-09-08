@@ -4,6 +4,7 @@ import { memberAvatarStyle, memberDisplayName } from './member-avatars';
 import { canonicalMemberIdentityKey, publicFailureCopy, publicRoleLabel, publicStatusCopy, uniqueByMemberKey } from './author-projection';
 import { WorkflowActionDock } from './WorkflowActionDock';
 import { settingReferenceLabel } from './setting-reference-label';
+import { settingRuleText } from './setting-rule-text';
 import './setting-experience.css';
 import type { SettingRecoveryFocus } from './navigation';
 import {
@@ -548,19 +549,8 @@ function SettingResultCard(props: SettingResultCardProps): React.JSX.Element {
     {!expanded && item.content !== null && <p className="setting-result-preview">{compactPreview(display(item.rules?.length ? item.rules.map((rule) => rule.statement).join('；') : item.content), 88)}</p>}
     {expanded && <>
       {item.rules?.length ? <ul className="setting-rule-list">{item.rules.map((rule, index) => <li key={index}>
-        <p>{display(rule.statement)}</p>
+        <p>{display(settingRuleText(rule))}</p>
       </li>)}</ul> : item.content !== null && <p className="setting-final-content">{display(item.content)}</p>}
-      {item.rules?.some((rule) => rule.scope || rule.objects.length > 0 || rule.conditions.length > 0 || rule.costs.length > 0 || rule.exceptions.length > 0) && <details className="setting-rule-details">
-        <summary>规则详情</summary>
-        {item.rules.map((rule, index) => (rule.scope || rule.objects.length > 0 || rule.conditions.length > 0 || rule.costs.length > 0 || rule.exceptions.length > 0) && <div key={index}>
-          <small>第{index + 1}条</small>
-          {rule.conditions.length > 0 && <small>条件：{display(rule.conditions.join('；'))}</small>}
-          {rule.costs.length > 0 && <small>代价：{display(rule.costs.join('；'))}</small>}
-          {rule.exceptions.length > 0 && <small>限制与例外：{display(rule.exceptions.join('；'))}</small>}
-          {rule.scope && <small>适用：{display(rule.scope)}</small>}
-          {rule.objects.length > 0 && <small>涉及：{display(rule.objects.join('、'))}</small>}
-        </div>)}
-      </details>}
       {expanded && item.content !== null && item.designRationale !== null && <details className="setting-rationale"><summary><span>设计思路</span><small>展开查看</small></summary><div><h4>为什么这样设计</h4><p>{item.designRationale}</p>{item.storyConsequences.length > 0 && <><h4>会影响后续什么</h4><ul>{item.storyConsequences.map((entry) => <li key={entry}>{entry}</li>)}</ul></>}</div></details>}
       {!active && item.state !== 'confirmed' && item.issues.length > 0 && <div className="chief-issues"><strong><WarningCircleIcon />需要您决定</strong>{item.issues.map((issue) => <p key={`${issue.problem}-${issue.suggestion}`}><b>{issue.problem}</b><span>{issue.suggestion}</span></p>)}<small>采用提醒后会把当前完整内容直接交给主编复审；您确认后才会正式采用。</small><button type="button" disabled={optimizing || props.readOnly} onClick={props.onAdoptChief}><SparkleIcon />{optimizing ? '正在创建优化任务…' : '按提醒优化'}</button></div>}
       {item.changeImpact && (item.changeImpact.planning.length > 0 || item.changeImpact.finishedChapters > 0) && <aside className="setting-change-impact">
