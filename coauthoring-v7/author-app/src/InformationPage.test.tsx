@@ -96,9 +96,11 @@ describe('V7开书资料页', () => {
   it('把资料调整和进入设定统一放在内容底部，并只保留一个阶段主按钮', async () => {
     render(<InformationPage bookId="book-1" />);
     await screen.findByRole('heading', { name: '边军起势' });
-    const dock = screen.getByRole('contentinfo', { name: '当前步骤操作' });
+    const dock = screen.getByRole('contentinfo', { name: '开书资料操作' });
+    expect(screen.queryByText('开书资料已经成为正式上游')).not.toBeInTheDocument();
+    expect(dock).not.toHaveClass('workflow-action-dock');
     expect(within(dock).getAllByRole('button').map((button) => button.textContent)).toEqual(['设计书名', '设计封面', '修改开书资料', '进入设定']);
-    expect(dock.querySelectorAll('.workflow-action-dock-primary > button')).toHaveLength(1);
+    expect(dock.querySelectorAll('button.primary-action')).toHaveLength(1);
     fireEvent.click(within(dock).getByRole('button', { name: '进入设定' }));
     expect(screen.getByRole('button', { name: '设定' })).toHaveAttribute('aria-pressed', 'true');
   });

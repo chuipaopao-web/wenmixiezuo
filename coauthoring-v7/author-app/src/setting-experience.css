@@ -36,3 +36,8 @@
   .setting-page .setting-result-card > footer button { padding: 0 4px; font-size: 13px; gap: 4px; white-space: nowrap; }
 }
 @media(max-width:600px) { .setting-lead-options { grid-template-columns: repeat(2,minmax(0,1fr)); } .setting-page .setting-lead-options button { gap: 8px; padding: 10px 8px; flex-wrap: wrap; } .setting-lead-options em { font-size: 10px; } .setting-page .setting-lead-picker { padding: 12px; } .setting-delivery { padding: 16px; } .setting-delivery-header { align-items: flex-start; gap: 10px; } .setting-delivery-header p { font-size: 14px; } }
+.setting-welcome { display: flex; flex-direction: column; align-items: center; gap: 24px; padding: 36px 16px 48px; text-align: center; }
+.setting-welcome-avatar { display: block; width: 172px; height: 172px; flex: none; border-radius: 50%; border: 6px solid white; box-shadow: 0 12px 32px #284c4020; }
+.setting-welcome p { margin: 0; max-width: 680px; font-size: clamp(20px, 2.5vw, 28px); line-height: 1.8; color: #35584e; }
+.setting-welcome > button { min-width: 180px; }
+@media (max-width: 640px) { .setting-welcome { padding: 24px 8px 32px; gap: 20px; } .setting-welcome-avatar { width: 140px; height: 140px; } }

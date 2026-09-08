@@ -456,7 +456,7 @@ export function AuthorApp(): React.JSX.Element {
               const coverTitle = bookCoverTitle(book.title);
               const statusText = bookId === book.bookId ? '当前书籍' : bookStatusLabel(book.status);
               return <button className={bookId === book.bookId ? 'active' : ''} type="button" key={book.bookId} aria-label={`${coverTitle.fullTitle} · ${statusText}`} onClick={() => navigate('information', book.bookId)}>
-                <span className={`book-rail-cover cover-tone-${bookCoverTone(book.bookId)}`} aria-hidden="true"><small>文秘</small><b className={`book-cover-title title-${coverTitle.size}`}>{coverTitle.text}</b><i>小说</i></span>
+                <span className={`book-rail-cover cover-tone-${bookCoverTone(book.bookId)}`} aria-hidden="true"><b className={`book-cover-title title-${coverTitle.size}`}>{coverTitle.text}</b></span>
                 <span className="book-cover-status"><strong>{coverTitle.fullTitle}</strong><small>{statusText}</small></span>
               </button>;
             })}</div>}

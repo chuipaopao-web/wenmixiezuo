@@ -5,7 +5,7 @@ import { openingProfileCharacters, openingProfileRows, uniqueNonEmpty } from './
 import { NamingWorkspace } from './NamingWorkspace';
 import { fetchBookProfile, updateBookProfile, type BookProfile } from './opening-api';
 import { SettingPage } from './SettingPage';
-import { WorkflowActionDock } from './WorkflowActionDock';
+import './information-actions.css';
 import type { InformationSection, SettingRecoveryFocus } from './navigation';
 
 export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'profile', settingRecoveryFocus = null }: {
@@ -66,16 +66,12 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
             </article>)}</div>
           </section>
           <dl className="profile-detail-list">{openingProfileRows(profile).filter((row) => row.label !== '时代与世界').map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>
-          <WorkflowActionDock
-            title="开书资料已经成为正式上游"
-            detail="下一步进入设定；书名、封面和资料需要调整时，也可以从这里修改。"
-            secondary={<>
+          <footer className="information-page-actions" aria-label="开书资料操作">
               <button type="button" className="secondary-action" onClick={() => setTitleOpen(true)}><MagicWandIcon />设计书名</button>
               <button type="button" className="secondary-action" onClick={() => setCoverOpen(true)}><MagicWandIcon />设计封面</button>
               <button type="button" className="secondary-action" onClick={() => setProfileOpen(true)}><PencilSimpleIcon />修改开书资料</button>
-            </>}
-            primary={<button type="button" className="primary-action" onClick={() => setSection('setting')}><SlidersHorizontalIcon />进入设定</button>}
-          />
+              <button type="button" className="primary-action" onClick={() => setSection('setting')}><SlidersHorizontalIcon />进入设定</button>
+          </footer>
         </div>
       )}
       {profileOpen && profile !== null && <BookProfileEditDialog profile={profile} onClose={() => setProfileOpen(false)} onSave={async (title, openingBlueprint) => {

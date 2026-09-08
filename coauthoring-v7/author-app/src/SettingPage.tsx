@@ -244,8 +244,8 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
   const settingTaskActive = batch !== null && (batch.status === 'queued' || batch.status === 'working');
   const finalReviewChief = finalReview?.member ?? uniqueByMemberKey(batch?.members ?? department.members).find((member) => publicRoleLabel(member.role) === '主编') ?? null;
   return (
-    <section className="setting-page" aria-labelledby="setting-title">
-      <header className="setting-page-heading"><p id="setting-title">设计成员先挑出本书需要的设定，您可以调整设计范围。</p>{(items.length > 0 || department.recommendation?.status === 'ready') && <button type="button" className="secondary-action setting-catalog-toggle" aria-expanded={showCatalog} onClick={() => setShowCatalog((value) => !value)}><ClipboardTextIcon />{showCatalog ? '收起完整设定库' : '打开完整设定库'}</button>}</header>
+    <section className="setting-page" aria-label="本书设定">
+      {(items.length > 0 || department.recommendation?.status === 'ready') && <header className="setting-page-heading"><button type="button" className="secondary-action setting-catalog-toggle" aria-expanded={showCatalog} onClick={() => setShowCatalog((value) => !value)}><ClipboardTextIcon />{showCatalog ? '收起完整设定库' : '打开完整设定库'}</button></header>}
       {error && <div className="error-notice" role="alert">{error}</div>}
 
       {(items.length === 0 || department.recommendation?.status !== 'ready') && <SettingRecommendationPanel
@@ -416,15 +416,10 @@ function SettingRecommendationPanel({
 }): React.JSX.Element {
   const member = recommendation?.member ?? null;
   const lookup = new Map(catalog.map((item) => [item.key, item.label]));
-  if (recommendation === null) return <section className="setting-recommendation-card ready-to-start" aria-label="准备设定清单">
-    <span className="setting-recommendation-placeholder" aria-hidden="true"><SparkleIcon /></span>
-    <div><strong>准备本书设定</strong><p>设计成员根据开书资料，挑出本书需要设计的主题。</p><small>已保存的资料会直接使用。</small></div>
-    {actionsEnabled && <WorkflowActionDock
-      mode="card"
-      title="先确定设计范围"
-      detail="任务只会创建一次，离开页面也会保留进度。"
-      primary={<button type="button" className="primary-action" disabled={busy} onClick={onStart}><SparkleIcon />{busy ? '正在准备…' : '整理设定清单'}</button>}
-    />}
+  if (recommendation === null) return <section className="setting-welcome" aria-label="准备设定清单">
+    <span className="setting-welcome-avatar" style={memberAvatarStyle('chief-deepseek-v4-pro')} role="img" aria-label="貂蝉" />
+    <p>老板确认一下，我帮您设计本作品需要的主题设定。</p>
+    {actionsEnabled && <button type="button" className="primary-action" disabled={busy} onClick={onStart}>{busy ? '正在准备…' : '确认设计'}</button>}
   </section>;
   const active = recommendation.status === 'queued' || recommendation.status === 'working';
   if (active) return <section className="setting-recommendation-card working" aria-live="polite">

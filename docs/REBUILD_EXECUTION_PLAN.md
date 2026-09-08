@@ -1,6 +1,6 @@
 # 文秘写作全产品重构执行文档与开发顺序表
 
-> 版本1.63 · 2026-09-09 · 第167批一个主偏向＋最多四个辅助偏向已验证上线
+> 版本1.64 · 2026-09-09 · 第168批设定接待与开书页面简化验证中；第167批主辅偏向已上线
 >
 > 本文是全产品重构的**唯一执行顺序和进度来源**；[详细开发规格](REBUILD_DEVELOPMENT_SPEC.md)保留产品与工程设计解释。
 >
@@ -586,7 +586,7 @@
 ### RB-19 AI开书页与结果采用
 
 - **管理·代码来源**：rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,rebuild/packages/agent-catalog/creative-assets.js,rebuild/packages/backend/src/legacy-opening/opening-agent/opening-prompt-compiler.ts,apps/api/src/application/books/v7-opening-agent-service.ts,coauthoring-v7/author-app/src/NewNovelPage.tsx,coauthoring-v7/author-app/src/AuthorApp.tsx
-- **管理·代码核对**：a7ea66a53dd8a482a2a00a4620ac2c434fe9ec94b30ae08102170140c8f1ede2
+- **管理·代码核对**：88006539a7ac99497c0ecd21afdf43c7d7cc67e07c0c15bc180702cd5d9b353e
 
 - **管理·共享步骤**：none
 - **第166批确认方案**：首页直接开书，新貂蝉为亲切可爱的成年古风女性；尺度为常规发挥/趣味加料/反差脑洞/荒诞猎奇/极限整活，默认4。风格已由第167批调整为一个主偏向、最多四个辅助偏向；主导与辅助用途分别明确。完整机制库允许自由组合与原创，不宣称全网最全。后台“资产方法论→创意与金手指”查看同源卡片和节点规则；正式调用快照在本功能的上下文样例中追溯。2026-09-09 02:56:49已上线wm-v7-20260909-024500-108646da，静态a950d437b17ebb3fa52b。手机/电脑和定向接口验证通过，真实合成样例设计88秒、审查21秒通过；单例不代表所有任务速度。剧本尚未开放。
@@ -640,6 +640,8 @@
 <a id="rb-20"></a>
 
 ### RB-20 作品信息与开书资料编辑
+
+- **第168批确认界面**：资料页删除“开书资料已经成为正式上游”及下一步解释；设计书名、设计封面、修改开书资料、进入设定四个按钮在内容底部正常排列，不再悬浮。默认书封只显示书名，去掉文秘与小说角标。开书工作进度改为“编剧正在设计”“主编正在审查”，不展示资料包术语；任务数据与状态不变。
 
 - **管理·代码来源**：apps/api/src/application/books/v7-opening-book-service.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
 - **管理·代码核对**：473da75e4ac05ba926b849d07b006b2ec683847d0a686f8c10641118a6b57425
@@ -739,7 +741,7 @@
 - **确认方案·验收06·长篇效果**：工程链路及少量真实语义小样持续核验：两卷规划与定稿的隔离资料检查了来源、冲突、版本失效和正文保护；三次Kimi审查分别约4.8/5.1/2.6秒，识别限制扩大、正文矛盾与明确未来生效的合理变化。百万字连续阅读质量尚无实证，作为后续持续评测项，不伪称完成。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/books/v7-setting-editorial-service.ts,apps/api/src/application/books/v7-task-roster-snapshot.ts,apps/api/src/infrastructure/db/repositories/setting-change-impact.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-rules.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-catalog.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-agent-support.ts,rebuild/packages/backend/src/legacy-opening/agent-governance/agent-governance-registry.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/books/setting-continuity.ts,apps/api/src/infrastructure/db/repositories/setting-version-selection.ts,apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.ts,coauthoring-v7/author-app/src/SettingPage.tsx,apps/api/src/infrastructure/db/repositories/setting-continuity-repository.ts,apps/api/src/application/agents/book-creative-context.ts
-- **管理·代码核对**：90440b0c7cd80a43d5188b3cb30f4d70b719449ebe243926534f68cb5c227ebe
+- **管理·代码核对**：b4573d02a34884f301baa7062a345202836389d50b7ff3cdb35746b042be8672
 
 - **管理·共享步骤**：AI-008,AI-009
 
@@ -748,7 +750,7 @@
 - **管理·任务类型**：setting_recommendation,setting_design,setting_review,planning_context
 - **管理·岗位**：planning_writer,chief_editor,deputy_editor
 - **管理·共享节点**：RB-16,RB-17
-- **管理·功能介绍**：设定：24个跨题材主题按需要设计、已有资料足够、不适用分类；一名成员设计简洁规则，主编核对后作者采用。旧条目归并核对完整事实，修改规则检查对规划和定稿的影响；页面与下游读取同一正式规则。
+- **管理·功能介绍**：设定：初始页以大头像接待，说“老板确认一下，我帮您设计本作品需要的主题设定。”；点击“确认设计”启动主题推荐，仍可确认和调整范围。24个跨题材主题按需要设计、已有资料足够、不适用分类；一名成员设计简洁规则，主编核对后作者采用。旧条目归并核对完整事实，修改规则检查对规划和定稿的影响；页面与下游读取同一正式规则。
 - **管理·用户操作**：选择需要的设定，提交设计；可逐条修改、重设计或执行统一整理，确认后成为后续依据。
 - **管理·流程**：系统准备正式开书与现有设定 → 策划编剧判断24主题适用性并逐组设计 → 主编统一/单条核对与定向修订 → 有旧正式资料的候选追加连续性核对 → 作者采用。纯换说法只核对旧规则，事实改变再核对其他设定、开书、当前规划和定稿。旧清单任务继续按冻结岗位读取。
 - **管理·资料供给**：系统组包：正式开书、已确认设定、本轮候选、作者意见。超预算时由策划编剧筛选所需事实；不是每项都派资料编辑。副编仅在明确专项核查路径介入。

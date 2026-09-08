@@ -1,0 +1,14 @@
+.information-profile > .information-page-actions {
+  position: static;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+  padding: 20px 0 0;
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 640px) {
+  .information-profile > .information-page-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .information-page-actions button { width: 100%; min-width: 0; }
+}

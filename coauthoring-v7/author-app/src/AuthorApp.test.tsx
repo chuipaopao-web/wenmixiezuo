@@ -1268,7 +1268,7 @@ describe('V7 author opening flow', () => {
     fireEvent.click(screen.getByRole('radio', { name: /幼薇/ }));
     fireEvent.click(screen.getByRole('button', { name: '重新设计' }));
 
-    expect(await screen.findByText('编剧正在设计新的开书资料包')).toBeVisible();
+    expect(await screen.findByText('编剧正在设计')).toBeVisible();
     expect(window.location.search).toContain(`taskId=${replacement.taskId}`);
     expect(screen.queryByText('正在重新安排…')).not.toBeInTheDocument();
     resolveAbandon(response({ ...COMPLETE_TASK, status: 'archived' }));
@@ -1308,7 +1308,7 @@ describe('V7 author opening flow', () => {
     fireEvent.change(await screen.findByLabelText('说说您想写什么'), { target: { value: '张三穿越三国，从流民开始求生。' } });
     fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
     expect(await screen.findByLabelText('编辑部工作进度')).toBeVisible();
-    expect(screen.getByText('编剧正在设计开书资料包')).toBeVisible();
+    expect(screen.getByText('编剧正在设计')).toBeVisible();
     expect(screen.queryByText('直接设计')).not.toBeInTheDocument();
     expect(screen.queryByText('审查点评')).not.toBeInTheDocument();
     expect(screen.queryByText('AI团队正在设计')).not.toBeInTheDocument();

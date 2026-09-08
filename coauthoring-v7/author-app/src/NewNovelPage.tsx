@@ -235,7 +235,10 @@ function WorkStatus({ task }: { task: OpeningTaskView }): React.JSX.Element {
   const designer = task.selectedMembers.designer ?? task.selectedMembers.screenwriter;
   const activeMember = task.phase.includes('review') ? reviewer : designer;
   const members = uniqueByMemberKey([designer, reviewer].filter((member): member is NonNullable<typeof member> => member !== null));
-  const statusText = publicStatusCopy(task.phaseText || task.statusText, '编辑部正在处理这项工作。');
+  const phaseText = publicStatusCopy(task.phaseText || task.statusText, '编辑部正在处理这项工作。');
+  const statusText = phaseText.includes('资料包')
+    ? task.phase.includes('review') ? '主编正在审查' : task.phase === 'package_design' ? '编剧正在设计' : phaseText.replace(/资料包/g, '')
+    : phaseText;
   return (
     <div className="editorial-live-room" role="status" aria-live="polite" aria-label="编辑部工作进度">
       <div className="editorial-live-cast">
