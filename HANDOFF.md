@@ -1,5 +1,9 @@
 # 文秘写作当前交接
 
+## R178：已确认历史任务清理完成
+
+用户要求只清任务，已完成YES和“确认删除任务”双确认。2026-09-09T07:14:55Z按固定指纹清理70条开书任务、11个设定批次及关联记录，共629行；77账号、1本现存书籍、会员账务及所有无关表哈希不变，192条用量转入既有纯账务归档以保持余额。服务器证据与备份在/opt/wenmi-releases/r178-task-clear/{preview.json,rehearsal.json,before.sqlite,apply-before.sqlite,completed.json}，执行脚本/tmp/r178-task-apply.py，本地.local/r178-task-apply.py。线上健康通过；开书与设定任务均为0。确认预览后新增1条v7_planning_recipe_runs任务，未纳入629行清单，保留未删。此次为运维清理，没有部署或删除书籍账号，不重复历史关机指令。
+
 ## R177：设定资料容量治理，已上线
 
 合同coauthoring-v7/docs/worklists/SETTING-CONTEXT-177.md。资料选择页18000字符，长开书按字段选材、主角与硬要求常驻，副编优先使用planning_context合同，设计仍最多4项、最终12000字符校验。53项回归/API类型/服务器构建闭包与模块通过；DeepSeek真实两页选材保留末页条件。发布wm-v7-20260909-100000-0552dc73，静态仍b4aaa53a5f9c59173af2；源码/opt/wenmi-releases/wm-v7-20260909-100000-0552dc73/source，回滚R176。连续30秒零任务和公网健康/Worker/401/资源通过。用户要求完成后关机；不再自动发起作者任务。
