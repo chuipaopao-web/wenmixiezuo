@@ -37,9 +37,12 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
   const [finalSaved, setFinalSaved] = useState(false);
   const [recommendationBusy, setRecommendationBusy] = useState(false);
   const [batchRetryBusy, setBatchRetryBusy] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [reconnecting, setReconnecting] = useState(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const value = await fetchSettingDepartment(bookId, signal);
+    if (signal?.aborted) return;
     const existingKeys = new Set(value.confirmedItems.map((item) => item.itemKey));
     const recommendation = value.recommendation ?? null;
     const recommended = recommendation?.status === 'ready' ? recommendation.result?.requiredKeys ?? [] : [];
@@ -51,7 +54,27 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
     setError(null);
   }, [bookId, recoveryFocus]);
 
-  useEffect(() => { const controller = new AbortController(); void load(controller.signal).catch((reason: unknown) => { if (!controller.signal.aborted) setError(message(reason)); }); return () => controller.abort(); }, [load]);
+  useEffect(() => {
+    const controller = new AbortController();
+    let timer = 0;
+    let failures = 0;
+    setError(null); setReconnecting(false);
+    const connect = async (): Promise<void> => {
+      try { await load(controller.signal); if (!controller.signal.aborted) setReconnecting(false); }
+      catch (reason) {
+        if (controller.signal.aborted) return;
+        const transient = !(reason instanceof AuthorApiError) || reason.status === 0
+          || [408, 429, 502, 503, 504].includes(reason.status);
+        const delays = [1000, 3000, 8000, 15000];
+        if (transient && failures < delays.length) {
+          setReconnecting(true);
+          timer = window.setTimeout(() => void connect(), delays[failures++]!);
+        } else { setReconnecting(false); setError(message(reason)); }
+      }
+    };
+    void connect();
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [load, loadAttempt]);
   useEffect(() => {
     if (recoveryFocus !== 'final-review' || !finalReviewOpen || finalReview === null) return;
     const timer = window.setTimeout(() => {
@@ -229,8 +252,8 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
   };
 
   if (department === null) return error === null
-    ? <div className="setting-loading" role="status">正在准备设定编辑部…</div>
-    : <div className="setting-load-failed" role="alert"><WarningCircleIcon /><strong>设定编辑部暂时没有准备好</strong><span>{error}</span><button type="button" className="primary-action" onClick={() => { setError(null); void load().catch((reason: unknown) => setError(message(reason))); }}>重新连接</button></div>;
+    ? <div className="setting-loading" role="status">{reconnecting ? '连接暂时中断，正在自动重连…' : '正在准备设定编辑部…'}</div>
+    : <div className="setting-load-failed" role="alert"><WarningCircleIcon /><strong>设定编辑部暂时没有准备好</strong><span>{error}</span><button type="button" className="primary-action" onClick={() => setLoadAttempt(value => value + 1)}>重新连接</button></div>;
   const items = mergeSettingItems(department.confirmedItems, batch?.items ?? []);
   const existingKeys = new Set(department.confirmedItems.map((item) => item.itemKey));
   const selectableCount = [...selected].filter((key) => !existingKeys.has(key)).length + customItems.filter((item) => item.label.trim() && item.prompt.trim()).length;

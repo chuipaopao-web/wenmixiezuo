@@ -321,12 +321,67 @@ describe('V7设定页面', () => {
   });
 
   it('首次连接失败时给作者明确恢复按钮，重试后正常进入设定页', async () => {
-    fetchMock.mockRejectedValueOnce(new Error('网络暂时不可用'));
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 400 }));
     render(<SettingPage bookId="book-1" />);
     expect(await screen.findByRole('alert')).toHaveTextContent('设定编辑部暂时没有准备好');
-    expect(screen.getByRole('alert')).toHaveTextContent('对不起，这次操作没有完成，请稍后再试');
+    expect(screen.getByRole('alert')).toHaveTextContent('这次请求没有完成，请稍后重试');
     fireEvent.click(screen.getByRole('button', { name: '重新连接' }));
     expect(await screen.findByRole('region', { name: '本书设定' })).toBeInTheDocument();
+  });
+
+  it('503短暂断连后自动恢复，不需要作者重启任务', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockResolvedValueOnce(new Response('{}', { status: 503 }));
+      render(<SettingPage bookId="book-1" />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByRole('status')).toHaveTextContent('自动重连');
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(screen.getByRole('region', { name: '本书设定' })).toBeInTheDocument();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('401权限失败不自动重试', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockResolvedValueOnce(new Response('{}', { status: 401 }));
+      render(<SettingPage bookId="book-1" />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('切书后忽略旧书迟到的读取结果', async () => {
+    const original = fetchMock.getMockImplementation()!;
+    let finish!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    const view = render(<SettingPage bookId="book-old" />);
+    view.rerender(<SettingPage bookId="book-new" />);
+    await screen.findByText(resultItem.content);
+    const response = await original('/api/v1/v7/books/book-old/setting-department');
+    const body = await response.json();
+    body.data.confirmedItems = [{ ...resultItem, content: '旧书迟到内容' }];
+    await act(async () => { finish(new Response(JSON.stringify(body))); });
+    expect(screen.queryByText('旧书迟到内容')).not.toBeInTheDocument();
+    expect(screen.getByText(resultItem.content)).toBeInTheDocument();
+  });
+
+  it('持续断连只自动重试四次，卸载后停止重连', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockRejectedValue(new Error('offline'));
+      const view = render(<SettingPage bookId="book-1" />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(27000); });
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '重新连接' }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      view.unmount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+    } finally { vi.useRealTimers(); }
   });
 
   it('修改内容在条目内展开，保存后创建可恢复的复审任务', async () => {

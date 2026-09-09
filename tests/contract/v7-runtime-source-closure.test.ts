@@ -119,7 +119,7 @@ describe('V7运行源码闭包', () => {
       for (const path of [contractsSource, contractsDist, backendSource, backendDist, openingSource, openingDist, catalogSource]) {
         mkdirSync(resolve(path, '..'), { recursive: true });
       }
-      writeFileSync(resolve(source, 'RELEASE_ID'), 'V7-test-release\n', 'utf8');
+      writeFileSync(resolve(source, 'RELEASE_ID'), 'wm-v7-20260909-180500-499ff1ac\n', 'utf8');
       writeFileSync(contractsSource, 'export const contract = true;\n', 'utf8');
       writeFileSync(contractsDist, 'export const contract = true;\n', 'utf8');
       writeFileSync(backendSource, 'export const backend = true;\n', 'utf8');
@@ -129,7 +129,7 @@ describe('V7运行源码闭包', () => {
       writeFileSync(catalogSource, 'export const members = [];\n', 'utf8');
       const manifest: ReleaseClosureManifest = {
         schema: 'v7-runtime-source-closure-v2',
-        releaseId: 'V7-test-release',
+        releaseId: 'wm-v7-20260909-180500-499ff1ac',
         files: [
           { path: 'rebuild/packages/agent-catalog/index.js', sha256: fileSha256(catalogSource) },
           { path: 'apps/contracts/src/index.ts', sha256: fileSha256(contractsSource) },
@@ -147,6 +147,12 @@ describe('V7运行源码闭包', () => {
           { specifier: '@wenmi/opening-runtime', resolvedPath: openingDist }
         ]
       })).toEqual([]);
+
+      writeFileSync(resolve(source, 'RELEASE_ID'), 'wm-v7-r183-499ff1ac');
+      expect(validateResolvedReleaseModules({ releaseSource: source,
+        manifest: { ...manifest, releaseId: 'wm-v7-r183-499ff1ac' }, resolutions: []
+      })).toContain('目标发布RELEASE_ID格式无效，API无法启动');
+      writeFileSync(resolve(source, 'RELEASE_ID'), manifest.releaseId);
 
       const foreignModule = resolve(fixture, 'foreign-contracts.js');
       writeFileSync(foreignModule, readFileSync(contractsDist));

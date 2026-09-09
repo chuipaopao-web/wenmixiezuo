@@ -1,6 +1,6 @@
 # 文秘写作全产品重构执行文档与开发顺序表
 
-> 版本1.78 · 2026-09-09 · 第183批全书方向资料整理恢复
+> 版本1.79 · 2026-09-09 · 第184批设定页断连恢复与发布校验
 >
 > 本文是全产品重构的**唯一执行顺序和进度来源**；[详细开发规格](REBUILD_DEVELOPMENT_SPEC.md)保留产品与工程设计解释。
 >
@@ -847,6 +847,8 @@
 
 ### RB-21 设定页
 
+- **第184批恢复调整**：首次读取遇到网络中断或临时不可用时，在1、3、8、15秒后有限重连；只重试读取，不启动设计。已加载内容保持显示，退出页面取消重连；权限错误不自动重试。发布模块门禁增加版本号格式校验。本批静态单独发布，不重启API/Worker。详见[执行记录](../coauthoring-v7/docs/worklists/QUIET-RECOVERY-184.md)。
+
 - **收尾·线上现状**：24主题设定流程已上线；R177资料分页选材、最多4项设计和R179已有结果状态修复已发布。
 - **收尾·执行归属**：SettingPage → v7-setting-editorial-service → 现有任务仓储/资料Agent选材及legacy-opening共享编译能力。
 - **收尾·剩余工作**：本批不再重新生成作者设定；超大不可拆事实会明确失败而非截断。长期文学效果与独立PG整站切换仍需单独验收。
@@ -927,7 +929,7 @@
 - **确认方案·验收06·长篇效果**：工程链路及少量真实语义小样持续核验：两卷规划与定稿的隔离资料检查了来源、冲突、版本失效和正文保护；三次Kimi审查分别约4.8/5.1/2.6秒，识别限制扩大、正文矛盾与明确未来生效的合理变化。百万字连续阅读质量尚无实证，作为后续持续评测项，不伪称完成。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/books/v7-setting-editorial-service.ts,apps/api/src/application/books/v7-task-roster-snapshot.ts,apps/api/src/infrastructure/db/repositories/setting-change-impact.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-rules.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-catalog.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-agent-support.ts,rebuild/packages/backend/src/legacy-opening/agent-governance/agent-governance-registry.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/books/setting-continuity.ts,apps/api/src/infrastructure/db/repositories/setting-version-selection.ts,apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.ts,coauthoring-v7/author-app/src/SettingPage.tsx,apps/api/src/infrastructure/db/repositories/setting-continuity-repository.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/books/setting-context-selection.ts
-- **管理·代码核对**：6e6f2263ca8858da26f58abaa99864e168ee0892a71cea795ebe9fd2866075e9
+- **管理·代码核对**：9ef6963f9ca211dc97c1cbc63bb909baca34a0bfef7fd1752997e1f26c70b7db
 
 - **管理·共享步骤**：AI-008,AI-009
 

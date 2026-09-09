@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readReleaseId } from '../../apps/api/src/infrastructure/project-root.js';
 
 interface ClosureFileRecord {
   path: string;
@@ -55,6 +56,7 @@ export function validateResolvedReleaseModules(input: {
   if (!existsSync(releaseIdPath)) {
     errors.push('目标release/source缺少RELEASE_ID');
   } else {
+    try { readReleaseId(sourceRoot); } catch { errors.push('目标发布RELEASE_ID格式无效，API无法启动'); }
     const actualReleaseId = readFileSync(releaseIdPath, 'utf8').trim();
     if (actualReleaseId !== input.manifest.releaseId) {
       errors.push(`闭包清单releaseId与目标发布不一致：${input.manifest.releaseId} != ${actualReleaseId}`);
