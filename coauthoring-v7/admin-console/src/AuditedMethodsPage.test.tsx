@@ -28,5 +28,5 @@ it('查校正用途与原名，清空结果不显示无关说明，真实运行�
  fireEvent.change(screen.getByLabelText('查找校正方法'),{target:{value:'资源匮乏'}});
  expect(screen.getByRole('button',{name:/资源挤压/})).toBeVisible();
  fireEvent.change(screen.getByLabelText('查找校正方法'),{target:{value:'不存在的名称'}});expect(screen.getByText('选择左侧方法查看。')).toBeVisible();
- fireEvent.click(screen.getByRole('button',{name:'实际运行供给'}));expect(screen.getByText('真实供给配置入口')).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'当前生效的方法配置'}));expect(screen.getByText('真实供给配置入口')).toBeVisible();
 });

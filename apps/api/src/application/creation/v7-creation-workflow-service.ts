@@ -1552,7 +1552,7 @@ export class V7CreationWorkflowService {
           prompt: input.prompt, maxOutputTokens: input.maxOutputTokens, temperature: input.temperature
         });
         this.ensureActive(input.ownerId, input.bookId, input.workflowId);
-        return { output: result.output, requestId, member };
+        return { output: result.output, requestId:result.requestId, member };
       } catch (error) {
         if (error instanceof V7CreationModelError && error.outcomeUnknown) throw error;
         failures.push(publicFailure(error));

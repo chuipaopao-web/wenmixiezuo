@@ -1,25 +1,31 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { fetchRhythmPolicy, type RhythmPolicyView } from './platform-api';
 import { AUDITED_METHODS, AUDIT_CATEGORIES, AUDIT_TASKS, AUDIT_SUPPLY, AUDIT_MERGES, AUDIT_RESTORED,
  AUDIT_ORIGINAL_COUNT, AUDIT_COPY_CHANGES, auditMethodName, type AuditSupply } from '../../backend/planning-methods/audited-method-catalog.js';
 import { RhythmAssetsPage } from './RhythmAssetsPage';
+import { ADDITIONAL_METHODS } from '../../backend/planning-methods/additional-methods';
 import './rhythm-assets.css';
 
 export function AuditedMethodsPage():React.JSX.Element {
  const [view,setView]=useState<'library'|'runtime'>('library');
+ const [runtime,setRuntime]=useState<RhythmPolicyView|null>(null);
+ useEffect(()=>{const abort=new AbortController();void fetchRhythmPolicy(abort.signal).then(setRuntime).catch(()=>setRuntime(null));return()=>abort.abort();},[view]);
  const [task,setTask]=useState('0');const [supply,setSupply]=useState('c');const [category,setCategory]=useState('all');
  const [query,setQuery]=useState('');const [page,setPage]=useState(0);const [selected,setSelected]=useState('four-act');
  const changeView=(next:'library'|'runtime')=>{if(window.dispatchEvent(new Event('wenmi:admin-navigate',{cancelable:true})))setView(next);};
- const stageRows=AUDITED_METHODS.filter(m=>task==='all'||(task!=='baseline'&&(supply==='all'||m.states[Number(task)]===supply)));
+ const liveMethods=[...AUDITED_METHODS,...ADDITIONAL_METHODS].map(m=>{const c=runtime?.policy.format==='audited-v4'?runtime.policy.cards.find(c=>c.key===m.key):undefined;return c?{...m,title:c.title,intro:c.instruction,when:c.boundary}:m;});
+ const stageRows=liveMethods.filter(m=>task==='all'||(task!=='baseline'&&(supply==='all'||m.states[Number(task)]===supply)));
  const categories=[...new Set(stageRows.flatMap(m=>[m.category,...m.aliases.map(a=>a.category)]))];
  const rows=stageRows.filter(m=>(category==='all'||m.category===category||m.aliases.some(a=>a.category===category))&&
  [m.title,m.intro,m.when,...m.aliases.map(a=>a.title)].join(' ').toLowerCase().includes(query.trim().toLowerCase()));
  const pages=Math.max(1,Math.ceil(rows.length/12)),index=Math.min(page,pages-1),visible=rows.slice(index*12,index*12+12);
  const card=rows.find(m=>m.key===selected)??visible[0];
  return <section className="rhythm-page">
-  <nav className="rhythm-tabs" aria-label="方法管理视图"><button aria-pressed={view==='library'} onClick={()=>changeView('library')}>方法库与适用规则</button><button aria-pressed={view==='runtime'} onClick={()=>changeView('runtime')}>实际运行供给</button></nav>
+  <nav className="rhythm-tabs" aria-label="方法管理视图"><button aria-pressed={view==='library'} onClick={()=>changeView('library')}>方法库与适用规则</button><button aria-pressed={view==='runtime'} onClick={()=>changeView('runtime')}>当前生效的方法配置</button></nav>
   {view==='runtime'?<RhythmAssetsPage/>:<>
-  <header className="rhythm-heading"><div><h2>方法库与适用规则</h2><p>按用途查方法，按任务看适用；不把整库当成单次上下文。</p><p>原始{AUDIT_ORIGINAL_COUNT}条逐项复核，{AUDIT_MERGES.length}组合并后保留{AUDITED_METHODS.length}张卡；修订{AUDIT_COPY_CHANGES}项简介，恢复{AUDIT_RESTORED.length}项独立定义。</p></div><span>归类校正版 R187</span></header>
-  <p role="status">本页是已校正的方法定义。新选材流程尚未接入；当前任务实际收到什么，请看“实际运行供给”。本页归类不会改写历史任务。</p>
+  <header className="rhythm-heading"><div><h2>方法库与适用规则</h2><p>按用途查方法，按任务看适用；不把整库当成单次上下文。</p><p>原始{AUDIT_ORIGINAL_COUNT}条逐项复核，{AUDIT_MERGES.length}组合并后保留{AUDITED_METHODS.length}张卡；修订{AUDIT_COPY_CHANGES}项简介，恢复{AUDIT_RESTORED.length}项独立定义。</p></div><span>方法库 R190</span></header>
+  <p>另补充{ADDITIONAL_METHODS.length}项群像、对话、动作空间、感官和趣味方法，共{liveMethods.length}项；不改变原始来源记录。</p>
+  <p role="status">{runtime?.policy.format==='audited-v4'?`本页使用当前运行版本v${runtime.version}的方法定义。新任务按需查询，历史任务保留原版本。实际调用和选择见“当前生效的方法配置”。`:runtime?'当前运行仍为历史配置，本页展示校正定义；请查看当前生效的方法配置。':'尚未读取运行版本；当前展示校正参考定义，不代表线上生效状态。'}</p>
   <nav className="rhythm-tabs" aria-label="设计任务">
    {[['baseline','全书基线'],...AUDIT_TASKS.map((name,i)=>[String(i),name]),['all','完整库']].map(([value,label])=><button key={value} aria-pressed={task===value} onClick={()=>{setTask(value!);setPage(0);setCategory('all');setSelected('');}}>{label}</button>)}
   </nav>
@@ -40,7 +46,7 @@ export function AuditedMethodsPage():React.JSX.Element {
    </>:<p>选择左侧方法查看。</p>}</section></div></>}
   <details className="rhythm-panel"><summary>查看资料与方法的供给方案及接入状态</summary>
    <p>已实现：校正定义、逐条条件、用途与任务分页、合并追溯；实际运行版本单独展示。</p>
-   <p>待接入：设计成员先读短卡和简短候选，按需要查阅类别；系统仅把已选方法和本书用法放进正式设计请求，准备目录和检索记录不重复带入。</p>
+   <p>执行方式：设计成员先读短卡与分类导航，资料足够可直接设计；需要时通过工具查方法、选择具体用法，再用清理后的上下文设计。是否已生效以上方实际版本为准。</p>
    <p>资料成员负责作品事实短卡；设计成员负责选方法和创作；系统负责身份、版本、预算与组装。不增加专门选方法的成员。</p>
    <p>全书给长期方向，粗分卷分配阶段责任，卷链展开各自故事，章完成当前场景。六阶段可以用于完整卷链，四节拍不等于四卷。</p>
    <p>常规候选是简短起选目录；按需参考只在相关任务读取；承接已选只带上游真实选择；复核原则用于检查结果；不自动提供仍可从完整库查阅。单次预算计算全部输入，不能把某个字符数当准确性保证。</p>

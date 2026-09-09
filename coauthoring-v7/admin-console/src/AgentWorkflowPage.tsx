@@ -32,7 +32,7 @@ export function AgentWorkflowPage():React.JSX.Element {
  const current=matches.find(s=>s.id===selected)??matches[0];
  const visible=selected==='all'?matches:current?[current]:[];
  return <section className="rhythm-page workflow-page">
-  <header><h2>智能体工作流程</h2><p>流程规范 v1.0 · 原则已确认，新执行闭环待开发。本文与项目详细文档同源发布。</p></header>
+  <header><h2>智能体工作流程</h2><p>流程规范 v1.1 · 方法查询闭环已接入，事实补读工具另行开发。实际生效版本和验证结果见方法配置与开发路线。本文与项目详细文档同源发布。</p></header>
   <section className="rhythm-panel"><fieldset><label>搜索流程文档<input aria-label="搜索流程文档" value={query} onChange={e=>setQuery(e.target.value)} placeholder="例如：卷设计、工具、预算、失败恢复"/></label>
   <label>文档章节<select aria-label="文档章节" value={selected==='all'?'all':current?.id??''} onChange={e=>setSelected(e.target.value)}><option value="all">查看全部章节</option>{matches.map(s=><option key={s.id} value={s.id}>{s.title}</option>)}</select></label></fieldset><p role="status">共{WORKFLOW_SECTIONS.length}节，匹配{matches.length}节</p></section>
   {visible.map(s=><article className="rhythm-panel workflow-section" key={s.id}><h3>{s.title}</h3><DocumentBody text={s.body}/></article>)}

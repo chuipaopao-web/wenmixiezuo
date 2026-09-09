@@ -1,5 +1,6 @@
 export * from './layer-asset-menu.js';
 export * from './rhythm-policy.js';
+export * from './method-tools.js';
 export * from './book-design-card.js';
 export * from './layered-planning-engine.js';
 export * from './method-asset-profiles.js';

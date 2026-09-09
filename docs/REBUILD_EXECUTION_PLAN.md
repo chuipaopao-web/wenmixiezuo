@@ -1,6 +1,6 @@
 # 文秘写作全产品重构执行文档与开发顺序表
 
-> 版本1.84 · 2026-09-09 · 第189批工作流程入口可见性修复
+> 版本1.85 · 2026-09-10 · 第190批方法查询与设计闭环（验证中，尚未发布）
 >
 > 本文是全产品重构的**唯一执行顺序和进度来源**；[详细开发规格](REBUILD_DEVELOPMENT_SPEC.md)保留产品与工程设计解释。
 >
@@ -1012,8 +1012,8 @@
 - **收尾·剩余工作**：本批只审计保留依赖；下一轮讨论时光机时核对真实规划任务失败、上下游版本和新交互，不重复创建整套平行引擎。
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
-- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/planning/v7-planning-route-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/planning/v7-book-design-card-service.ts,apps/api/src/application/planning/v7-planning-source-compiler.ts,coauthoring-v7/backend/planning-methods/book-design-card.ts,coauthoring-v7/backend/planning-methods/rhythm-policy.ts,coauthoring-v7/backend/planning-methods/layer-asset-menu.ts,coauthoring-v7/backend/planning-methods/complete-method-catalog.ts,coauthoring-v7/backend/planning-methods/layered-planning-engine.ts,coauthoring-v7/backend/planning-methods/planning-story-routes.ts,rebuild/packages/backend/src/legacy-opening/planning-methods/planning-story-routes.ts
-- **管理·代码核对**：a0ed5fac0c002f2ebf6b57628216ebae7e41446dcc7df815628f559f5d0e2eef
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/planning/v7-planning-route-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/planning/v7-book-design-card-service.ts,apps/api/src/application/planning/v7-planning-source-compiler.ts,coauthoring-v7/backend/planning-methods/book-design-card.ts,coauthoring-v7/backend/planning-methods/rhythm-policy.ts,coauthoring-v7/backend/planning-methods/layer-asset-menu.ts,coauthoring-v7/backend/planning-methods/complete-method-catalog.ts,coauthoring-v7/backend/planning-methods/layered-planning-engine.ts,coauthoring-v7/backend/planning-methods/planning-story-routes.ts,rebuild/packages/backend/src/legacy-opening/planning-methods/planning-story-routes.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
+- **管理·代码核对**：0cbc8bde4cb097b7073c617c40e7c6cc3e5d13e025f3fdb77ff203a505eca207
 
 - **管理·共享步骤**：AI-001,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1026,19 +1026,19 @@
 - **管理·用户操作**：在时光机提交全书目标、字数等要求，查看方向或蓝图候选，按需要调整并确认。
 - **管理·流程**：新方向任务冻结正式开书与设定 → 资料编辑分批填写六栏短卡、两两合并、逐页核对原文 → 系统保存版本并提供本层方法 → 主编设计方向 → 对应路径审查或融合 → 作者确认。相同来源复用短卡；不再额外调用一轮资料选择。既有树生成与已冻结旧菜单的历史任务仍走各自兼容路径。
 - **管理·资料供给**：六栏为创作要求、主角与起点、核心卖点、世界背景、影响全书的规则、作者指定内容。资料成员提取已有事实，不新增剧情；普通未指定信息允许留白，正式来源存在关键冲突则提示作者处理。系统另外提供本次作者目标、已有方向或实际进展并明确身份；方法来自后台本层已启用的名称与简短介绍。
-- **管理·注入与压缩**：第185批新方向短卡目标1800、正文上限3200字符；原文每页9000字符、整理业务请求上限18000字符、输出上限4000 Token，外层岗位合同另计。超长输出有限重整，不直接截断。合并后逐页核对主角、能力条件、关键规则和作者要求，成功阶段按账号/书籍/来源版本/模板版本缓存。设计调用只注入短卡，不重复传输完整开书与设定；作者目标及其他补充来源合并超过16000字符时停止并保留短卡。第186批方法供给改为本层完整简短目录，默认各层约1.7—1.85万字符，片段发布上限30000字符；这是方法片段而非总请求。代码编号只用于引用，按资产类别分组，不注入长理论。完整请求仍经模型网关总预算，不静默截断目录。字符数不保证注意力或不遗漏。原文与历史版本不覆盖。旧菜单任务、树生成及卷链章尚未改成六栏模板。
+- **管理·注入与压缩**：第185批新方向短卡目标1800、正文上限3200字符；原文每页9000字符、整理业务请求上限18000字符、输出上限4000 Token，外层岗位合同另计。超长输出有限重整，不直接截断。合并后逐页核对主角、能力条件、关键规则和作者要求，成功阶段按账号/书籍/来源版本/模板版本缓存。设计调用只注入短卡，不重复传输完整开书与设定；作者目标及其他补充来源合并超过16000字符时停止并保留短卡。第186批方法供给改为本层完整简短目录，默认各层约1.7—1.85万字符，片段发布上限30000字符；这是方法片段而非总请求。代码编号只用于引用，按资产类别分组，不注入长理论。完整请求仍经模型网关总预算，不静默截断目录。字符数不保证注意力或不遗漏。原文与历史版本不覆盖。旧菜单任务、树生成及卷链章尚未改成六栏模板。 R190新方法版本覆盖上述历史目录供给方式：首次仅提供分类导航，成员按需查方法，最多4轮8次；选材后清掉查询页，只保留至多8项方法与本任务用法。完整请求仍走模型总预算，不截断作品事实。旧任务继续读取冻结版本。
 - **管理·格式化输入**：整理阶段使用六栏JSON，每项含简短正文及可核对来源编号；系统检验字段、来源引用和预算。设计阶段使用中文短卡、当前层责任、目标容量、作者偏好及本层方法菜单。来源映射单独保存，不把编号解释长文注入设计正文。
 - **管理·输出与校验**：方向/结构使用对应JSON合同与解析器；校验容量和引用，结构错误进入修复。方向审查与融合单列；树生成不能因结构合格被标为文学质量通过。
 - **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
 - **管理·思考与解释**：现有通用规则不要求返回内部思维链，也不保存或展示内部推理。成员按照任务要求完成工作；需要解释时只交付简短依据、来源和问题。输出字段约束不等于给小说套固定情节模板。
 - **管理·调整边界**：本页可调整已接入提示资产的岗位、工位与执行规则：保存草稿、预览、发布、恢复历史草稿。成员绑定来自实时治理接口。执行顺序、硬性字符/Token上限、解析器、失败次数属于代码控制，不能仅改提示词使其生效；修改后须随功能发布同步说明。
 
-- **实际AI节点·AI-046**：填写全书信息短卡｜冻结资料编辑｜资料整理｜新方向缺少同来源版本短卡时，按9000字符分页填写六栏；成功页面保留。｜apps/api/src/application/planning/v7-book-design-card-service.ts
-- **实际AI节点·AI-047**：修复资料短卡｜当前资料编辑｜格式修复｜每个阶段最多两次格式/引用/预算尝试；明确来源冲突直接交作者处理。｜apps/api/src/application/planning/v7-book-design-card-service.ts
-- **实际AI节点·AI-048**：历史方向资料策划换员｜后备资料编辑｜换员｜仅旧共享资料策划兼容路径按冻结名单接替；新短卡路径不冒充已自动换员，失败后显式继续。｜apps/api/src/application/planning/v7-planning-route-service.ts
-- **实际AI节点·AI-166**：合并全书资料短卡｜冻结资料编辑｜资料整理｜多页六栏短卡两两合并去重，保留关键条件和作者要求；每步成功保存。｜apps/api/src/application/planning/v7-book-design-card-service.ts
-- **实际AI节点·AI-167**：对照原文核对短卡｜冻结资料编辑｜复核｜合并后逐页对照原文，修复关键遗漏；这是资料成员自检，不标为异模型独立审查。｜apps/api/src/application/planning/v7-book-design-card-service.ts
-- **实际AI节点·AI-168**：继续未完成短卡｜冻结资料编辑｜重试｜作者恢复失败方向任务时复用已完成阶段，只重新调用未完成阶段；来源不变且已有完整卡时不调用模型。｜apps/api/src/application/planning/v7-book-design-card-service.ts
+- **实际AI节点·AI-046**：填写全书信息短卡｜冻结资料编辑｜资料整理｜新方向缺少同来源版本短卡时，按9000字符分页填写六栏；成功页面保留。｜apps/api/src/application/planning/v7-book-design-card-service.ts:95
+- **实际AI节点·AI-047**：修复资料短卡｜当前资料编辑｜格式修复｜每个阶段最多两次格式/引用/预算尝试；明确来源冲突直接交作者处理。｜apps/api/src/application/planning/v7-book-design-card-service.ts:95
+- **实际AI节点·AI-048**：历史方向资料策划换员｜后备资料编辑｜换员｜仅旧共享资料策划兼容路径按冻结名单接替；新短卡路径不冒充已自动换员，失败后显式继续。｜apps/api/src/application/planning/v7-planning-route-service.ts:700
+- **实际AI节点·AI-166**：合并全书资料短卡｜冻结资料编辑｜资料整理｜多页六栏短卡两两合并去重，保留关键条件和作者要求；每步成功保存。｜apps/api/src/application/planning/v7-book-design-card-service.ts:95
+- **实际AI节点·AI-167**：对照原文核对短卡｜冻结资料编辑｜复核｜合并后逐页对照原文，修复关键遗漏；这是资料成员自检，不标为异模型独立审查。｜apps/api/src/application/planning/v7-book-design-card-service.ts:95
+- **实际AI节点·AI-168**：继续未完成短卡｜冻结资料编辑｜重试｜作者恢复失败方向任务时复用已完成阶段，只重新调用未完成阶段；来源不变且已有完整卡时不调用模型。｜apps/api/src/application/planning/v7-book-design-card-service.ts:95
 - **实际AI节点·AI-049**：设计全书故事走向｜主编｜设计｜每个已安排的方向席位分别生成路线候选。｜apps/api/src/application/planning/v7-planning-route-service.ts:665
 - **实际AI节点·AI-050**：修复全书走向输出｜当前主编｜格式修复｜方向候选不符合输出合同。｜apps/api/src/application/planning/v7-planning-route-service.ts:699
 - **实际AI节点·AI-051**：全书走向设计失败换员｜后备主编｜换员｜当前席位失败且允许接替，下一主编补齐该席位。｜apps/api/src/application/planning/v7-planning-route-service.ts:637
@@ -1087,8 +1087,8 @@
 - **收尾·剩余工作**：先核对现有可复用能力，再按本卡已确认范围建立实现与验收；未定新设计不直接开发。
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
-- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts
-- **管理·代码核对**：f4878bd06bb88f8d71832d2c687d5b8b39a776c79ec8e3a681542eda97eb93d4
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
+- **管理·代码核对**：3d860afcc907b3d70d5f90ac3c37decc9b8552be2c6c5473235a147b079aed21
 
 - **管理·共享步骤**：AI-001,AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1101,7 +1101,7 @@
 - **管理·用户操作**：基于确认的全书方向设计当前卷，按需要比较、提出新意见或确认。
 - **管理·流程**：系统提供当前卷上游 → 资料编辑选取依据 → 规划成员设计卷 → 互动方案路径主编审查 → 作者确认
 - **管理·资料供给**：系统读取全书方向、本卷责任、正式设定及已有实际；资料编辑选择相关内容。卷结构与互动方案是两条复用路径，按实际步骤区分。
-- **管理·注入与压缩**：R164本批：卷仍由资料成员按本卷选择主题规则，导航包不重复所有事实，全书约束常驻，规则结论与条件例外整体保留。互动方案统一使用准入名单，DeepSeek V4 Pro优先，后备不再被旧快速模型白名单过滤。超预算再逐页选择证据；不会自动带入所有全书资料。 新资料选择必须列出已有/新建对象、关联规则和关键缺口；系统精确取用所列来源并继承到子任务。无依据的必要对象资料不能当事实，关键缺口阻止继续生成并提示补充；普通留白允许创作，不为每章额外派资料成员。 第166批：规划和创作模型调用继承书级尺度及风格主次，只补本层短指令，创意资产库不全量下传；人物身份与已发生事实继续准确，不能用荒诞尺度改写历史正文。技术重试复用冻结输入。
+- **管理·注入与压缩**：R164本批：卷仍由资料成员按本卷选择主题规则，导航包不重复所有事实，全书约束常驻，规则结论与条件例外整体保留。互动方案统一使用准入名单，DeepSeek V4 Pro优先，后备不再被旧快速模型白名单过滤。超预算再逐页选择证据；不会自动带入所有全书资料。 新资料选择必须列出已有/新建对象、关联规则和关键缺口；系统精确取用所列来源并继承到子任务。无依据的必要对象资料不能当事实，关键缺口阻止继续生成并提示补充；普通留白允许创作，不为每章额外派资料成员。 第166批：规划和创作模型调用继承书级尺度及风格主次，只补本层短指令，创意资产库不全量下传；人物身份与已发生事实继续准确，不能用荒诞尺度改写历史正文。技术重试复用冻结输入。 R190新方法版本覆盖上述历史目录供给方式：首次仅提供分类导航，成员按需查方法，最多4轮8次；选材后清掉查询页，只保留至多8项方法与本任务用法。完整请求仍走模型总预算，不截断作品事实。旧任务继续读取冻结版本。
 - **管理·格式化输入**：当前卷任务合同、上层方向和来源版本、资料计划、必要方法参考。
 - **管理·输出与校验**：卷结构和互动候选分别解析；互动候选审核不直接覆盖候选。未通过结构校验进入修复或后备成员。
 - **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
@@ -1154,8 +1154,8 @@
 - **收尾·剩余工作**：先核对现有可复用能力，再按本卡已确认范围建立实现与验收；未定新设计不直接开发。
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
-- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts
-- **管理·代码核对**：f4878bd06bb88f8d71832d2c687d5b8b39a776c79ec8e3a681542eda97eb93d4
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
+- **管理·代码核对**：3d860afcc907b3d70d5f90ac3c37decc9b8552be2c6c5473235a147b079aed21
 
 - **管理·共享步骤**：AI-001,AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1168,7 +1168,7 @@
 - **管理·用户操作**：选择当前卷下的故事单元，生成并确认链方案，再进入章纲。
 - **管理·流程**：系统准备本卷与前置状态 → 资料编辑选择链所需依据 → 规划成员设计链 → 互动路径主编审核 → 作者确认
 - **管理·资料供给**：系统提供本卷责任、前置实际、相关人物及设定；资料编辑按链任务选择。该工位也可能承载章纲/正文的资料选择调用，样例会明确显示任务类型，不能把共享工位记录当作全部属于链设计。
-- **管理·注入与压缩**：R164本批：使用本层资料选择；导航不重复全部事实，全书规则常驻，主题规则按相关性取用。共享chain工位可能服务下游失效后的重新选择；有效的章纲、正文和审查优先继承采用方案的选材。互动方案成员统一读取准入名单，DeepSeek V4 Pro优先，明确失败才交接，不再由旧快速名单过滤掉后备。 新资料选择必须列出已有/新建对象、关联规则和关键缺口；系统精确取用所列来源并继承到子任务。无依据的必要对象资料不能当事实，关键缺口阻止继续生成并提示补充；普通留白允许创作，不为每章额外派资料成员。 第166批：规划和创作模型调用继承书级尺度及风格主次，只补本层短指令，创意资产库不全量下传；人物身份与已发生事实继续准确，不能用荒诞尺度改写历史正文。技术重试复用冻结输入。
+- **管理·注入与压缩**：R164本批：使用本层资料选择；导航不重复全部事实，全书规则常驻，主题规则按相关性取用。共享chain工位可能服务下游失效后的重新选择；有效的章纲、正文和审查优先继承采用方案的选材。互动方案成员统一读取准入名单，DeepSeek V4 Pro优先，明确失败才交接，不再由旧快速名单过滤掉后备。 新资料选择必须列出已有/新建对象、关联规则和关键缺口；系统精确取用所列来源并继承到子任务。无依据的必要对象资料不能当事实，关键缺口阻止继续生成并提示补充；普通留白允许创作，不为每章额外派资料成员。 第166批：规划和创作模型调用继承书级尺度及风格主次，只补本层短指令，创意资产库不全量下传；人物身份与已发生事实继续准确，不能用荒诞尺度改写历史正文。技术重试复用冻结输入。 R190新方法版本覆盖上述历史目录供给方式：首次仅提供分类导航，成员按需查方法，最多4轮8次；选材后清掉查询页，只保留至多8项方法与本任务用法。完整请求仍走模型总预算，不截断作品事实。旧任务继续读取冻结版本。
 - **管理·格式化输入**：当前链任务、上层卷、相关事实、来源与版本，以及本层方法参考。
 - **管理·输出与校验**：链结构/互动候选按JSON校验，正式采用与候选分离；不要求所有题材套同一种节拍。
 - **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
@@ -1219,8 +1219,8 @@
 - **收尾·剩余工作**：先核对现有可复用能力，再按本卡已确认范围建立实现与验收；未定新设计不直接开发。
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
-- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts
-- **管理·代码核对**：050ea54243ffb1f7e0cf6e8bc231fbed45f6b17bccbcc5c315d9e38db61678fa
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
+- **管理·代码核对**：a410d29a408c46a7da118a185bbd3ee68fc71f934732f8f8e7c7e5d29f2c1517
 
 - **管理·共享步骤**：AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1233,7 +1233,7 @@
 - **管理·用户操作**：确认链后设计章纲，可比较、替换候选并确认用于写正文。
 - **管理·流程**：系统核对已确认链 → 继承作者采用链方案的选材并加入当前必需来源 → 规划成员设计章纲 → 主编审核 → 作者确认（R164本批）
 - **管理·资料供给**：系统从作者采用的链方案读取其资料包，不取其他候选的最新资料。上级包有效且正式来源版本一致时直接继承选材；旧任务缺少上级包、来源缺失或版本改变时才由资料成员重新选择。
-- **管理·注入与压缩**：正常继承不启动资料选择模型。全书规则常驻；所选规则的结论与条件例外原子取用。超预算仍进入有界证据选择，不截断关键规则；格式修复和换员只在实际发生资料选择时执行。 新资料选择必须列出已有/新建对象、关联规则和关键缺口；系统精确取用所列来源并继承到子任务。无依据的必要对象资料不能当事实，关键缺口阻止继续生成并提示补充；普通留白允许创作，不为每章额外派资料成员。 第166批：规划和创作模型调用继承书级尺度及风格主次，只补本层短指令，创意资产库不全量下传；人物身份与已发生事实继续准确，不能用荒诞尺度改写历史正文。技术重试复用冻结输入。
+- **管理·注入与压缩**：正常继承不启动资料选择模型。全书规则常驻；所选规则的结论与条件例外原子取用。超预算仍进入有界证据选择，不截断关键规则；格式修复和换员只在实际发生资料选择时执行。 新资料选择必须列出已有/新建对象、关联规则和关键缺口；系统精确取用所列来源并继承到子任务。无依据的必要对象资料不能当事实，关键缺口阻止继续生成并提示补充；普通留白允许创作，不为每章额外派资料成员。 第166批：规划和创作模型调用继承书级尺度及风格主次，只补本层短指令，创意资产库不全量下传；人物身份与已发生事实继续准确，不能用荒诞尺度改写历史正文。技术重试复用冻结输入。 R190新方法版本覆盖上述历史目录供给方式：首次仅提供分类导航，成员按需查方法，最多4轮8次；选材后清掉查询页，只保留至多8项方法与本任务用法。完整请求仍走模型总预算，不截断作品事实。旧任务继续读取冻结版本。
 - **管理·格式化输入**：链责任、相关事实、章纲任务边界和来源目录；候选章纲是待审内容。
 - **管理·输出与校验**：章纲输出按章纲合同解析；审核为结构化报告，可格式修复。生成和审核结果各自保留，作者确认才进入正文依据。
 - **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
@@ -1276,8 +1276,8 @@
 - **收尾·剩余工作**：先核对现有可复用能力，再按本卡已确认范围建立实现与验收；未定新设计不直接开发。
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
-- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts
-- **管理·代码核对**：050ea54243ffb1f7e0cf6e8bc231fbed45f6b17bccbcc5c315d9e38db61678fa
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
+- **管理·代码核对**：a410d29a408c46a7da118a185bbd3ee68fc71f934732f8f8e7c7e5d29f2c1517
 
 - **管理·共享步骤**：AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1290,7 +1290,7 @@
 - **管理·用户操作**：采用章纲后生成本章，查看审查与修订后的正文，最后决定是否采用。
 - **管理·流程**：系统核对章纲与版本 → 继承已采用章纲的选材并补入当前必需来源 → 主笔写正文 → 独立审查 → 必要时主笔修订后复审（R164本批）
 - **管理·资料供给**：系统使用已采用章纲序列绑定的资料包、当前章纲与正式依据。上级包有效且来源版本一致时不另派资料选择；旧任务没有上级包或来源变化才重新整理。主笔不负责数据库权限判断。
-- **管理·注入与压缩**：继承保留正式来源引用及版本，全书规则常驻。超预算按证据选择与覆盖核对处理，不能机械裁掉否定、条件或作者要求； 新资料选择必须列出已有/新建对象、关联规则和关键缺口；系统精确取用所列来源并继承到子任务。无依据的必要对象资料不能当事实，关键缺口阻止继续生成并提示补充；普通留白允许创作，不为每章额外派资料成员。 第166批：规划和创作模型调用继承书级尺度及风格主次，只补本层短指令，创意资产库不全量下传；人物身份与已发生事实继续准确，不能用荒诞尺度改写历史正文。技术重试复用冻结输入。
+- **管理·注入与压缩**：继承保留正式来源引用及版本，全书规则常驻。超预算按证据选择与覆盖核对处理，不能机械裁掉否定、条件或作者要求； 新资料选择必须列出已有/新建对象、关联规则和关键缺口；系统精确取用所列来源并继承到子任务。无依据的必要对象资料不能当事实，关键缺口阻止继续生成并提示补充；普通留白允许创作，不为每章额外派资料成员。 第166批：规划和创作模型调用继承书级尺度及风格主次，只补本层短指令，创意资产库不全量下传；人物身份与已发生事实继续准确，不能用荒诞尺度改写历史正文。技术重试复用冻结输入。 R190新方法版本覆盖上述历史目录供给方式：首次仅提供分类导航，成员按需查方法，最多4轮8次；选材后清掉查询页，只保留至多8项方法与本任务用法。完整请求仍走模型总预算，不截断作品事实。旧任务继续读取冻结版本。
 - **管理·格式化输入**：确认章纲、正式来源、作者要求和本次任务；重写时另带旧稿及修订指令。
 - **管理·输出与校验**：交付正文文本，系统检查非空和不当过程内容；独立审查见审查功能。正文版本不可原地覆盖，不把结构校验当阅读质量证明。
 - **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
@@ -1329,8 +1329,8 @@
 - **收尾·剩余工作**：先核对现有可复用能力，再按本卡已确认范围建立实现与验收；未定新设计不直接开发。
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
-- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts
-- **管理·代码核对**：050ea54243ffb1f7e0cf6e8bc231fbed45f6b17bccbcc5c315d9e38db61678fa
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
+- **管理·代码核对**：a410d29a408c46a7da118a185bbd3ee68fc71f934732f8f8e7c7e5d29f2c1517
 
 - **管理·共享步骤**：AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1343,7 +1343,7 @@
 - **管理·用户操作**：生成正文后自动审查，查看问题与必要修订结果，再决定采用。
 - **管理·流程**：系统绑定待审正文版本 → 继承该稿使用的正式选材并加入审查必需来源 → 异底座审校成员审查 → 主笔按问题修订 → 新版本重新审查（R164本批）
 - **管理·资料供给**：从该稿绑定的资料包继承正式来源，另由系统提供待审稿与当前审查任务；继承的是依据，不是设计成员的结论。来源已改变或上级包不可用时重新整理。
-- **管理·注入与压缩**：正常继承不另派资料选择；候选正文与正式事实区分，全书约束不可由选择模型删除，条件与例外整体取用。超预算按共享证据阅读器处理。 新资料选择必须列出已有/新建对象、关联规则和关键缺口；系统精确取用所列来源并继承到子任务。无依据的必要对象资料不能当事实，关键缺口阻止继续生成并提示补充；普通留白允许创作，不为每章额外派资料成员。 第166批：规划和创作模型调用继承书级尺度及风格主次，只补本层短指令，创意资产库不全量下传；人物身份与已发生事实继续准确，不能用荒诞尺度改写历史正文。技术重试复用冻结输入。
+- **管理·注入与压缩**：正常继承不另派资料选择；候选正文与正式事实区分，全书约束不可由选择模型删除，条件与例外整体取用。超预算按共享证据阅读器处理。 新资料选择必须列出已有/新建对象、关联规则和关键缺口；系统精确取用所列来源并继承到子任务。无依据的必要对象资料不能当事实，关键缺口阻止继续生成并提示补充；普通留白允许创作，不为每章额外派资料成员。 第166批：规划和创作模型调用继承书级尺度及风格主次，只补本层短指令，创意资产库不全量下传；人物身份与已发生事实继续准确，不能用荒诞尺度改写历史正文。技术重试复用冻结输入。 R190新方法版本覆盖上述历史目录供给方式：首次仅提供分类导航，成员按需查方法，最多4轮8次；选材后清掉查询页，只保留至多8项方法与本任务用法。完整请求仍走模型总预算，不截断作品事实。旧任务继续读取冻结版本。
 - **管理·格式化输入**：待审稿、当前章纲、正式资料包及审核任务，标注稿件版本。
 - **管理·输出与校验**：输出结构化审查报告；格式错误向同一审校成员修复。独立性按实际模型底座排除，不把同模型不同名字当独立审查。
 - **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
@@ -1399,8 +1399,8 @@
 - **收尾·剩余工作**：先核对现有可复用能力，再按本卡已确认范围建立实现与验收；未定新设计不直接开发。
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
-- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-creation-formalization-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：71ab23029d6c88d1ad46a7dc5739f7e4d5e9dd38b19590c359cb786cd858b75d
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-creation-formalization-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
+- **管理·代码核对**：4e30fe26a765e40dfa4a6941a74672f9bb89479cfd757478a6ca361b9ed95161
 
 - **管理·共享步骤**：AI-002,AI-008,AI-009
 
@@ -1413,7 +1413,7 @@
 - **管理·用户操作**：作者采用正文后，系统保存正式版本，并处理事实提取与后续维护。
 - **管理·流程**：系统保存采用版本及事件 → 结算编辑提取事实 → 系统校验来源 → 人物与规划维护处理相关事件
 - **管理·资料供给**：系统提供本次正式正文及事件快照；事实提取由记录/结算岗位执行，不把保存动作交给AI。
-- **管理·注入与压缩**：本任务依据正式正文提取维护结果；不因摘要或维护失败丢失正文。样例用于检查实际资料大小，尚未提供任意字符预算的在线修改开关。
+- **管理·注入与压缩**：本任务依据正式正文提取维护结果；不因摘要或维护失败丢失正文。样例用于检查实际资料大小，尚未提供任意字符预算的在线修改开关。 R190新方法版本覆盖上述历史目录供给方式：首次仅提供分类导航，成员按需查方法，最多4轮8次；选材后清掉查询页，只保留至多8项方法与本任务用法。完整请求仍走模型总预算，不截断作品事实。旧任务继续读取冻结版本。
 - **管理·格式化输入**：正式稿件版本、来源标记与本次结算任务。
 - **管理·输出与校验**：结构化事实候选与来源引用；系统执行版本、防重和事件存储。AI提取不直接覆盖作者原文。
 - **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
@@ -1447,8 +1447,8 @@
 - **收尾·剩余工作**：先核对现有可复用能力，再按本卡已确认范围建立实现与验收；未定新设计不直接开发。
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
-- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/planning/v7-planning-maintenance-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：ab397ccd7b3bd6b063b90a5ae5ae90001777c268996a1ed97d3ee5a0c8bd2e24
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/planning/v7-planning-maintenance-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
+- **管理·代码核对**：29e6bf3338644066c7615bbfb7dab884737e8909e1b56b3675d00135a3137638
 
 - **管理·共享步骤**：AI-001,AI-008,AI-009
 
@@ -1461,7 +1461,7 @@
 - **管理·用户操作**：正文采用与结算后处理规划维护，查看实际推进与原方向之间的调整建议。
 - **管理·流程**：系统提供结算事件与确认规划 → 维护成员形成建议 → 系统校验并保存候选 → 后续按正式化流程处理
 - **管理·资料供给**：系统直接提供冻结的结算与规划快照，该路径没有额外资料选择Agent调用，不冒充有语义检索证据。
-- **管理·注入与压缩**：此路径按代码组包，不能因为后台存在“资料编辑”就宣称经过压缩；真实内容及长度以样例为准。
+- **管理·注入与压缩**：此路径按代码组包，不能因为后台存在“资料编辑”就宣称经过压缩；真实内容及长度以样例为准。 R190新方法版本覆盖上述历史目录供给方式：首次仅提供分类导航，成员按需查方法，最多4轮8次；选材后清掉查询页，只保留至多8项方法与本任务用法。完整请求仍走模型总预算，不截断作品事实。旧任务继续读取冻结版本。
 - **管理·格式化输入**：结算内容、已确认规划、来源版本与维护目标。
 - **管理·输出与校验**：结构化维护结果，规划描述未来、正文记录实际；维护候选不改写正式正文。
 - **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
@@ -2102,6 +2102,12 @@
 
 ### RB-51.1 节奏资产、分层短卡与输入预览
 
+- **运行·R190方法闭环**：校正333卡补充8项对话、行动、群像和趣味方法，共341项可查；分类与层级提示帮助发现，不作创意禁令。初始只注入分类导航，成员可直接设计，也可按需查询和选用。查询页在选材后移除，仅保留选中方法及本书用法。新任务使用新版本，旧任务保持冻结版本。
+- **执行·R190记录**：后台“当前生效的方法配置”显示版本和真实查询、选择、设计、失败记录；无记录不能推断未供给。全书方向、卷链规划和现有方案、章纲、正文入口共用循环；开书、设定与复核不自动增加此循环。事实补读工具与新时光机交互仍待后续开发。本批验证中，未宣称已上线。
+- **实际AI节点·AI-169**：判断并查询方法｜当前设计成员｜设计｜资料足够直接输出，否则最多4轮8次查询；系统执行只读工具，不增加资料成员。｜apps/api/src/application/agents/method-agent-runtime.ts:14
+- **实际AI节点·AI-170**：确认方法用法并设计｜当前设计成员｜设计｜选定至多8项并写具体用法，清理查询页后提交原任务结果；允许原创。｜apps/api/src/application/agents/method-agent-runtime.ts:14
+- **实际AI节点·AI-171**：方法动作明确失败重试｜当前规划成员｜重试｜明确失败最多两次技术重试，未知或在途结果停止重复派发。｜apps/api/src/infrastructure/models/v7-planning-model-gateway.ts:116
+- **实际AI节点·AI-172**：创作方法动作明确失败重试｜当前创作成员｜重试｜方案、章纲、正文共用有界查询；后续审查关联最终设计请求。｜apps/api/src/infrastructure/models/v7-creation-model-gateway.ts:100
 - **前端·入口修复**：R189已静态上线5a8e69c2ff26e832a83a。“智能体工作流程”位于资产分类首位，分类按钮自动换行，窄屏无需横向寻找；其余入口与流程正文保留。320/390/768/1440可见性和点击验证通过，API/Worker未重启。执行记录WORKFLOW-NAV-189.md。
 - **设计·智能体流程**：[完整流程规范](AGENT_WORKFLOW_SPEC.md)共17节，后台资产方法论的“智能体工作流程”与正文同源；说明各层输入、成员判断、查询工具、方法继承、上下文预算、重试和开发顺序。已确认原则与工程起始参数分开。R188只发布规范阅读，不代表新工具闭环上线；下一批先接校正方法版本与查询工具，再接全书方向成员自主选材。
 - **收尾·线上现状**：R188同源流程规范阅读已静态上线130c55f40355b19e5110；R187校正库保留，原338条保留333独立卡，42项简介修订、3项恢复独立。运行仍为R186完整目录，不能把规范发布称为自主工具闭环已实现；API/Worker未重启，作者资源原字节一致。

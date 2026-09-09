@@ -9,9 +9,9 @@ export class V7RhythmPolicyStore {
   initialize(now: string): void {
     this.database.prepare('INSERT OR IGNORE INTO v7_rhythm_policy_versions(version,policy_json,actor_id,created_at) VALUES(1,?,?,?)')
       .run(JSON.stringify(validateRhythmPolicy(DEFAULT_RHYTHM_POLICY)), 'system', now);
-    if (!this.database.prepare("SELECT 1 FROM v7_rhythm_policy_versions WHERE json_extract(policy_json,'$.format')='complete-v3' LIMIT 1").get()) {
+    if (!this.database.prepare("SELECT 1 FROM v7_rhythm_policy_versions WHERE json_extract(policy_json,'$.format')='audited-v4' LIMIT 1").get()) {
       this.database.prepare('INSERT INTO v7_rhythm_policy_versions(version,policy_json,actor_id,created_at) SELECT MAX(version)+1,?,?,? FROM v7_rhythm_policy_versions')
-        .run(JSON.stringify(validateRhythmPolicy(DEFAULT_RHYTHM_POLICY)), 'system-r186',now);
+        .run(JSON.stringify(validateRhythmPolicy(DEFAULT_RHYTHM_POLICY)), 'system-r190',now);
     }
   }
   current(): RhythmPolicySnapshot {
@@ -21,6 +21,7 @@ export class V7RhythmPolicyStore {
   }
   view(): object {
     return { ...this.current(), enabled: process.env.WENMI_V7_ASSET_MENU === '1',
+      agentEvents: this.database.prepare('SELECT session_id AS sessionId,step,member_key AS memberKey,layer,policy_version AS policyVersion,event_json AS eventJson,created_at AS createdAt FROM v7_method_agent_events ORDER BY created_at DESC LIMIT 100').all().map(row=>({...row,event:JSON.parse(String(row.eventJson)),eventJson:undefined})),
       history: this.database.prepare('SELECT version,created_at AS createdAt FROM v7_rhythm_policy_versions ORDER BY version DESC LIMIT 20').all(),
       usage: this.database.prepare('SELECT version,COUNT(*) AS tasks FROM v7_rhythm_task_policies GROUP BY version ORDER BY version DESC').all() };
   }
@@ -37,6 +38,7 @@ export class V7RhythmPolicyStore {
     this.database.exec('BEGIN IMMEDIATE');
     try {
       const current = this.current();
+      if(current.policy.format==='audited-v4'&&policy.format!=='audited-v4')throw new DomainError(errorCodes.validation,'方法库已升级，请刷新后编辑当前版本。',{},false,409);
       if (current.version !== expectedVersion) throw new DomainError(errorCodes.validation, '配置已被其他管理员更新，请重新读取后再修改。', {}, false, 409);
       if (current.policy.format === 'complete-v3' && policy.format !== 'complete-v3') throw new DomainError(errorCodes.validation, '方法库已升级为完整目录，请刷新后台后再修改。', {}, false, 409);
       this.database.prepare('INSERT INTO v7_rhythm_policy_versions(version,policy_json,actor_id,created_at) VALUES(?,?,?,?)')

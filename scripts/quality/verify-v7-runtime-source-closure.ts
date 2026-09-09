@@ -585,7 +585,7 @@ function resolveImport(root: string, importer: string, specifier: string): strin
   const workspace = WORKSPACE_PACKAGES[specifier];
   if (workspace !== undefined) return resolve(root, workspace);
   if (!specifier.startsWith('.')) return null;
-  const base = resolve(dirname(importer), specifier);
+  const base = resolve(dirname(importer), specifier.endsWith('?raw') ? specifier.slice(0,-4) : specifier);
   const extension = extname(base);
   const sourceBase = compiledSourceBase(root, base);
   const compiledMapping = sourceBase !== base;

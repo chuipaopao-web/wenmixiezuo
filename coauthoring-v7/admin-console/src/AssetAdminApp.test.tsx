@@ -49,12 +49,12 @@ describe('V7 分层规划后台', () => {
     expect(screen.getByRole('heading',{name:'智能体工作流程'})).toBeVisible();
     expect(screen.getByRole('heading',{name:'1. 当前到底实现了什么'})).toBeVisible();
     fireEvent.click(screen.getByRole('button',{name:'分层方法'}));
-    fireEvent.click(screen.getByRole('button',{name:'实际运行供给'}));
+    fireEvent.click(screen.getByRole('button',{name:'当前生效的方法配置'}));
     await screen.findByLabelText('名称');
     fireEvent.change(screen.getByLabelText('名称'),{target:{value:'尚未发布的名称'}});
     const confirm=vi.spyOn(window,'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
     fireEvent.click(screen.getByRole('button',{name:'信息短卡模板'}));
-    expect(screen.getByRole('heading',{name:'实际运行供给'})).toBeVisible();
+    expect(screen.getByRole('heading',{name:'当前生效的方法配置'})).toBeVisible();
     fireEvent.click(screen.getByRole('button',{name:'信息短卡模板'}));
     expect(screen.getByRole('heading',{name:'全书信息短卡'})).toBeVisible();
     expect(confirm).toHaveBeenCalledTimes(2);confirm.mockRestore();

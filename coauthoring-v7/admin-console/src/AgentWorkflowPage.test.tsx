@@ -10,13 +10,13 @@ it('单一正文包含完整执行合同，区分已实现和待实施',()=>{
  expect(WORKFLOW_SECTIONS).toHaveLength(17);
  const text=WORKFLOW_SECTIONS.map(s=>s.body).join('\n');
  for(const token of ['章纲设计','正文创作','search_methods','read_sources','SelectionRecord','结果未知','直接沿用','局部补充','重新选材'])expect(text).toContain(token);
- expect(text).toContain('校正版尚未成为运行引用版本');expect(text).toContain('不是固定两次调用');
+ expect(text).toContain('audited-v4');expect(text).toContain('不是固定两次调用');
 });
 it('校正卡可以被代码定位但不冒充已接入生产，合并来源全部可解析',()=>{
  const originals=[...AUDITED_METHODS.map(m=>m.key),...AUDITED_METHODS.flatMap(m=>m.aliases.map(a=>a.key))];
  expect(new Set(originals).size).toBe(338);
  for(const merge of AUDIT_MERGES){const target=AUDITED_METHODS.find(m=>m.key===merge.to)!;expect(target.aliases.some(a=>a.key===merge.from)).toBe(true);}
- expect(DEFAULT_RHYTHM_POLICY.cards).toHaveLength(330);expect(AUDITED_METHODS).toHaveLength(333);
+ expect(DEFAULT_RHYTHM_POLICY.cards).toHaveLength(341);expect(AUDITED_METHODS).toHaveLength(333);
 });
 it('可通过目录和搜索查看各层及空结果，原文不解释成HTML',()=>{
  render(<AgentWorkflowPage/>);

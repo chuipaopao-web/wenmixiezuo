@@ -8,6 +8,11 @@ const CURRENT_SQL_APPLICATION_FILES = new Set([
   // Existing pre-R164 services; new setting impact queries live in repositories.
   'admin/commercial-summary.ts',
   'planning/v7-rhythm-policy-store.ts',
+  // Existing at R189; R190 method runtime uses a repository and is not exempt.
+  'agents/book-creative-context.ts',
+  'books/v7-opening-book-service.ts',
+  'planning/v7-book-design-card-service.ts',
+  'planning/v7-planning-route-service.ts',
 ]);
 
 describe('应用层数据库边界', () => {

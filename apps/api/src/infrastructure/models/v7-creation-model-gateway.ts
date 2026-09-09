@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { MethodAgentRuntime } from '../../application/agents/method-agent-runtime.js';
 import { withBookCreativeProfile } from '../../application/agents/book-creative-context.js';
 import {
   modelProfileKeyForBinding,
@@ -28,6 +29,7 @@ export interface V7CreationModelAdapterResolver {
 }
 
 export interface V7CreationModelRequest {
+  methodAgentInternal?: boolean;
   requestId: string;
   ownerId: string;
   bookId: string;
@@ -93,6 +95,19 @@ export class V7CreationModelGateway {
   }
 
   public async generate(request: V7CreationModelRequest): Promise<V7CreationModelResult> {
+    if(!request.methodAgentInternal&&['option','outline','manuscript'].includes(request.runKind)){
+      const runtime=new MethodAgentRuntime(this.database);
+      const input={...request,runId:request.workflowId,memberKey:request.member.memberKey,kind:'creation' as const};
+      const binding=runtime.binding(input);
+      if(binding)return runtime.run(input,binding,async(step,prompt)=>{
+        const base=step===0?request.requestId:`${request.requestId}:methods:${step}`;
+        for(let retry=0;retry<=2;retry++){
+          const id=retry===0?base:`${base}:technical:${retry}`;
+          try{return await this.generate({...request,methodAgentInternal:true,prompt,requestId:id,nodeKey:step===0?request.nodeKey:`${request.nodeKey}:methods:${step}`});}
+          catch(error){if(retry===2||this.repository.modelCall(id)?.state!=='failed'||(error instanceof V7CreationModelError&&error.outcomeUnknown))throw error;}
+        }throw new V7CreationModelError('本次方法动作未完成');
+      });
+    }
     const existing = this.repository.modelCall(request.requestId);
     if (existing !== undefined) {
       if (existing.owner_id !== request.ownerId || existing.book_id !== request.bookId || existing.workflow_id !== request.workflowId) {

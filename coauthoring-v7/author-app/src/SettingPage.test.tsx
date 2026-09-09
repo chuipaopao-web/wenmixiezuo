@@ -360,7 +360,7 @@ describe('V7设定页面', () => {
     const view = render(<SettingPage bookId="book-old" />);
     view.rerender(<SettingPage bookId="book-new" />);
     await screen.findByText(resultItem.content);
-    const response = await original('/api/v1/v7/books/book-old/setting-department');
+    const response = await (original as (url:string)=>Promise<Response>)('/api/v1/v7/books/book-old/setting-department');
     const body = await response.json();
     body.data.confirmedItems = [{ ...resultItem, content: '旧书迟到内容' }];
     await act(async () => { finish(new Response(JSON.stringify(body))); });

@@ -3,6 +3,7 @@ import { V7_PLOT_RECIPES } from '../plot-patterns/plot-recipe-library.js';
 import { V7_PLOT_PATTERNS } from '../plot-patterns/plot-pattern-library.js';
 import { COMPLETE_METHOD_CARDS, COMPLETE_METHOD_LAYERS } from './complete-method-catalog.js';
 import type { PlanningLayerKey } from './method-asset-profiles.js';
+import { AUDITED_RUNTIME_POLICY, methodNavigation } from './method-tools.js';
 
 export const RHYTHM_CATEGORIES = {
   organization: '结构', progression: '推进', rhythm: '表现', event: '事件'
@@ -15,6 +16,9 @@ export const RHYTHM_LAYERS: Record<PlanningLayerKey, { label: string; responsibi
   chapter_execution: { label: '章', responsibility: '完成当前行动、信息和情绪变化；可积累或舒缓，不必每章套完整宏观结构。' }
 };
 export interface RhythmCard {
+  methodCategory?: string;
+  aliasKeys?: string[];
+  layerHints?: string[];
   assetType: 'narrative_method' | 'plot_recipe' | 'plot_pattern';
   key: string;
   category: keyof typeof RHYTHM_CATEGORIES;
@@ -23,7 +27,7 @@ export interface RhythmCard {
   boundary: string;
 }
 export interface RhythmPolicy {
-  format?: 'compact-v2' | 'complete-v3';
+  format?: 'compact-v2' | 'complete-v3' | 'audited-v4';
   schema: 'wenmi-rhythm-policy-v1';
   cards: RhythmCard[];
   layers: Record<PlanningLayerKey, string[]>;
@@ -71,16 +75,19 @@ export const LEGACY_COMPACT_RHYTHM_POLICY: RhythmPolicy = {
   }
 };
 
-export const DEFAULT_RHYTHM_POLICY: RhythmPolicy = {
+export const COMPLETE_V3_RHYTHM_POLICY: RhythmPolicy = {
   schema:'wenmi-rhythm-policy-v1',format:'complete-v3',
   cards:COMPLETE_METHOD_CARDS.map(({applicableLayers,aliases,...card})=>({...card})),
   layers:structuredClone(COMPLETE_METHOD_LAYERS)
 };
 
+export const DEFAULT_RHYTHM_POLICY: RhythmPolicy = AUDITED_RUNTIME_POLICY;
+
 export function rhythmCardText(card: RhythmCard): string {
   return `${card.title} [${card.assetType}:${card.key}]：${card.instruction}`;
 }
 export function renderRhythmFragment(policy: RhythmPolicy, layer: PlanningLayerKey, version: number | string = '默认'): string {
+  if(policy.format==='audited-v4')return methodNavigation(policy,layer,version);
   const cards = policy.layers[layer].map(key => policy.cards.find(card => card.key === key)!);
   return [`【${RHYTHM_LAYERS[layer].label}·节奏参考 v${version}】`, RHYTHM_LAYERS[layer].responsibility,
     '以下是候选，不必全用；按本书处境选择、组合或原创。承接上层责任，不逐层重复模板；重复方法须产生不同事件与结果。',
@@ -95,17 +102,18 @@ export function renderRhythmFragment(policy: RhythmPolicy, layer: PlanningLayerK
 export function validateRhythmPolicy(value: unknown): RhythmPolicy {
   if (value === null || typeof value !== 'object') throw new Error('节奏配置不能为空。');
   const policy = value as RhythmPolicy;
+  if (policy.format !== undefined && !['compact-v2','complete-v3','audited-v4'].includes(policy.format)) throw new Error('方法版本格式未知，请刷新后台。');
   if (policy.schema !== 'wenmi-rhythm-policy-v1' || !Array.isArray(policy.cards) || policy.cards.length < 1 || policy.cards.length > 400
     || !policy.layers || typeof policy.layers !== 'object') throw new Error('节奏配置格式不完整。');
   const keys = new Set<string>();
   const text = (v: unknown, max: number): boolean => typeof v === 'string' && v.trim().length > 0 && v.length <= max;
   for (const card of policy.cards) {
     if (!card || !text(card.key, 100) || keys.has(card.key) || !Object.hasOwn(RHYTHM_CATEGORIES, card.category)
-      || !text(card.title, 30) || !text(card.instruction, 120) || typeof card.boundary !== 'string' || card.boundary.length > 100) throw new Error('方法需有唯一编号、分类、名称和简短介绍。');
+      || !text(card.title, 30) || !text(card.instruction, 120) || typeof card.boundary !== 'string' || card.boundary.length > (policy.format==='audited-v4'?512:100)) throw new Error('方法需有唯一编号、分类、名称和简短介绍。');
     const exists = card.assetType === 'narrative_method' ? V7_NARRATIVE_METHODS.some(m => m.key === card.key)
       : card.assetType === 'plot_recipe' ? V7_PLOT_RECIPES.some(r => r.key === card.key)
       : card.assetType === 'plot_pattern' && V7_PLOT_PATTERNS.some(p => p.key === card.key);
-    if (!exists) throw new Error(`找不到短卡对应的原始资产：${card.key}`);
+    if (!exists && !(policy.format==='audited-v4'&&AUDITED_RUNTIME_POLICY.cards.some(c=>c.key===card.key))) throw new Error(`找不到短卡对应的原始资产：${card.key}`);
     keys.add(card.key);
   }
   for (const layer of Object.keys(RHYTHM_LAYERS) as PlanningLayerKey[]) {
@@ -123,6 +131,12 @@ export function validateRhythmPolicy(value: unknown): RhythmPolicy {
   }
   if (policy.format === 'compact-v2' && JSON.stringify(policy.layers.book_backbone) !== JSON.stringify(policy.layers.volume_distribution)) {
     throw new Error('时光机与其阶段分配共用同一方法页，请同步选择。');
+  }
+  if(policy.format==='audited-v4'){
+    if(keys.size!==AUDITED_RUNTIME_POLICY.cards.length)throw Error('校正库必须保留完整来源');
+    for(const expected of AUDITED_RUNTIME_POLICY.cards){const actual=policy.cards.find(c=>c.key===expected.key);
+      if(!actual||actual.assetType!==expected.assetType||actual.methodCategory!==expected.methodCategory||JSON.stringify(actual.aliasKeys)!==JSON.stringify(expected.aliasKeys)||JSON.stringify(actual.layerHints)!==JSON.stringify(expected.layerHints))throw Error('方法编号、类型、别名和适用规则需与校正版本一致');}
+    for(const layer of Object.keys(RHYTHM_LAYERS) as PlanningLayerKey[])if(policy.layers[layer].length!==keys.size)throw Error('可查询目录不能删减；不自动提供不等于禁用');
   }
   return JSON.parse(JSON.stringify(policy)) as RhythmPolicy;
 }

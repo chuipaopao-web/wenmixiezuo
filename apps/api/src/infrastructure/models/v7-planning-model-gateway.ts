@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { MethodAgentRuntime } from '../../application/agents/method-agent-runtime.js';
 import { withBookCreativeProfile } from '../../application/agents/book-creative-context.js';
 import {
   modelProfileKeyForBinding,
@@ -41,6 +42,7 @@ export type V7PlanningWorkstationKey = Extract<
 >;
 
 export interface V7PlanningModelRequest {
+  methodAgentInternal?: boolean;
   /** New versioned blueprint tasks use the existing direct-output adapter route. */
   directPlanning?: boolean;
   requestId: string;
@@ -108,6 +110,21 @@ export class V7PlanningModelGateway {
 
   public async generate(request: V7PlanningModelRequest): Promise<V7PlanningModelResult> {
     this.assertLineage(request);
+    if(!request.methodAgentInternal&&['planning_recipe','planning_tree'].includes(request.taskKind)&&request.runKind!=='maintenance'){
+      const runtime=new MethodAgentRuntime(this.database);
+      const input={...request,memberKey:request.member.memberKey,kind:request.runKind as 'recipe'|'tree'};
+      const binding=runtime.binding(input);
+      if(binding)return runtime.run(input,binding,async(step,prompt)=>{
+        const base=step===0?request.requestId:`${request.requestId}:methods:${step}`;
+        const logical=step===0?(request.logicalTaskId??request.requestId):`${request.logicalTaskId??request.requestId}:methods:${step}`;
+        for(let retry=0;retry<=2;retry++){
+          const id=retry===0?base:`${base}:technical:${retry}`;
+          try{return await this.generate({...request,methodAgentInternal:true,prompt,requestId:id,logicalTaskId:logical,
+            technicalRetry:retry>0||(step===0&&(request.technicalRetry??false)),nodeKey:step===0?request.nodeKey:`${request.nodeKey}:methods:${step}`});}
+          catch(error){if(retry===2||this.repository.modelCall(id)?.state!=='failed'||(error instanceof V7PlanningModelError&&error.outcomeUnknown))throw error;}
+        }throw new V7PlanningModelError('本次方法动作未完成');
+      });
+    }
     const existing = this.repository.modelCall(request.requestId);
     if (existing !== undefined) return this.reuseModelCall(request, existing);
     const taskKind = request.taskKind;
