@@ -22,6 +22,30 @@ const finalReview = {
   retryable: false, restartable: false, restartNeedsConfirmation: false, createdAt: '', updatedAt: ''
 };
 describe('V7设定页面', () => {
+  it.each(['confirmed', 'needs_author'])('清理历史任务后保留%s设定状态，不重新提示开工', async (state) => {
+    const original = fetchMock.getMockImplementation()! as (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/setting-department')) {
+        const response = await original(input, init);
+        const body = await response.json();
+        body.data.recommendation = null;
+        body.data.activeBatch = null;
+        body.data.confirmedItems = [{ ...resultItem, state, issues: [] }];
+        body.data.finalReview = state === 'confirmed' ? finalReview : null;
+        return json(body.data);
+      }
+      return original(input, init);
+    });
+    render(<SettingPage bookId="book-1" onOpenTimeMachine={vi.fn()} />);
+    await screen.findByRole('button', { name: '查看详情' });
+    expect(screen.queryByText('老板确认一下，我帮您设计本作品需要的主题设定。')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name:'确认设计'})).not.toBeInTheDocument();
+    if (state === 'confirmed') {
+      fireEvent.click(screen.getByRole('button', {name:'查看统一整理结果'}));
+      expect(await screen.findByRole('button', {name:'进入时光机'})).toBeEnabled();
+    } else expect(screen.queryByRole('button', {name:'进入时光机'})).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(0);
+  });
   it('按用户要求仅显示正文，不显示旧辅助小字或规则详情，阅读不创建重写任务', async () => {
     const original = fetchMock.getMockImplementation()! as (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {

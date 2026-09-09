@@ -249,7 +249,7 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
       {(items.length > 0 || department.recommendation?.status === 'ready') && <header className="setting-page-heading"><button type="button" className="secondary-action setting-catalog-toggle" aria-expanded={showCatalog} onClick={() => setShowCatalog((value) => !value)}><ClipboardTextIcon />{showCatalog ? '收起完整设定库' : '打开完整设定库'}</button></header>}
       {error && <div className="error-notice" role="alert">{error}</div>}
 
-      {(items.length === 0 || department.recommendation?.status !== 'ready') && <SettingRecommendationPanel
+      {items.length === 0 && <SettingRecommendationPanel
         recommendation={department.recommendation}
         catalog={department.catalog}
         busy={recommendationBusy}
