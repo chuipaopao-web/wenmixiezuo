@@ -33,6 +33,6 @@ function improveDirection(){const cards=directionCards[route],r=D.routes[route];
 const previousDirectionRenderer=renderResult;
 renderResult=function(){previousDirectionRenderer();improveDirection();
  const members=[['红玉','0%'],['幼薇','20%'],['苏映棠','40%']];
- document.querySelectorAll('[data-route]').forEach((b,i)=>{const [name,x]=members[i];b.innerHTML=`<span class="scheme-member"><i role="img" aria-label="${name}头像" style="background-image:url('${D.memberSprite}');background-position:${x} 33.333333%"></i><span><strong>${name}</strong><small>策划编剧</small></span></span><span class="scheme-name">${D.routes[i].short}</span>`;b.setAttribute('aria-label',`${name}的方案：${D.routes[i].short}`)});
+ document.querySelectorAll('[data-route]').forEach((b,i)=>{const [name,x]=members[i];const label=`方案${'ABC'[i]}`;b.innerHTML=`<span class="scheme-member"><i role="img" aria-label="${name}头像" style="background-image:url('${D.memberSprite}');background-position:${x} 33.333333%"></i><span><strong>${name}</strong><small>策划编剧</small></span></span><span class="scheme-name">${label}</span>`;b.setAttribute('aria-label',`${label} · ${name}`)});
  $('.scheme-tabs').insertAdjacentHTML('afterend','<p class="member-demo-note">成员席位演示 · 当前样例未由这三位成员实际生成</p>');
 };
