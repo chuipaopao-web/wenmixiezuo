@@ -48,8 +48,9 @@ import { AgentWorkflowPage } from './AgentWorkflowPage';
 import './asset-library.css';
 
 const ASSET_TABS = [
+  { key:'workflow',label:'智能体工作流程' },
   { key: 'overview', label: '分层方法' }, { key: 'book-card', label: '信息短卡模板' },
-  { key: 'creative', label: '创意与金手指' }, { key:'workflow',label:'智能体工作流程' },
+  { key: 'creative', label: '创意与金手指' },
 ] as const;
 
 const NAVIGATION = [
@@ -147,7 +148,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
     </aside>
 
     <div className="asset-stage">
-      <header className="asset-topbar">
+      <header className={`asset-topbar${inLibrary ? ' asset-library-topbar' : ''}`}>
         <div><small>文秘写作 / {current.group}</small><h1>{current.label}</h1></div>
         {(section === 'methods' || section === 'patterns' || section === 'recipes') && <label className="asset-global-search">
           <MagnifyingGlass aria-hidden="true" />
