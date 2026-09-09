@@ -29,6 +29,14 @@ export class SqlPlanRepository {
   /** Internal source adapter only. Changes invalidate adoption eligibility, never delete candidates. */
   syncManifest(s:Scope,value:unknown):void {parseScope(s);const m=parseManifest(value);this.db.prepare('INSERT INTO tm2_books(owner,book,manifest) VALUES(?,?,?) ON CONFLICT(owner,book) DO UPDATE SET manifest=excluded.manifest').run(s.ownerId,s.bookId,JSON.stringify(m));}
   state(s:Scope):{revision:number;adoption:string|null} {const b=this.book(s);return {revision:b.revision,adoption:b.adoption};}
+  activePlan(s:Scope):{adoption:Adoption;candidate:Candidate}|null {
+    const book=this.book(s);if(!book.adoption)return null;
+    const row=this.db.prepare('SELECT candidate,candidate_revision,revision,mapping FROM tm2_adoptions WHERE owner=? AND book=? AND id=?').get(s.ownerId,s.bookId,book.adoption) as {candidate:string;candidate_revision:number;revision:number;mapping:string}|undefined;
+    if(!row)throw new Conflict('采用记录不完整');
+    const candidate=this.readCandidate(s,row.candidate,row.candidate_revision);if(!candidate)throw new Conflict('采用方案不存在');
+    if(manifestDigest(candidate.manifest)!==manifestDigest(parseManifest(JSON.parse(book.manifest))))throw new Conflict('上游资料已变化，需要核对采用方案');
+    return {adoption:{id:book.adoption,revision:row.revision,mapping:JSON.parse(row.mapping)},candidate};
+  }
   saveCandidate(s:Scope,id:string,expectedRevision:number,value:unknown):number {
     const candidate=parseCandidate(value);if(!/^[\w.:-]{1,160}$/u.test(id)||!Number.isSafeInteger(expectedRevision)||expectedRevision<0)throw new Error('候选修订参数错误');
     return this.tx(()=>{this.book(s);const row=this.db.prepare('SELECT MAX(revision) AS revision FROM tm2_candidates WHERE owner=? AND book=? AND id=?').get(s.ownerId,s.bookId,id) as {revision:number|null};if((row.revision??0)!==expectedRevision)throw new Conflict('候选已被修改');

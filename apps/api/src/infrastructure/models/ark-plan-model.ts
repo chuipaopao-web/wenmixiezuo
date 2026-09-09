@@ -160,7 +160,8 @@ export class ArkPlanModelAdapter implements ModelAdapter {
       // The provider finished with a known incomplete result. Existing bounded
       // task recovery may retry; never expose a truncated manuscript as success.
       throw new ModelAdapterError(`${planDisplayName(this.options.plan)}输出达到长度上限，内容未完整交付（${body.stop_reason}）`,
-        'technical_failure', true, response.status, false);
+        'technical_failure', true, response.status, false,
+        {inputTokens:finiteTokenCount(body.usage?.input_tokens),outputTokens:finiteTokenCount(body.usage?.output_tokens),cashCostCny:0});
     }
     const output = body.content?.filter((item) => item.type === 'text' && typeof item.text === 'string').map((item) => item.text!.trim()).filter(Boolean).join('\n').trim();
     if (output === undefined || output.length === 0) throw new ModelAdapterError(
@@ -170,7 +171,8 @@ export class ArkPlanModelAdapter implements ModelAdapter {
       // on reasoning and stop at max_tokens with an empty text block.  The caller
       // may retry with the task's guarded larger budget without triggering an
       // unsafe editor takeover or leaving a false reconciliation hold.
-      'technical_failure', true, response.status, false
+      'technical_failure', true, response.status, false,
+      {inputTokens:finiteTokenCount(body.usage?.input_tokens),outputTokens:finiteTokenCount(body.usage?.output_tokens),cashCostCny:0}
     );
     return {
       provider: this.provider,

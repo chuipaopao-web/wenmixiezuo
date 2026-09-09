@@ -38,7 +38,8 @@ export class ModelAdapterError extends Error {
     public readonly failureClass: ModelFailureClass,
     public readonly retryable: boolean,
     public readonly statusCode?: number,
-    public readonly outcomeUnknown = false
+    public readonly outcomeUnknown = false,
+    public readonly knownUsage?: {inputTokens:number;outputTokens:number;cashCostCny:number}
   ) {
     super(message);
     this.name = 'ModelAdapterError';

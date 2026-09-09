@@ -94,7 +94,7 @@ export async function registerRequestPolicy(
       verifyBrowserWrite(request, config);
       return;
     }
-    if (!path.startsWith('/api/v1/')) return;
+    if (!path.startsWith('/api/v1/') && !path.startsWith('/api/time-machine/')) return;
 
     request.authContext = accounts.authenticate(request.headers.cookie);
     if (request.authContext === null) reject('AUTHENTICATION_REQUIRED', '请先登录文秘写作', 401);

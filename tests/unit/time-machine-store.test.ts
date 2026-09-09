@@ -3,6 +3,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import {parseCandidate,type Candidate} from '../../rebuild/packages/time-machine-core/src/contracts.js';
 import {schema,SqlPlanRepository} from '../../rebuild/packages/time-machine-core/src/store.js';
+import {volumePlanningContext} from '../../rebuild/packages/time-machine-core/src/volume-context.js';
 const scope={ownerId:'alice',bookId:'book'};
 function sample():Candidate {return {schemaVersion:1,manifest:{sources:[{kind:'opening',id:'opening',revision:'v1',hash:'a'.repeat(64)},{kind:'intent',id:'intent',revision:'v1',hash:'b'.repeat(64)}],templateRevision:'v1',redactionRevision:'v1'},member:{id:'writer',name:'编剧',model:'model',routeRevision:'route1'},plan:{baseline:'无灵根修理工争取立足',ending:'工坊建立',lines:[{id:'main',role:'main',title:'工坊',goal:'立足',answer:'能否建立工坊',parentIds:[]}],expectations:[{id:'promise',opening:'没有灵根能否立足',answer:'以机甲建立工坊',lineIds:['main']}],relations:[],volumes:[{id:'v1',title:'开张',start:'店铺将倒闭',goal:'完成订单',conflict:'封锁',turningPoint:'新机甲成功',gain:'伙伴',loss:'独占技术',ending:'订单交付',handoff:'',duties:[{lineId:'main',action:'close',result:'工坊成立'}]}]}};}
 const databases:DatabaseSync[]=[];
@@ -10,6 +11,14 @@ afterEach(()=>{databases.splice(0).forEach(d=>d.close());});
 function setup(){const db=new DatabaseSync(':memory:');databases.push(db);db.exec('PRAGMA foreign_keys=ON');db.exec(schema);const repo=new SqlPlanRepository(db);repo.syncManifest(scope,sample().manifest);return {db,repo};}
 function ready(repo:SqlPlanRepository){const revision=repo.saveCandidate(scope,'candidate',0,sample());repo.review(scope,'candidate',revision,'reviewer','pass');}
 describe('time machine P0 storage contracts',()=>{
+ it('supplies only an adopted, fresh volume plan and rejects stale sources or oversize input',()=>{
+  const {repo}=setup();expect(repo.activePlan(scope)).toBeNull();ready(repo);repo.adopt(scope,'candidate',1,0,'supply');const active=repo.activePlan(scope)!;
+  const counter={id:'utf8',mode:'conservative' as const,count:(s:string)=>Buffer.byteLength(s)};
+  const packet=volumePlanningContext(active.candidate,active.adoption,'v1',counter,16000);const body=JSON.parse(packet.input);
+  expect(body.sourceRole).toBe('adopted-plan-not-manuscript-fact');expect(body.next).toBeNull();expect(body.lines[0].number).toBe(1);
+  expect(()=>volumePlanningContext(active.candidate,active.adoption,'missing',counter,16000)).toThrow('不属于');expect(()=>volumePlanningContext(active.candidate,active.adoption,'v1',counter,10)).toThrow('超预算');
+  const changed=sample().manifest;changed.sources[0]!.revision='v2';repo.syncManifest(scope,changed);expect(()=>repo.activePlan(scope)).toThrow('上游');
+ });
  it('host migration matches the independently tested schema',()=>{const migration=readFileSync('apps/api/src/infrastructure/db/migrations/0114_time_machine_core.sql','utf8').replace(/^--.*$/gmu,'').trim();expect(migration).toBe(schema.trim());});
  it('rejects unknown enums, fields, missing references, parent cycles and unfinished final volume',()=>{
    const a=sample();expect(()=>parseCandidate({...a,secret:'x'})).toThrow();

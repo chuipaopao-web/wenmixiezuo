@@ -78,7 +78,20 @@ const LEGACY_USAGE_RELATION = `(
 export function accountUsageRelation(database: DatabaseSync): string {
   const projection = database.prepare(`SELECT 1 AS found FROM sqlite_schema
     WHERE type = 'view' AND name = 'account_usage_projection'`).get();
-  return projection === undefined ? LEGACY_USAGE_RELATION : 'account_usage_projection';
+  const base = projection === undefined ? LEGACY_USAGE_RELATION : 'account_usage_projection';
+  const timeMachine = database.prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='tm2_model_calls'").get();
+  if (timeMachine === undefined) return base;
+  return `(SELECT * FROM ${base} UNION ALL SELECT
+    'time_machine' AS source_kind,id AS source_id,owner_id,book_id,provider,model_id,state AS source_state,
+    CASE WHEN (state='succeeded' OR (input_tokens IS NOT NULL AND output_tokens IS NOT NULL)) THEN 'consumed' WHEN state IN ('working','unknown') THEN 'reserved' ELSE 'failed' END AS usage_state,
+    CASE WHEN (state='succeeded' OR (input_tokens IS NOT NULL AND output_tokens IS NOT NULL)) THEN COALESCE(input_tokens,0) ELSE 0 END AS input_tokens,
+    CASE WHEN (state='succeeded' OR (input_tokens IS NOT NULL AND output_tokens IS NOT NULL)) THEN COALESCE(output_tokens,0) ELSE 0 END AS output_tokens,
+    CASE WHEN (state='succeeded' OR (input_tokens IS NOT NULL AND output_tokens IS NOT NULL)) THEN COALESCE(input_tokens,0)+COALESCE(output_tokens,0) ELSE 0 END AS consumed_tokens,
+    CASE WHEN state IN ('working','unknown') AND input_tokens IS NULL THEN reserved_tokens ELSE 0 END AS reserved_tokens,
+    CASE WHEN (state='succeeded' OR (input_tokens IS NOT NULL AND output_tokens IS NOT NULL)) THEN COALESCE(cash_micros,0) ELSE 0 END AS cash_micros,
+    0 AS consumed_units,0 AS reserved_units,
+    CASE WHEN (state='succeeded' OR (input_tokens IS NOT NULL AND output_tokens IS NOT NULL)) THEN COALESCE(completed_at,started_at) ELSE started_at END AS recorded_at,completed_at
+    FROM tm2_model_calls)`;
 }
 
 export function accountUsageTotals(

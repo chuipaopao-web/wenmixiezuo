@@ -22,6 +22,7 @@ import { registerV7OpeningAgentRoutes } from './v7-opening-agent-routes.js';
 import { registerV7PlanningTreeRoutes } from './v7-planning-tree-routes.js';
 import { registerV7PromptGovernanceRoutes } from './v7-prompt-governance-routes.js';
 import { registerV7SettingEditorialRoutes } from './v7-setting-editorial-routes.js';
+import { registerTimeMachineRoutes } from './time-machine-routes.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -34,6 +35,7 @@ interface WorkerHealthRow {
 }
 
 export interface V7ServerOptions extends RequestPolicyOptions {
+  timeMachineWindowTokens?: number;
   v7OpeningModelAdapters?: V7OpeningModelAdapterResolver;
   v7CoverImageGateway?: V7CoverImageGateway;
 }
@@ -77,6 +79,7 @@ export async function createV7Server(
   await registerV7CharacterMemoryRoutes(app, database, options.v7OpeningModelAdapters ?? modelAdapters);
   await registerV7CreationRoutes(app, database, options.v7OpeningModelAdapters ?? modelAdapters);
   await registerV7PromptGovernanceRoutes(app, database);
+  await registerTimeMachineRoutes(app,database,(provider,model)=> (options.v7OpeningModelAdapters??modelAdapters).resolve(provider,model,'structured_planning'),options.timeMachineWindowTokens??Number(process.env.WENMI_TIME_MACHINE_CONTEXT_WINDOW??0));
 
   app.get('/health', async (request) => {
     const databaseProbe = database.prepare('SELECT 1 AS ok').get() as { ok: number };

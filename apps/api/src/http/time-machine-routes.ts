@@ -1,0 +1,51 @@
+import type {FastifyInstance} from 'fastify';
+import type {DatabaseSync} from 'node:sqlite';
+import {Conflict,SqlPlanRepository,volumePlanningContext} from '@wenmi/time-machine-core';
+import {TimeMachineDesignService} from '../application/books/time-machine-design-service.js';
+import {snapshotTimeMachine} from '../application/books/time-machine-sources.js';
+import {TimeMachineModelGateway} from '../infrastructure/models/time-machine-model-gateway.js';
+import type {ModelAdapter} from '../infrastructure/models/model-adapter.js';
+import {BookRepository} from '../infrastructure/db/repositories/book-repository.js';
+import {requireAuthenticatedOwner} from '../infrastructure/security/auth-context.js';
+import {success} from '../contracts/api.js';
+import {DomainError,errorCodes} from '../domain/errors.js';
+export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseSync,resolve:(provider:string,model:string)=>ModelAdapter,windowTokens:number):Promise<void>{
+ const service=new TimeMachineDesignService(db,new TimeMachineModelGateway(db,resolve),windowTokens);
+ const scope=(request:Parameters<typeof requireAuthenticatedOwner>[0],bookId:string)=>{const owner=requireAuthenticatedOwner(request),s={ownerId:owner.ownerId,bookId};const book=new BookRepository(db).require(s);if(book.status==='archived')throw new DomainError(errorCodes.validation,'书籍已归档',{},false,409);return s;};
+ const guard=<T>(fn:()=>T):T=>{try{return fn();}catch(e){if(e instanceof DomainError)throw e;throw new DomainError(errorCodes.validation,e instanceof Conflict?e.message:'当前操作未能完成，请核对资料或稍后重试',{},false,409);}};
+ let active:Promise<void>|null=null,closed=false;
+ const tick=()=>{if(closed||active||windowTokens<16000)return;
+  db.prepare("UPDATE tm2_design_runs SET state='failed',error_code='interrupted' WHERE state='working' AND updated_at<?").run(new Date(Date.now()-20*60*1000).toISOString());
+  const row=db.prepare("SELECT id FROM tm2_design_runs WHERE state='queued' ORDER BY created_at LIMIT 1").get() as {id:string}|undefined;
+  if(row)active=service.process(row.id).catch(()=>{app.log.error('time-machine executor failed; durable run retained');}).finally(()=>{active=null;});
+ };
+ const timer=setInterval(tick,2000);timer.unref();app.addHook('onClose',async()=>{closed=true;clearInterval(timer);if(active)await active;});
+ app.get<{Params:{bookId:string}}>('/api/time-machine/books/:bookId/state',async request=>{
+  const s=scope(request,request.params.bookId);return success({enabled:windowTokens>=16000,runs:service.state(s)},request.id);
+ });
+ app.get<{Params:{bookId:string;volumeId:string}}>('/api/time-machine/books/:bookId/volumes/:volumeId/planning-context',async request=>{
+  const s=scope(request,request.params.bookId);
+  return success(guard(()=>{
+   const row=db.prepare('SELECT r.snapshot_json FROM tm2_books b JOIN tm2_adoptions a ON a.owner=b.owner AND a.book=b.book AND a.id=b.adoption JOIN tm2_design_runs r ON r.owner_id=a.owner AND r.book_id=a.book AND r.id=a.candidate WHERE b.owner=? AND b.book=?').get(s.ownerId,s.bookId) as {snapshot_json:string}|undefined;
+   if(!row)throw new Conflict('请先采用全书方案');
+   const snapshot=JSON.parse(row.snapshot_json) as {intent:string};const plans=new SqlPlanRepository(db);
+   plans.syncManifest(s,snapshotTimeMachine(db,s,snapshot.intent,windowTokens).manifest);
+   const active=plans.activePlan(s);if(!active)throw new Conflict('请先采用全书方案');
+   return volumePlanningContext(active.candidate,active.adoption,request.params.volumeId,{id:'utf8-upper-bound',mode:'conservative',count:text=>Buffer.byteLength(text,'utf8')},Math.min(16000,Math.floor(windowTokens/2)));
+  }),request.id);
+ });
+ for(const [path,kind] of [['recommendation-runs','recommend'],['design-runs','design']] as const)app.post<{Params:{bookId:string};Body:{intent?:unknown;idempotencyKey?:unknown}}>(`/api/time-machine/books/:bookId/${path}`,async(request,reply)=>{
+  const s=scope(request,request.params.bookId);const body=request.body??{};
+  if(typeof body.idempotencyKey!=='string'||(body.intent!==undefined&&typeof body.intent!=='string'))throw new DomainError(errorCodes.validation,'提交格式不正确',{},false,400);
+  const id=guard(()=>service.start(s,kind,String(body.intent??''),body.idempotencyKey as string));
+  const run=service.state(s).find(item=>item.id===id);reply.code(run?.state==='queued'||run?.state==='working'?202:200);return success({id,state:run?.state??'unknown'},request.id);
+ });
+ app.post<{Params:{bookId:string;id:string}}>('/api/time-machine/books/:bookId/runs/:id/retry',async request=>{const s=scope(request,request.params.bookId);const id=guard(()=>service.retry(s,request.params.id));return success({id},request.id);});
+ app.post<{Params:{bookId:string};Body:{candidateId:string;revision:number;expectedRevision:number;idempotencyKey:string}}>('/api/time-machine/books/:bookId/adoptions',async request=>{
+  const s=scope(request,request.params.bookId),body=request.body;
+  if(!body||typeof body.candidateId!=='string'||!Number.isSafeInteger(body.revision)||!Number.isSafeInteger(body.expectedRevision)||typeof body.idempotencyKey!=='string')throw new DomainError(errorCodes.validation,'采用参数不正确',{},false,400);
+  const row=db.prepare("SELECT snapshot_json FROM tm2_design_runs WHERE id=? AND owner_id=? AND book_id=? AND state='succeeded'").get(body.candidateId,s.ownerId,s.bookId) as {snapshot_json:string}|undefined;
+  if(!row)throw new DomainError(errorCodes.validation,'候选尚未完成',{},false,409);
+  return success(guard(()=>{const snapshot=JSON.parse(row.snapshot_json) as {intent:string};const current=snapshotTimeMachine(db,s,snapshot.intent,windowTokens);const plans=new SqlPlanRepository(db);plans.syncManifest(s,current.manifest);return plans.adopt(s,body.candidateId,body.revision,body.expectedRevision,body.idempotencyKey);}),request.id);
+ });
+}

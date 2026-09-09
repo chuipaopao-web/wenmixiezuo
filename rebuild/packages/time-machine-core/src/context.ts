@@ -5,7 +5,7 @@ export interface Claim {text:string;sourceKeys:string[]}
 export interface ContextCard extends Scope {manifest:Manifest;fields:Record<CardField,Claim[]>}
 const fields:CardField[]=['premise','protagonists','world','openingEnding','preferences','prohibitions'];
 /** This validates provenance shape, not whether the summary faithfully represents its sources. */
-export function parseCard(value:unknown):ContextCard {
+export function parseCard(value:unknown,allowPartial=false):ContextCard {
   if(!value||typeof value!=='object'||Array.isArray(value))throw new ContractError('短卡格式错误');
   const c=value as Record<string,unknown>;
   if(Object.keys(c).some(k=>!['ownerId','bookId','manifest','fields'].includes(k)))throw new ContractError('短卡未知字段');
@@ -25,7 +25,7 @@ export function parseCard(value:unknown):ContextCard {
       return {text:a.text,sourceKeys:[...new Set(a.sourceKeys as string[])]};
     });
   }
-  if(!parsed.premise.length||!parsed.protagonists.length)throw new ContractError('缺少核心方向或主角');
+  if(!allowPartial&&(!parsed.premise.length||!parsed.protagonists.length))throw new ContractError('缺少核心方向或主角');
   return {...scope,manifest,fields:parsed};
 }
 export interface TokenCounter {id:string;mode:'exact'|'conservative';count(text:string):number}

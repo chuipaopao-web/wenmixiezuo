@@ -380,6 +380,7 @@ describe('火山方舟严格套餐适配器', () => {
       failureClass: 'technical_failure', retryable: true, statusCode: 200, outcomeUnknown: false
     });
     expect((error as Error).message).toContain('max_tokens');
+    expect((error as ModelAdapterError).knownUsage).toEqual({inputTokens:5200,outputTokens:3600,cashCostCny:0});
     expect((error as Error).message).not.toContain('结果状态未知');
   });
 
