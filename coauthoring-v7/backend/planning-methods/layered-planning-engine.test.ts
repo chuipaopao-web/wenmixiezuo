@@ -10,8 +10,27 @@ import {
   V7_METHOD_EXECUTION_PROFILES,
   validateMethodExecutionProfiles
 } from './method-asset-profiles.js';
+import { COMPLETE_METHOD_CARDS } from './complete-method-catalog.js';
 
 describe('V7 分层规划领域能力', () => {
+  test('完整目录各层适用项可编译，包括六阶段、情节与组合，旧别名仍可读取', () => {
+    const demo = buildHistoricalHegemonyPlanningDemo();
+    const visit = (node: typeof demo.recipe.root): void => {
+      for (const card of COMPLETE_METHOD_CARDS.filter(card => card.applicableLayers.includes(node.layer))) {
+        for (const key of [card.key, ...card.aliases.map(alias => alias.key)]) {
+          node.methodGuidance = [{source:'library', methodKey:key, role:'primary', strength:'soft', adaptationNote:'按当前故事规模选用，不机械复制全书结构。'}];
+          expect(validateLayeredPlanningRecipe(demo.recipe)).toEqual([]);
+          const task = compileLayeredPlanningTask({recipe:demo.recipe,nodeId:node.nodeId,sources:demo.sources});
+          expect(task.methodHints[0]).toMatchObject({title:card.title,explanation:card.instruction});
+          if(node.layer === 'chapter_execution' && card.key === 'six-act') expect(task.expectedOutput).not.toContain('全书进入状态');
+        }
+      }
+      node.children.forEach(visit);
+    };
+    visit(demo.recipe.root);
+    demo.recipe.root.methodGuidance = [{source:'library',methodKey:'missing-method',role:'primary',strength:'soft',adaptationNote:'test'}];
+    expect(validateLayeredPlanningRecipe(demo.recipe).some(error => error.includes('不存在的方法'))).toBe(true);
+  });
   test('146 个叙事方法都有可调用执行档案且保留创意许可', () => {
     expect(V7_METHOD_EXECUTION_PROFILES).toHaveLength(146);
     expect(validateMethodExecutionProfiles()).toEqual([]);

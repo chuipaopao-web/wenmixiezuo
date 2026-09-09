@@ -1,4 +1,5 @@
 import { getNarrativeMethod } from '../narrative-methods/narrative-method-library.js';
+import { COMPLETE_METHOD_CARDS } from './complete-method-catalog.js';
 import {
   PLANNING_LAYERS,
   V7_LAYERED_PLANNING_VERSION,
@@ -196,9 +197,10 @@ export function validateLayeredPlanningRecipe(recipe: LayeredPlanningRecipe): st
     for (const guidance of node.methodGuidance) {
       if (guidance.strength !== 'soft') errors.push(`${node.nodeId} 的方法不是软参考`);
       if (guidance.source === 'library') {
-        if (guidance.methodKey === undefined || getNarrativeMethod(guidance.methodKey) === null) {
+        const method = COMPLETE_METHOD_CARDS.find(item => item.key === guidance.methodKey || item.aliases.some(alias => alias.key === guidance.methodKey));
+        if (method === undefined) {
           errors.push(`${node.nodeId} 引用了不存在的方法：${guidance.methodKey ?? '空'}`);
-        } else if (getMethodExecutionProfile(guidance.methodKey)?.planningLayers.includes(node.layer) !== true) {
+        } else if (!method.applicableLayers.includes(node.layer)) {
           errors.push(`${guidance.methodKey} 不适用于 ${node.layer}`);
         }
       }
@@ -259,9 +261,9 @@ export function compileLayeredPlanningTask(input: {
         adaptationNote: guidance.adaptationNote
       };
     }
-    const method = guidance.methodKey === undefined ? null : getNarrativeMethod(guidance.methodKey);
-    if (method === null) throw new Error(`方法不存在：${guidance.methodKey ?? '空'}`);
-    return { title: method.professionalName, explanation: method.publicExplanation, adaptationNote: guidance.adaptationNote };
+    const method = COMPLETE_METHOD_CARDS.find(item => item.key === guidance.methodKey || item.aliases.some(alias => alias.key === guidance.methodKey));
+    if (method === undefined) throw new Error(`方法不存在：${guidance.methodKey ?? '空'}`);
+    return { title: method.title, explanation: method.instruction, adaptationNote: guidance.adaptationNote };
   });
   return {
     schema: 'v7-layered-planning-task-v1',
@@ -297,7 +299,7 @@ export function compileLayeredPlanningTask(input: {
     ]),
     expectedOutput: unique([
       ...layer.outputChecklist,
-      ...node.methodGuidance.flatMap((guidance) => guidance.methodKey === undefined
+      ...node.methodGuidance.flatMap((guidance) => guidance.methodKey === undefined || !getMethodExecutionProfile(guidance.methodKey)?.planningLayers.includes(node.layer)
         ? []
         : getNarrativeMethod(guidance.methodKey)?.responsibilities ?? [])
     ]),

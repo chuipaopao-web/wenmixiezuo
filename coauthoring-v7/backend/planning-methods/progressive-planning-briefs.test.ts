@@ -16,14 +16,14 @@ describe('V7渐进式规划依据', () => {
       sourceSnapshot: { formal: '张三必须是主角' },
       assetMenuText: menuText()
     });
-    expect(prompt).toContain('至少1项必须是agent_original');
+    expect(prompt).toContain('按需填写0—6项，不凑数量');
     expect(prompt).toContain('不得为了用完资产');
     expect(prompt).toContain('causal-chain');
     expect(prompt).not.toContain('combinationGuidance');
     expect(prompt).not.toContain('fitSignals');
   });
 
-  it('拒绝只有公共方法、没有作品原创策略的方案', () => {
+  it('允许只选适合的公共方法，不强迫凑原创策略', () => {
     const value = brief();
     value.selectedStrategies = Array.from({ length: 4 }, (_, index) => ({
       source: 'library' as const,
@@ -34,7 +34,7 @@ describe('V7渐进式规划依据', () => {
       caution: '不要机械套用。'
     }));
     expect(() => parseProgressivePlanningBrief(JSON.stringify(value), 'chief_editor', ['causal-chain']))
-      .toThrow('没有提出本书原创策略');
+      .not.toThrow();
   });
 
   it('作者选中路线后才把精简依据编译成兼容执行合同，不提前展开链和章', () => {

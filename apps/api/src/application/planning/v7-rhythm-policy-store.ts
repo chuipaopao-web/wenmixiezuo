@@ -9,9 +9,9 @@ export class V7RhythmPolicyStore {
   initialize(now: string): void {
     this.database.prepare('INSERT OR IGNORE INTO v7_rhythm_policy_versions(version,policy_json,actor_id,created_at) VALUES(1,?,?,?)')
       .run(JSON.stringify(validateRhythmPolicy(DEFAULT_RHYTHM_POLICY)), 'system', now);
-    if (!this.database.prepare("SELECT 1 FROM v7_rhythm_policy_versions WHERE json_extract(policy_json,'$.format')='compact-v2' LIMIT 1").get()) {
+    if (!this.database.prepare("SELECT 1 FROM v7_rhythm_policy_versions WHERE json_extract(policy_json,'$.format')='complete-v3' LIMIT 1").get()) {
       this.database.prepare('INSERT INTO v7_rhythm_policy_versions(version,policy_json,actor_id,created_at) SELECT MAX(version)+1,?,?,? FROM v7_rhythm_policy_versions')
-        .run(JSON.stringify(validateRhythmPolicy(DEFAULT_RHYTHM_POLICY)), 'system-r185',now);
+        .run(JSON.stringify(validateRhythmPolicy(DEFAULT_RHYTHM_POLICY)), 'system-r186',now);
     }
   }
   current(): RhythmPolicySnapshot {
@@ -38,6 +38,7 @@ export class V7RhythmPolicyStore {
     try {
       const current = this.current();
       if (current.version !== expectedVersion) throw new DomainError(errorCodes.validation, '配置已被其他管理员更新，请重新读取后再修改。', {}, false, 409);
+      if (current.policy.format === 'complete-v3' && policy.format !== 'complete-v3') throw new DomainError(errorCodes.validation, '方法库已升级为完整目录，请刷新后台后再修改。', {}, false, 409);
       this.database.prepare('INSERT INTO v7_rhythm_policy_versions(version,policy_json,actor_id,created_at) VALUES(?,?,?,?)')
         .run(current.version + 1, JSON.stringify(policy), actorId, now);
       this.database.exec('COMMIT');
@@ -57,7 +58,7 @@ export class V7RhythmPolicyStore {
   private validate(raw: unknown): RhythmPolicy {
     try {
       const text = JSON.stringify(raw);
-      if (!text || text.length > 40000 || /Bearer\s+[\w.-]+|\bsk-[\w-]{8,}|api[_-]?key["']?\s*[:=]/iu.test(text)) throw new Error('配置过长或包含不应保存的凭据。');
+      if (!text || text.length > 250000 || /Bearer\s+[\w.-]+|\bsk-[\w-]{8,}|api[_-]?key["']?\s*[:=]/iu.test(text)) throw new Error('配置过长或包含不应保存的凭据。');
       return validateRhythmPolicy(raw);
     } catch (error) { throw invalid(error instanceof Error ? error.message : '配置格式无效。'); }
   }

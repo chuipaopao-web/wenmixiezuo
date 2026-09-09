@@ -43,5 +43,16 @@ describe('V7 分层规划后台', () => {
     expect(screen.getByRole('heading',{name:'全书信息短卡'})).toBeVisible();
     expect(screen.getByRole('heading',{name:'主角与起点'})).toBeVisible();
     expect(screen.queryByRole('button',{name:'叙事方法'})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'创意与金手指'}));
+    expect(screen.getByRole('heading',{name:'创意与金手指'})).toBeVisible();
+    fireEvent.click(screen.getByRole('button',{name:'分层方法'}));
+    await screen.findByLabelText('名称');
+    fireEvent.change(screen.getByLabelText('名称'),{target:{value:'尚未发布的名称'}});
+    const confirm=vi.spyOn(window,'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    fireEvent.click(screen.getByRole('button',{name:'信息短卡模板'}));
+    expect(screen.getByRole('heading',{name:'分层方法库'})).toBeVisible();
+    fireEvent.click(screen.getByRole('button',{name:'信息短卡模板'}));
+    expect(screen.getByRole('heading',{name:'全书信息短卡'})).toBeVisible();
+    expect(confirm).toHaveBeenCalledTimes(2);confirm.mockRestore();
   });
 });

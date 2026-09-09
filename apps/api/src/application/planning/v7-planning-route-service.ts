@@ -689,7 +689,7 @@ export class V7PlanningRouteService {
           direct = parsePlanningRouteFusion(
             result.output,
             [],
-            layerAssetEntries(storedMenu.layer, storedMenu.genreFamilies),
+            storedMenu.allowedAssets ?? layerAssetEntries(storedMenu.layer, storedMenu.genreFamilies),
             seatKey
           );
           validateRouteBriefAssets(direct.brief, storedMenu);
@@ -718,7 +718,7 @@ export class V7PlanningRouteService {
           direct = parsePlanningRouteFusion(
             repaired.output,
             [],
-            layerAssetEntries(storedMenu.layer, storedMenu.genreFamilies),
+            storedMenu.allowedAssets ?? layerAssetEntries(storedMenu.layer, storedMenu.genreFamilies),
             seatKey
           );
           validateRouteBriefAssets(direct.brief, storedMenu);
@@ -945,7 +945,7 @@ export class V7PlanningRouteService {
     const storedMenus = this.repository.methodSearches(run.owner_id, run.book_id, run.run_id)
       .map((row) => parseStoredLayerAssetMenu(row.candidate_methods_json));
     const storedMenu: StoredLayerAssetMenu | undefined = storedMenus[0];
-    const allowedMethods = storedMenus.flatMap((menu) => layerAssetEntries(menu.layer, menu.genreFamilies));
+    const allowedMethods = storedMenus.flatMap((menu) => menu.allowedAssets ?? layerAssetEntries(menu.layer, menu.genreFamilies));
     const assetMenuText = storedMenu === undefined ? NO_ASSET_MENU_TEXT : routeAssetMenuText(storedMenu);
     const validateFusion = (output: string) => {
       const fusion = parsePlanningRouteFusion(output, rows.map((row) => row.route_id), allowedMethods, selected[0]!.brief.seatKey);

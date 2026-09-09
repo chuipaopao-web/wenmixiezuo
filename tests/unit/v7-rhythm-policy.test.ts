@@ -5,6 +5,11 @@ import { DEFAULT_RHYTHM_POLICY, RHYTHM_LAYERS, renderRhythmFragment, validateRhy
   buildStoredLayerAssetMenu, parseStoredLayerAssetMenu, renderLayerAssetMenuText, buildPlanningLayerReferencePack,
   type PlanningLayerKey } from '@wenmi/v7-backend';
 import { V7RhythmPolicyStore } from '../../apps/api/src/application/planning/v7-rhythm-policy-store.js';
+import { COMPLETE_METHOD_CARDS, METHOD_MERGES } from '../../coauthoring-v7/backend/planning-methods/complete-method-catalog.js';
+import { V7_NARRATIVE_METHODS } from '../../coauthoring-v7/backend/narrative-methods/narrative-method-library.js';
+import { V7_PLOT_PATTERNS } from '../../coauthoring-v7/backend/plot-patterns/plot-pattern-library.js';
+import { V7_PLOT_RECIPES } from '../../coauthoring-v7/backend/plot-patterns/plot-recipe-library.js';
+import { LEGACY_COMPACT_RHYTHM_POLICY } from '../../coauthoring-v7/backend/planning-methods/rhythm-policy.js';
 const databases: DatabaseSync[] = [];
 afterEach(() => { databases.splice(0).forEach(db => db.close()); delete process.env.WENMI_V7_ASSET_MENU; });
 function setup(): V7RhythmPolicyStore {
@@ -12,27 +17,42 @@ function setup(): V7RhythmPolicyStore {
   db.exec(readFileSync('apps/api/src/infrastructure/db/migrations/0109_v7_rhythm_policy.sql','utf8'));
   const store = new V7RhythmPolicyStore(db); store.initialize('2026-09-07T00:00:00.000Z'); return store;
 }
-it('各层片段预算内，无整库名册，章层不强制宏观框架', () => {
+it('各层提供完整适用目录且预算内，六阶段跨层可用而非强制模板', () => {
   const policy = validateRhythmPolicy(DEFAULT_RHYTHM_POLICY);
   for (const layer of Object.keys(RHYTHM_LAYERS) as PlanningLayerKey[]) {
     const menu = buildLayerAssetMenu(layer, [], { version: 1, policy });
-    expect(menu.estimatedChars).toBeLessThanOrEqual(1400);
+    expect(menu.estimatedChars).toBeLessThanOrEqual(20000);
     expect(renderLayerAssetMenuText(menu)).toEqual(renderRhythmFragment(policy, layer, 1));
     expect(menu.methodRoster).toEqual([]);
     expect(menu.rhythmAssets?.map(c => c.key)).toEqual(policy.layers[layer]);
+    expect(menu.rhythmAssets?.some(c=>c.key==='six-act')).toBe(true);
   }
-  expect(renderRhythmFragment(policy,'chapter_execution')).not.toContain('三幕');
+  expect(renderRhythmFragment(policy,'chapter_execution')).toContain('不强塞整本书');
 });
 it('允许同一结构用于多层，拒绝未知重复引用和超长短卡', () => {
   const policy = structuredClone(DEFAULT_RHYTHM_POLICY);
-  policy.layers.volume = ['tension-relief']; policy.layers.chain = ['tension-relief'];
   expect(() => validateRhythmPolicy(policy)).not.toThrow();
-  policy.layers.chapter_execution = ['four-act']; expect(() => validateRhythmPolicy(policy)).not.toThrow();
   const menu=buildStoredLayerAssetMenu('book_backbone',[],{version:1,policy});
   expect(menu.allowedAssets?.find(c=>c.key==='four-act')?.planningLayers).toContain('chapter_execution');
   policy.layers.chapter_execution = ['missing']; expect(() => validateRhythmPolicy(policy)).toThrow();
   policy.layers.chapter_execution = ['tension-relief','tension-relief']; expect(() => validateRhythmPolicy(policy)).toThrow();
   policy.layers.chapter_execution = ['tension-relief']; policy.cards[0]!.instruction = '字'.repeat(121); expect(() => validateRhythmPolicy(policy)).toThrow();
+});
+it('338条原资产逐项有去向，仅8条同义合并；完整库不允许缩成25项',()=>{
+ const raw=[...V7_NARRATIVE_METHODS,...V7_PLOT_PATTERNS,...V7_PLOT_RECIPES];
+ for(const item of raw)expect(COMPLETE_METHOD_CARDS.some(c=>c.key===item.key||c.aliases.some(a=>a.key===item.key))).toBe(true);
+ expect(COMPLETE_METHOD_CARDS.length+METHOD_MERGES.length).toBe(raw.length);
+ const reduced=structuredClone(DEFAULT_RHYTHM_POLICY);reduced.layers.chain=reduced.layers.chain.slice(0,25);
+ expect(()=>validateRhythmPolicy(reduced)).toThrow('全部适用');
+});
+it('旧25项配置升级一次，历史任务保留25项，新任务读取完整库，旧客户端不能降级',()=>{
+ const db=new DatabaseSync(':memory:');databases.push(db);db.exec(readFileSync('apps/api/src/infrastructure/db/migrations/0109_v7_rhythm_policy.sql','utf8'));
+ db.prepare('INSERT INTO v7_rhythm_policy_versions VALUES(?,?,?,?)').run(1,JSON.stringify(LEGACY_COMPACT_RHYTHM_POLICY),'admin','2026-09-07T00:00:00.000Z');
+ const store=new V7RhythmPolicyStore(db);store.snapshot('old','2026-09-07T01:00:00.000Z');
+ store.initialize('2026-09-08T00:00:00.000Z');store.initialize('2026-09-08T00:00:00.000Z');
+ expect(store.current().version).toBe(2);expect(store.current().policy.cards.length).toBe(330);
+ expect(store.snapshot('old','2026-09-07T01:00:00.000Z')?.policy.cards.length).toBe(25);
+ expect(()=>store.publish('admin',2,LEGACY_COMPACT_RHYTHM_POLICY,'2026-09-08T00:00:00.000Z')).toThrow('完整目录');
 });
 it('新候选只可引用本轮提供的卡，开关关闭不注入，存档可以重读', () => {
   process.env.WENMI_V7_ASSET_MENU='1'; const snapshot={version:2,policy:DEFAULT_RHYTHM_POLICY};

@@ -1,6 +1,6 @@
 # 文秘写作全产品重构执行文档与开发顺序表
 
-> 版本1.80 · 2026-09-09 · 第185批全书信息短卡与分层方法
+> 版本1.81 · 2026-09-09 · 第186批完整方法库归层与导航修复
 >
 > 本文是全产品重构的**唯一执行顺序和进度来源**；[详细开发规格](REBUILD_DEVELOPMENT_SPEC.md)保留产品与工程设计解释。
 >
@@ -62,7 +62,7 @@
 
 ## 3. 下一位接管者如何继续
 
-- **当前批次**：第185批已上线：六栏全书信息短卡与25项分层方法库。API/Worker wm-v7-20260909-204500-fd588869，静态24249e7fca01f0e67cb8。56项后端、4项后台、6项地图及类型/构建/390与1440浏览器通过；真实Pro合成资料12373→211字符，关键条件保留。后台方法版本2、82单元和14公网资源读取通过。[本批清单](../coauthoring-v7/docs/worklists/CONTEXT-CARDS-METHODS-185.md)。
+- **当前批次**：第186批完整方法库归层与导航修复正在验收。原146方法、156模式、36配方共338条，合并8项同义内容后保留330项；取消勾选，恢复各层全部适用项，六阶段跨全书/卷/链/章可用。已修复未发布修改静默阻止栏目切换的问题，保留六栏短卡和历史版本。生产暂为R185，验收与上线证据见[本批清单](../coauthoring-v7/docs/worklists/METHOD-LIBRARY-186.md)。
 - **第165批历史交付**：第165批：用户完成YES与“确认删除书籍”双确认后，2026-09-09 01:20:44清理线上44本旧书、142张表37129条关联创作记录和3个文件。77个账号（含2管理员）、75条会员记录、4条交易及平台配置完整保留，2244条纯用量账务记录归档后全账户用量投影逐行不变。先完成完整备份及隔离试删，正式执行前连续30秒在途检查，事务内复核固定预览；外键/完整性检查通过。0110兼容迁移已发布，API/Worker及静态版本不变、不重启服务。本次只清理书籍，不删除或停用账号；不表示后台通用清理页面已实现。[本批清单](../coauthoring-v7/docs/worklists/TEST-DATA-RESET-165.md)。
 - **第164批交付**：2026-09-09 00:32:59已发布wm-v7-20260909-003000-2c5dfc42，静态b1f55fc5353a6dec6a42。设定三步功能完成并验证：24主题/规则卡、按需资料与对象依赖、旧主题归并及变更连续性；全量工程、55项最终复核、390/1440及3次语义小样、生产构建/旧资产兼容/服务与资源检查通过。规则和验收详情见RB-21，长期文学效果持续评测；独立PG整站切换不包含在本批声明中。[本批清单](../coauthoring-v7/docs/worklists/SETTING-IMPLEMENTATION-164.md)。
 - **第163批确认**：用户全部采纳24主题、单一规则来源、单成员分批设计、独立复核、系统与资料Agent按节点分工的完整方案。全文与逐项验收基线保存在RB-21“确认方案·”字段，后台开发路线可查看。此次只发布说明，不改变设定执行逻辑，不代表方案功能已完成。
@@ -288,7 +288,7 @@
 | [RB-50](#rb-50) | 后台创作资产总览 | RB-48 | 已定 | 开发中 | 未开始 | 验收中 | 试用中 | 第141批统一入口与六类查阅已实现；完整资产维护仍未完成，见RB-51.1设计说明 |
 | [RB-50.1](#rb-50-1) | 后台题材、标签与资料目录管理 | RB-50、RB-49.3 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | [第97批范围核查](../coauthoring-v7/docs/worklists/REBUILD-MANAGEMENT-COVERAGE-20260905-97.md) |
 | [RB-51](#rb-51) | 后台叙事方法 | RB-50 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | 待建立 |
-| [RB-51.1](#rb-51-1) | 节奏资产、分层短卡与输入预览 | RB-51、RB-49.1 | 已定 | 已实现 | 已实现 | 通过 | 已发布 | [第185批](../coauthoring-v7/docs/worklists/CONTEXT-CARDS-METHODS-185.md)；六栏短卡、25项方法与四层分页已上线，版本/预算/缓存/手机桌面及真实模型合成样例通过；下层模板和新作者时光机另行讨论 |
+| [RB-51.1](#rb-51-1) | 节奏资产、分层短卡与输入预览 | RB-51、RB-49.1 | 已定 | 已实现 | 已实现 | 验收中 | 待发布 | [第186批](../coauthoring-v7/docs/worklists/METHOD-LIBRARY-186.md)；完整330项按层供给、无勾选、搜索分页和合并记录；六栏短卡保留；下层模板和新作者时光机另行讨论 |
 | [RB-52](#rb-52) | 后台剧情模式 | RB-51 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | 待建立 |
 | [RB-53](#rb-53) | 后台剧情配方 | RB-52 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | 待建立 |
 | [RB-54](#rb-54) | 后台分层规划诊断 | RB-23、RB-24、RB-53 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | 待建立 |
@@ -1012,8 +1012,8 @@
 - **收尾·剩余工作**：本批只审计保留依赖；下一轮讨论时光机时核对真实规划任务失败、上下游版本和新交互，不重复创建整套平行引擎。
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
-- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/planning/v7-planning-route-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/planning/v7-book-design-card-service.ts,apps/api/src/application/planning/v7-planning-source-compiler.ts,coauthoring-v7/backend/planning-methods/book-design-card.ts,coauthoring-v7/backend/planning-methods/rhythm-policy.ts,coauthoring-v7/backend/planning-methods/layer-asset-menu.ts
-- **管理·代码核对**：5b7abd12e61511b11413546e3c8e4eb28bef7d80b70827789f7016ba5b64f4a3
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/planning/v7-planning-route-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/planning/v7-book-design-card-service.ts,apps/api/src/application/planning/v7-planning-source-compiler.ts,coauthoring-v7/backend/planning-methods/book-design-card.ts,coauthoring-v7/backend/planning-methods/rhythm-policy.ts,coauthoring-v7/backend/planning-methods/layer-asset-menu.ts,coauthoring-v7/backend/planning-methods/complete-method-catalog.ts,coauthoring-v7/backend/planning-methods/layered-planning-engine.ts,coauthoring-v7/backend/planning-methods/planning-story-routes.ts,rebuild/packages/backend/src/legacy-opening/planning-methods/planning-story-routes.ts
+- **管理·代码核对**：a0ed5fac0c002f2ebf6b57628216ebae7e41446dcc7df815628f559f5d0e2eef
 
 - **管理·共享步骤**：AI-001,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1026,7 +1026,7 @@
 - **管理·用户操作**：在时光机提交全书目标、字数等要求，查看方向或蓝图候选，按需要调整并确认。
 - **管理·流程**：新方向任务冻结正式开书与设定 → 资料编辑分批填写六栏短卡、两两合并、逐页核对原文 → 系统保存版本并提供本层方法 → 主编设计方向 → 对应路径审查或融合 → 作者确认。相同来源复用短卡；不再额外调用一轮资料选择。既有树生成与已冻结旧菜单的历史任务仍走各自兼容路径。
 - **管理·资料供给**：六栏为创作要求、主角与起点、核心卖点、世界背景、影响全书的规则、作者指定内容。资料成员提取已有事实，不新增剧情；普通未指定信息允许留白，正式来源存在关键冲突则提示作者处理。系统另外提供本次作者目标、已有方向或实际进展并明确身份；方法来自后台本层已启用的名称与简短介绍。
-- **管理·注入与压缩**：第185批新方向短卡目标1800、正文上限3200字符；原文每页9000字符、完整整理请求上限18000字符、输出上限4000 Token。超长输出有限重整，不直接截断。合并后逐页核对主角、能力条件、关键规则和作者要求，成功阶段按账号/书籍/来源版本/模板版本缓存。设计调用只注入短卡，不重复传输完整开书与设定；作者目标及其他补充来源合并超过16000字符时停止并保留短卡。方法片段上限2400字符。本批不宣称总请求恒定长度或这些数值能保证模型不遗漏；实际模型网关仍执行总预算。原文和版本不被短卡覆盖。旧菜单任务、树生成及卷链章尚未改成此模板。
+- **管理·注入与压缩**：第185批新方向短卡目标1800、正文上限3200字符；原文每页9000字符、整理业务请求上限18000字符、输出上限4000 Token，外层岗位合同另计。超长输出有限重整，不直接截断。合并后逐页核对主角、能力条件、关键规则和作者要求，成功阶段按账号/书籍/来源版本/模板版本缓存。设计调用只注入短卡，不重复传输完整开书与设定；作者目标及其他补充来源合并超过16000字符时停止并保留短卡。第186批方法供给改为本层完整简短目录，默认各层约1.7—1.85万字符，片段发布上限30000字符；这是方法片段而非总请求。代码编号只用于引用，按资产类别分组，不注入长理论。完整请求仍经模型网关总预算，不静默截断目录。字符数不保证注意力或不遗漏。原文与历史版本不覆盖。旧菜单任务、树生成及卷链章尚未改成六栏模板。
 - **管理·格式化输入**：整理阶段使用六栏JSON，每项含简短正文及可核对来源编号；系统检验字段、来源引用和预算。设计阶段使用中文短卡、当前层责任、目标容量、作者偏好及本层方法菜单。来源映射单独保存，不把编号解释长文注入设计正文。
 - **管理·输出与校验**：方向/结构使用对应JSON合同与解析器；校验容量和引用，结构错误进入修复。方向审查与融合单列；树生成不能因结构合格被标为文学质量通过。
 - **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
@@ -2102,16 +2102,16 @@
 
 ### RB-51.1 节奏资产、分层短卡与输入预览
 
-- **收尾·线上现状**：R185重整为分层方法与信息短卡模板；实际测试和发布状态见本批执行记录。
+- **收尾·线上现状**：R186纠正25项精选造成的范围丢失，恢复完整330项归层；实际测试和发布状态见本批执行记录。
 - **收尾·执行归属**：RhythmAssetsPage、BookCardTemplatePage、rhythm-policy与V7RhythmPolicyStore。
 - **收尾·剩余工作**：作者节拍选择及新时光机结果页留待下一批；模板在线编辑未实现。
 - **收尾·旧实现退出**：长理论默认导航退出，旧深链接转统一方法页；历史定义、冻结菜单和旧配置仍保留，不删除作者数据。
 - **讨论**：已确认方法采用名称＋简短介绍；时光机、卷、链、章四分页，可跨层重复使用方法，嵌套的是故事责任。
-- **前端交付**：分层方法页编辑名称、用途和简短介绍，各层勾选供给；预览实际片段、保存版本、显示冲突与失败。信息短卡页只读显示六栏模板与整理规则。
-- **后端逐项实现**：保留管理员权限、版本发布、任务冻结与预算；新配置compact-v2采用25项常用方法，时光机与内部阶段分配共用，层级名单按实际配置生成。方法片段最多2400字符，每层最多24项；不强迫全部使用。
+- **前端交付**：四层分页按适用范围全部展示，无勾选；名称/介绍/合并前名称搜索，三类筛选，每页24条仅为显示分页。选择卡片不改变配置。编辑名称和短介绍后发布；真实未发布修改离开时明确确认，取消保留草稿、继续可切换。信息短卡模板和创意与金手指正常切换；同义合并记录可查。
+- **后端逐项实现**：complete-v3合并8项后保留330项，原始338条全部有去向。全书与阶段分配306、卷313、链325、章322项，通用宏观结构可用于大小故事；情节模式与配方按叙事尺度作为可选参考。原compact-v2版本和冻结任务保留，首次初始化只追加一次完整版本，拒绝旧客户端降级。方法片段上限30000字符，默认不足20000；总请求仍执行任务预算。不强迫全部使用，不以分页或预算静默取前几项。方向引用解析、卷链任务编译与本层目录一致，合并前编号仍可读取。
 - **重点验收**：四页和旧链接、编辑发布、上下层方法引用、配置冻结、来源短卡的隔离/版本/失败恢复；以真实模型小样核对精简效果，不冒充长期文学质量。
-- **依赖与详细设计**：[详细规格](REBUILD_DEVELOPMENT_SPEC.md)第15章第185批；[执行记录](../coauthoring-v7/docs/worklists/CONTEXT-CARDS-METHODS-185.md)。
-- **设计·方法**：起承转合＝起因—过程—转折—合拢。提供结构、推进、表现与事件候选，名称和介绍共用，各层分别启用；原有冗长边界不默认注入。
+- **依赖与详细设计**：[详细规格](REBUILD_DEVELOPMENT_SPEC.md)第15章第186批；[执行记录](../coauthoring-v7/docs/worklists/METHOD-LIBRARY-186.md)。
+- **设计·方法**：起承转合＝起因—过程—转折—合拢。六阶段等通用结构可跨层使用；名称和介绍共用，各层自动提供全部适用项，成员自行选择组合、忽略或原创。原有冗长边界不默认注入。只合并同义机制，不删除不同用途的原则、具体模式与组合配方。
 - **设计·信息短卡**：资料成员分批读取已确认开书/设定，填六栏、合并、按原页复核关键内容。源不变复用，源变化重建；先接全书路线准备。目标1800、上限3200字符，原文不改。
 - **设计·嵌套**：全书给方向，卷承接阶段，链推进事件，章落实场景；下层只拿相关上层责任，不复制上层整包方法。阶段不绑定卷数。
 - **设计·边界**：短卡模板随代码发布，只读展示；同源运行预览是方法片段而非完整请求。节拍选择与新方向输出合同尚未开发，不能标为完成。

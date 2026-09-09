@@ -219,7 +219,7 @@ export function planningDirectStoryRoutePrompt(input: {
     '如正式资料存在无法同时成立、会直接改变全书路线的冲突，返回同一JSON对象并加入missingCriticalInputs说明；没有则返回missingCriticalInputs:[]。普通创作留白不是缺口。',
     '输出schema="v7-planning-route-fusion-v2"；publicSummary写本方案设计理由；adoptedParts必须为[]；discardedRisks写你主动避开的套路或风险。',
     '完整JSON控制在6000个汉字以内。每个说明字段只写一段必要内容；分卷每个字段用一到两句交代清楚，不重复同一卖点，不用长篇论证挤占完整JSON。',
-    `brief必须完整遵守v7-progressive-planning-brief-v2，seatKey固定为${input.seatKey}，selectedStrategies总数4—6且至少1项为agent_original。`,
+    `brief必须完整遵守v7-progressive-planning-brief-v2，seatKey固定为${input.seatKey}，selectedStrategies按需填写0—6项，不凑数量；可选库方法、原创或不用。`,
     'brief必须包含publicSummary,centralPromise,causalSpine,protagonistArc,longFormCapacity,pressureRhythm,payoffCadence,informationRhythm,distinctiveness,selectedStrategies,creativeOpenings,strengths,risks,authorDecisions。',
     'selectedStrategies每项只允许source("library"或"agent_original"),title,layer("book_backbone"或"volume_distribution"),applicationNote,caution；只有library项填写本轮菜单中的methodKey，agent_original不得填写methodKey。',
     'route必须完整遵守v7-planning-story-route-v1，并在route内部填写schema="v7-planning-story-route-v1"；包含routeTitle,oneLinePromise,publicSummary,readingExperience,protagonistJourney,targetWords,targetVolumes,commercialAudience,retentionPositioning,volumeRoadmap,firstVolumeFocus,sellingPoints,risks,openQuestions。',
