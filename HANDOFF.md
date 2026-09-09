@@ -1,8 +1,8 @@
 # 文秘写作当前交接
 
-## R184：设定页断连恢复与发布校验
+## R184：设定页断连恢复与发布校验已上线
 
-修复首次读取失败后停在错误页的问题：有限退避重连，仅重读资料，不重新发起设计；退出页面取消重连。发布模块门禁复用服务启动的RELEASE_ID格式校验。合同coauthoring-v7/docs/worklists/QUIET-RECOVERY-184.md。本批静态单独发布，API/Worker保持R183；验证及发布状态见合同。
+代码bd6ca5fc，静态118170fc45e301d0c68f，源码/opt/wenmi-releases/wm-web-r184-bd6ca5fc/source。修复首次读取失败后停在错误页的问题：有限退避重连，仅重读资料，不重新发起设计；退出页面取消重连。发布模块门禁复用服务启动的RELEASE_ID格式校验。31项组件/4项闭包测试、类型检查、两站构建、14公网资源和健康校验通过，地图82节点。本批静态单独发布，API/Worker保持R183且PID不变；合同coauthoring-v7/docs/worklists/QUIET-RECOVERY-184.md。
 
 ## R183：全书方向资料整理恢复已上线
 
