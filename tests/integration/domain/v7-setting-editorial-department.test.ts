@@ -382,9 +382,12 @@ describe('V7设定编辑部', () => {
         payload:{selectedItemKeys:['world-stage'],designMemberKey:'planner-deepseek-v4-pro',idempotencyKey:'r139-context-batch'}});
       expect(created.statusCode,created.body).toBe(200);
       const completed=await pollBatch(app,cookie,bookId,created.json().data.batchId);
-      expect(completed.status,JSON.stringify(completed)).toBe('awaiting_author');
+      expect(completed.status,JSON.stringify(context.database.prepare('SELECT error_message FROM v7_setting_batches WHERE batch_id=?').get(completed.batchId))).toBe('awaiting_author');
       if (draftLength === 740) expect(selectionCalls).toBe(1);
       else expect(selectionCalls).toBeGreaterThan(1);
+      const selectionRows = context.database.prepare("SELECT member_key FROM v7_setting_model_calls WHERE batch_id=? AND node_key='setting_context_select'").all(completed.batchId) as Array<{member_key:string}>;
+      expect(selectionRows.length).toBe(selectionCalls);
+      expect(selectionRows.every(row=>row.member_key==='deputy-deepseek-v4-pro')).toBe(true);
       const prompt=delegate.prompts.find(prompt=>prompt.includes('v7_setting_group_design_v1'))!;
       expect(prompt).toContain('渡船最多12人，夜间停航；官署急令例外。');
       expect(prompt).not.toContain('旧草案19');

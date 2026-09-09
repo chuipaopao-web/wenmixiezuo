@@ -2,8 +2,19 @@ export type SettingSelectionFact = { id: string; itemKey: string; label: string;
 
 export class SettingContextPreparationError extends Error {}
 
-// Leave room below the runtime compiler's 50,000-character / 20,000-token limit.
-export const SETTING_SELECTION_PROMPT_LIMIT = 40_000;
+// Real Chinese selection calls used more tokens than the legacy char/2.5 estimate.
+// Keep substantial headroom for governance, serialization and the model response.
+export const SETTING_SELECTION_PROMPT_LIMIT = 18_000;
+
+export function settingOpeningSelection(text: string, required: readonly string[] = []): { prefix: string; anchor: string; facts: SettingSelectionFact[] } {
+  if (Array.from(text).length <= 4_000) return { prefix: text, anchor: text, facts: [] };
+  const anchor = [...new Set(required.map(part => part.trim()).filter(Boolean))].join(' · ');
+  // Split only at the profile's field separator, never in the middle of a rule.
+  return { anchor, prefix: `${anchor}\n其余开书资料见分页事实；必须选入当前主题依赖的完整背景与例外。`,
+    facts: text.split(' · ').filter(part => part.trim() && !required.includes(part)).map((part, index) => ({
+      id: `opening:${index}`, itemKey: '__opening__', label: '已确认开书资料', authority: 'confirmed', text: part
+    })) };
+}
 
 export function settingSelectionPages(facts: readonly SettingSelectionFact[], prefix: string): SettingSelectionFact[][] {
   const pages: SettingSelectionFact[][] = [];

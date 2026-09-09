@@ -1,6 +1,6 @@
 # 文秘写作全产品重构执行文档与开发顺序表
 
-> 版本1.72 · 2026-09-09 · 第176批设定续作资料分页修复已上线
+> 版本1.73 · 2026-09-09 · 第177批设定资料容量治理
 >
 > 本文是全产品重构的**唯一执行顺序和进度来源**；[详细开发规格](REBUILD_DEVELOPMENT_SPEC.md)保留产品与工程设计解释。
 >
@@ -690,6 +690,8 @@
 
 ### RB-21 设定页
 
+- **第177批当前资料规则（替代176批40000字符页）**：系统先提供本书当前开书资料与已完成设定，设计包可容纳时直接提供，不增加AI等待。超过12000字符时由现有副编优先整理（默认妙玉·4p，沿当前可用名册换员），副编使用planning_context资料合同，实际任务分配和模型调用可追溯；无可用副编时由设计成员接替。每页源提示最多18000字符，为模型计数差异与治理提示留余量；每批设计仍最多4项。开书资料超过4000字符时按原字段分页选取相关背景，主角身份、金手指、故事方向、结局和作者硬要求始终保留。选材只返回完整原文ID，系统合并并重新校验12000字符容量，不覆盖正式源、不删除条件；最多三轮选择。单条完整事实、必要硬要求或选中合计仍无法容纳时明确停止，保留成果，避免把过量内容交给模型。此为容量保护，不承诺语义选择零遗漏或无限文本都能自动完成。记录：[R177](../coauthoring-v7/docs/worklists/SETTING-CONTEXT-177.md)。
+
 - **第176批恢复修复**：长设定续作时，资料选择按完整事实分页，单次源提示上限40000字符；每页保留作者要求、当前主题、来源身份和原文。成员选ID，系统合并，设计包仍超容量时最多再筛选两轮，不截断事实或把草案变成正式依据。分页调用分别留存；无法安全缩减时显示资料准备失败。重新发起只处理未完成条目，原版本保留。证据见[第176批](../coauthoring-v7/docs/worklists/SETTING-RECOVERY-176.md)。
 
 - **第173批确认方案（替代172批规则详情）**：每批最多4项不变。设计成员直接交付完整、简短的大白话；必要条件、适用范围、代价、例外、对象和精确数字融进statement，不另列重复字段。兼容字段留空，旧格式仍可读。交付前自行检查独有信息和重复；不增加思维链展示、不提高温度、不新增固定精简岗位，不设统一字数质量门槛。
@@ -757,7 +759,7 @@
 - **确认方案·验收06·长篇效果**：工程链路及少量真实语义小样持续核验：两卷规划与定稿的隔离资料检查了来源、冲突、版本失效和正文保护；三次Kimi审查分别约4.8/5.1/2.6秒，识别限制扩大、正文矛盾与明确未来生效的合理变化。百万字连续阅读质量尚无实证，作为后续持续评测项，不伪称完成。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/books/v7-setting-editorial-service.ts,apps/api/src/application/books/v7-task-roster-snapshot.ts,apps/api/src/infrastructure/db/repositories/setting-change-impact.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-rules.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-catalog.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-agent-support.ts,rebuild/packages/backend/src/legacy-opening/agent-governance/agent-governance-registry.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/books/setting-continuity.ts,apps/api/src/infrastructure/db/repositories/setting-version-selection.ts,apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.ts,coauthoring-v7/author-app/src/SettingPage.tsx,apps/api/src/infrastructure/db/repositories/setting-continuity-repository.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/books/setting-context-selection.ts
-- **管理·代码核对**：cf2b2700da02c32c07a909104d6f1059280a6a0442053d69a7df5c1dcca85b38
+- **管理·代码核对**：3a61f0eaa6bdf785896fc52ee2f56db256675248468cea3d9688846b8121bd25
 
 - **管理·共享步骤**：AI-008,AI-009
 

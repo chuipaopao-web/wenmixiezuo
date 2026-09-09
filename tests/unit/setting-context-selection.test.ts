@@ -1,8 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { selectSettingContext, settingSelectionPages, settingSelectionPrompt, SETTING_SELECTION_PROMPT_LIMIT } from '../../apps/api/src/application/books/setting-context-selection.js';
+import { selectSettingContext, settingOpeningSelection, settingSelectionPages, settingSelectionPrompt, SETTING_SELECTION_PROMPT_LIMIT } from '../../apps/api/src/application/books/setting-context-selection.js';
 
 const facts = Array.from({ length: 30 }, (_, i) => ({ id: `${i}:0`, itemKey: `setting-${i}`, label: `规则${i}`, authority: i % 2 ? 'candidate' : 'confirmed', text: `规则${i}：凭驿券通行；夜禁，军令例外。${'旧设定'.repeat(750)}` }));
 describe('设定资料分批选择', () => {
+  it('长开书资料逐字段分页而不在每页重复；字段原文和例外保持完整', () => {
+    const text = ['主角林舟', ...Array.from({length:20},(_,i)=>`背景${i}：${'天地'.repeat(500)}；夜间禁行，军令除外。`)].join(' · ');
+    const opening = settingOpeningSelection(text);
+    expect(opening.facts.map(fact=>fact.text).join(' · ')).toBe(text);
+    expect(settingSelectionPages(opening.facts,opening.prefix).length).toBeGreaterThan(1);
+    expect(opening.prefix.length).toBeLessThan(200);
+    expect(settingOpeningSelection('主角林舟；不能修仙')).toEqual({prefix:'主角林舟；不能修仙',anchor:'主角林舟；不能修仙',facts:[]});
+    const protectedOpening = settingOpeningSelection(text, ['主角林舟']);
+    expect(protectedOpening.anchor).toBe('主角林舟');
+    expect(protectedOpening.facts.some(fact=>fact.text==='主角林舟')).toBe(false);
+    expect(()=>settingSelectionPages(opening.facts,'作者要求'.repeat(5000))).toThrow();
+  });
   it('超过原工位容量的资料完整分页，保留末页必要事实，不混入未选内容', async () => {
     const original = JSON.stringify(facts); const prompts: string[] = [];
     const result = await selectSettingContext({facts, prefix:'作者要求：保留军令例外', select: async prompt => {

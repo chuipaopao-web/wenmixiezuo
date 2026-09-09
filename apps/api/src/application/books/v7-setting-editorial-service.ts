@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { selectSettingContext, SettingContextPreparationError } from './setting-context-selection.js';
+import { selectSettingContext, settingOpeningSelection, SettingContextPreparationError } from './setting-context-selection.js';
 import { settingChangeImpact } from '../../infrastructure/db/repositories/setting-change-impact.js';
 import { continuitySources, continuitySourceText, continuityHash, continuitySourceHash, reviewSettingContinuity, type SettingContinuityReport } from './setting-continuity.js';
 import { assertSettingReviewConsistency, settingReviewAuthority, SETTING_REVIEW_AUTHORITY_RULES } from './setting-review-consistency.js';
@@ -2185,14 +2185,23 @@ export class V7SettingEditorialService {
     try { return buildSettingContextPack(input); }
     catch {
       // Only the overflow path invokes relevance selection. It selects whole exact facts, never slices text.
+      const profile = this.profile(batch.owner_id, batch.book_id);
+      const blueprint = profile.openingBlueprint;
+      const opening = settingOpeningSelection(input.openingSummary, [
+        profile.title, profile.channel, profile.category, profile.storyDirection, profile.storyEnding,
+        ...(blueprint.mustFollow ?? profile.mustFollow ?? []),
+        ...(blueprint.protagonists ?? profile.protagonists).flatMap(person => [person.name, person.age, person.goldenFinger ?? ''])
+      ]);
       const facts = [...input.confirmedSettings.map((item) => ({ ...item, authority: 'confirmed' })),
         ...input.candidateSettings.map((item) => ({ ...item, authority: 'candidate' }))].flatMap((item, itemIndex) =>
           item.content.split('\n').filter((line) => line.trim()).map((text, factIndex) => ({ id: `${itemIndex}:${factIndex}`, itemKey: item.itemKey, label: item.label, authority: item.authority, text })));
+      facts.push(...opening.facts);
       const prefix = ['整理本次设定所需事实。本次可能分页提供资料，每页只选直接相关的完整事实ID，不改写任何事实。保留作者硬边界、当前任务直接依赖、完整条件和例外；暂不相关的细节不携带。草案只供延续思路，不是正式依据。必要事实无法容纳时返回blocked，不得遗漏关键条件。',
-        `【开书资料】${input.openingSummary}`, `【本轮任务】${JSON.stringify(input.itemContract)}`, `【作者要求】${input.authorNote}`,
-        `全部入选事实合计目标不超过${Math.max(0, 10_000 - Array.from(input.openingSummary + input.authorNote + JSON.stringify(input.itemContract)).length)}字；不可为满足字数舍弃必要事实。`].join('\n');
+        `【开书资料】${opening.prefix}`, `【本轮任务】${JSON.stringify(input.itemContract)}`, `【作者要求】${input.authorNote}`,
+        `全部入选事实合计目标不超过${Math.max(0, 10_000 - Array.from(opening.prefix + input.authorNote + JSON.stringify(input.itemContract)).length)}字；不可为满足字数舍弃必要事实。`].join('\n');
       const writers = this.executableSettingRoster(batch).filter((member) => member.roleKey === 'screenwriter');
-      const ordered = [lead, ...writers.filter((member) => member.memberKey !== lead.memberKey)];
+      const deputies = this.executableSettingRoster(batch).filter((member) => member.roleKey === 'deputy_editor');
+      const ordered = [...deputies, lead, ...writers.filter((member) => member.memberKey !== lead.memberKey)];
       let last: unknown = new Error('本轮必要设定尚未整理完成');
       for (const member of ordered.slice(0, MAX_HANDOFFS + 1)) {
         try {
@@ -2200,16 +2209,21 @@ export class V7SettingEditorialService {
             facts, prefix,
             select: (prompt, round, page) => {
               this.requireLeaseOwnership(batch, token);
+              for (const job of jobs) {
+                this.repository.assignJobMember({ ownerId: job.owner_id, bookId: job.book_id, jobId: job.job_id, memberKey: member.memberKey, now: this.clock.now().toISOString() });
+              }
               return this.model(batch.owner_id, batch.book_id, batch.batch_id, input.itemKey, 'setting_context_select', member,
                 prompt, 2_000, 0.2, `${batch.batch_id}-context-${input.itemKey}-r${round}-p${page}-${member.memberKey}`,
-                settingModelInvocation({ taskKind: 'setting_design', operationMode: 'fresh', sourceTraces: settingContextSourceTraces(input) }));
+                settingModelInvocation({ taskKind: member.roleKey === 'deputy_editor' ? 'planning_context' : 'setting_design', operationMode: 'fresh', sourceTraces: settingContextSourceTraces(input) }));
             },
             build: (selected) => {
           const project = (entries: typeof input.confirmedSettings, authority: string) => entries.flatMap((item) => {
             const content = facts.filter((fact) => selected.has(fact.id) && fact.itemKey === item.itemKey && fact.authority === authority).map((fact) => fact.text).join('\n');
             return content ? [{ ...item, content }] : [];
           });
-          const next = { ...input, confirmedSettings: project(input.confirmedSettings, 'confirmed'), candidateSettings: project(input.candidateSettings!, 'candidate') };
+          const openingSummary = opening.facts.length ? [opening.anchor, ...opening.facts.filter(fact => selected.has(fact.id)).map(fact => fact.text)].filter(Boolean).join(' · ') : input.openingSummary;
+          if (!openingSummary.trim()) throw new SettingContextPreparationError('开书必要资料尚未选入，已保留原有内容。');
+          const next = { ...input, openingSummary, confirmedSettings: project(input.confirmedSettings, 'confirmed'), candidateSettings: project(input.candidateSettings!, 'candidate') };
           next.sources = input.sources.filter((source) => source.sourceType === 'confirmed_setting'
             ? next.confirmedSettings.some((item) => item.itemKey === source.sourceId)
             : source.sourceType === 'setting_candidate'
