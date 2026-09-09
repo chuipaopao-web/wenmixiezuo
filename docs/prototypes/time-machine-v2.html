@@ -17,5 +17,6 @@ function renderResult(){const r=D.routes[route];$('#content').innerHTML=`<div cl
 /*TREE_UI*/
 function renderHistory(){$('#content').innerHTML=`<div class="row"><div><h1>故事走过的路。</h1><p class="sub">来自正式正文的变化记录 · 以下为界面演示</p></div><span class="pill">按章查看</span></div><section class="panel section"><div class="row"><b>正文已保存至第 18 章</b><span class="sub">记录已核对至第 17 章</span></div><div class="progress"><div></div></div><p class="sub">第18章正在整理，已保存的正文不受影响。</p></section><div class="timeline">${D.events.map(e=>`<article class="event"><small>第 ${e.chapter} 章</small><section class="panel"><div class="row"><h3>${esc(e.title)}</h3><span class="pill">${esc(e.state)}</span></div><p>${esc(e.text)}</p><button data-event="${e.line}">定位支线 ${e.line}</button></section></article>`).join('')}</div>`;document.querySelectorAll('[data-event]').forEach(b=>b.onclick=()=>{selected=b.dataset.event;treeMode='actual';volumeFocus=0;query='';filter='all';mainFocus='all';go('tree');showLine(selected,innerWidth<=700)})}
 /*RESULT_UI*/
+/*DIRECTION_UI*/
 go(new URLSearchParams(location.search).get('view')||'start');
 </script></body></html>
