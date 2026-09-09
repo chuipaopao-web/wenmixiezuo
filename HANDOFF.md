@@ -1,5 +1,9 @@
 # 文秘写作当前交接
 
+## R191：时光机本地交互原型，待讨论展示
+
+合同coauthoring-v7/docs/worklists/TIMEMACHINE-PROTOTYPE-191.md。本批仅原型：只读核查目标书24项正式设定，目前没有ready六栏短卡缓存；人工整理594字符六栏候选短卡，两个故事方向、主角变化、可选故事线、8卷粗概览和长期期待。通用模板docs/prototypes/time-machine.html；私有样例及证据artifacts/rebuild/191，预览prototype.html。390/1440浏览器交互与无外部请求通过。没有接真实生成、正式采用、后台或部署；下一步先讨论结果呈现，再接真实流程。现网继续R190。
+
 ## R190：方法成员执行闭环，已发布
 
 合同coauthoring-v7/docs/worklists/METHOD-AGENT-190.md。341项版本化方法、轻量分类导航、按需只读工具、选材后清理上下文、规划/创作网关接入与实际记录已实现。旧任务冻结。实现635a6ed3，API/Worker wm-v7-20260910-011000-635a6ed3，静态c25b6a3fa0efcf59ce23。工程测试、三个真实模型合成小样、实际网关幂等和隔离迁移通过。回退专用wm-v7-r190-compat-635a6ed3，不能直接切回缺少0113迁移和v4解析的旧R186。完整源码继承R190/source；部署证据见artifacts/rebuild/190和服务器该版本日志。各层事实补读、新时光机UI仍待设计。
