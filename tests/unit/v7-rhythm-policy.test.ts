@@ -23,11 +23,13 @@ it('各层片段预算内，无整库名册，章层不强制宏观框架', () =
   }
   expect(renderRhythmFragment(policy,'chapter_execution')).not.toContain('三幕');
 });
-it('允许同一节奏用于多层，拒绝全书组织误入章层、未知重复引用和超长短卡', () => {
+it('允许同一结构用于多层，拒绝未知重复引用和超长短卡', () => {
   const policy = structuredClone(DEFAULT_RHYTHM_POLICY);
   policy.layers.volume = ['tension-relief']; policy.layers.chain = ['tension-relief'];
   expect(() => validateRhythmPolicy(policy)).not.toThrow();
-  policy.layers.chapter_execution = ['single-core-line']; expect(() => validateRhythmPolicy(policy)).toThrow('全书组织');
+  policy.layers.chapter_execution = ['four-act']; expect(() => validateRhythmPolicy(policy)).not.toThrow();
+  const menu=buildStoredLayerAssetMenu('book_backbone',[],{version:1,policy});
+  expect(menu.allowedAssets?.find(c=>c.key==='four-act')?.planningLayers).toContain('chapter_execution');
   policy.layers.chapter_execution = ['missing']; expect(() => validateRhythmPolicy(policy)).toThrow();
   policy.layers.chapter_execution = ['tension-relief','tension-relief']; expect(() => validateRhythmPolicy(policy)).toThrow();
   policy.layers.chapter_execution = ['tension-relief']; policy.cards[0]!.instruction = '字'.repeat(121); expect(() => validateRhythmPolicy(policy)).toThrow();
@@ -37,7 +39,7 @@ it('新候选只可引用本轮提供的卡，开关关闭不注入，存档可�
   expect(buildPlanningLayerReferencePack('volume',[],snapshot).allowedAssets.map(a=>a.key)).toEqual(DEFAULT_RHYTHM_POLICY.layers.volume);
   const stored=buildStoredLayerAssetMenu('volume',[],snapshot); expect(parseStoredLayerAssetMenu(JSON.stringify(stored))).toEqual(stored);
   expect(stored.allowedAssets?.map(a=>a.key)).toEqual(DEFAULT_RHYTHM_POLICY.layers.volume);
-  expect(stored.allowedAssets?.some(a=>a.key==='three-act')).toBe(false);
+  expect(stored.allowedAssets?.some(a=>a.key==='three-act')).toBe(true);
   expect(buildStoredLayerAssetMenu('volume').allowedAssets).toBeUndefined();
   process.env.WENMI_V7_ASSET_MENU='0'; expect(buildPlanningLayerReferencePack('volume',[],snapshot).allowedAssets).toEqual([]);
 });

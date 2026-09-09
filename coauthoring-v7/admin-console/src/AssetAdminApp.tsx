@@ -43,13 +43,12 @@ import { FeatureCapabilitiesPage } from './FeatureCapabilitiesPage';
 import { RebuildControlCenter } from './RebuildControlCenter';
 import { RhythmAssetsPage } from './RhythmAssetsPage';
 import { CreativeAssetsPage } from './CreativeAssetsPage';
+import { BookCardTemplatePage } from './BookCardTemplatePage';
 import './asset-library.css';
 
 const ASSET_TABS = [
-  { key: 'overview', label: '总览' }, { key: 'rhythm', label: '节奏短卡' },
+  { key: 'overview', label: '分层方法' }, { key: 'book-card', label: '信息短卡模板' },
   { key: 'creative', label: '创意与金手指' },
-  { key: 'methods', label: '叙事方法' }, { key: 'patterns', label: '剧情模式' },
-  { key: 'recipes', label: '剧情配方' }, { key: 'planning', label: '分层应用' }
 ] as const;
 
 const NAVIGATION = [
@@ -66,7 +65,7 @@ const NAVIGATION = [
   { key: 'memberships', label: '会员与收入', icon: Crown, group: '平台运营' }
 ] as const;
 
-type AdminSection = AssetSection | PlatformSection | 'rhythm' | 'creative' | 'agents' | 'prompt-context' | 'creation-ops' | 'features' | 'rebuild' | 'configuration';
+type AdminSection = AssetSection | PlatformSection | 'book-card' | 'rhythm' | 'creative' | 'agents' | 'prompt-context' | 'creation-ops' | 'features' | 'rebuild' | 'configuration';
 
 const DEFAULT_METHOD_FILTERS: MethodFilters = { query: '', dimension: 'all', scope: 'all' };
 const DEFAULT_PATTERN_FILTERS: PatternFilters = { query: '', category: 'all', genre: 'all' };
@@ -87,7 +86,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
   const [recipeFilters, setRecipeFilters] = useState<RecipeFilters>(DEFAULT_RECIPE_FILTERS);
   const [detail, setDetail] = useState<AssetDetail | null>(null);
   const mobileNavigationRef = useRef<HTMLElement | null>(null);
-  const inLibrary = ASSET_TABS.some(item => item.key === section);
+  const inLibrary = ASSET_TABS.some(item => item.key === section) || ['rhythm','methods','patterns','recipes','planning'].includes(section);
   const navigationKey = inLibrary ? 'overview' : section;
   const current = NAVIGATION.find((item) => item.key === navigationKey) ?? NAVIGATION[0];
 
@@ -161,7 +160,8 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
         {window.location.hostname === '127.0.0.1' && <p className="asset-local-notice">本地预览环境 · <a href="https://admin.wenmixiezuo.com/v7/?section=overview">打开生产后台</a></p>}
         {inLibrary && <nav className="asset-library-tabs" aria-label="资产分类">{ASSET_TABS.map(tab => <button key={tab.key} type="button" aria-current={section === tab.key ? 'page' : undefined} onClick={() => navigate(tab.key)}>{tab.label}</button>)}</nav>}
         {(section === 'rebuild' || section === 'configuration') && <RebuildControlCenter mode={section === 'rebuild' ? 'map' : 'configuration'} onNavigate={navigate} />}
-        {section === 'overview' && <OverviewPage onNavigate={(next) => navigate(next)} />}
+        {section === 'overview' && <RhythmAssetsPage />}
+        {section === 'book-card' && <BookCardTemplatePage />}
         {section === 'methods' && <MethodsPage items={methods} filters={methodFilters} onFilters={setMethodFilters} onOpen={(value) => setDetail({ kind: 'method', value })} onClear={clearFilters} />}
         {section === 'patterns' && <PatternsPage items={patterns} filters={patternFilters} onFilters={setPatternFilters} onOpen={(value) => setDetail({ kind: 'pattern', value })} onClear={clearFilters} />}
         {section === 'recipes' && <RecipesPage items={recipes} filters={recipeFilters} onFilters={setRecipeFilters} onOpen={(value) => setDetail({ kind: 'recipe', value })} onClear={clearFilters} />}
@@ -571,11 +571,12 @@ function EmptyState({ onClear }: { onClear: () => void }): React.JSX.Element {
 function sectionFromUrl(): AdminSection {
   const value = new URL(window.location.href).searchParams.get('section');
   if(value==='prompt-context')return 'rebuild';
+  if(value && ['rhythm','methods','patterns','recipes','planning'].includes(value))return 'overview';
   return [...NAVIGATION, ...ASSET_TABS].some((item) => item.key === value) ? value as AdminSection : 'rebuild';
 }
 
 function sectionCapabilityLabel(section: AdminSection): string {
-  if (section === 'rhythm') return '共用配置 · 版本发布';
+  if (section === 'rhythm' || section === 'overview') return '共用配置 · 版本发布';
   if (section === 'rebuild') return '计划与运行分列';
   if (section === 'configuration') return '统一管理入口';
   if (section === 'agents' || section === 'prompt-context' || section === 'users' || section === 'issues' || section === 'memberships') return '可管理';

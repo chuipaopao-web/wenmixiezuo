@@ -9,6 +9,10 @@ export class V7RhythmPolicyStore {
   initialize(now: string): void {
     this.database.prepare('INSERT OR IGNORE INTO v7_rhythm_policy_versions(version,policy_json,actor_id,created_at) VALUES(1,?,?,?)')
       .run(JSON.stringify(validateRhythmPolicy(DEFAULT_RHYTHM_POLICY)), 'system', now);
+    if (!this.database.prepare("SELECT 1 FROM v7_rhythm_policy_versions WHERE json_extract(policy_json,'$.format')='compact-v2' LIMIT 1").get()) {
+      this.database.prepare('INSERT INTO v7_rhythm_policy_versions(version,policy_json,actor_id,created_at) SELECT MAX(version)+1,?,?,? FROM v7_rhythm_policy_versions')
+        .run(JSON.stringify(validateRhythmPolicy(DEFAULT_RHYTHM_POLICY)), 'system-r185',now);
+    }
   }
   current(): RhythmPolicySnapshot {
     const row = this.database.prepare('SELECT * FROM v7_rhythm_policy_versions ORDER BY version DESC LIMIT 1').get() as unknown as Row | undefined;

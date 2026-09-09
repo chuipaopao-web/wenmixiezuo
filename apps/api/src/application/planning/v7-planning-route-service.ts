@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { V7RhythmPolicyStore } from './v7-rhythm-policy-store.js';
+import { V7BookDesignCardService, BookCardSourceIssues } from './v7-book-design-card-service.js';
 import {
   V7_CREATION_MEMBERS,
   V7_LAYER_ASSET_MENU_VERSION,
@@ -584,9 +585,9 @@ export class V7PlanningRouteService {
     const frozenChiefs = roster.directChiefs;
     this.ensureActive(run);
     this.mark(run, 'method_search');
-    snapshot = await this.prepareEvidence(run, snapshot, roster.contextEditors);
     let sharedContextSearch: V7PlanningMethodSearchRow;
     try {
+      snapshot = await this.prepareEvidence(run, snapshot, roster.contextEditors);
       sharedContextSearch = await this.ensureDirectContextPlan(run, snapshot, roster.contextEditors);
     } catch (error) {
       if (error instanceof PlanningSourceIssuesError) {
@@ -754,6 +755,22 @@ export class V7PlanningRouteService {
   ): Promise<V7PlanningMethodSearchRow> {
     const existing = this.repository.methodSearches(run.owner_id, run.book_id, run.run_id)[0];
     if (existing !== undefined) return existing;
+    if (snapshot.bookDesignCard) {
+      const member = frozenContextEditors[0];
+      if (!member) throw Error('资料编辑部没有可用成员');
+      const request: V7PlanningMethodSearchRequest = {
+        schema:'v7-planning-method-search-v1', publicGoal:'依据已整理信息短卡设计全书故事方向',
+        scaleHint:'遵守作者已确认篇幅，阶段不等于卷数', avoidNotes:[], relevantSettingSourceIds:[], missingCriticalInputs:[],
+        taskPersona:{publicLabel:'全书故事设计',workingIdentity:'根据本书题材和作者偏向设计故事',priorities:['尊重作者要求','形成具体有趣的故事'],authenticityChecks:['主角身份与能力条件'],avoidPatterns:['重复套模板']},
+        taskResponsibilities:['设计主角大概经历与重要变化','提出故事方向并保留后续展开空间'],creativeSpace:['未确定的人物、势力和剧情可以提出候选'],objectRequirements:[]
+      };
+      const menu=buildStoredLayerAssetMenu('volume_distribution',planningGenreFamilies(snapshot),
+        new V7RhythmPolicyStore(this.database).snapshot(`route:${run.owner_id}:${run.book_id}:${run.run_id}`,run.created_at));
+      return this.repository.saveMethodSearch({searchId:this.ids.next(),ownerId:run.owner_id,bookId:run.book_id,runId:run.run_id,
+        seatKey:'chief_editor',memberKey:member.memberKey,memberSnapshot:memberSnapshot(member),sourceSnapshotId:run.snapshot_id,
+        searchRequest:request,candidateMethods:menu,searchHash:sha256(stableJson({request,assetMenu:menu})),
+        retrievalVersion:'book-card-v1',requestId:`card:${run.run_id}:${snapshot.bookDesignCard.sourceKey}`,now:this.clock.now().toISOString()});
+    }
     const failures: string[] = [];
     for (const member of frozenContextEditors) {
       const logicalTaskId = `planning-route:${run.run_id}:context:${member.memberKey}`;
@@ -834,18 +851,29 @@ export class V7PlanningRouteService {
   ): Promise<V7PlanningCompiledSnapshot> {
     const member = members[0];
     if (member === undefined) throw new Error('资料编辑部没有可用成员');
-    return preparePlanningEvidence(snapshot, async (call) => {
+    const generate = async (call: {key:string;prompt:string}): Promise<string> => {
       this.ensureActive(run);
-      const logicalTaskId = `planning-evidence:${run.run_id}:${call.key}:${member.memberKey}`;
+      const logicalTaskId = `planning-evidence:${run.run_id}:${call.key}:${member.memberKey}${call.key.startsWith('book-card:') ? `:recovery-${run.retry_count}` : ''}`;
       const result = await this.models.generate({
         ...this.modelAttempt(run, logicalTaskId), ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
         runKind: 'recipe', nodeKey: `context_evidence:${call.key}`, member,
         taskKind: 'planning_context', workstationKey: 'full_book_route',
         operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
-        sourceTraces: [], prompt: call.prompt, maxOutputTokens: 2_500, temperature: 0.1
+        sourceTraces: planningSnapshotSourceTraces(snapshot), prompt: call.prompt, maxOutputTokens: 4_000, temperature: 0.1
       });
       return result.output;
-    }, this.repository.methodSearches(run.owner_id, run.book_id, run.run_id)
+    };
+    // Reuse the new card for source-identical runs. Historical method snapshots retain their existing input contract.
+    const priorSearch = this.repository.methodSearches(run.owner_id,run.book_id,run.run_id)[0];
+    if (!priorSearch || priorSearch.retrieval_version === 'book-card-v1') {
+      const card = await new V7BookDesignCardService(this.database).prepare(snapshot,generate).catch(error=>{
+        if(error instanceof BookCardSourceIssues)throw new PlanningSourceIssuesError(error.issues);
+        throw error;
+      });
+      if (JSON.stringify(planningPromptSnapshot(card)).length > 16000) throw Error('全书方向的补充资料过大，请先整理当前规划与正文状态；已整理短卡保留。');
+      return card;
+    }
+    return preparePlanningEvidence(snapshot, generate, this.repository.methodSearches(run.owner_id, run.book_id, run.run_id)
       .flatMap((search) => storedMethodSearchRequest(search).relevantSettingSourceIds), false,
       run.retry_count > 0 ? `${run.run_id}:${run.retry_count}` : undefined);
   }
@@ -1258,7 +1286,7 @@ function planningActors(
     };
   });
   if (roster.workflowStyle !== 'three-chief-direct-v1') return planningActors;
-  const contextCall = [...modelCalls].reverse().find((call) => call.nodeKey === 'shared_context_plan');
+  const contextCall = [...modelCalls].reverse().find((call) => call.nodeKey === 'shared_context_plan' || typeof call.nodeKey === 'string' && call.nodeKey.startsWith('context_evidence:book-card:'));
   if (contextCall === undefined || typeof contextCall.memberKey !== 'string') return planningActors;
   const contextMember = V7_CREATION_MEMBERS.find((member) => member.memberKey === contextCall.memberKey);
   const contextState = contextCall.state;
@@ -1275,8 +1303,8 @@ function planningActors(
     message: contextStatus === 'failed'
       ? '对不起，这次资料没有整理完成，您可以重新开始。'
       : contextStatus === 'working'
-        ? '我正在筛选本次真正需要的资料和方法，请稍等一下。'
-        : '本次资料和方法已经整理好，交给主编继续设计。',
+        ? '我正在整理全书信息短卡，核对主角和关键设定，请稍等一下。'
+        : '全书所需资料已经整理好，交给主编继续设计。',
     emoji: contextStatus === 'failed' ? '🙇' : contextStatus === 'working' ? '✍️' : '✅'
   }, ...planningActors];
 }

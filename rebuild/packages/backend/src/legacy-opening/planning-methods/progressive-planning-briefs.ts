@@ -98,7 +98,7 @@ export function progressivePlanningBriefPrompt(input: {
     '你必须同时检查：作者原意、人物主动选择、因果可信、长篇容量、跨卷递进、商业追读、阶段回报、创意辨识度和中后期续航。不能只负责其中一项。',
     '你看不到另外两名主编的答案。不要先套常见题材路线，再替换人名；必须从本书人物、时代、限制和核心冲突推出方向。',
     '菜单里的方法只是候选工具箱，不是答案。可以少用、组合或全部不用；不得为了用完资产而改变人物合理选择。',
-    'selectedStrategies总数4—6项，其中至少1项必须是agent_original：这是你为本书提出的原创推进策略，不得伪装成公共方法，也不要写回方法库。',
+    'selectedStrategies按需填写0—6项，不凑数量；可选库方法，也可原创或不用。原创策略标agent_original，不伪装成公共方法。',
     'library项的methodKey必须来自本轮资产菜单；agent_original项不得填写methodKey。每项只写一句“本书怎么用”和一句主要风险。',
     '本轮只形成全书方向的精简设计依据，不生成分卷、单元链、事件或章纲。正式资料和正文实际不能改写，未来规划不能冒充已经发生。',
     '输出字段必须完整：schema="v7-progressive-planning-brief-v2",seatKey,publicSummary,centralPromise,causalSpine,protagonistArc,longFormCapacity,pressureRhythm,payoffCadence,informationRhythm,distinctiveness,selectedStrategies,creativeOpenings,strengths,risks,authorDecisions。',
@@ -118,9 +118,6 @@ export function parseProgressivePlanningBrief(
     throw new Error('全案主编返回的方向依据格式不完整');
   }
   const selectedStrategies = strategyList(value.selectedStrategies, allowedMethods);
-  if (!selectedStrategies.some((strategy) => strategy.source === 'agent_original')) {
-    throw new Error('全案主编没有提出本书原创策略');
-  }
   return {
     schema: 'v7-progressive-planning-brief-v2',
     seatKey,
@@ -343,7 +340,7 @@ function legacyRecipeToBrief(
 }
 
 function strategyList(value: unknown, allowedMethods: readonly V7PlanningMethodReference[]): V7PlanningStrategyChoice[] {
-  if (!Array.isArray(value) || value.length < 4 || value.length > 6) throw new Error('全书策略必须为4至6项');
+  if (!Array.isArray(value) || value.length > 6) throw new Error('全书策略最多6项，不要求凑数量');
   const allowed = new Set<string>();
   const aliases = new Map<string, string | null>();
   for (const method of allowedMethods) {

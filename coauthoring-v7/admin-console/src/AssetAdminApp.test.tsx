@@ -3,6 +3,8 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssetAdminApp } from './AssetAdminApp';
+import { DEFAULT_RHYTHM_POLICY } from '../../backend/planning-methods/rhythm-policy';
+vi.mock('./platform-api',async(importOriginal)=>({...await importOriginal<typeof import('./platform-api')>(),fetchRhythmPolicy:vi.fn(async()=>({version:1,policy:structuredClone(DEFAULT_RHYTHM_POLICY),enabled:true,history:[],usage:[]}))}));
 
 vi.mock('./RebuildControlCenter', () => ({ RebuildControlCenter: ({ mode }: { mode: string }) => <div>产品管理入口：{mode}</div> }));
 
@@ -26,22 +28,20 @@ describe('V7 分层规划后台', () => {
     expect(screen.getByText('产品管理入口：configuration')).toBeVisible();
   });
 
-  it('资产顶部分类兼容旧链接，不把三名主编固定为流程', () => {
+  it('旧资产链接进入分层方法，模板独立可查，避免多套管理入口', async () => {
     render(<AssetAdminApp
       account={{ userId: 'admin-1', email: 'admin@example.com', displayName: '管理员', role: 'admin', status: 'active' }}
       onSignOut={vi.fn().mockResolvedValue(undefined)}
     />);
 
-    expect(screen.getByText(/系统冻结本次正式资料与配置版本/)).toBeVisible();
+    expect(await screen.findByRole('heading',{name:'分层方法库'})).toBeVisible();
     expect(screen.getByRole('navigation', { name: '资产分类' })).toBeVisible();
-    expect(screen.getByRole('button', { name: '分层应用' })).toHaveAttribute('aria-current','page');
-    fireEvent.click(screen.getByRole('button', { name: '叙事方法' }));
-    expect(screen.getByRole('button', { name: '叙事方法' })).toHaveAttribute('aria-current','page');
-    fireEvent.click(screen.getByRole('button', { name: '分层应用' }));
-    expect(screen.getByRole('link', { name: '打开创作成员' })).toHaveAttribute('href', '?section=agents');
-    expect(screen.queryByRole('heading', { name: '全书路线三席' })).not.toBeInTheDocument();
-    expect(screen.getByText(/卷和链默认只请一名强模型成员设计/)).toBeVisible();
-    expect(screen.getByText(/其他层级的资料包和临时身份在“创作运行”查看/)).toBeVisible();
-    expect(screen.queryByRole('heading', { name: '三名强模型全案主编' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '分层方法' })).toHaveAttribute('aria-current','page');
+    for(const name of ['时光机','卷','事件链','章'])expect(screen.getByRole('button',{name})).toBeVisible();
+    expect(screen.queryByRole('button',{name:'阶段与分卷'})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'信息短卡模板'}));
+    expect(screen.getByRole('heading',{name:'全书信息短卡'})).toBeVisible();
+    expect(screen.getByRole('heading',{name:'主角与起点'})).toBeVisible();
+    expect(screen.queryByRole('button',{name:'叙事方法'})).not.toBeInTheDocument();
   });
 });

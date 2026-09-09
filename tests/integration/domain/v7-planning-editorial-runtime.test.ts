@@ -975,10 +975,12 @@ describe('V7规划编辑部三席协作', () => {
         WHERE owner_id=? AND book_id=? AND run_id=?`).run(storedRoster.roster_json, ownerId, bookId, routeRunId);
 
       const methodSearchPrompts = resolver.prompts.filter((prompt) => prompt.includes('v7-planning-method-search-v1'));
-      expect(methodSearchPrompts).toHaveLength(1);
+      expect(methodSearchPrompts).toHaveLength(0);
+      expect(resolver.prompts.some(prompt=>prompt.includes('你是资料编辑，只整理已有资料'))).toBe(true);
+      expect(context.database.prepare("SELECT COUNT(*) AS n FROM v7_book_design_cards WHERE owner_id=? AND book_id=? AND stage_key='ready'").get(ownerId,bookId)).toMatchObject({n:1});
       const briefPrompts = resolver.prompts.filter((prompt) => prompt.includes('你是文秘写作V7的一名全案规划主编'));
       expect(briefPrompts).toHaveLength(3);
-      expect(briefPrompts.every((prompt) => prompt.includes('参考本轮资产菜单选4—6项适合本书的工具'))).toBe(true);
+      expect(briefPrompts.every((prompt) => prompt.includes('按需选择本层方法或自行组合原创，不凑方法数量'))).toBe(true);
       const searches = context.database.prepare(`SELECT search_request_json,candidate_methods_json FROM v7_planning_method_searches
         WHERE owner_id=? AND book_id=? AND run_id=?`).all(ownerId, bookId, routeRunId) as Array<{
           search_request_json: string; candidate_methods_json: string;
@@ -986,7 +988,7 @@ describe('V7规划编辑部三席协作', () => {
       expect(searches).toHaveLength(1);
       expect(searches.every((row) => {
         const ids = (JSON.parse(row.search_request_json) as { relevantSettingSourceIds: string[] }).relevantSettingSourceIds;
-        return ids.length > 0 && !ids.includes(`setting-ledger:${bookId}`);
+        return ids.length === 0; // Already prepared card; do not ask a second member to choose the same material.
       })).toBe(true);
       expect(searches.every((row) => {
         const menu = JSON.parse(row.candidate_methods_json) as { schema: string; allowedKeys: string[] };
@@ -1008,9 +1010,9 @@ describe('V7规划编辑部三席协作', () => {
       expect(settingSourceTraces.every((trace) => trace.sourceVersion.length > 0
         && (trace.decision === 'included' || trace.decision === 'excluded'))).toBe(true);
       expect(settingSourceTraces.some((trace) => trace.sourceId === `setting-ledger:${bookId}`
-        && trace.decision === 'included')).toBe(true);
+        && trace.decision === 'excluded')).toBe(true);
       expect(settingSourceTraces.some((trace) => trace.sourceId !== `setting-ledger:${bookId}`
-        && trace.decision === 'included')).toBe(true);
+        && trace.decision === 'excluded')).toBe(true);
       const storyPrompts = resolver.prompts.filter((prompt) => prompt.includes('你是长篇小说规划编剧'));
       expect(storyPrompts).toHaveLength(0);
 
@@ -1148,7 +1150,7 @@ describe('V7规划编辑部三席协作', () => {
       expect(routeAudit.statusCode).toBe(200);
       expect(routeAudit.json().data).toMatchObject({
         methodSearches: expect.arrayContaining([expect.objectContaining({
-          retrieval_version: '1.0.0',
+          retrieval_version: 'book-card-v1',
           assetMenu: expect.objectContaining({ schema: 'v7-layer-asset-menu-v1' })
         })]),
         methodProposals: expect.any(Array), storyRoutes: expect.any(Array),
@@ -1808,7 +1810,7 @@ class CrossInstancePlanningResolver implements V7OpeningModelAdapterResolver {
         await this.gate;
       }
       const prompt = stageTaskPrompt(request.prompt);
-      const output = prompt.includes('v7-planning-method-search-v1')
+      const output = prompt.includes('你是资料编辑，只整理已有资料') ? bookCardOutput(prompt) : prompt.includes('v7-planning-method-search-v1')
         ? methodSearchOutput(prompt)
         : prompt.includes('v7-planning-route-fusion-v2')
           ? routeFusionOutput(prompt)
@@ -1849,8 +1851,7 @@ class SourceIssuePlanningResolver implements V7OpeningModelAdapterResolver {
       this.calls += 1;
       return {
         provider, modelId, output: JSON.stringify({
-          ...JSON.parse(methodSearchOutput()),
-          missingCriticalInputs: ['总兵力在两项正式设定中分别为八千和三万，需要作者统一。']
+          sourceIssues: ['总兵力在两项正式设定中分别为八千和三万，需要作者统一。']
         }),
         inputTokens: 100, outputTokens: 100, cashCostCny: 0, state: 'succeeded'
       };
@@ -1868,7 +1869,9 @@ class RepairingDirectPlanningResolver implements V7OpeningModelAdapterResolver {
       const prompt = stageTaskPrompt(request.prompt);
       this.prompts.push(prompt);
       let output: string;
-      if (prompt.includes('v7-planning-method-search-v1')) {
+      if (prompt.includes('你是资料编辑，只整理已有资料')) {
+        output = bookCardOutput(prompt);
+      } else if (prompt.includes('v7-planning-method-search-v1')) {
         output = methodSearchOutput(prompt);
       } else if (prompt.includes('v7-planning-route-review-v1')) {
         output = routeReviewOutput(prompt);
@@ -1940,7 +1943,7 @@ class PlanningResolver implements V7OpeningModelAdapterResolver {
         this.failedMaintainer = true;
         throw new Error('模拟规划维护员临时请假');
       }
-      let output = stagePrompt.includes('v7-planning-maintenance-v1')
+      let output = stagePrompt.includes('你是资料编辑，只整理已有资料') ? bookCardOutput(stagePrompt) : stagePrompt.includes('v7-planning-maintenance-v1')
         ? planningMaintenanceOutput()
         : stagePrompt.includes('你刚才交回的资料策划结果不能被系统读取')
           ? methodSearchOutput(stagePrompt)
@@ -2046,7 +2049,12 @@ class PlanningRouteRetryResolver implements V7OpeningModelAdapterResolver {
   }
 }
 
+function bookCardOutput(prompt:string):string {
+  const ref=prompt.match(/"ref":"(F\d+)"/)?.[1] ?? prompt.match(/"refs":\["(F\d+)"/)?.[1] ?? 'F1';
+  return JSON.stringify({intent:[],protagonists:[{text:'张三从当前开局出发，保持已确认身份。',refs:[ref]}],hook:[],world:[],rules:[],requirements:[]});
+}
 function successfulPlanningOutput(prompt: string): string {
+  if(prompt.includes('你是资料编辑，只整理已有资料'))return bookCardOutput(prompt);
   return prompt.includes('v7-planning-method-search-v1')
     ? methodSearchOutput(prompt)
     : prompt.includes('v7-planning-route-fusion-v2')

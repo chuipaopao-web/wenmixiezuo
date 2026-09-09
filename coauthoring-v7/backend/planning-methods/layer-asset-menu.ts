@@ -103,7 +103,8 @@ export function buildLayerAssetMenu(
     return { schema: 'v7-layer-asset-menu-v1', version: `rhythm-${rhythm.version}`, layer, genreFamilies: [...genreFamilies],
       macroFrameworkCards: [], bookTopologyCards: [], recipeCards: [], patternRoster: [], methodRoster: [],
       estimatedChars: text.length, rhythmText: text,
-      rhythmAssets: selected.map(card => ({ assetType: card.assetType, key: card.key, title: card.title, planningLayers: [layer] })) };
+      rhythmAssets: selected.map(card => ({ assetType: card.assetType, key: card.key, title: card.title,
+        planningLayers: (Object.keys(rhythm.policy.layers) as PlanningLayerKey[]).filter(l => rhythm.policy.layers[l].includes(card.key)) })) };
   }
   const available = V7_NARRATIVE_METHODS.filter((method) => methodAvailableAtLayer(method, layer));
   const macroFrameworkCards = available

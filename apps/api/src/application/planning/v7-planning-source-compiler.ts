@@ -57,6 +57,7 @@ interface ConfirmedTreeRow {
 }
 
 export interface V7PlanningCompiledSnapshot {
+  bookDesignCard?: { sourceKey: string; templateVersion: string; text: string; refs: string[]; sourceIds:string[] };
   snapshotId: string;
   ownerId: string;
   bookId: string;
@@ -418,6 +419,12 @@ export async function preparePlanningEvidence(
 
 /** Audit fields and excluded-source logs stay in the snapshot, not repeated in every model prompt. */
 export function planningPromptSnapshot(snapshot: V7PlanningCompiledSnapshot): Record<string, unknown> {
+  if (snapshot.bookDesignCard) return { treeKind: snapshot.treeKind, scopeId: snapshot.scopeId,
+    sourcePolicy: '全书信息短卡是已有资料的整理，不是新事实；下列作者要求和正文实际优先。未给出的剧情由设计成员提出候选。',
+    bookDesignCard: snapshot.bookDesignCard.text,
+    sources: snapshot.sources.filter(s => s.sourceKind !== 'opening' && s.sourceKind !== 'setting')
+      .map(({sourceKind,sourceId,sourceVersion,authority,label,content})=>({sourceKind,sourceId,sourceVersion,authority,label,content})),
+    settingIndex: snapshot.sources.filter(s=>s.sourceKind==='setting').map(s=>({sourceId:s.sourceId,label:s.label})) };
   return { treeKind: snapshot.treeKind, scopeId: snapshot.scopeId,
     sourcePolicy: 'excerpts为有路径的原文节选，不是新的正式版本。作者原话、正式设定和正文证据优先，任务身份及方法建议不能推翻它们；规划不等于正文实际。',
     sources: snapshot.sources.map(({ sourceKind, sourceId, sourceVersion, authority, label, content }) => ({
@@ -438,10 +445,13 @@ export function planningSnapshotSourceTraces(snapshot: V7PlanningCompiledSnapsho
     sourceId: source.sourceId,
     sourceVersion: source.sourceVersion,
     authority: contextAuthority(source.authority),
-    decision: 'included' as const,
-    reason: source.includedReason,
+    decision: snapshot.bookDesignCard && ['opening','setting'].includes(source.sourceKind) && !snapshot.bookDesignCard.sourceIds.includes(source.sourceId) ? 'excluded' as const : 'included' as const,
+    reason: snapshot.bookDesignCard && ['opening','setting'].includes(source.sourceKind)
+      ? snapshot.bookDesignCard.sourceIds.includes(source.sourceId) ? '通过全书信息短卡概括提供；来源版本保留，未整段注入原文。' : '资料编辑整理后未纳入全书短卡；原文保留供后续相关任务读取。'
+      : source.includedReason,
     contentHash: source.contentHash,
-    estimatedTokens: estimateSourceTokens(source.content)
+    estimatedTokens: snapshot.bookDesignCard && ['opening','setting'].includes(source.sourceKind)
+      ? source.sourceKind === 'opening' ? estimateSourceTokens(snapshot.bookDesignCard.text) : 0 : estimateSourceTokens(source.content)
   }));
   const excluded = excludedDecisions.map((source) => ({
     ownerId: snapshot.ownerId,
