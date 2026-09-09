@@ -34,10 +34,10 @@ describe('V7 分层规划后台', () => {
       onSignOut={vi.fn().mockResolvedValue(undefined)}
     />);
 
-    expect(await screen.findByRole('heading',{name:'分层方法库'})).toBeVisible();
+    expect(await screen.findByRole('heading',{name:'方法库与适用规则'})).toBeVisible();
     expect(screen.getByRole('navigation', { name: '资产分类' })).toBeVisible();
     expect(screen.getByRole('button', { name: '分层方法' })).toHaveAttribute('aria-current','page');
-    for(const name of ['时光机','卷','事件链','章'])expect(screen.getByRole('button',{name})).toBeVisible();
+    for(const name of ['全书方向','粗分卷','卷设计','链设计','章设计'])expect(screen.getByRole('button',{name})).toBeVisible();
     expect(screen.queryByRole('button',{name:'阶段与分卷'})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button',{name:'信息短卡模板'}));
     expect(screen.getByRole('heading',{name:'全书信息短卡'})).toBeVisible();
@@ -46,11 +46,12 @@ describe('V7 分层规划后台', () => {
     fireEvent.click(screen.getByRole('button',{name:'创意与金手指'}));
     expect(screen.getByRole('heading',{name:'创意与金手指'})).toBeVisible();
     fireEvent.click(screen.getByRole('button',{name:'分层方法'}));
+    fireEvent.click(screen.getByRole('button',{name:'实际运行供给'}));
     await screen.findByLabelText('名称');
     fireEvent.change(screen.getByLabelText('名称'),{target:{value:'尚未发布的名称'}});
     const confirm=vi.spyOn(window,'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
     fireEvent.click(screen.getByRole('button',{name:'信息短卡模板'}));
-    expect(screen.getByRole('heading',{name:'分层方法库'})).toBeVisible();
+    expect(screen.getByRole('heading',{name:'实际运行供给'})).toBeVisible();
     fireEvent.click(screen.getByRole('button',{name:'信息短卡模板'}));
     expect(screen.getByRole('heading',{name:'全书信息短卡'})).toBeVisible();
     expect(confirm).toHaveBeenCalledTimes(2);confirm.mockRestore();

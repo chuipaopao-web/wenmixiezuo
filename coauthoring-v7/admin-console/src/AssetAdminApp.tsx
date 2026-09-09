@@ -41,7 +41,7 @@ import { UnifiedAgentGovernance } from './UnifiedAgentGovernance';
 import { CreationOperationsPage } from './CreationOperationsPage';
 import { FeatureCapabilitiesPage } from './FeatureCapabilitiesPage';
 import { RebuildControlCenter } from './RebuildControlCenter';
-import { RhythmAssetsPage } from './RhythmAssetsPage';
+import { AuditedMethodsPage } from './AuditedMethodsPage';
 import { CreativeAssetsPage } from './CreativeAssetsPage';
 import { BookCardTemplatePage } from './BookCardTemplatePage';
 import './asset-library.css';
@@ -160,13 +160,13 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
         {window.location.hostname === '127.0.0.1' && <p className="asset-local-notice">本地预览环境 · <a href="https://admin.wenmixiezuo.com/v7/?section=overview">打开生产后台</a></p>}
         {inLibrary && <nav className="asset-library-tabs" aria-label="资产分类">{ASSET_TABS.map(tab => <button key={tab.key} type="button" aria-current={section === tab.key ? 'page' : undefined} onClick={() => navigate(tab.key)}>{tab.label}</button>)}</nav>}
         {(section === 'rebuild' || section === 'configuration') && <RebuildControlCenter mode={section === 'rebuild' ? 'map' : 'configuration'} onNavigate={navigate} />}
-        {section === 'overview' && <RhythmAssetsPage />}
+        {section === 'overview' && <AuditedMethodsPage />}
         {section === 'book-card' && <BookCardTemplatePage />}
         {section === 'methods' && <MethodsPage items={methods} filters={methodFilters} onFilters={setMethodFilters} onOpen={(value) => setDetail({ kind: 'method', value })} onClear={clearFilters} />}
         {section === 'patterns' && <PatternsPage items={patterns} filters={patternFilters} onFilters={setPatternFilters} onOpen={(value) => setDetail({ kind: 'pattern', value })} onClear={clearFilters} />}
         {section === 'recipes' && <RecipesPage items={recipes} filters={recipeFilters} onFilters={setRecipeFilters} onOpen={(value) => setDetail({ kind: 'recipe', value })} onClear={clearFilters} />}
         {section === 'planning' && <PlanningPage />}
-        {section === 'rhythm' && <RhythmAssetsPage />}
+        {section === 'rhythm' && <AuditedMethodsPage />}
         {section === 'creative' && <CreativeAssetsPage />}
         {section === 'agents' && <UnifiedAgentGovernance />}
         {section === 'creation-ops' && <CreationOperationsPage />}

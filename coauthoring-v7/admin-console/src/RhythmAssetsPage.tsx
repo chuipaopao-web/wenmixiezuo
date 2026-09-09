@@ -57,7 +57,7 @@ export function RhythmAssetsPage(): React.JSX.Element {
     finally { setBusy(false); }
   };
   return <section className="rhythm-page">
-    <header className="rhythm-heading"><div><h2>分层方法库</h2><p>本层适用的方法全部提供，成员按故事需要选择搭配，无需勾选。</p><p>原库{ORIGINAL_METHOD_COUNTS.methods}种方法、{ORIGINAL_METHOD_COUNTS.patterns}种模式、{ORIGINAL_METHOD_COUNTS.recipes}种配方；合并{METHOD_MERGES.length}项同义内容，共{draft.cards.length}项。</p></div><span>当前 v{saved.version} · {saved.enabled ? '运行供给已启用' : '运行供给未启用'}</span></header>
+    <header className="rhythm-heading"><div><h2>实际运行供给</h2><p>当前执行器仍发送本层完整目录；下方是实际版本与原文，不代表校正库已接入选材。</p><p>历史供给定义：原库{ORIGINAL_METHOD_COUNTS.methods}种方法、{ORIGINAL_METHOD_COUNTS.patterns}种模式、{ORIGINAL_METHOD_COUNTS.recipes}种配方；合并{METHOD_MERGES.length}项后共{draft.cards.length}项。R187校正库及新适用规则见“方法库与适用规则”。</p></div><span>当前 v{saved.version} · {saved.enabled ? '运行供给已启用' : '运行供给未启用'}</span></header>
     {error && <p role="alert" className="rhythm-error">{error}</p>}{notice && <p role="status">{notice}</p>}
     <nav className="rhythm-tabs" aria-label="节奏供给层">{Object.entries(RHYTHM_LAYERS).filter(([key])=>key!=='volume_distribution').map(([key, value]) => <button key={key} aria-pressed={layer === key} onClick={() => {setLayer(key as PlanningLayerKey);setPage(0);}}>{value.label}</button>)}</nav>
     <p>{RHYTHM_LAYERS[layer].responsibility}</p>
