@@ -1,5 +1,9 @@
 # 文秘写作当前交接
 
+## R179：设定顶部与底部状态矛盾已修复上线
+
+合同coauthoring-v7/docs/worklists/SETTING-PAGE-STATE-179.md。SettingPage仅无条目时显示开工清单面板，历史清单任务清理不再触发已有成果的开工欢迎语。27组件测试/作者类型/合成数据浏览器通过，发布静态ab1435ebbb9b875ae3ed，源码/opt/wenmi-releases/wm-web-r179-c6a2d475/source。公网健康、401、资源通过；API和Worker保持R177且没有重启。没有修改作者内容或生产任务。静态上一版b4aaa53a5f9c59173af2。
+
 ## R178：已确认历史任务清理完成
 
 用户要求只清任务，已完成YES和“确认删除任务”双确认。2026-09-09T07:14:55Z按固定指纹清理70条开书任务、11个设定批次及关联记录，共629行；77账号、1本现存书籍、会员账务及所有无关表哈希不变，192条用量转入既有纯账务归档以保持余额。服务器证据与备份在/opt/wenmi-releases/r178-task-clear/{preview.json,rehearsal.json,before.sqlite,apply-before.sqlite,completed.json}，执行脚本/tmp/r178-task-apply.py，本地.local/r178-task-apply.py。线上健康通过；开书与设定任务均为0。确认预览后新增1条v7_planning_recipe_runs任务，未纳入629行清单，保留未删。此次为运维清理，没有部署或删除书籍账号，不重复历史关机指令。
