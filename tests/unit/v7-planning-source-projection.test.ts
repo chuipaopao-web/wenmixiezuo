@@ -7,7 +7,7 @@ describe('planning transport projection', () => {
     const original = { schema: 'v7-setting-fact-source-v1', itemKey: 'ability', contextSummary: '复核通过',
       rules: [{ level: 'topic', statement: '损伤可以修复', conditions: ['核心完整'], costs: ['灵材'], exceptions: ['核心毁坏不能复活'], objects: [], scope: '' },
         { level: 'global', statement: '不得进入星域', conditions: [], costs: [], exceptions: [] }],
-      facts: ['损伤可以修复', '不得进入星域', '只有主角拥有蓝图'] };
+      facts: ['损伤可以修复', '损伤可以修复\n条件：核心完整\n代价：灵材\n限制与例外：核心毁坏不能复活', '不得进入星域', '只有主角拥有蓝图'] };
     const before = JSON.stringify(original);
     const compact = planningSourceProjection(original) as typeof original;
     expect(JSON.stringify(compact)).toContain('核心完整');
