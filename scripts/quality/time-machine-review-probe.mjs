@@ -6,7 +6,13 @@ import {resolve} from 'node:path';
 const root=resolve(process.argv[2]??'');if(!root.startsWith('/tmp/wenmi-r192-probe'))throw Error('Isolated probe directory required');
 const moduleAt=p=>import(pathToFileURL(resolve(root,p)).href);
 const prior=JSON.parse(readFileSync(resolve(root,'result.json'),'utf8'));
-const candidate=prior.runs.find(r=>r.kind==='design')?.result?.plan;if(!candidate)throw Error('No synthetic candidate');
+let candidate=prior.runs.find(r=>r.kind==='design')?.result?.plan;
+if(!candidate){
+ const outputs=prior.calls.filter(c=>c.state==='succeeded').map(c=>{try{return JSON.parse(c.output_text.trim().replace(/^```(?:json)?\s*/u,'').replace(/\s*```$/u,''));}catch{return null;}});
+ const skeleton=outputs.find(o=>Array.isArray(o?.volumeBriefs));const volumes=outputs.filter(o=>Array.isArray(o?.volumes)).flatMap(o=>o.volumes);
+ if(!skeleton||volumes.length!==skeleton.volumeBriefs.length)throw Error('Synthetic volume batches are incomplete');
+ const {volumeBriefs,...plan}=skeleton;candidate={...plan,volumes};
+}
 const {runMigrations}=await moduleAt('api/infrastructure/db/migrations.js');
 const {BookRepository}=await moduleAt('api/infrastructure/db/repositories/book-repository.js');
 const {V7AgentGovernanceRepository}=await moduleAt('api/infrastructure/db/repositories/v7-agent-governance-repository.js');
@@ -25,5 +31,5 @@ try{
  const review=JSON.parse(output.trim().replace(/^```(?:json)?\s*/u,'').replace(/\s*```$/u,''));
  const usage=db.prepare('SELECT model_id,input_tokens,output_tokens,cash_micros FROM tm2_model_calls').get();
  writeFileSync(resolve(root,'review-result.json'),JSON.stringify({review,usage},null,2),{mode:0o600});console.log(JSON.stringify({review,usage}));
- if(review.pass!==false||!Array.isArray(review.issues)||review.issues.length<1)process.exitCode=2;
-}finally{db.close();}
+ if(typeof review.pass!=='boolean'||!Array.isArray(review.issues)||(process.argv.includes('--expect-reject')&&(review.pass!==false||review.issues.length<1)))process.exitCode=2;
+}catch(error){const failure={kind:error.kind,code:error.diagnosticCode};writeFileSync(resolve(root,'review-result.json'),JSON.stringify({failure}),{mode:0o600});console.log(JSON.stringify({failure}));process.exitCode=2;}finally{db.close();}

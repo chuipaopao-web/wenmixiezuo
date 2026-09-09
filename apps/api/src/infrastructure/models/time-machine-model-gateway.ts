@@ -9,7 +9,7 @@ export interface TimeMachineCall {
  prompt:string; maxOutputTokens:number; windowTokens:number; temperature:number;
 }
 export class TimeMachineCallError extends Error {
- constructor(public readonly kind:'unknown'|'authentication'|'temporary'|'budget'|'truncated'|'invalid',message:string){super(message);}
+ constructor(public readonly kind:'unknown'|'authentication'|'temporary'|'budget'|'truncated'|'invalid',message:string,public readonly diagnosticCode?:string){super(message);}
 }
 interface CallRow {owner_id:string;book_id:string;request_hash:string;state:string;output_text:string|null;error_class:string|null}
 /** Only transport and the authoritative account usage service are shared with the host. */
@@ -57,7 +57,8 @@ export class TimeMachineModelGateway {
    const known=usage&&[usage.inputTokens,usage.outputTokens].every(n=>Number.isSafeInteger(n)&&n>=0)&&Number.isFinite(usage.cashCostCny)&&usage.cashCostCny>=0?usage:null;
    this.db.prepare("UPDATE tm2_model_calls SET state=?,error_class=?,input_tokens=?,output_tokens=?,cash_micros=?,completed_at=? WHERE id=? AND state='working'").run(kind==='unknown'?'unknown':'failed',kind,known?.inputTokens??null,known?.outputTokens??null,known?Math.round(known.cashCostCny*1000000):null,new Date().toISOString(),request.id);
    // Do not echo provider errors, prompts, credentials or stack traces to the author.
-   throw new TimeMachineCallError(kind,kind==='unknown'?'模型结果需要核对，已保留调用记录':'本次成员调用未完成，已保留进度');
+   const diagnostic=error instanceof ModelAdapterError?`${error.failureClass}/http-${error.statusCode??'none'}/usage-${known?'known':'unavailable'}`:undefined;
+   throw new TimeMachineCallError(kind,kind==='unknown'?'模型结果需要核对，已保留调用记录':'本次成员调用未完成，已保留进度',diagnostic);
   }
  }
 }
