@@ -8,4 +8,6 @@
 
 交付：同步功能管理和路线；安全部署，保持在途任务；完成验证上线后按用户要求关机。
 
-验证：53项回归通过（.local/r177-tests.log），API类型检查通过。副编按planning_context合同调用，长资料集成测试核对实际执行者为deputy-deepseek-v4-pro。原R176真实5项已完成，原版本未变。R177尚待服务器构建、真实选材小样与部署。
+验证：53项回归通过（.local/r177-tests.log），API类型检查通过。副编按planning_context合同调用，长资料集成测试核对实际执行者为deputy-deepseek-v4-pro。原R176真实5项已完成，原版本未变。服务器API/Worker/静态构建、功能来源、模块闭包通过；DeepSeek真实合成选材两页17416/8918字符，输入12181/6215 token，耗时2034/1531毫秒，正确保留末页完整条件，未修改生产作品。
+
+发布：wm-v7-20260909-100000-0552dc73，连续30秒无在途任务后安全切换；公网健康、Worker新心跳、401、作者与后台入口及资源通过。静态仍b4aaa53a5f9c59173af2，回滚API为R176。源码/opt/wenmi-releases/wm-v7-20260909-100000-0552dc73/source；发布证据deployment-passed/public-checks.json，模型证据/tmp/r177-probe-result.json。仅清理未启用且无stage-passed的R176失败构建目录，未删除书籍、账号或备份。

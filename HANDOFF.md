@@ -1,5 +1,9 @@
 # 文秘写作当前交接
 
+## R177：设定资料容量治理，已上线
+
+合同coauthoring-v7/docs/worklists/SETTING-CONTEXT-177.md。资料选择页18000字符，长开书按字段选材、主角与硬要求常驻，副编优先使用planning_context合同，设计仍最多4项、最终12000字符校验。53项回归/API类型/服务器构建闭包与模块通过；DeepSeek真实两页选材保留末页条件。发布wm-v7-20260909-100000-0552dc73，静态仍b4aaa53a5f9c59173af2；源码/opt/wenmi-releases/wm-v7-20260909-100000-0552dc73/source，回滚R176。连续30秒零任务和公网健康/Worker/401/资源通过。用户要求完成后关机；不再自动发起作者任务。
+
 ## R176：设定续作资料分页，已上线
 
 合同coauthoring-v7/docs/worklists/SETTING-RECOVERY-176.md。管理员书籍5项续作原先源提示23665/20000导致0模型调用；改完整事实分页及有限归并选择，保留原版本和4项设计批次。52项相关回归、类型、服务器构建/闭包/模块通过；发布wm-v7-20260909-090000-e980c594，静态仍b4aaa53a5f9c59173af2，源码/opt/wenmi-releases/wm-v7-20260909-090000-e980c594/source。真实续作批次3d70fcbb-c18f-46ba-a29e-208f38e908ae已成功完成两页资料选择，进入writer_group，原有版本哈希保持不变；剩余结果见/tmp/r176-resume-result.json。旧API回滚R173，静态R175保持。
