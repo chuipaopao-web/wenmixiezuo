@@ -1,6 +1,6 @@
 # 文秘写作全产品重构执行文档与开发顺序表
 
-> 版本1.77 · 2026-09-09 · 第182批开发中条目核查状态
+> 版本1.78 · 2026-09-09 · 第183批全书方向资料整理恢复
 >
 > 本文是全产品重构的**唯一执行顺序和进度来源**；[详细开发规格](REBUILD_DEVELOPMENT_SPEC.md)保留产品与工程设计解释。
 >
@@ -999,13 +999,15 @@
 
 ### RB-22 全书蓝图与方向页
 
+- **第183批资料恢复**：仅修复现有全书方向资料整理，不实施讨论中的新时光机。冻结来源不变，运输时规则正文只保留一份，旧辅助条件与独有事实仍完整带入，空开书字段与派生复核摘要不占资料额度；超过预算继续由资料成员选择。作者重试时复用成功页面，失败页面获得有限新恢复轮次。静态页面保持；不自动生成或采用作者方向。验收/发布见[第183批](../coauthoring-v7/docs/worklists/PLANNING-CONTEXT-183.md)。
+
 - **收尾·线上现状**：现有全书规划树和时光机基础已经上线；不等于即将讨论的新时光机方案已交付。
 - **收尾·执行归属**：TimeMachinePage、v7-planning-tree路由与当前规划版本仓储。
 - **收尾·剩余工作**：本批只审计保留依赖；下一轮讨论时光机时核对真实规划任务失败、上下游版本和新交互，不重复创建整套平行引擎。
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/planning/v7-planning-route-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts
-- **管理·代码核对**：263d8251692d8d8ed958a09f6a90ae42535da6bb4b52f8be7065cb737274b6f7
+- **管理·代码核对**：a38a33a8adbda6a3a59f078589208fa2745f31206da195c1117c8081524713d0
 
 - **管理·共享步骤**：AI-001,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1069,13 +1071,15 @@
 
 ### RB-23 卷设计页
 
+- **第183批共享资料修复**：规划资料传输去重与失败页有限恢复同样作用于卷树生成；原确认版本和原始条件保留，不表示新卷页面已完成。
+
 - **收尾·线上现状**：当前V7规划树、创作和人物资料相关代码已有入口；本单元完整新设计及长篇端到端效果尚未完成验收。“未开始”指重构合同。
 - **收尾·执行归属**：TimeMachinePage/CreationWorkspacePage/LibraryPage及v7-planning-tree、v7-creation、v7-character-memory路由保留；下一轮讨论时光机前不擅自重写或删除。
 - **收尾·剩余工作**：先核对现有可复用能力，再按本卡已确认范围建立实现与验收；未定新设计不直接开发。
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts
-- **管理·代码核对**：a330d0bdc52a9f68216e8dbab6fb6b555e684e4428c191440ce1a06c9b7e14ec
+- **管理·代码核对**：f4878bd06bb88f8d71832d2c687d5b8b39a776c79ec8e3a681542eda97eb93d4
 
 - **管理·共享步骤**：AI-001,AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1134,13 +1138,15 @@
 
 ### RB-24 链/故事单元页
 
+- **第183批共享资料修复**：规划资料传输去重与失败页有限恢复同样作用于链树生成；原确认版本和原始条件保留，不表示新链页面已完成。
+
 - **收尾·线上现状**：当前V7规划树、创作和人物资料相关代码已有入口；本单元完整新设计及长篇端到端效果尚未完成验收。“未开始”指重构合同。
 - **收尾·执行归属**：TimeMachinePage/CreationWorkspacePage/LibraryPage及v7-planning-tree、v7-creation、v7-character-memory路由保留；下一轮讨论时光机前不擅自重写或删除。
 - **收尾·剩余工作**：先核对现有可复用能力，再按本卡已确认范围建立实现与验收；未定新设计不直接开发。
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts
-- **管理·代码核对**：a330d0bdc52a9f68216e8dbab6fb6b555e684e4428c191440ce1a06c9b7e14ec
+- **管理·代码核对**：f4878bd06bb88f8d71832d2c687d5b8b39a776c79ec8e3a681542eda97eb93d4
 
 - **管理·共享步骤**：AI-001,AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 

@@ -846,7 +846,8 @@ export class V7PlanningRouteService {
       });
       return result.output;
     }, this.repository.methodSearches(run.owner_id, run.book_id, run.run_id)
-      .flatMap((search) => storedMethodSearchRequest(search).relevantSettingSourceIds));
+      .flatMap((search) => storedMethodSearchRequest(search).relevantSettingSourceIds), false,
+      run.retry_count > 0 ? `${run.run_id}:${run.retry_count}` : undefined);
   }
 
   private async review(

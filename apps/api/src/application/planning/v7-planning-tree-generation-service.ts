@@ -444,7 +444,8 @@ export class V7PlanningTreeGenerationService {
         prompt: call.prompt, maxOutputTokens: 2_500, temperature: 0.1
       });
       return result.output;
-    }, frozenRoster.contextPlan?.request.relevantSettingSourceIds ?? []);
+    }, frozenRoster.contextPlan?.request.relevantSettingSourceIds ?? [], false,
+      run.retry_count > 0 ? `${run.generation_run_id}:${run.retry_count}` : undefined);
     const contextPlan = await this.ensureContextPlan(run, snapshot, frozenRoster);
     const focusedSnapshot = focusedPlanningTreeSnapshot(snapshot, contextPlan.request);
     const recipe = JSON.parse(recipeRow.recipe_json) as LayeredPlanningRecipe;

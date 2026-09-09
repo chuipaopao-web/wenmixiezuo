@@ -9,6 +9,7 @@ import {
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { readBudgetedEvidence, type EvidenceGenerate } from '../creation/v7-context-evidence-reader.js';
+import { planningSourceProjection, removeEmpty } from './v7-planning-source-projection.js';
 import { V7SettingLedgerReader, type V7CompactSettingLedger } from '../books/v7-setting-ledger-reader.js';
 import {
   V7PlanningRuntimeRepository,
@@ -386,8 +387,10 @@ export class V7PlanningSourceCompiler {
  */
 export async function preparePlanningEvidence(
   snapshot: V7PlanningCompiledSnapshot, generate: EvidenceGenerate, requiredSourceIds: readonly string[] = [],
-  pinMissingSelection = false
+  pinMissingSelection = false, recoveryKey?: string
 ): Promise<V7PlanningCompiledSnapshot> {
+  snapshot = { ...snapshot, sources: snapshot.sources.map(source => ({ ...source,
+    content: source.sourceKind === 'opening' ? removeEmpty(source.content) : planningSourceProjection(source.content) })) };
   const budget = planningBudgetChars(snapshot.treeKind);
   const withContents = (contents: unknown[]): V7PlanningCompiledSnapshot => ({ ...snapshot,
     sources: snapshot.sources.flatMap((source, index) => contents[index] === null ? [] : [{ ...source, content: contents[index] }]) });
@@ -398,12 +401,12 @@ export async function preparePlanningEvidence(
         || (source.content as { schema?: string } | null)?.schema === 'v7-compact-setting-ledger-v1',
       ...((source.content as { schema?: string } | null)?.schema === 'v7-setting-fact-source-v1'
         ? { requiredGroup: 'setting-facts' } : {}) })),
-    budget, omitUnselected: true, measure: (values) => Array.from(JSON.stringify(planningPromptSnapshot(withContents(values)))).length, generate
+    budget, omitUnselected: true, ...(recoveryKey ? { recoveryKey } : {}), measure: (values) => Array.from(JSON.stringify(planningPromptSnapshot(withContents(values)))).length, generate
   });
   // Normal continuation must reproduce the same page prompts and reuse their calls.
   // Only an older selection referring to an omitted source requires a pinned reread.
   if (!pinMissingSelection && requiredSourceIds.some((id) => !withContents(contents).sources.some((source) => source.sourceId === id))) {
-    return preparePlanningEvidence(snapshot, generate, requiredSourceIds, true);
+    return preparePlanningEvidence(snapshot, generate, requiredSourceIds, true, recoveryKey);
   }
   const omitted = snapshot.sources.filter((_, index) => contents[index] === null).map((source) => ({
     sourceKind: source.sourceKind, sourceId: source.sourceId, sourceVersion: source.sourceVersion,
