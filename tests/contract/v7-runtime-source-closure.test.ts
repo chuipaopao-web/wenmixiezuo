@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -21,7 +21,16 @@ describe('V7运行源码闭包', () => {
     expect(result.manifest.schema).toBe('v7-runtime-source-closure-v2');
     expect(result.manifest.summary.runtimeSourceFiles).toBeGreaterThan(150);
     expect(result.manifest.summary.operationalResources).toBeGreaterThanOrEqual(10);
-    expect(result.manifest.summary.migrations).toBe(109);
+    const migrationRoot = 'apps/api/src/infrastructure/db/migrations';
+    const migrations = readdirSync(migrationRoot).filter(name => name.endsWith('.sql'))
+      .map(name => `${migrationRoot}/${name}`).sort();
+    expect(result.manifest.files.filter(file => file.path.startsWith(`${migrationRoot}/`)).map(file => file.path).sort()).toEqual(migrations);
+    expect(result.manifest.summary.migrations).toBe(migrations.length);
+    expect(migrations).toEqual(expect.arrayContaining([
+      `${migrationRoot}/0109_v7_rhythm_policy.sql`,
+      `${migrationRoot}/0110_account_usage_purge_archive.sql`,
+      `${migrationRoot}/0111_opening_creative_profile.sql`
+    ]));
     expect(result.manifest.summary.buildInputs).toBe(30);
     expect(result.manifest.files.some((file) => file.path.includes('/dist/'))).toBe(false);
     expect(result.manifest.files.some((file) => file.path.endsWith('/.env.production'))).toBe(false);

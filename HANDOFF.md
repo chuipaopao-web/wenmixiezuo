@@ -1,5 +1,9 @@
 # 文秘写作当前交接
 
+## R181：后台收尾与旧实现核查（待发布）
+
+合同coauthoring-v7/docs/worklists/ADMIN-CLOSURE-181.md。82卡片补齐线上现状、执行归属、剩余工作、退出条件；后台已上线但未完成范围单列，功能管理与路线共用说明。保留仍运行的V7身份/任务/账务及共享编译包，不误删ManualOpeningForm。移除AgentGovernancePage转发层和已停用旧分页面测试，统一成员治理现行测试保留。源码闭包测试改为逐迁移文件核对，修复109与111误报；更新当前批次及过时入口/自动重载说明。后台74项、接口21项、地图/闭包15项、文档5项、Web类型/构建与390/1440隔离浏览器通过；不冒充生产管理员全功能交互验收。时光机新设计待本批后讨论。
+
 ## R180：后台功能地图读取已恢复
 
 RB-19顺序表已改名为“单页创意开书与结果采用”，详情仍旧名导致parseRebuildPlan拒绝整个地图。已统一并原子更新/opt/wenmi/docs/REBUILD_EXECUTION_PLAN.md，线上readRebuildControl成功返回82单元。11文档/权限接口回归+4发布校验通过。后续发布必须携带新增标题一致性检查scripts/verify-function-management.mjs（静态发布亦调用），防止只核对代码指纹漏掉顺序表契约；测试tests/unit/function-map-release-check.test.mjs。合同coauthoring-v7/docs/worklists/ADMIN-MAP-180.md；不重启API/Worker，不改作品；API仍R177、静态R179。

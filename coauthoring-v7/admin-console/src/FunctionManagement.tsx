@@ -4,6 +4,7 @@ import { detailText } from './WorkflowGuide';
 import { readAiNodes } from './AiWorkNodes';
 import { PromptContextCenter } from './PromptContextCenter';
 import { MemberInput } from './MemberWorkspace';
+import { DeliveryScope } from './DeliveryScope';
 import { fetchV7PromptAssets, fetchV7UnifiedAgentGovernance, fetchV7PromptManifests, fetchV7PromptManifest,
   type V7PromptAssetSummary, type V7UnifiedAgentGovernance, type V7PromptManifestSummary, type V7PromptManifestDetail } from './platform-api';
 import './function-management.css';
@@ -72,6 +73,7 @@ export function FunctionManagement({ units, onDetails, onDirtyChange }: {
       {error && <p role="alert">{error}</p>}
       <nav className="function-tabs" aria-label="功能管理内容">{([['overview', '功能与完整流程'], ['rules', '岗位、提示词与规则'], ['sample', '实际资料与上下文']] as const).map(([key, name]) => <button key={key} aria-pressed={view === key} onClick={() => leave(() => { setView(key); setEditor(null); })}>{name}</button>)}</nav>
       {view === 'overview' && <>
+        <DeliveryScope unit={unit} />
         <section><h3>怎么使用</h3><p>{field(unit, '用户操作')}</p><h3>正常流程</h3><ol className="function-flow">{field(unit, '流程').split(' → ').map((step, i) => <li key={i}>{step}</li>)}</ol></section>
         {['资料供给', '注入与压缩', '格式化输入', '输出与校验', '系统职责', '思考与解释', '调整边界'].map(key => <section key={key}><h3>{key}</h3><p>{field(unit, key) || '当前尚未登记，不能推测。'}</p></section>)}
         <section><h3>每一步与失败分支</h3><p>包含该功能及标明适用范围的共享步骤。失败类型决定是否启动重试；不把轮询、复用成功结果算作模型调用。</p>

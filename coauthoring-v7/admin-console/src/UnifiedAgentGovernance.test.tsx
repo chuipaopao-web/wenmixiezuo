@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AgentGovernancePage } from './AgentGovernancePage';
+import { UnifiedAgentGovernance } from './UnifiedAgentGovernance';
 import { SETTING_EVALUATION_REPORT } from '@wenmi/agent-catalog';
 
 const governance = {
@@ -51,7 +51,7 @@ describe('V7统一成员治理后台', () => {
   });
 
   it('统一显示固定主笔、独立审查和按任务温度', async () => {
-    render(<AgentGovernancePage/>);
+    render(<UnifiedAgentGovernance/>);
     expect(await screen.findByRole('heading', { name: '成员与模型' })).toBeVisible();
     expect(screen.getByText('林黛玉')).toBeVisible();
     expect(screen.getByText('陆婉宁')).toBeVisible();
@@ -63,7 +63,7 @@ describe('V7统一成员治理后台', () => {
   });
 
   it('将节点耗时、结构、内容和上岗边界分别显示', async () => {
-    render(<AgentGovernancePage/>);
+    render(<UnifiedAgentGovernance/>);
     fireEvent.click(await screen.findByRole('tab', { name: '模型速度与准入' }));
     const setting=screen.getByRole('region',{name:'设定审查评测'});
     expect(within(setting).getAllByText(/合格第/)).toHaveLength(3);
@@ -79,7 +79,7 @@ describe('V7统一成员治理后台', () => {
   });
 
   it('成员页仅展示关联功能与记录，并携带全局版本保存模型', async () => {
-    render(<AgentGovernancePage/>);
+    render(<UnifiedAgentGovernance/>);
     fireEvent.click(await screen.findByRole('button',{name:'管理林黛玉的模型与状态'}));
     expect(new URL(location.href).searchParams.get('member')).toBe('writer-glm-5-3');
     expect(await screen.findByRole('link',{name:'正文生成'})).toHaveAttribute('href','?section=rebuild&mapView=functions&function=RB-26');

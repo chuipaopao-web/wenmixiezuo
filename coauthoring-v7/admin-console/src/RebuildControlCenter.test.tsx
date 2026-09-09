@@ -32,6 +32,32 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('功能地图与配置中心', () => {
+  it('线上交付与重构验收分开，回退和失败不伪装已上线', () => {
+    expect(unitStage({ ...unit, deployment: '已发布', acceptance: '验收中' })).toBe('已上线·待收尾');
+    expect(unitStage({ ...unit, deployment: '已发布', frontend: '开发中' })).toBe('已上线·待收尾');
+    expect(unitStage({ ...unit, deployment: '试用中' })).toBe('试用中·待验收');
+    expect(unitStage({ ...unit, deployment: '已回退', acceptance: '通过' })).toBe('已回退·待处理');
+    expect(unitStage({ ...unit, deployment: '已发布', acceptance: '未通过' })).toBe('需要处理');
+  });
+
+  it('功能详情优先显示线上能力、剩余工作，旧代码条件折叠且不重复', async () => {
+    mockedFetch.mockResolvedValue({ ...data, units: [{ ...unit, deployment: '已发布', acceptance: '验收中', details: [
+      {label:'收尾·线上现状',text:'现有登录可以使用。'},
+      {label:'收尾·剩余工作',text:'独立身份迁移未完成。'},
+      {label:'收尾·执行归属',text:'现有账号服务。'},
+      {label:'收尾·旧实现退出',text:'新身份切换并验证后退出。'}
+    ] }] });
+    render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);
+    const scope = await screen.findByRole('region', {name:'当前交付与收尾'});
+    expect(within(scope).getByText('现有登录可以使用。',{exact:false})).toBeVisible();
+    expect(within(scope).getByText('独立身份迁移未完成。',{exact:false})).toBeVisible();
+    const details = scope.querySelector('details')!;
+    expect(details.open).toBe(false);
+    fireEvent.click(within(scope).getByText('查看执行归属与旧代码退出条件'));
+    expect(details.open).toBe(true);
+    expect(screen.getAllByText('现有账号服务。',{exact:false})).toHaveLength(1);
+  });
+
   it('默认进入统一功能管理，开发路线可独立切换并刷新恢复', async () => {
     window.history.replaceState({}, '', '/v7/?section=rebuild');
     mockedFetch.mockResolvedValue({ ...data, units: [...data.units, { ...unit, id:'RB-17', details:[{label:'设计·异常：知道缺哪份资料',text:'系统直接读取，不调用资料编辑。'}] }] });

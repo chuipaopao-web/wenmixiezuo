@@ -17,3 +17,11 @@ test('missing and duplicate cards cannot ship',()=>{
 test('Windows and Linux line endings are both accepted',()=>{
   assert.equal(verifyPlanCardNames(doc.replace(/\r?\n/g,'\r\n')),82);
 });
+
+test('every roadmap card must retain exactly one complete delivery and retirement record',()=>{
+  for (const label of ['线上现状','执行归属','剩余工作','旧实现退出']) {
+    const line=doc.match(new RegExp(`^- \\*\\*收尾·${label}\\*\\*：[^\\r\\n]+`,'m'))[0];
+    assert.throws(()=>verifyPlanCardNames(doc.replace(line,'')),new RegExp(label));
+    assert.throws(()=>verifyPlanCardNames(doc.replace(line,`${line}\n${line}`)),new RegExp(label));
+  }
+});

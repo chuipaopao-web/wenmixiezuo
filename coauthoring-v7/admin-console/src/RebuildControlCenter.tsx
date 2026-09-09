@@ -5,6 +5,7 @@ import { fetchRebuildControl } from './platform-api';
 import './rebuild-control.css';
 import { detailText } from './WorkflowGuide';
 import { FunctionManagement } from './FunctionManagement';
+import { DeliveryScope } from './DeliveryScope';
 
 type Destination = 'agents' | 'prompt-context' | 'rhythm' | 'memberships' | 'issues' | 'features';
 type Filter = 'all' | 'active' | 'pending' | 'accepted' | 'attention';
@@ -18,7 +19,10 @@ function readMapView(): MapView {
 export function unitStage(unit: RebuildUnit): string {
   if (unit.acceptance === '未通过' || unit.acceptance === '阻塞') return '需要处理';
   if (unit.design === '取消' || unit.design === '暂缓') return unit.design;
+  if (unit.deployment === '已回退') return '已回退·待处理';
   if (unit.acceptance === '通过') return unit.deployment === '已发布' ? '已发布' : '本地验收通过';
+  if (unit.deployment === '已发布') return '已上线·待收尾';
+  if (unit.deployment === '试用中') return '试用中·待验收';
   if (unit.acceptance === '验收中') return '验收中';
   if (unit.frontend === '开发中' || unit.backend === '开发中') return '开发中';
   if (unit.frontend === '已实现' || unit.backend === '已实现') {
@@ -28,7 +32,7 @@ export function unitStage(unit: RebuildUnit): string {
 }
 
 function isActive(unit: RebuildUnit): boolean {
-  return ['开发中', '验收中', '讨论中', '部分实现', '待验收', '需要处理'].includes(unitStage(unit));
+  return ['开发中', '验收中', '讨论中', '部分实现', '待验收', '需要处理', '已上线·待收尾', '试用中·待验收', '已回退·待处理'].includes(unitStage(unit));
 }
 
 function displayTime(value: string): string {
@@ -159,6 +163,7 @@ export function RebuildControlCenter({ mode, onNavigate }: {
           <option value="all">全部进度</option><option value="active">已开始待完成</option><option value="pending">待讨论 / 待开发</option><option value="accepted">验收通过</option><option value="attention">验收未通过 / 阻塞</option>
         </select>
       </div>
+      <p>这里记录完整重构合同的进度，不等于线上功能是否存在。已上线但仍有未完成范围的单元标为“已上线·待收尾”；点开可查看当前能力、剩余工作及旧代码退出条件。</p>
       <div className="rebuild-workspace">
         <section className="rebuild-map" aria-label="按顺序排列的功能地图">
           <header><strong>开发路线</strong><span>{filtered.length} 项结果</span></header>
@@ -199,6 +204,7 @@ function UnitDetail({ unit, data, onSelect, onNavigate }: {
   ];
   return <>
     <header><span className="rebuild-eyebrow">第 {unit.order} 项 · {unit.id}</span><h3>{unit.name}</h3><span className="rebuild-state">{unitStage(unit)}</span></header>
+    <DeliveryScope unit={unit} />
     <section className="rebuild-detail-section" aria-label="功能方案概览"><h4>功能简介</h4><p>{detailText(unit, '设计·功能简介') ?? detailText(unit, '讨论') ?? '尚未登记功能简介。'}</p>
       <h4>功能逻辑</h4><p>{detailText(unit, '设计·功能逻辑') ?? detailText(unit, '后端逐项实现') ?? '尚未登记功能逻辑。'}</p>
       <h4>已确认的设计方案</h4><p>{detailText(unit, '设计·已确认方案') ?? '本单元尚未单独整理确认决定；下方保留原讨论与交付记录，不自动视为已确认方案。'}</p>
@@ -216,7 +222,7 @@ function UnitDetail({ unit, data, onSelect, onNavigate }: {
       const detail = unit.details.find((item) => item.label === key);
       return detail ? <section key={key} className="rebuild-detail-section"><h4>{title}</h4><p>{detail.text}</p></section> : null;
     })}
-    {unit.details.filter((item) => !sections.some(([key]) => key === item.label) && !['已知问题', '设计·功能简介', '设计·功能逻辑', '设计·已确认方案', '设计·待验证', '设计·流程序号'].includes(item.label)).map((detail, index) => <section key={`${detail.label}-${index}`} className="rebuild-detail-section"><h4>{detail.label.replace(/^设计·/, '')} · 设计与处理逻辑</h4><p>{detail.text}</p></section>)}
+    {unit.details.filter((item) => !item.label.startsWith('收尾·') && !sections.some(([key]) => key === item.label) && !['已知问题', '设计·功能简介', '设计·功能逻辑', '设计·已确认方案', '设计·待验证', '设计·流程序号'].includes(item.label)).map((detail, index) => <section key={`${detail.label}-${index}`} className="rebuild-detail-section"><h4>{detail.label.replace(/^设计·/, '')} · 设计与处理逻辑</h4><p>{detail.text}</p></section>)}
     <section className="rebuild-detail-section"><h4>前置功能</h4>{unit.dependencies.length ? <div className="rebuild-dependencies">{unit.dependencies.map((id) => {
       const dependency = data.units.find((item) => item.id === id)!;
       return <button type="button" key={id} onClick={() => onSelect(id)}>{id} {dependency.name}<small>{unitStage(dependency)}</small><ArrowRight aria-hidden="true" /></button>;

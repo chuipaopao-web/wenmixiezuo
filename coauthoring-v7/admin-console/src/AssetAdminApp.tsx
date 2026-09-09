@@ -37,7 +37,7 @@ import {
 } from '../../backend/planning-methods/layered-planning-engine.js';
 import { PlatformPage, type PlatformSection } from './PlatformPages';
 import { fetchV7PlanningRuntimeAudit, type AdminAccount, type V7PlanningRuntimeAudit } from './platform-api';
-import { AgentGovernancePage } from './AgentGovernancePage';
+import { UnifiedAgentGovernance } from './UnifiedAgentGovernance';
 import { CreationOperationsPage } from './CreationOperationsPage';
 import { FeatureCapabilitiesPage } from './FeatureCapabilitiesPage';
 import { RebuildControlCenter } from './RebuildControlCenter';
@@ -168,7 +168,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
         {section === 'planning' && <PlanningPage />}
         {section === 'rhythm' && <RhythmAssetsPage />}
         {section === 'creative' && <CreativeAssetsPage />}
-        {section === 'agents' && <AgentGovernancePage />}
+        {section === 'agents' && <UnifiedAgentGovernance />}
         {section === 'creation-ops' && <CreationOperationsPage />}
         {section === 'features' && <FeatureCapabilitiesPage />}
         {isPlatformSection(section) && <PlatformPage section={section} currentAccountId={account.userId} />}

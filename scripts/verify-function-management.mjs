@@ -48,5 +48,12 @@ export function verifyPlanCardNames(doc) {
     seen.add(match[1]);
   }
   if (!names.size || seen.size !== names.size) throw Error('功能地图详情不完整，不能发布');
+  for (const card of cards.split(/^### /m).slice(1)) {
+    const id = card.match(/^RB-\d{2}(?:\.\d+)?/)?.[0];
+    for (const label of ['线上现状', '执行归属', '剩余工作', '旧实现退出']) {
+      const entries = [...card.matchAll(new RegExp(`^- \\*\\*收尾·${label}\\*\\*：([^\\r\\n]+)`, 'gm'))];
+      if (entries.length !== 1 || !entries[0][1].trim()) throw Error(`${id} 收尾说明缺失或重复：${label}`);
+    }
+  }
   return names.size;
 }
