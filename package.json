@@ -18,7 +18,8 @@
     "coauthoring-v7/author-app",
     "coauthoring-v7/admin-console",
     "rebuild/packages/backend/src/legacy-opening",
-    "rebuild/packages/agent-catalog"
+    "rebuild/packages/agent-catalog",
+    "rebuild/packages/time-machine-core"
   ],
   "scripts": {
     "benchmark:opening": "node scripts/quality/opening-model-benchmark.mjs",

@@ -1,0 +1,3 @@
+-- R192/P1: durable execution reservations. No production tasks are migrated.
+CREATE TABLE tm2_steps(owner TEXT NOT NULL,book TEXT NOT NULL,id TEXT NOT NULL,input_hash TEXT NOT NULL,member TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('ready','running','unknown','failed','succeeded')),attempt TEXT,lease_until INTEGER,output TEXT,error_code TEXT,PRIMARY KEY(owner,book,id),FOREIGN KEY(owner,book) REFERENCES tm2_books(owner,book)) STRICT;
+CREATE TABLE tm2_attempts(id TEXT PRIMARY KEY,owner TEXT NOT NULL,book TEXT NOT NULL,step TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('running','unknown','failed','succeeded')),started_at INTEGER NOT NULL,finished_at INTEGER,FOREIGN KEY(owner,book,step) REFERENCES tm2_steps(owner,book,id)) STRICT;

@@ -1,10 +1,10 @@
 # 文秘写作全产品重构执行文档与开发顺序表
 
-> 版本1.85 · 2026-09-10 · 第190批方法查询与设计闭环，已发布
+> 版本1.87 · 2026-09-10 · 第192批新时光机，P0基础验证通过，P1开发中
 >
 > R192时光机全新重构进行中：[完整方案v1.3](TIMEMACHINE_STORY_DESIGN.md)，旧实现只作功能核查，不复制拼接。独立领域核心初步7项测试通过；推荐、存储、模型、页面和部署尚未完成，现网仍R190。主要故事数量仅作容量参考。
 >
-> R192当前：规格v2.0第22节完成本地全面审计与工程合同，执行分P0协议/端口、P1一套真实闭环、P2三成员/UI、P3卷链交接、P4正文结算/树、P5发布。各批待实施验证，不能把v1.8原型通过等同完成产品；最新任务只更新方案，未发布。原型三套22卷保留。
+> R192当前：P0协议/存储/端口基础代码本地通过，P1已实现执行预约/接续基础，一套真实模型闭环仍开发中。P2三成员/UI、P3卷链交接、P4正文结算/树、P5发布待开发。后台路线独立更新，新运行功能尚未发布；原型三套22卷不等于真实生成完成。
 >
 > R191本地原型已完成：信息核查、两个方向及粗分卷展示通过390/1440交互验证；未接真实生成与正式采用，未部署。见[本批记录](../coauthoring-v7/docs/worklists/TIMEMACHINE-PROTOTYPE-191.md)。RB-22不因此标记全部完成，现网保持R190。
 >
@@ -68,12 +68,12 @@
 
 ## 3. 下一位接管者如何继续
 
-- **当前批次**：第187批方法逐项复核与后台用途分页已静态上线8cb9c406d13832222eea，源码/opt/wenmi-releases/wm-web-r187-55c9965f/source。338原始记录全部核对，5组合并后333张卡，修订42项简介、恢复3项独立定义。用途分类、任务分页、每条具体条件和原简介对照可查；实际运行供给单独显示，仍沿用R186版本，新选材流程尚未接入。24项相关检查、类型/构建、390/1440浏览器、82节点与14公网资源通过；作者资源原字节一致，API/Worker保持wm-v7-20260909-213500-ff0a6608且未重启。[本批清单](../coauthoring-v7/docs/worklists/METHOD-AUDIT-187.md)。
+- **当前批次**：第192批新时光机重构：P0基础代码通过本地验证；P1成员执行与真实设计闭环开发中，P2—P5依次推进。
 - **第165批历史交付**：第165批：用户完成YES与“确认删除书籍”双确认后，2026-09-09 01:20:44清理线上44本旧书、142张表37129条关联创作记录和3个文件。77个账号（含2管理员）、75条会员记录、4条交易及平台配置完整保留，2244条纯用量账务记录归档后全账户用量投影逐行不变。先完成完整备份及隔离试删，正式执行前连续30秒在途检查，事务内复核固定预览；外键/完整性检查通过。0110兼容迁移已发布，API/Worker及静态版本不变、不重启服务。本次只清理书籍，不删除或停用账号；不表示后台通用清理页面已实现。[本批清单](../coauthoring-v7/docs/worklists/TEST-DATA-RESET-165.md)。
 - **第164批交付**：2026-09-09 00:32:59已发布wm-v7-20260909-003000-2c5dfc42，静态b1f55fc5353a6dec6a42。设定三步功能完成并验证：24主题/规则卡、按需资料与对象依赖、旧主题归并及变更连续性；全量工程、55项最终复核、390/1440及3次语义小样、生产构建/旧资产兼容/服务与资源检查通过。规则和验收详情见RB-21，长期文学效果持续评测；独立PG整站切换不包含在本批声明中。[本批清单](../coauthoring-v7/docs/worklists/SETTING-IMPLEMENTATION-164.md)。
 - **第163批确认**：用户全部采纳24主题、单一规则来源、单成员分批设计、独立复核、系统与资料Agent按节点分工的完整方案。全文与逐项验收基线保存在RB-21“确认方案·”字段，后台开发路线可查看。此次只发布说明，不改变设定执行逻辑，不代表方案功能已完成。
 - **第161批调整**：成员页只负责成员与模型，移除重复上下文/共用规则编辑器；参与功能和执行记录链接到唯一功能管理入口。覆盖第159批自动版本刷新策略：静态更新不强制重载已打开页面，旧版本探针返回空响应；新页面或手动刷新加载新版本。配置读取刷新仍保留。后台根地址https://admin.wenmixiezuo.com/。[合同](../coauthoring-v7/docs/worklists/MEMBER-CONTEXT-161.md)。
-- **当前工作**：两项前置基础已完成：资料成员按模板整理短卡，后台按时光机/卷/链/章管理简短方法。下一步讨论作者时光机展示、节拍选择与故事方向；本批未擅自重做该页面，未把下层资料模板和长期文学质量标为完成。
+- **当前工作**：把完整方案与分批说明登记后台开发路线，先完成独立新核心的运行协议、版本/权限/采用事务和持久化测试；保持旧线上正常，不把原型标成正式功能。
 - **功能说明维护**：第6节的“管理·”和“收尾·”字段是后台功能说明的唯一来源。开发新增或修改已登记功能时，同步核对流程、资料、岗位、失败规则及代码来源；后台构建校验执行来源是否变化，未核对会阻止构建；同时检查顺序表/卡片名称及每项交付说明完整性。执行端已发布的提示资产和成员绑定在页面可见时每30秒刷新，退出编辑及返回窗口也同步；按第161批规则，不强制重载已打开页面；新打开或手动刷新加载新版。代码控制的预算、路由与事务规则必须随研发发布调整，不把说明或提示词当作这些参数的编辑入口。历史任务输入保留原快照。
 - **第159批发布证据**：代码22f04d1，后台静态28ed241da0929b5cd259，回滚c19b570bb5f1b867c583。23项相关组件检查、来源变更校验、类型/构建和本地桌面与390px预览通过；线上资源哈希、健康、未登录401验证通过，作者入口原字节保持、API/Worker进程未变。没有收费模型调用、生产规则写入或生产登录交互验收。
 - **第148批历史交付**：2026-09-08 00:37发布wm-v7-20260908-004000-075d8f20，静态未变。仅GLM5.3/Flash审查改为方舟Coding Chat enabled/low。同一合成样本5.3两次8.1/9.4秒，Flash11.9秒；5.3有扩大作者限制的问题不自动准入，Flash优先于KimiK3/豆包。定向测试/构建/来源闭包、在途零30秒、API/Worker/资源/后台报告只读核对通过。无作者任务调用，回滚R147。[合同](../coauthoring-v7/docs/worklists/GLM-COMPATIBILITY-148.md)。
@@ -244,7 +244,7 @@
 | [RB-19](#rb-19) | 单页创意开书与结果采用 | 复用现有身份/账务/任务适配；PG切换另验 | 已定 | 已实现 | 已实现 | 通过 | 已发布 | [第167批：一个主偏向、最多四个辅助偏向及全链继承上线](../coauthoring-v7/docs/worklists/CREATIVE-STYLES-167.md) |
 | [RB-20](#rb-20) | 作品信息与开书资料编辑 | RB-19 | 已定 | 已实现 | 开发中 | 验收中 | 已发布 | [第138批：保留资料UI与保存服务，资料v1→v2、新设定任务取v2、旧任务冻结通过并发布；完整变更影响/依赖失效仍未完成](../coauthoring-v7/docs/worklists/INFORMATION-SETTING-INTEGRATION-20260907-138.md) |
 | [RB-21](#rb-21) | 设定页 | RB-20 | 已定 | 已实现 | 已实现 | 通过 | 已发布 | [第164批：24主题与规则卡、按需注入/对象依赖、旧主题归并、变更连续性及原子确认闭环；2c5dfc42已上线](../coauthoring-v7/docs/worklists/SETTING-IMPLEMENTATION-164.md)；独立PG整站切换与百万字长期阅读效果另行验收 |
-| [RB-22](#rb-22) | 全书蓝图与方向页 | RB-21 | 已定 | 已实现 | 已实现 | 通过 | 已发布 | [第141批](../coauthoring-v7/docs/worklists/ASSET-HUB-TIME-MACHINE-20260907-141.md)；现有版本化规划树扩展及合成真实样例已验收上线；独立PG全链迁移不在本批完成范围 |
+| [RB-22](#rb-22) | 全书蓝图与方向页 | RB-21 | 已定 | 未开始 | 开发中 | 未验证 | 未发布 | 第192批按v2.0重构：原型已验，新运行链开发中；产品前端未接入，旧版141—190记录不等于新方案完成 |
 | [RB-23](#rb-23) | 卷设计页 | RB-22 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | 待建立 |
 | [RB-24](#rb-24) | 链/故事单元页 | RB-23 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | 待建立 |
 | [RB-25](#rb-25) | 章计划与章节安排 | RB-24 | 待讨论 | 未开始 | 未开始 | 未验证 | 未发布 | 待建立 |
@@ -1007,6 +1007,17 @@
 
 ### RB-22 全书蓝图与方向页
 
+- **新时光机·已确认方案**：采用v2.0开发规格。开书与已确认设定由资料成员整理短卡，主编推荐故事线，作者选择后由三名策划编剧分别设计方案A/B/C；显示成员真实头像姓名。结果含全书基线、长期期待、编号故事线与交织、分卷方向/职责/结束条件，采用后给卷链章提供相关短卡。正文记录与规划分离，树以作品粗干、卷大枝、链小枝呈现，多线按编号定位。
+- **新时光机·P0基础已验证**：独立核心已接入workspace，完成运行schema、六栏短卡与来源校验、token预算拒绝超限、候选修订、采用/编号/outbox原子事务和SQLite平台适配。含增量迁移0114，本地构建与测试通过；生产未执行迁移，真实身份/来源/模型接线随P1联调。
+- **新时光机·P1开发中**：步骤预约、输入/成员冻结、已保存产物恢复、租约过期转结果未知、临时失败重试上限及迟到结果防覆盖已完成基础测试。真实模型网关/账本、资料推荐、作者选择、工具循环、分批卷及采用供给尚未闭环，不标已完成。
+- **新时光机·P2待开发**：三成员独立候选与编辑UI，部分失败单独恢复，真实成员归属、候选切换、同源后台。
+- **新时光机·P3待开发**：卷链章真实交接、阶段目标、结束条件、计划偏离与正文结果卡。
+- **新时光机·P4待开发**：正文结算、证据语义复核、版本依赖、连续水位、时光树/轨迹与纠错。
+- **新时光机·P5待开发**：隔离/模型/浏览器验收、功能开关、安全发布与后台实际状态。不会为了发布暂停作者任务。
+- **新时光机·修改入口**：故事选择、候选文字、线合并拆分、卷职责和顺序均创建修订；记录纠错经证据核查，不直接修改红果状态；历史正文和审计保留。
+- **新时光机·资料安全与验收**：按模型token预算分批、只读工具限权、敏感信息不入模型、来源版本冻结。切片匹配不等于事实正确；结算防重、乱序与重修必须测试，未验证不标通过。
+- **新时光机·完整规格**：[时光机v2.0](TIMEMACHINE_STORY_DESIGN.md)第22节；[第192批执行](../coauthoring-v7/docs/worklists/TIMEMACHINE-192.md)。以下141—190记录是旧版本历史，不能替代本次验收。
+
 - **第185批**：先接入全书信息短卡，不重构作者结果页。资料成员按六栏分批整理开书与设定，两两合并并逐页复核关键内容；按书籍与来源版本复用。后续方向直接读取短卡，不再重复调用资料筛选。原始快照不改，失败保留成功阶段。短卡目标约1800、上限3200字符，输入每页9000字符，单次完整请求上限18000字符。详见[本批执行](../coauthoring-v7/docs/worklists/CONTEXT-CARDS-METHODS-185.md)。
 
 - **第183批发布结果**：API/Worker wm-v7-20260909-180500-499ff1ac已上线，静态保持R182。原任务资料快照运输40306→17359字符，26来源保留，原始快照未改；无需资料删选即可通过预算。旧任务可继续，作者自行生成方向后再讨论重构。后台说明与路线同步。
@@ -1015,7 +1026,7 @@
 
 - **收尾·线上现状**：现有全书规划树和时光机基础已经上线；不等于即将讨论的新时光机方案已交付。
 - **收尾·执行归属**：TimeMachinePage、v7-planning-tree路由与当前规划版本仓储。
-- **收尾·剩余工作**：本批只审计保留依赖；下一轮讨论时光机时核对真实规划任务失败、上下游版本和新交互，不重复创建整套平行引擎。
+- **收尾·剩余工作**：第192批已获新时光机实施授权，按P0—P5推进；共用现有身份、账本和模型传输，通过独立领域与适配接口接入，不复制旧时光机业务。旧任务继续由原运行版本处理，新功能验证后再按书籍执行归属切换。
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/planning/v7-planning-route-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/planning/v7-book-design-card-service.ts,apps/api/src/application/planning/v7-planning-source-compiler.ts,coauthoring-v7/backend/planning-methods/book-design-card.ts,coauthoring-v7/backend/planning-methods/rhythm-policy.ts,coauthoring-v7/backend/planning-methods/layer-asset-menu.ts,coauthoring-v7/backend/planning-methods/complete-method-catalog.ts,coauthoring-v7/backend/planning-methods/layered-planning-engine.ts,coauthoring-v7/backend/planning-methods/planning-story-routes.ts,rebuild/packages/backend/src/legacy-opening/planning-methods/planning-story-routes.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
