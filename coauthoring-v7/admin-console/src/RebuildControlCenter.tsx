@@ -5,7 +5,7 @@ import { fetchRebuildControl } from './platform-api';
 import './rebuild-control.css';
 import { detailText } from './WorkflowGuide';
 import { FunctionManagement } from './FunctionManagement';
-import { DeliveryScope } from './DeliveryScope';
+import { DeliveryScope, reviewedStage, implementationStatus } from './DeliveryScope';
 
 type Destination = 'agents' | 'prompt-context' | 'rhythm' | 'memberships' | 'issues' | 'features';
 type Filter = 'all' | 'active' | 'pending' | 'accepted' | 'attention';
@@ -20,6 +20,8 @@ export function unitStage(unit: RebuildUnit): string {
   if (unit.acceptance === '未通过' || unit.acceptance === '阻塞') return '需要处理';
   if (unit.design === '取消' || unit.design === '暂缓') return unit.design;
   if (unit.deployment === '已回退') return '已回退·待处理';
+  const reviewed = reviewedStage(unit);
+  if (reviewed) return reviewed;
   if (unit.acceptance === '通过') return unit.deployment === '已发布' ? '已发布' : '本地验收通过';
   if (unit.deployment === '已发布') return '已上线·待收尾';
   if (unit.deployment === '试用中') return '试用中·待验收';
@@ -32,6 +34,7 @@ export function unitStage(unit: RebuildUnit): string {
 }
 
 function isActive(unit: RebuildUnit): boolean {
+  if (reviewedStage(unit)) return unitStage(unit) !== '已合并';
   return ['开发中', '验收中', '讨论中', '部分实现', '待验收', '需要处理', '已上线·待收尾', '试用中·待验收', '已回退·待处理'].includes(unitStage(unit));
 }
 
@@ -210,7 +213,7 @@ function UnitDetail({ unit, data, onSelect, onNavigate }: {
       <h4>已确认的设计方案</h4><p>{detailText(unit, '设计·已确认方案') ?? '本单元尚未单独整理确认决定；下方保留原讨论与交付记录，不自动视为已确认方案。'}</p>
       <h4>待确认 / 待验证</h4><p>{detailText(unit, '设计·待验证') ?? '按下方设计状态、验收要求和证据判断；没有记录不代表已经验证。'}</p>
     </section>
-    <dl className="rebuild-status-grid">{[['设计', unit.design], ['前端', unit.frontend], ['后端', unit.backend], ['验收', unit.acceptance], ['上线', unit.deployment]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+    <dl className="rebuild-status-grid">{[['设计', unit.design], ['前端', implementationStatus(unit, unit.frontend)], ['后端', implementationStatus(unit, unit.backend)], ['验收', unit.acceptance], ['上线', unit.deployment]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
     <section className="rebuild-evidence"><h4>BUG与当前可用性</h4><p><strong>缺陷核查：</strong>{issues?.text ?? '尚未完成该功能的专项缺陷核查；不能据此判断没有BUG。'}</p>
       <p><strong>业务畅通：</strong>{failed > 0 ? `相关现有链路观察到 ${failed} 条失败记录，需在问题记录核查。` : recordedRun ? '已有本批运行验证记录，见下方；当前实时业务畅通仍未验证。' : signals.length ? '相关现有链路有任务记录；尚无本功能完整探针，仍为未验证。' : '尚无本功能的完整运行证据，未验证。'}</p>
       {signals.length > 0 && <p>关联样本：{signals.reduce((sum, item) => sum + item.observed, 0)} 条，其中成功 {signals.reduce((sum, item) => sum + item.succeeded, 0)} 条、失败 {failed} 条。多个功能可能共享同一链路，样本不能相加当总任务数。</p>}

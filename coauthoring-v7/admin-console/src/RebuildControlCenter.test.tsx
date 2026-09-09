@@ -32,6 +32,19 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('功能地图与配置中心', () => {
+  it('采用当前核查状态，已合并不在待完成列表，失败不能被状态记录覆盖', async () => {
+    const partial = {...unit, frontend:'开发中' as const, details:[{label:'收尾·进度状态',text:'部分实现·待接入'}]};
+    expect(unitStage(partial)).toBe('部分实现·待接入');
+    expect(unitStage({...partial,acceptance:'未通过'})).toBe('需要处理');
+    expect(unitStage({...partial,deployment:'已回退'})).toBe('已回退·待处理');
+    const merged = {...partial,id:'RB-08',name:'手动开书',details:[{label:'收尾·进度状态',text:'已合并'}]};
+    mockedFetch.mockResolvedValue({...data,units:[partial,merged]});
+    render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);
+    await screen.findByRole('region',{name:'功能详情'});
+    expect(within(screen.getByRole('region',{name:'功能详情'})).getByText('部分实现',{exact:true})).toBeVisible();
+    fireEvent.change(screen.getByLabelText('按重构进度筛选'),{target:{value:'active'}});
+    expect(within(screen.getByRole('region',{name:'按顺序排列的功能地图'})).queryByText('手动开书')).not.toBeInTheDocument();
+  });
   it('线上交付与重构验收分开，回退和失败不伪装已上线', () => {
     expect(unitStage({ ...unit, deployment: '已发布', acceptance: '验收中' })).toBe('已上线·待收尾');
     expect(unitStage({ ...unit, deployment: '已发布', frontend: '开发中' })).toBe('已上线·待收尾');

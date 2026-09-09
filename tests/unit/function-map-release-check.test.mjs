@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {verifyPlanCardNames,verifyFunctionManagement} from '../../scripts/verify-function-management.mjs';
 const doc=readFileSync('docs/REBUILD_EXECUTION_PLAN.md','utf8');
+
+test('reviewed progress rejects invalid or duplicate records',()=>{
+  const line='- **收尾·进度状态**：部分实现·待接入';
+  assert(doc.includes(line));
+  assert.throws(()=>verifyPlanCardNames(doc.replace(line,'- **收尾·进度状态**：随意完成')),/进度状态/);
+  assert.throws(()=>verifyPlanCardNames(doc.replace(line,`${line}\n${line}`)),/进度状态/);
+});
 test('current map and management records pass the static release gate',()=>{
   assert.equal(verifyPlanCardNames(doc),82);
   assert(verifyFunctionManagement(process.cwd())>0);

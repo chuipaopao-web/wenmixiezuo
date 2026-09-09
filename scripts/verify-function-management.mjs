@@ -50,6 +50,10 @@ export function verifyPlanCardNames(doc) {
   if (!names.size || seen.size !== names.size) throw Error('功能地图详情不完整，不能发布');
   for (const card of cards.split(/^### /m).slice(1)) {
     const id = card.match(/^RB-\d{2}(?:\.\d+)?/)?.[0];
+    const progress = [...card.matchAll(/^- \*\*收尾·进度状态\*\*：([^\r\n]*)/gm)];
+    if (progress.length > 1 || progress.length === 1 && !['部分实现·待接入', '部分上线·待联调', '已合并', '已上线·待补全', '试用中·待补全', '已上线·待补验'].includes(progress[0][1].trim())) {
+      throw Error(`${id} 核查进度状态无效或重复`);
+    }
     for (const label of ['线上现状', '执行归属', '剩余工作', '旧实现退出']) {
       const entries = [...card.matchAll(new RegExp(`^- \\*\\*收尾·${label}\\*\\*：([^\\r\\n]+)`, 'gm'))];
       if (entries.length !== 1 || !entries[0][1].trim()) throw Error(`${id} 收尾说明缺失或重复：${label}`);
