@@ -1,0 +1,7 @@
+.workflow-page .workflow-section{margin-top:20px;overflow-wrap:anywhere}
+.workflow-page .workflow-table{max-width:100%;overflow-x:auto;margin:16px 0}
+.workflow-page table{width:100%;border-collapse:collapse;min-width:620px;text-align:left;line-height:1.7}
+.workflow-page th,.workflow-page td{padding:12px;border-bottom:1px solid #dbe5df;vertical-align:top}
+.workflow-page th{background:#f2f7f4;color:#29483f;font-weight:600}
+.workflow-page li{margin:12px 0;line-height:1.8}
+.workflow-page select{max-width:100%}

@@ -45,6 +45,9 @@ describe('V7 分层规划后台', () => {
     expect(screen.queryByRole('button',{name:'叙事方法'})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button',{name:'创意与金手指'}));
     expect(screen.getByRole('heading',{name:'创意与金手指'})).toBeVisible();
+    fireEvent.click(screen.getByRole('button',{name:'智能体工作流程'}));
+    expect(screen.getByRole('heading',{name:'智能体工作流程'})).toBeVisible();
+    expect(screen.getByRole('heading',{name:'1. 当前到底实现了什么'})).toBeVisible();
     fireEvent.click(screen.getByRole('button',{name:'分层方法'}));
     fireEvent.click(screen.getByRole('button',{name:'实际运行供给'}));
     await screen.findByLabelText('名称');

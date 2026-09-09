@@ -44,11 +44,12 @@ import { RebuildControlCenter } from './RebuildControlCenter';
 import { AuditedMethodsPage } from './AuditedMethodsPage';
 import { CreativeAssetsPage } from './CreativeAssetsPage';
 import { BookCardTemplatePage } from './BookCardTemplatePage';
+import { AgentWorkflowPage } from './AgentWorkflowPage';
 import './asset-library.css';
 
 const ASSET_TABS = [
   { key: 'overview', label: '分层方法' }, { key: 'book-card', label: '信息短卡模板' },
-  { key: 'creative', label: '创意与金手指' },
+  { key: 'creative', label: '创意与金手指' }, { key:'workflow',label:'智能体工作流程' },
 ] as const;
 
 const NAVIGATION = [
@@ -65,7 +66,7 @@ const NAVIGATION = [
   { key: 'memberships', label: '会员与收入', icon: Crown, group: '平台运营' }
 ] as const;
 
-type AdminSection = AssetSection | PlatformSection | 'book-card' | 'rhythm' | 'creative' | 'agents' | 'prompt-context' | 'creation-ops' | 'features' | 'rebuild' | 'configuration';
+type AdminSection = AssetSection | PlatformSection | 'book-card' | 'rhythm' | 'creative' | 'workflow' | 'agents' | 'prompt-context' | 'creation-ops' | 'features' | 'rebuild' | 'configuration';
 
 const DEFAULT_METHOD_FILTERS: MethodFilters = { query: '', dimension: 'all', scope: 'all' };
 const DEFAULT_PATTERN_FILTERS: PatternFilters = { query: '', category: 'all', genre: 'all' };
@@ -162,6 +163,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
         {(section === 'rebuild' || section === 'configuration') && <RebuildControlCenter mode={section === 'rebuild' ? 'map' : 'configuration'} onNavigate={navigate} />}
         {section === 'overview' && <AuditedMethodsPage />}
         {section === 'book-card' && <BookCardTemplatePage />}
+        {section === 'workflow' && <AgentWorkflowPage />}
         {section === 'methods' && <MethodsPage items={methods} filters={methodFilters} onFilters={setMethodFilters} onOpen={(value) => setDetail({ kind: 'method', value })} onClear={clearFilters} />}
         {section === 'patterns' && <PatternsPage items={patterns} filters={patternFilters} onFilters={setPatternFilters} onOpen={(value) => setDetail({ kind: 'pattern', value })} onClear={clearFilters} />}
         {section === 'recipes' && <RecipesPage items={recipes} filters={recipeFilters} onFilters={setRecipeFilters} onOpen={(value) => setDetail({ kind: 'recipe', value })} onClear={clearFilters} />}
