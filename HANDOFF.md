@@ -1,5 +1,9 @@
 # 文秘写作当前交接
 
+## R180：后台功能地图读取已恢复
+
+RB-19顺序表已改名为“单页创意开书与结果采用”，详情仍旧名导致parseRebuildPlan拒绝整个地图。已统一并原子更新/opt/wenmi/docs/REBUILD_EXECUTION_PLAN.md，线上readRebuildControl成功返回82单元。11文档/权限接口回归+4发布校验通过。后续发布必须携带新增标题一致性检查scripts/verify-function-management.mjs（静态发布亦调用），防止只核对代码指纹漏掉顺序表契约；测试tests/unit/function-map-release-check.test.mjs。合同coauthoring-v7/docs/worklists/ADMIN-MAP-180.md；不重启API/Worker，不改作品；API仍R177、静态R179。
+
 ## R179：设定顶部与底部状态矛盾已修复上线
 
 合同coauthoring-v7/docs/worklists/SETTING-PAGE-STATE-179.md。SettingPage仅无条目时显示开工清单面板，历史清单任务清理不再触发已有成果的开工欢迎语。27组件测试/作者类型/合成数据浏览器通过，发布静态ab1435ebbb9b875ae3ed，源码/opt/wenmi-releases/wm-web-r179-c6a2d475/source。公网健康、401、资源通过；API和Worker保持R177且没有重启。没有修改作者内容或生产任务。静态上一版b4aaa53a5f9c59173af2。

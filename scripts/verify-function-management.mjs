@@ -13,6 +13,7 @@ export function functionSourceDigest(root, paths) {
 }
 export function verifyFunctionManagement(root) {
   const doc = readFileSync(resolve(root, 'docs/REBUILD_EXECUTION_PLAN.md'), 'utf8');
+  verifyPlanCardNames(doc);
   const sections = doc.split(/^### /m).filter(s => /^RB-/.test(s));
   let count = 0;
   for (const section of sections) {
@@ -26,4 +27,26 @@ export function verifyFunctionManagement(root) {
   }
   if (!count) throw Error('功能管理档案未登记');
   return count;
+}
+
+// Run in static-only releases too: the admin API rejects the entire map when a
+// renamed table entry retains an old card title, even if code digests match.
+export function verifyPlanCardNames(doc) {
+  const table = doc.match(/^## 5\.[\s\S]*?(?=^## 6\.)/m)?.[0];
+  const cards = doc.match(/^## 6\.[\s\S]*?(?=^## 7\.)/m)?.[0];
+  if (!table || !cards) throw Error('功能地图缺少顺序表或详情区');
+  const names = new Map();
+  for (const match of table.matchAll(/^\| \[(RB-\d{2}(?:\.\d+)?)\]\([^)]*\)\s*\|\s*([^|]+)\|/gm)) {
+    if (names.has(match[1])) throw Error(`功能地图顺序表重复：${match[1]}`);
+    names.set(match[1], match[2].trim());
+  }
+  const seen = new Set();
+  for (const match of cards.matchAll(/^### (RB-\d{2}(?:\.\d+)?) ([^\r\n]+)\r?$/gm)) {
+    if (!names.has(match[1]) || seen.has(match[1]) || names.get(match[1]) !== match[2]) {
+      throw Error(`功能地图详情与顺序表不一致：${match[1]}，请同步名称，不能发布`);
+    }
+    seen.add(match[1]);
+  }
+  if (!names.size || seen.size !== names.size) throw Error('功能地图详情不完整，不能发布');
+  return names.size;
 }

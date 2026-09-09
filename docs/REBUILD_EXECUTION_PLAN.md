@@ -1,6 +1,6 @@
 # 文秘写作全产品重构执行文档与开发顺序表
 
-> 版本1.74 · 2026-09-09 · 第179批设定页面状态修复已上线
+> 版本1.75 · 2026-09-09 · 第180批后台功能地图读取恢复
 >
 > 本文是全产品重构的**唯一执行顺序和进度来源**；[详细开发规格](REBUILD_DEVELOPMENT_SPEC.md)保留产品与工程设计解释。
 >
@@ -316,6 +316,8 @@
 
 ### RB-00.1 后台功能地图与配置中心
 
+- **第180批读取修复与发布检查**：RB-19详情标题与顺序表名称统一，恢复真实后台读取。verifyFunctionManagement在原有字段/来源检查前核对顺序表与全部详情标题的一致、唯一和完整；静态发布也执行，不以首页健康代替后台业务接口。11项文档/权限接口回归与4项发布检查通过；线上readRebuildControl实际返回82单元。原子更新文档，无服务重启。[R180记录](../coauthoring-v7/docs/worklists/ADMIN-MAP-180.md)。
+
 - **设计·已确认方案**：老板要求后台展示全链路AI介入导图和所有功能的简介、逻辑、已确认方案；系统能直接提供的资料不调用资料Agent。复用唯一执行文档，不另维护进度副本。
 - **设计·功能逻辑**：导图读取本文件各单元的流程序号与系统直供、资料编辑介入、执行与复查说明；点击关联开发单元。全部82个单元继续提供简介、后端逻辑、原始补充与85项来源功能。未单独记录的确认决定明确待整理，不从状态或历史讨论推断。
 - **设计·待验证**：导图是目标设计说明，不是运行监控。字符预算和资料策略的实施仍需后续验证；本批不提供伪造的在线编辑保存能力。
@@ -587,7 +589,7 @@
 
 <a id="rb-19"></a>
 
-### RB-19 AI开书页与结果采用
+### RB-19 单页创意开书与结果采用
 
 - **管理·代码来源**：rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,rebuild/packages/agent-catalog/creative-assets.js,rebuild/packages/backend/src/legacy-opening/opening-agent/opening-prompt-compiler.ts,apps/api/src/application/books/v7-opening-agent-service.ts,coauthoring-v7/author-app/src/NewNovelPage.tsx,coauthoring-v7/author-app/src/AuthorApp.tsx
 - **管理·代码核对**：c84c3ca1348d55b7f92b31c3c373fe5f9cdfdf7ec72b40dcecf8afb2d3705c53
