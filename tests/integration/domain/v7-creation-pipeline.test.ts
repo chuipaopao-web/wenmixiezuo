@@ -21,6 +21,28 @@ import { V7PlanningTreeService } from '../../../apps/api/src/application/plannin
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { FixedClock, SequenceIds, createTestContext as createBaseTestContext, type TestContext } from '../../helpers/test-context.js';
 import { v7GenreProfileFixtureResult } from '../../helpers/v7-genre-profile-model-fixture.js';
+import {renderRhythmFragment} from '@wenmi/v7-backend';
+import {V7RhythmPolicyStore} from '../../../apps/api/src/application/planning/v7-rhythm-policy-store.js';
+
+it('方法工具通过真实创作网关执行，最终请求可追溯且重放不再次下单',async()=>{
+ const local=createTestContext('wenmi-method-gateway-');const app=await createServer(local.config,local.database);
+ try{
+  const cookie=await register(app,'method-loop@example.com','方法测试作者');const bookId=await createBook(app,cookie,'合成方法测试','method-book-0001');
+  const ownerId=String(local.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId)!.owner_id),workflowId='method-workflow';
+  new V7CreationRuntimeRepository(local.database).createWorkflow({workflowId,ownerId,bookId,volumeScopeId:'volume-1',firstVolume:true,authorGoal:null,idempotencyKey:'method-loop-setup',requestHash:'a'.repeat(64),now:'2026-09-10T00:00:00Z'});
+  const store=new V7RhythmPolicyStore(local.database);store.initialize('2026-09-09');const snapshot=store.snapshot(`creation:${ownerId}:${bookId}:${workflowId}:design`,'2026-09-10')!;
+  let calls=0;const outputs=[JSON.stringify({agentAction:'tool_calls',calls:[{name:'read_methods',arguments:{ids:['six-act']}}]}),JSON.stringify({agentAction:'selection',selected:[{id:'six-act',application:'从修理机甲到建立工坊。'}]}),JSON.stringify({direction:'林舟以机甲救人，得到第一座工坊。'})];
+  const resolver:V7OpeningModelAdapterResolver={resolve:(provider,modelId)=>({provider,modelId,generate:async(request)=>{
+   const genre=v7GenreProfileFixtureResult(provider,modelId,request);if(genre)return genre;
+   if(calls===2){expect(request.prompt).toContain('从修理机甲');expect(request.prompt).not.toContain('【最近工具返回');}
+   return {provider,modelId,output:outputs[calls++]!,inputTokens:50,outputTokens:20,cashCostCny:0,state:'succeeded'};
+  }})};
+  const gateway=new V7CreationModelGateway(local.database,resolver,new FixedClock());const input={requestId:'method-root',ownerId,bookId,workflowId,runKind:'option' as const,nodeKey:'volume:volume-1:option_1',workstationKey:'volume' as const,member:creationFallbackChain('planning_writer')[0]!,purpose:'structured_planning' as const,operationMode:'fresh' as const,basedOnTaskId:null,authorInstructionVersion:null,sourceTraces:[],prompt:'林舟机甲修仙。'+renderRhythmFragment(snapshot.policy,'volume',snapshot.version),maxOutputTokens:1000,temperature:.5};
+  const first=await gateway.generate(input);expect(first.requestId).toBe('method-root:methods:2');expect(calls).toBe(3);expect(first.output).toContain('工坊');
+  const replay=await gateway.generate(input);expect(replay.output).toBe(first.output);expect(calls).toBe(3);
+  expect(local.database.prepare("SELECT COUNT(*) n FROM v7_creation_model_calls WHERE workflow_id=? AND state='succeeded'").get(workflowId)?.n).toBe(3);
+ }finally{await app.close();local.close();}
+});
 
 function createTestContext(prefix?: string): TestContext {
   const context = createBaseTestContext(prefix);
