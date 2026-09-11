@@ -18,6 +18,7 @@ import { NewNovelPage } from './NewNovelPage';
 import { TaskLogPage } from './TaskLogPage';
 import { TeamPage } from './TeamPage';
 import { TimeMachinePage } from './TimeMachinePage';
+import { TimeMachineDirectionEntry } from './TimeMachineDirectionPage';
 import { CreationWorkspacePage } from './CreationWorkspacePage';
 import { LibraryPage } from './LibraryPage';
 import { BenefitsPage } from './BenefitsPage';
@@ -495,7 +496,7 @@ export function AuthorApp(): React.JSX.Element {
 
         {(view === 'home' || view === 'new-novel' || (bookId === null && ['information','time-machine','volume','chain','chapter','library'].includes(view))) && <NewNovelPage key={`${accountSession.account.userId}-${openingEntry}-${openingTaskId ?? 'new'}-${openingDraftGeneration}`} entryMode={view === 'home' ? 'ai' : openingEntry} onBack={() => navigate('tasks')} onCreated={(createdBookId) => navigate('information', createdBookId)} onAuthenticationRequired={accountSession.requireSignIn} onOpenAccount={openAccountFromOpening} membershipRetryReady={openingTaskId !== null && membershipRetryGrant?.taskId === openingTaskId && accountSession.membershipState === 'ready' && membershipAllowsOpeningRetry(accountSession.account.role, accountSession.membership, membershipRetryGrant.recoveryAction)} onMembershipRetryConsumed={consumeMembershipRecovery} />}
         {view === 'information' && bookId !== null && <InformationPage key={`${bookId}-${informationSection}-${settingRecoveryFocus ?? 'default'}`} bookId={bookId} initialSection={informationSection} settingRecoveryFocus={settingRecoveryFocus} onOpenTimeMachine={() => navigate('time-machine', bookId)} />}
-        {view === 'time-machine' && bookId !== null && <TimeMachinePage key={bookId} bookId={bookId} onOpenSettings={() => {
+        {view === 'time-machine' && bookId !== null && <TimeMachineDirectionEntry key={bookId} bookId={bookId} onOpenSettings={() => {
           openSettings(bookId);
         }} />}
         {view === 'volume' && bookId !== null && <CreationWorkspacePage bookId={bookId} focus="volume" onNavigate={(next, scope) => navigate(next, bookId, openingEntry, null, scope)} />}

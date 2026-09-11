@@ -11,7 +11,7 @@ describe('new time machine session boundary',()=>{
    const register=async(email:string)=>{const response=await app.inject({method:'POST',url:'/api/v1/auth/register',headers,payload:{email,displayName:'测试',password:'Strong-test-pass-123!'}});expect(response.statusCode).toBe(200);return String(response.headers['set-cookie']).split(';')[0]!;};
    const cookie=await register('tm-a@example.com'),other=await register('tm-b@example.com');const owner=c.database.prepare('SELECT owner_id FROM user_accounts WHERE email_normalized=?').get('tm-a@example.com') as {owner_id:string};new BookRepository(c.database).create({ownerId:owner.owner_id,bookId:'tm-book'},'测试书',new Date().toISOString(),'active');
    expect((await app.inject({url:'/api/time-machine/books/tm-book/state',headers})).statusCode).toBe(401);
-   const response=await app.inject({url:'/api/time-machine/books/tm-book/state',headers:{...headers,cookie}});expect(response.statusCode).toBe(200);expect(response.json().data).toEqual({enabled:false,runs:[]});
+   const response=await app.inject({url:'/api/time-machine/books/tm-book/state',headers:{...headers,cookie}});expect(response.statusCode).toBe(200);expect(response.json().data).toEqual({enabled:false,runs:[],adopted:null,planRevision:0});
    expect((await app.inject({url:'/api/time-machine/books/tm-book/state',headers:{...headers,cookie:other}})).statusCode).toBe(404);
    expect((await app.inject({method:'POST',url:'/api/time-machine/books/tm-book/design-runs',headers:{...headers,cookie,origin:'https://evil.example'},payload:{idempotencyKey:'id',intent:''}})).statusCode).toBe(403);
    expect((await app.inject({method:'POST',url:'/api/time-machine/books/tm-book/design-runs',headers:{...headers,cookie},payload:{idempotencyKey:123}})).statusCode).toBe(400);
@@ -37,6 +37,11 @@ describe('new time machine session boundary',()=>{
    expect((repo.readCandidate(scope,'cand-1',2) as {plan:{baseline:string}}).plan.baseline).toBe('作者改过的基线');
    const stale=await app.inject({method:'POST',url,headers:{...headers,cookie},payload:{plan:edited,expectedRevision:1}});
    expect(stale.statusCode).toBe(409);
+   const stateResponse=await app.inject({url:'/api/time-machine/books/tm-rev-book/state',headers:{...headers,cookie}});
+   const stateData=stateResponse.json().data as {runs:{result:{revision:number;plan:{baseline:string};review:{pass:boolean};editedBy?:string}}[]};
+   const editedRun=stateData.runs.find(run=>run.result!==null)!;
+   expect(editedRun.result.revision).toBe(2);expect(editedRun.result.plan.baseline).toBe('作者改过的基线');expect(editedRun.result.review.pass).toBe(true);expect(editedRun.result.editedBy).toBe('author');
+   expect(repo.adopt(scope,'cand-1',2,0,'adopt-edited').revision).toBe(1);
    expect((await app.inject({method:'POST',url,headers:{...headers,cookie},payload:{plan:{...edited,volumes:[]},expectedRevision:2}})).statusCode).toBe(409);
    expect((await app.inject({method:'POST',url:'/api/time-machine/books/tm-rev-book/candidates/missing/revisions',headers:{...headers,cookie},payload:{plan:edited,expectedRevision:1}})).statusCode).toBe(404);
    expect((await app.inject({method:'POST',url,headers:{...headers,cookie:await register('tm-rev-2@example.com')},payload:{plan:edited,expectedRevision:1}})).statusCode).toBe(404);

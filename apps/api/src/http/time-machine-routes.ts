@@ -1,6 +1,6 @@
 import type {FastifyInstance} from 'fastify';
 import type {DatabaseSync} from 'node:sqlite';
-import {Conflict,SqlPlanRepository,volumePlanningContext,parseCandidate} from '@wenmi/time-machine-core';
+import {Conflict,SqlPlanRepository,volumePlanningContext,parseCandidate,volumeDisplayCode,lineDisplayCode} from '@wenmi/time-machine-core';
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
 import {TimeMachineDesignService} from '../application/books/time-machine-design-service.js';
 import {snapshotTimeMachine} from '../application/books/time-machine-sources.js';
@@ -22,7 +22,20 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
  };
  const timer=setInterval(tick,2000);timer.unref();app.addHook('onClose',async()=>{closed=true;clearInterval(timer);if(active)await active;});
  app.get<{Params:{bookId:string}}>('/api/time-machine/books/:bookId/state',async request=>{
-  const s=scope(request,request.params.bookId);return success({enabled:windowTokens>=16000,runs:service.state(s)},request.id);
+  const s=scope(request,request.params.bookId);
+  const adopted=(()=>{
+   try{
+    const plans=new SqlPlanRepository(db);const manifest=plans.state(s);
+    if(!manifest.adoption)return null;
+    const active=plans.activePlan(s);if(!active)return null;
+    const mapping=active.adoption.mapping;
+    if(active.candidate.schemaVersion!==2)return {revision:active.adoption.revision,member:{id:active.candidate.member.id,name:active.candidate.member.name},plan:active.candidate.plan,numbering:null};
+    return {revision:active.adoption.revision,member:{id:active.candidate.member.id,name:active.candidate.member.name},plan:active.candidate.plan,numbering:{volumes:active.candidate.plan.volumes.map(v=>({localId:v.id,code:volumeDisplayCode(mapping[`volume:${v.id}`]!.number)})),mainLines:active.candidate.plan.lines.filter(l=>l.role==='main').map(l=>lineDisplayCode('main',mapping[`main-line:${l.id}`]!.number)),branchLines:active.candidate.plan.lines.filter(l=>l.role!=='main').map(l=>lineDisplayCode('branch',mapping[`branch-line:${l.id}`]!.number))}};
+   }catch{return null;}
+  })();
+  let planRevision=0;
+  try{planRevision=new SqlPlanRepository(db).state(s).revision;}catch{planRevision=0;}
+  return success({enabled:windowTokens>=16000,runs:service.state(s),adopted,planRevision},request.id);
  });
  app.get<{Params:{bookId:string;volumeId:string}}>('/api/time-machine/books/:bookId/volumes/:volumeId/planning-context',async request=>{
   const s=scope(request,request.params.bookId);
@@ -55,9 +68,14 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
   const s=scope(request,request.params.bookId),body=request.body??{};
   const expectedRevision=body?.expectedRevision;
   if(!body||typeof body.plan!=='object'||body.plan===null||typeof expectedRevision!=='number'||!Number.isSafeInteger(expectedRevision)||expectedRevision<0)throw new DomainError(errorCodes.validation,'修订参数不正确',{},false,400);
-  const row=db.prepare("SELECT snapshot_json FROM tm2_design_runs WHERE id=? AND owner_id=? AND book_id=?").get(request.params.candidateId,s.ownerId,s.bookId) as {snapshot_json:string}|undefined;
+  const row=db.prepare("SELECT snapshot_json,result_json FROM tm2_design_runs WHERE id=? AND owner_id=? AND book_id=? AND state='succeeded'").get(request.params.candidateId,s.ownerId,s.bookId) as {snapshot_json:string;result_json:string|null}|undefined;
   if(!row)throw new DomainError(errorCodes.validation,'候选不存在',{},false,404);
-  return success(guard(()=>{const snapshot=JSON.parse(row.snapshot_json) as {manifest:unknown;members:{writer:V7EffectiveMember}};const candidate=parseCandidate({schemaVersion:2,manifest:snapshot.manifest,member:{id:snapshot.members.writer.memberKey,name:snapshot.members.writer.displayName,model:snapshot.members.writer.model.modelId,routeRevision:String(snapshot.members.writer.governanceRevision)},plan:body.plan});const plans=new SqlPlanRepository(db);return {revision:plans.saveCandidate(s,request.params.candidateId,expectedRevision,candidate)};}),request.id);
+  return success(guard(()=>{const snapshot=JSON.parse(row.snapshot_json) as {manifest:unknown;members:{writer:V7EffectiveMember}};const prior=row.result_json!==null?JSON.parse(row.result_json) as {member?:{id:string;name:string};review?:{suggestions?:string[]};selfCheck?:unknown}:null;const candidate=parseCandidate({schemaVersion:2,manifest:snapshot.manifest,member:{id:snapshot.members.writer.memberKey,name:snapshot.members.writer.displayName,model:snapshot.members.writer.model.modelId,routeRevision:String(snapshot.members.writer.governanceRevision)},plan:body.plan});const plans=new SqlPlanRepository(db);const revision=plans.saveCandidate(s,request.params.candidateId,expectedRevision,candidate);
+   // 人工修订由作者本人确认；主编的审查结论归属保留在各修订上，不冒充异模型复核。
+   plans.review(s,request.params.candidateId,revision,'author','pass');
+   const result={candidateId:request.params.candidateId,revision,member:prior?.member??{id:snapshot.members.writer.memberKey,name:snapshot.members.writer.displayName},plan:candidate.plan,review:{pass:true,issues:[],suggestions:prior?.review?.suggestions??[]},selfCheck:prior?.selfCheck??null,editedBy:'author'};
+   db.prepare("UPDATE tm2_design_runs SET result_json=?,updated_at=? WHERE id=? AND owner_id=? AND book_id=?").run(JSON.stringify(result),new Date().toISOString(),request.params.candidateId,s.ownerId,s.bookId);
+   return {revision};}),request.id);
  });
  app.post<{Params:{bookId:string};Body:{candidateId:string;revision:number;expectedRevision:number;idempotencyKey:string}}>('/api/time-machine/books/:bookId/adoptions',async request=>{
   const s=scope(request,request.params.bookId),body=request.body;
