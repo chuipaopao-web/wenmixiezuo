@@ -25,6 +25,12 @@ for prefix in ['opening_agent','setting','planning','character','creation']:
  checks['v7_'+prefix+'_model_calls']=('state',['working'])
 if d.execute("SELECT 1 FROM sqlite_master WHERE name='v7_route_decision_jobs'").fetchone():
  checks['v7_route_decision_jobs']=('status',['queued','working','unknown'])
+# R192新时光机：表由0114—0118迁移创建；上线前的部署在旧库上运行时这些表不存在，按条件纳入。
+if d.execute("SELECT 1 FROM sqlite_master WHERE name='tm2_design_runs'").fetchone():
+ checks['tm2_design_runs']=('state',['queued','working'])
+ checks['tm2_model_calls']=('state',['pending','working'])
+if d.execute("SELECT 1 FROM sqlite_master WHERE name='tm2_steps'").fetchone():
+ checks['tm2_steps']=('state',['ready','running'])
 total=0
 for table,(col,states) in checks.items():
  total+=d.execute('SELECT count(*) FROM '+table+' WHERE '+col+' IN ('+','.join('?'*len(states))+')',states).fetchone()[0]

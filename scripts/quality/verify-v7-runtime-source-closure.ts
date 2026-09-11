@@ -26,6 +26,7 @@ const RUNTIME_ENTRIES = [
 
 const SOURCE_ROOTS = [
   'rebuild/packages/agent-catalog',
+  'rebuild/packages/time-machine-core/src',
   'apps/contracts/src',
   'apps/api/src',
   'apps/worker/src',
@@ -89,7 +90,8 @@ const BUILD_RESOURCES: ReadonlyArray<{
   ...workspaceBuildResources('coauthoring-v7/backend', 'shared-platform', true),
   ...workspaceBuildResources('rebuild/packages/backend/src/legacy-opening', 'shared-platform', true),
   ...workspaceBuildResources('coauthoring-v7/author-app', 'v7-authoring', false),
-  ...workspaceBuildResources('coauthoring-v7/admin-console', 'v7-admin', false)
+  ...workspaceBuildResources('coauthoring-v7/admin-console', 'v7-admin', false),
+  ...workspaceBuildResources('rebuild/packages/time-machine-core', 'shared-platform', true)
 ];
 const STANDALONE_OPERATIONAL_RESOURCES = [
   // R165 explicit dual-confirmed book purge; preview and isolated rehearsal required.
@@ -109,6 +111,10 @@ const STANDALONE_OPERATIONAL_RESOURCES = [
   'scripts/release/deploy-r128-opening.sh',
   'scripts/release/r128-opening-probe.mjs',
   'scripts/release/r122-admin-probe.mjs',
+  'scripts/release/deploy-r192-time-machine.sh',
+  'scripts/release/r192-migrate-driver.mjs',
+  'scripts/quality/time-machine-real-probe.mjs',
+  'scripts/quality/time-machine-review-probe.mjs',
   'scripts/create-desktop-shortcut.ps1',
   'scripts/start-desktop.ps1',
   'scripts/stop-desktop.ps1',
@@ -129,7 +135,8 @@ const WORKSPACE_PACKAGES: Readonly<Record<string, string>> = {
   '@wenmi/contracts': 'apps/contracts/src/index.ts',
   '@wenmi/v7-backend': 'coauthoring-v7/backend/index.ts',
   '@wenmi/opening-runtime': 'rebuild/packages/backend/src/legacy-opening/runtime.ts',
-  '@wenmi/agent-catalog': 'rebuild/packages/agent-catalog/index.js'
+  '@wenmi/agent-catalog': 'rebuild/packages/agent-catalog/index.js',
+  '@wenmi/time-machine-core': 'rebuild/packages/time-machine-core/src/index.ts'
 };
 
 const RETIRED_RUNTIME_PATHS = [
@@ -847,7 +854,8 @@ function validateWorkspaceBuildGraph(root: string, errors: string[]): void {
     'coauthoring-v7/author-app',
     'coauthoring-v7/admin-console',
     'rebuild/packages/backend/src/legacy-opening',
-    'rebuild/packages/agent-catalog'
+    'rebuild/packages/agent-catalog',
+    'rebuild/packages/time-machine-core'
   ];
   const expectedPackages: ReadonlyArray<{
     workspace: string;
@@ -857,11 +865,12 @@ function validateWorkspaceBuildGraph(root: string, errors: string[]): void {
     exportEntry?: string;
     viteBase?: string;
   }> = [
-    { workspace: 'apps/api', name: '@wenmi/api', build: 'tsc -p tsconfig.build.json', start: 'node dist/main.js' },
+    { workspace: 'apps/api', name: '@wenmi/api', build: 'npm run build -w @wenmi/time-machine-core && tsc -p tsconfig.build.json', start: 'node dist/main.js' },
     { workspace: 'apps/contracts', name: '@wenmi/contracts', build: 'tsc -p tsconfig.build.json', exportEntry: './dist/index.js' },
     { workspace: 'apps/worker', name: '@wenmi/worker', build: 'tsc -p tsconfig.build.json', start: 'node dist/main.js' },
     { workspace: 'coauthoring-v7/backend', name: '@wenmi/v7-backend', build: 'npm run build -w @wenmi/opening-runtime && tsc -p tsconfig.build.json', exportEntry: './dist/index.js' },
     { workspace: 'rebuild/packages/backend/src/legacy-opening', name: '@wenmi/opening-runtime', build: 'tsc -p tsconfig.build.json', exportEntry: './dist/runtime.js' },
+    { workspace: 'rebuild/packages/time-machine-core', name: '@wenmi/time-machine-core', build: 'tsc -p tsconfig.build.json', exportEntry: './dist/index.js' },
     { workspace: 'coauthoring-v7/author-app', name: '@wenmi/v7-author-app', build: 'vite build --config vite.config.mjs --configLoader native', viteBase: '/' },
     { workspace: 'coauthoring-v7/admin-console', name: '@wenmi/v7-admin-console', build: 'vite build --config vite.config.mjs --configLoader native', viteBase: '/v7/' }
   ];
