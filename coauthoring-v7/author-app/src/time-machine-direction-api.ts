@@ -28,6 +28,7 @@ export interface TimeMachineAnchorView {
 export interface TimeMachineVolumeView {
   id: string;
   title: string;
+  beat: string;
   start: string;
   goal: string;
   conflict: string;
@@ -36,6 +37,8 @@ export interface TimeMachineVolumeView {
   loss: string | null;
   arc: string | null;
   payoff: string | null;
+  hook: string | null;
+  mood: string | null;
   ending: string;
   handoff: string;
   words: { target: number; min: number | null; max: number | null; hard: boolean; policy: string };

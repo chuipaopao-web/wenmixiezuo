@@ -23,8 +23,8 @@ function planFixture(baseline: string) {
       { id: 'v1-out', ownerEntityId: 'v1', kind: 'exit' as const, summary: '订单交付工坊立足', span: '本卷收束', conditions: [{ summary: '订单交付完成', subjectIds: ['main'] }], logic: 'all' as const, importance: 'required' as const, fallback: '全书结束', keywords: [], aliases: [] }
     ],
     volumes: [
-      { id: 'v1', title: '工坊危机', start: '濒临倒闭', goal: '完成订单', conflict: '封锁', turningPoint: '新机甲成功', gain: '伙伴', loss: null, arc: '从修理者到组织者', payoff: null, ending: '订单交付', handoff: '引出扩张', words: { target: 300000, min: null, max: null, hard: false, policy: 'chars-v1' }, duties: [{ lineId: 'main', action: 'close' as const, result: '工坊成立', anchorIds: ['v1-out'], strength: 'required' as const, reason: '主线起点' }] },
-      { id: 'v2', title: '扩张', start: '工坊起步', goal: '打开新市场', conflict: '竞争', turningPoint: '联合取胜', gain: null, loss: null, arc: null, payoff: null, ending: '新市场立足', handoff: '', words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' }, duties: [{ lineId: 'sub', action: 'advance' as const, result: '信任加深', anchorIds: [], strength: 'flexible' as const, reason: '可后移' }] }
+      { id: 'v1', title: '工坊危机', start: '濒临倒闭', goal: '完成订单', conflict: '封锁', beat: '起', turningPoint: '新机甲成功', gain: '伙伴', loss: null, arc: '从修理者到组织者', payoff: null, hook: null, mood: null, ending: '订单交付', handoff: '引出扩张', words: { target: 300000, min: null, max: null, hard: false, policy: 'chars-v1' }, duties: [{ lineId: 'main', action: 'close' as const, result: '工坊成立', anchorIds: ['v1-out'], strength: 'required' as const, reason: '主线起点' }] },
+      { id: 'v2', title: '扩张', start: '工坊起步', goal: '打开新市场', conflict: '竞争', beat: '起', turningPoint: '联合取胜', gain: null, loss: null, arc: null, payoff: null, hook: null, mood: null, ending: '新市场立足', handoff: '', words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' }, duties: [{ lineId: 'sub', action: 'advance' as const, result: '信任加深', anchorIds: [], strength: 'flexible' as const, reason: '可后移' }] }
     ]
   };
 }

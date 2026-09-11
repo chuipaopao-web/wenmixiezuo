@@ -18,7 +18,7 @@ export interface Anchor { id: string; ownerEntityId: string; kind: 'entry'|'exit
 export interface LineMilestone { id: string; summary: string; suggestedVolumes: string[]; importance: 'required'|'flexible' }
 export interface LineV2 { id: string; role: 'main'|'through'|'stage'; title: string; goal: string; answer: string; process: string; parentIds: string[]; milestones: LineMilestone[] }
 export interface DutyV2 { lineId: string; action: 'start'|'advance'|'pause'|'close'; result: string; anchorIds: string[]; strength: 'required'|'flexible'; reason: string }
-export interface VolumeV2 { id: string; title: string; start: string; goal: string; conflict: string; turningPoint: string; gain: string|null; loss: string|null; arc: string|null; payoff: string|null; ending: string; handoff: string; words: WordBudget; duties: DutyV2[] }
+export interface VolumeV2 { id: string; title: string; beat: string; start: string; goal: string; conflict: string; turningPoint: string; gain: string|null; loss: string|null; arc: string|null; payoff: string|null; hook: string|null; mood: string|null; ending: string; handoff: string; words: WordBudget; duties: DutyV2[] }
 export interface BlueprintV2 { baseline: string; ending: string; words: WordBudget; lines: LineV2[]; expectations: Expectation[]; relations: Relation[]; anchors: Anchor[]; volumes: VolumeV2[] }
 export interface CandidateV2 { schemaVersion: 2; manifest: Manifest; member: Member; plan: BlueprintV2 }
 export type Candidate = CandidateV1 | CandidateV2
@@ -121,11 +121,11 @@ export function parseCandidate(v: unknown): Candidate {
     const p = object(c.plan, ['baseline','ending','words','lines','expectations','relations','anchors','volumes']);
     const bookWords = words(p.words);
     const volumes=list(p.volumes,x=>{
-      const a=object(x,['id','title','start','goal','conflict','turningPoint','gain','loss','arc','payoff','ending','handoff','words','duties']);
+      const a=object(x,['id','title','beat','start','goal','conflict','turningPoint','gain','loss','arc','payoff','hook','mood','ending','handoff','words','duties']);
       if(typeof a.handoff!=='string'||a.handoff.length>2000)throw new ContractError('交接字段错误');
       const duties=list(a.duties,d=>{const b=object(d,['lineId','action','result','anchorIds','strength','reason']);return {lineId:String(b.lineId),action:choice(b.action,['start','advance','pause','close']),result:text(b.result),anchorIds:list(b.anchorIds,id),strength:choice(b.strength,['required','flexible']),reason:text(b.reason,500)};});
       unique(duties.map(d=>d.lineId));
-      return {id:id(a.id),title:text(a.title,120),start:text(a.start),goal:text(a.goal),conflict:text(a.conflict),turningPoint:text(a.turningPoint),gain:nullableText(a.gain),loss:nullableText(a.loss),arc:nullableText(a.arc),payoff:nullableText(a.payoff),ending:text(a.ending),handoff:a.handoff,words:words(a.words),duties};
+      return {id:id(a.id),title:text(a.title,120),beat:text(a.beat,60),start:text(a.start),goal:text(a.goal),conflict:text(a.conflict),turningPoint:text(a.turningPoint),gain:nullableText(a.gain),loss:nullableText(a.loss),arc:nullableText(a.arc),payoff:nullableText(a.payoff),hook:nullableText(a.hook),mood:nullableText(a.mood),ending:text(a.ending),handoff:a.handoff,words:words(a.words),duties};
     }, 100);
     unique(volumes.map(v=>v.id));
     const volumeIds=new Set(volumes.map(v=>v.id));

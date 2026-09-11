@@ -17,7 +17,7 @@ export class TimeMachineDesignService {
  start(scope:Scope,kind:'recommend'|'design',intent:string,key:string):string{
   if(!['recommend','design'].includes(kind)||typeof key!=='string'||!key.trim()||key.length>160)throw Error('请求参数错误');
   const snapshot=snapshotTimeMachine(this.db,scope,intent,this.windowTokens);
-  this.db.exec('BEGIN IMMEDIATE');try{const id=this.createRun(scope,kind,key,'','',snapshot,[key]);this.db.exec('COMMIT');return id;}
+  this.db.exec('BEGIN IMMEDIATE');try{const id=this.createRun(scope,kind,key,'','',snapshot);this.db.exec('COMMIT');return id;}
   catch(e){if(this.db.isTransaction)this.db.exec('ROLLBACK');throw e;}
  }
  /** 三套方案一轮：独立编剧、独立状态与失败恢复；同一轮共享资料短卡与作者选择，资料只整理一次（第23.12节阶段二）。 */
@@ -29,17 +29,16 @@ export class TimeMachineDesignService {
   const schemes=['A','B','C'].slice(0,writers.length) as string[];
   const keys=schemes.map(scheme=>`${key}#${scheme}`);
   this.db.exec('BEGIN IMMEDIATE');try{
-   const created=schemes.map((scheme,index)=>({id:this.createRun(scope,'design',keys[index]!,scheme,key,{...base,members:{...base.members,writer:writers[index]!}},keys),scheme}));
+   const created=schemes.map((scheme,index)=>({id:this.createRun(scope,'design',keys[index]!,scheme,key,{...base,members:{...base.members,writer:writers[index]!}}),scheme}));
    this.db.exec('COMMIT');return created;
   }catch(e){if(this.db.isTransaction)this.db.exec('ROLLBACK');throw e;}
  }
- /** Caller owns the transaction. ownKeys lets one round's schemes coexist while another round stays blocked. */
- private createRun(scope:Scope,kind:'recommend'|'design',key:string,scheme:string,roundKey:string,snapshot:TimeMachineSnapshot,ownKeys:readonly string[]):string{
+ /** Caller owns the transaction. Schemes of the same round coexist; foreign rounds and single runs stay mutually exclusive. */
+ private createRun(scope:Scope,kind:'recommend'|'design',key:string,scheme:string,roundKey:string,snapshot:TimeMachineSnapshot):string{
   const hash=digest(snapshot);
   const old=this.db.prepare('SELECT id,input_hash FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND kind=? AND request_key=?').get(scope.ownerId,scope.bookId,kind,key) as {id:string;input_hash:string}|undefined;
   if(old){if(old.input_hash!==hash)throw Error('该操作对应的资料已变化，请发起新设计');return old.id;}
-  const placeholders=ownKeys.map(()=>'?').join(',');
-  const working=this.db.prepare(`SELECT id FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND state IN ('queued','working') AND request_key NOT IN (${placeholders})`).get(scope.ownerId,scope.bookId,...ownKeys);if(working)throw Error('本书已有新时光机任务');
+  const working=this.db.prepare("SELECT id FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND state IN ('queued','working') AND NOT (?<>'' AND round_key=?)").get(scope.ownerId,scope.bookId,roundKey,roundKey);if(working)throw Error('本书已有新时光机任务');
   const legacy=this.db.prepare("SELECT run_id FROM v7_planning_recipe_runs WHERE owner_id=? AND book_id=? AND status IN ('queued','working') UNION ALL SELECT generation_run_id FROM v7_planning_generation_runs WHERE owner_id=? AND book_id=? AND status IN ('queued','working') LIMIT 1").get(scope.ownerId,scope.bookId,scope.ownerId,scope.bookId);if(legacy)throw Error('本书旧规划任务仍在运行，请待其结束');
   this.plans.syncManifest(scope,snapshot.manifest);const id=randomUUID(),now=new Date().toISOString();
   this.db.prepare("INSERT INTO tm2_design_runs(id,owner_id,book_id,kind,request_key,input_hash,snapshot_json,state,scheme,round_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'queued',?,?,?,?)").run(id,scope.ownerId,scope.bookId,kind,key,hash,JSON.stringify(snapshot),scheme,roundKey,now,now);return id;
@@ -59,7 +58,7 @@ export class TimeMachineDesignService {
   if(row.error_code!=='temporary'&&row.error_code!=='interrupted'){
    const snapshot=JSON.parse(row.snapshot_json) as TimeMachineSnapshot;
    const retryKey=`retry:${id}`;
-   this.db.exec('BEGIN IMMEDIATE');try{const newId=this.createRun(scope,row.kind,retryKey,String(row.scheme??''),String(row.round_key??''),snapshot,[retryKey]);this.db.exec('COMMIT');return newId;}
+   this.db.exec('BEGIN IMMEDIATE');try{const newId=this.createRun(scope,row.kind,retryKey,String(row.scheme??''),String(row.round_key??''),snapshot);this.db.exec('COMMIT');return newId;}
    catch(e){if(this.db.isTransaction)this.db.exec('ROLLBACK');throw e;}
   }
   this.db.prepare("UPDATE tm2_design_runs SET state='queued',error_code=NULL,updated_at=? WHERE owner_id=? AND book_id=? AND id=? AND state='failed'").run(new Date().toISOString(),scope.ownerId,scope.bookId,id);return id;
@@ -86,7 +85,7 @@ export class TimeMachineDesignService {
   this.db.prepare('UPDATE tm2_design_runs SET updated_at=?,phase=? WHERE id=?').run(new Date().toISOString(),node,run.id);
   const prefix=`${run.id}:`;
   const spent=this.db.prepare(`SELECT COUNT(*) AS calls,COALESCE(SUM(CASE WHEN c.input_tokens IS NOT NULL AND c.output_tokens IS NOT NULL THEN c.input_tokens+c.output_tokens WHEN c.state IN ('working','unknown') THEN c.reserved_tokens ELSE 0 END),0) AS tokens FROM tm2_model_calls c JOIN tm2_attempts a ON a.id=c.id WHERE c.owner_id=? AND c.book_id=? AND substr(a.step,1,?)=?`).get(scope.ownerId,scope.bookId,prefix.length,prefix) as {calls:number;tokens:number};
-  this.steps.retryTemporary(scope,stepId);const claim=this.steps.claim(scope,stepId,Date.now(),15*60*1000);
+  this.steps.retryTemporary(scope,stepId);let claim=this.steps.claim(scope,stepId,Date.now(),15*60*1000);
   if(claim.kind==='saved')return String(claim.output);
   if(claim.kind==='wait'){
    const row=this.db.prepare('SELECT attempt FROM tm2_steps WHERE owner=? AND book=? AND id=?').get(scope.ownerId,scope.bookId,stepId) as {attempt:string}|undefined;
@@ -94,11 +93,24 @@ export class TimeMachineDesignService {
    if(recovered!==null&&row){this.steps.finish(scope,stepId,row.attempt,recovered,Date.now());return recovered;}
    throw new TimeMachineCallError(claim.state==='unknown'?'unknown':'invalid','步骤等待处理');
   }
-  if(spent.calls>=80||spent.tokens+snapshot.windowTokens>320000){this.steps.fail(scope,stepId,claim.attemptId,'budget',Date.now());throw new TimeMachineCallError('budget','本轮成员预算已用完，已保存进度');}
+  // v2卷卡含锚点/字数/职责，2M字书16卷实测单轮超32万token；上调为可调初值（第22.4节）。
+  if(spent.calls>=120||spent.tokens+snapshot.windowTokens>520000){this.steps.fail(scope,stepId,claim.attemptId,'budget',Date.now());throw new TimeMachineCallError('budget','本轮成员预算已用完，已保存进度');}
   // v2卷卡含锚点/字数/职责理由，DeepSeek结构化规划思考常超6k；8k可见输出+4k思考余量避免推理耗尽max_tokens后零可见文字。
   const maxOutputTokens=node.startsWith('methods:')||node.startsWith('skeleton')||node.startsWith('volumes:')||node.startsWith('review')||node.startsWith('self')?8000:3000;
-  try{const output=await this.gateway.generate({scope,id:claim.attemptId,memberId:member.memberKey,provider:member.model.provider,modelId:member.model.modelId,prompt,maxOutputTokens,windowTokens:snapshot.windowTokens,temperature:0.6});this.steps.finish(scope,stepId,claim.attemptId,output,Date.now());return output;}
-  catch(error){const kind=error instanceof TimeMachineCallError?error.kind:'unknown';this.steps.fail(scope,stepId,claim.attemptId,kind==='invalid'?'truncated':kind,Date.now());throw error;}
+  // 第22.4节：同一暂时性错误最多2次自动重试；预算/未知/格式错误不自动重发。
+  for(let autoRetry=0;;autoRetry++){
+   try{const output=await this.gateway.generate({scope,id:claim.attemptId,memberId:member.memberKey,provider:member.model.provider,modelId:member.model.modelId,prompt,maxOutputTokens,windowTokens:snapshot.windowTokens,temperature:0.6});this.steps.finish(scope,stepId,claim.attemptId,output,Date.now());return output;}
+   catch(error){
+    const kind=error instanceof TimeMachineCallError?error.kind:'unknown';
+    this.steps.fail(scope,stepId,claim.attemptId,kind==='invalid'?'truncated':kind,Date.now());
+    if(kind!=='temporary'||autoRetry>=1)throw error;
+    await new Promise(resolve=>setTimeout(resolve,2000));
+    if(!this.steps.retryTemporary(scope,stepId))throw error;
+    const reclaim=this.steps.claim(scope,stepId,Date.now(),15*60*1000);
+    if(reclaim.kind!=='claimed')throw error;
+    claim=reclaim;
+   }
+  }
  }
  private async structured<T>(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,node:string,member:V7EffectiveMember,prompt:string,parse:(v:unknown)=>T):Promise<T>{
   const output=await this.call(run,scope,snapshot,node,member,prompt);try{return parse(json(output));}catch(error){
@@ -146,12 +158,13 @@ export class TimeMachineDesignService {
   };
   const methodNotes=await this.selectMethods(run,scope,snapshot,card);
   const policy=snapshot.wordPolicy?.policy??'chars-v1';
-  const skeletonPrompt=`设计全书骨架。只设计大方向，不写章情节。开篇第一章建立冲突和读者期待，末卷回答全书问题；故事线按需要分卷推进或提前收束，不要末卷强行关联所有线。尊重作者选择。返回JSON {"baseline":"全书基线和整体味道","ending":"最终回答","words":{"target":全书字数,"min":null,"max":null,"hard":false,"policy":"${policy}"},"lines":[{"id":"英文ID","role":"main或through或stage","title":"标题","goal":"开场目标","answer":"收束标准","process":"过程方向一句话","parentIds":[],"milestones":[{"id":"英文ID","summary":"关键落点一句话","suggestedVolumes":["概要卷ID，连续多卷表示区间"],"importance":"required或flexible"}]}],"expectations":[{"id":"英文ID","opening":"开篇期待","answer":"最终回答","lineIds":["关联线ID"]}],"relations":[{"from":"线ID","to":"线ID","kind":"push或conflict或reveal或meet","effect":"交织效果"}],"volumeBriefs":[{"id":"v1","title":"卷名","goal":"本卷目标","words":{"target":本卷字数,"min":null,"max":null,"hard":false,"policy":"${policy}"}}]}。开书给了目标体量就用作全书words.target（软目标），未提供时由你按故事容量提出；各卷volumeBriefs的words.target合计必须等于全书words.target，由你分配，卷数与每卷字数不强制等长。只有作者明确要求的关键落点标required，其余flexible。\n作者选择：${snapshot.intent}\n资料：${JSON.stringify(card.fields)}\n成员选用的方法和补查资料（参考，可原创）：${JSON.stringify(methodNotes)}`;
-  const skeleton=await generate('skeleton',writer,skeletonPrompt,v=>{const p=record(v);if(!Array.isArray(p.volumeBriefs)||!p.volumeBriefs.length||p.volumeBriefs.length>40)throw Error('分卷概要错误');return p;});
+  const skeletonPrompt=`设计全书骨架。只设计大方向，不写章情节。开篇第一章建立冲突和读者期待，末卷回答全书问题；故事线按需要分卷推进或提前收束，不要末卷强行关联所有线。尊重作者选择。先定宏观节奏：从方法库或你掌握的经典结构中选择一个宏观节奏框架（如三幕、四幕起承转合、五幕、六幕、七幕、八幕等），在方法笔记外明确记入structure字段；再把各幕按体量分为1—2卷，得出卷数（如四幕式常为4—8卷、五幕式可达10卷、六幕至八幕式常为6—8卷），网文常规单卷约30—60万字，低于20万字的卷要有明确结构理由。返回JSON {"structure":"选定的宏观节奏框架及每幕职责一句话","baseline":"全书基线和整体味道","ending":"最终回答","words":{"target":全书字数,"min":null,"max":null,"hard":false,"policy":"${policy}"},"lines":[{"id":"英文ID","role":"main或through或stage","title":"标题","goal":"开场目标","answer":"收束标准","process":"过程方向一句话","parentIds":[],"milestones":[{"id":"英文ID","summary":"关键落点一句话","suggestedVolumes":["概要卷ID，连续多卷表示区间"],"importance":"required或flexible"}]}],"expectations":[{"id":"英文ID","opening":"开篇期待","answer":"最终回答","lineIds":["关联线ID"]}],"relations":[{"from":"线ID","to":"线ID","kind":"push或conflict或reveal或meet","effect":"交织效果"}],"volumeBriefs":[{"id":"v1","title":"卷名","beat":"所属幕与位置，如：第一幕·起","goal":"本卷目标","words":{"target":本卷字数,"min":null,"max":null,"hard":false,"policy":"${policy}"}}]}。开书给了目标体量就用作全书words.target（软目标），未提供时由你按故事容量提出；各卷volumeBriefs的words.target合计必须等于全书words.target，由你分配。只有作者明确要求的关键落点标required，其余flexible。\n作者选择：${snapshot.intent}\n资料：${JSON.stringify(card.fields)}\n成员选用的方法和补查资料（参考，可原创）：${JSON.stringify(methodNotes)}`;
+  const skeleton=await generate('skeleton',writer,skeletonPrompt,v=>{const p=record(v);if(typeof p.structure!=='string'||!p.structure.trim()||p.structure.length>600)throw Error('缺少宏观节奏结构说明');if(!Array.isArray(p.volumeBriefs)||!p.volumeBriefs.length||p.volumeBriefs.length>40)throw Error('分卷概要错误');return p;});
   const briefs=skeleton.volumeBriefs as unknown[];const volumes:unknown[]=[];
-  for(let i=0;i<briefs.length;i+=2){const batch=await generate(`volumes:${i}`,writer,`按既定骨架补全本批卷卡，不重写其他卷或更改全书结局。返回JSON对象 {"volumes":[卷卡]}，每卷 {"id":"与概要相同","title":"卷名","start":"起点","goal":"目标","conflict":"主要阻碍","turningPoint":"关键转折","gain":"获得或人物变化，不适用为null","loss":"失去，不适用为null，不编造","arc":"人物弧光说明，不适用为null","payoff":"本卷兑现的长期期待或高潮，不适用为null","ending":"本卷结束条件","handoff":"引出后卷的问题；全书最后卷必须空字符串","words":{"target":本卷字数,"min":null,"max":null,"hard":false,"policy":"${policy}"},"anchors":[本卷锚点],"duties":[{"lineId":"骨架线ID","action":"start或advance或pause或close","result":"具体推进或收束","anchorIds":["关联锚点ID"],"strength":"required或flexible","reason":"本卷约束强度的理由"}]}。anchors必须恰好两个且ownerEntityId为本卷ID：一个kind=entry（本卷开场）和一个kind=exit（本卷收束），格式 {"id":"英文ID","ownerEntityId":"本卷ID","kind":"entry或exit","summary":"一句话","span":"本卷开篇或本卷收束","conditions":[{"summary":"可按正文核对的原子条件","subjectIds":["相关线ID，无则空数组"]}],"logic":"all","importance":"required或flexible","fallback":"未完成如何承接","keywords":["检索词"],"aliases":[]}。锚点条件要能核对（如“任命已生效”而不是“变强”）；不适用字段返回null。\n骨架：${JSON.stringify(skeleton)}\n本批：${JSON.stringify(briefs.slice(i,i+2))}\n前卷交接：${JSON.stringify(volumes.slice(-1))}`,v=>{const items=record(v).volumes;if(!Array.isArray(items)||items.length!==briefs.slice(i,i+2).length)throw Error('分卷批次不完整');for(let n=0;n<items.length;n++)if(record(items[n]).id!==record(briefs[i+n]).id)throw Error('分卷编号或顺序与概要不符');return items;});volumes.push(...batch);}
+  const usedAnchorIds=new Set<string>();
+  for(let i=0;i<briefs.length;i+=2){const batch=await generate(`volumes:${i}`,writer,`按既定骨架补全本批卷卡，不重写其他卷或更改全书结局。返回JSON对象 {"volumes":[卷卡]}，每卷 {"id":"与概要相同","title":"卷名","beat":"所属幕与位置（与概要一致）","start":"起点","goal":"目标","conflict":"主要阻碍","turningPoint":"关键转折","gain":"获得或人物变化，不适用为null","loss":"失去，不适用为null，不编造","arc":"人物弧光说明，不适用为null","payoff":"本卷兑现的长期期待或高潮，不适用为null","hook":"本卷爽点：读者最解气/最期待的1个具体时刻，不适用为null","mood":"本卷主导情绪与走向，如压抑后扬、轻快扩张，不适用为null","ending":"本卷结束条件","handoff":"引出后卷的问题；全书最后卷必须空字符串","words":{"target":本卷字数,"min":null,"max":null,"hard":false,"policy":"${policy}"},"anchors":[本卷锚点],"duties":[{"lineId":"骨架线ID","action":"start或advance或pause或close","result":"具体推进或收束","anchorIds":["关联锚点ID"],"strength":"required或flexible","reason":"本卷约束强度的理由"}]}。anchors必须恰好两个且ownerEntityId为本卷ID：一个kind=entry（本卷开场）和一个kind=exit（本卷收束），格式 {"id":"英文ID","ownerEntityId":"本卷ID","kind":"entry或exit","summary":"一句话","span":"本卷开篇或本卷收束","conditions":[{"summary":"可按正文核对的原子条件","subjectIds":["相关线ID，无则空数组"]}],"logic":"all","importance":"required或flexible","fallback":"未完成如何承接","keywords":["检索词"],"aliases":[]}。锚点ID全书唯一，建议以卷ID为前缀（如v1-entry、v1-exit），不得与之前批次重复。锚点条件要能核对（如“任命已生效”而不是“变强”）；不适用字段返回null。\n骨架：${JSON.stringify(skeleton)}\n本批：${JSON.stringify(briefs.slice(i,i+2))}\n前卷交接：${JSON.stringify(volumes.slice(-1))}\n已占用锚点ID（不可重复）：${JSON.stringify([...usedAnchorIds])}`,v=>{const items=record(v).volumes;if(!Array.isArray(items)||items.length!==briefs.slice(i,i+2).length)throw Error('分卷批次不完整');for(let n=0;n<items.length;n++)if(record(items[n]).id!==record(briefs[i+n]).id)throw Error('分卷编号或顺序与概要不符');const batchAnchorIds=items.flatMap(item=>Array.isArray(record(item).anchors)?(record(item).anchors as unknown[]).map(anchor=>String(record(anchor).id)):[]);const duplicated=batchAnchorIds.filter(id=>usedAnchorIds.has(id));if(duplicated.length)throw Error(`锚点ID与之前批次重复：${duplicated.join('、')}；请改用本卷前缀的新ID`);return items;});volumes.push(...batch);for(const value of batch){const x=record(value);if(Array.isArray(x.anchors))for(const anchor of x.anchors as unknown[])usedAnchorIds.add(String(record(anchor).id));}}
   const anchors:unknown[]=[];const volumeCards=volumes.map(value=>{const x=record(value);const list=x.anchors??[];if(!Array.isArray(list))throw Error('卷锚点格式错误');anchors.push(...list);const {anchors:_own,...card}=x;return card;});
-  const {volumeBriefs:_,...plan}=skeleton;const candidate=parseCandidate({schemaVersion:2,manifest:snapshot.manifest,member:{id:writer.memberKey,name:writer.displayName,model:writer.model.modelId,routeRevision:String(writer.governanceRevision)},plan:{...plan,anchors,volumes:volumeCards}});
+  const {volumeBriefs:_,structure:__rhythm,...plan}=skeleton;const candidate=parseCandidate({schemaVersion:2,manifest:snapshot.manifest,member:{id:writer.memberKey,name:writer.displayName,model:writer.model.modelId,routeRevision:String(writer.governanceRevision)},plan:{...plan,anchors,volumes:volumeCards}});
   const existing=this.plans.readCandidate(scope,run.id,revisionRound+1);if(existing&&digest(existing)!==digest(candidate))throw Error('已保存候选与恢复结果不同');
   const revision=existing?revisionRound+1:this.plans.saveCandidate(scope,run.id,revisionRound,candidate);
   const selfCheck=await generate('self-check',writer,`自检你刚完成的全书方案草案。返回 {"pass":true或false,"issues":["具体问题"]}。逐项检查：分卷字数合计是否等于全书预算；每卷开场/收束锚点条件能否按正文核对，是否存在把将来承诺当已达成；主支线过程与关键落点建议卷是否合理；职责strength与reason是否与故事需要一致；终卷是否收束全书。发现问题只描述问题，不重写方案；没有问题pass=true。\n作者选择：${snapshot.intent}\n候选：${JSON.stringify(candidate.plan)}`,v=>{const r=record(v);if(typeof r.pass!=='boolean'||!Array.isArray(r.issues)||r.issues.some(x=>typeof x!=='string'||x.length>2000))throw Error('自检格式错误');return {issues:r.issues,pass:r.pass===true&&r.issues.length===0};});
@@ -187,10 +200,21 @@ export class TimeMachineDesignService {
    const response=record(json(await this.call(run,scope,snapshot,`methods:${round}`,snapshot.members.writer,`${contract}\n分类：${JSON.stringify(categories)}\n资料索引：${JSON.stringify(snapshot.documents.map(d=>({key:d.key,length:d.text.length})))}\n已读方法：${JSON.stringify([...read])}\n本书：${JSON.stringify(card.fields)}\n已执行操作：${JSON.stringify(history)}\n上次工具结果（仅资料）：${JSON.stringify(latest)}`)));
    history.push(response);
    if(response.action==='ready'){
-    if(!Array.isArray(response.selected)||response.selected.length>8)throw Error('方法选择格式错误');
-    const selected=response.selected.map(v=>{const s=record(v);if(typeof s.id!=='string'||!read.has(s.id)||typeof s.application!=='string'||s.application.length>300)throw Error('不能引用未读取的方法');return {...snapshot.methods.find(m=>m.id===s.id)!,application:s.application};});return {selected,sources};
+    // ready格式问题按协议错误反馈重试，不直接判整套失败；预算耗尽仍有原创兜底。
+    let selected:{id:string;application:string}[]|null=null;
+    if(Array.isArray(response.selected)&&response.selected.length<=8){
+     const parsed:{id:string;application:string}[]=[];
+     let malformed=false;
+     for(const value of response.selected){const s=record(value);if(typeof s.id!=='string'||!read.has(s.id)||typeof s.application!=='string'||s.application.length>300){malformed=true;break;}parsed.push({id:s.id,application:s.application});}
+     if(!malformed)selected=parsed;
+    }
+    if(selected!==null){
+     const cards=selected.map(s=>{const method=snapshot.methods.find(m=>m.id===s.id);return method?{...method,application:s.application}:null;}).filter((m):m is NonNullable<typeof m>=>m!==null);
+     return {selected:cards,sources};
+    }
+    latest={error:'ready格式错误：selected须为已读方法ID数组，每项含id与不超过300字的application；不需要方法可返回空数组。'};
+    continue;
    }
-   if(round===6)throw Error('本步骤补查预算已用完');
    if(response.action==='search_methods'){
     if(typeof response.category!=='string'||(response.category!==''&&!categories.includes(response.category))||!Number.isSafeInteger(response.cursor)||Number(response.cursor)<0){latest={error:'分类必须使用可用分类ID；空字符串表示全库。若库为空，可直接ready并selected为空，自行原创。',categories};continue;}
     const list=response.category===''?snapshot.methods:snapshot.methods.filter(m=>m.category===response.category),cursor=Number(response.cursor);latest={items:list.slice(cursor,cursor+12).map(m=>({id:m.id,name:m.name,intro:m.intro})),next:cursor+12<list.length?cursor+12:null};
@@ -200,9 +224,12 @@ export class TimeMachineDesignService {
     if(methods.some(m=>!m)){latest={error:'包含不存在的方法ID，请使用搜索结果里的原始ID。'};continue;}
     latest=methods.map(method=>{read.add(method!.id);return method!;});
    }else if(response.action==='read_source'){
-    const source=snapshot.documents.find(d=>d.key===response.key);if(!source||!Number.isSafeInteger(response.offset)||Number(response.offset)<0)throw Error('资料读取参数错误');latest={key:source.key,offset:response.offset,text:source.text.slice(Number(response.offset),Number(response.offset)+1200)};sources.push(latest);
-   }else throw Error('无权限的工具动作');
+    const source=snapshot.documents.find(d=>d.key===response.key);
+    if(!source||!Number.isSafeInteger(response.offset)||Number(response.offset)<0){latest={error:'资料读取参数错误，请使用资料索引中的key与不小于0的offset。'};continue;}
+    latest={key:source.key,offset:response.offset,text:source.text.slice(Number(response.offset),Number(response.offset)+1200)};sources.push(latest);
+   }else latest={error:'无权限的工具动作，请使用search_methods、read_methods、read_source或ready。'};
   }
-  throw Error('方法补查未完成');
+  // 补查预算用尽仍未ready：方法只是参考，按原创继续设计，不因此阻断整套方案（第23.3节允许不选方法）。
+  return {selected:[],sources,note:'成员未在补查预算内交付方法选择，本方案按原创方法继续。'};
  }
 }

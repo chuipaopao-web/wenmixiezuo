@@ -444,6 +444,7 @@ function VolumeCard({ volume, code, plan, lineLabel }: { volume: TimeMachineVolu
       <summary>
         <span className="tmd-volume-code">卷{code}</span>
         <strong>{volume.title}</strong>
+        {volume.beat.trim() !== '' && <span className="tmd-volume-beat">{volume.beat}</span>}
         <small>{formatWords(volume.words.target)}</small>
       </summary>
       <div className="tmd-volume-body">
@@ -453,6 +454,8 @@ function VolumeCard({ volume, code, plan, lineLabel }: { volume: TimeMachineVolu
         <p><strong>关键转折</strong>{volume.turningPoint}</p>
         {volume.arc !== null && <p><strong>人物变化</strong>{volume.arc}</p>}
         {volume.payoff !== null && <p><strong>期待兑现</strong>{volume.payoff}</p>}
+        {volume.hook !== null && <p><strong>爽点</strong>{volume.hook}</p>}
+        {volume.mood !== null && <p><strong>情绪</strong>{volume.mood}</p>}
         {volume.gain !== null && <p><strong>获得</strong>{volume.gain}</p>}
         {volume.loss !== null && <p><strong>失去</strong>{volume.loss}</p>}
         <p><strong>收束</strong>{exit?.summary ?? volume.ending}</p>
