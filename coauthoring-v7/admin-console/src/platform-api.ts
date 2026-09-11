@@ -8,6 +8,18 @@ export const previewRhythmPolicy = (policy: RhythmPolicy): Promise<{layers: Arra
 export const fetchRebuildControl = (signal?: AbortSignal): Promise<RebuildControlData> =>
   platformRequest('/api/v1/admin/rebuild-control', signal === undefined ? {} : { signal });
 
+export interface TimeMachineAdminRun {
+  id: string; ownerId: string; bookId: string; bookTitle: string | null;
+  kind: 'recommend' | 'design'; scheme: string | null; roundKey: string | null;
+  state: 'queued' | 'working' | 'failed' | 'succeeded'; phase: string; errorCode: string | null;
+  updatedAt: string; createdAt: string; writer: string | null;
+  revision: number | null; reviewPass: boolean | null; editedBy: string | null;
+  calls: number; tokens: number; failedCalls: number;
+}
+
+export const fetchTimeMachineRuns = (state?: 'working' | 'queued' | 'failed' | 'succeeded'): Promise<{ runs: TimeMachineAdminRun[]; totals: { calls: number; tokens: number } }> =>
+  platformRequest(`/api/v1/admin/time-machine/runs${state === undefined ? '' : `?state=${state}`}`);
+
 export interface AdminAccount {
   userId: string;
   email: string;

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  BookOpen, Bug, CaretRight, ChartLineUp, Crown, CurrencyCircleDollar, GitBranch, House, List,
+  BookOpen, Bug, CaretRight, ChartLineUp, ClockCounterClockwise, Crown, CurrencyCircleDollar, GitBranch, House, List,
   MagnifyingGlass, Robot, SignOut, TextT, TreeStructure, Users, X, ClipboardText
 } from '@phosphor-icons/react';
 import {
@@ -45,10 +45,12 @@ import { AuditedMethodsPage } from './AuditedMethodsPage';
 import { CreativeAssetsPage } from './CreativeAssetsPage';
 import { BookCardTemplatePage } from './BookCardTemplatePage';
 import { AgentWorkflowPage } from './AgentWorkflowPage';
+import { TimeMachineOpsPage } from './TimeMachineOpsPage';
 import './asset-library.css';
 
 const ASSET_TABS = [
   { key:'workflow',label:'智能体工作流程' },
+  { key:'time-machine',label:'时光机' },
   { key: 'overview', label: '分层方法' }, { key: 'book-card', label: '信息短卡模板' },
   { key: 'creative', label: '创意与金手指' },
 ] as const;
@@ -58,6 +60,7 @@ const NAVIGATION = [
   { key: 'configuration', label: '配置中心', icon: ClipboardText, group: '产品管理' },
   { key: 'features', label: '现有能力对照', icon: ClipboardText, group: '产品管理' },
   { key: 'overview', label: '资产方法论', icon: House, group: '创作资产' },
+  { key: 'time-machine', label: '时光机', icon: ClockCounterClockwise, group: '创作资产' },
   { key: 'agents', label: '成员与模型', icon: Robot, group: '创作团队' },
   { key: 'creation-ops', label: '创作运行', icon: GitBranch, group: '创作团队' },
   { key: 'operations', label: '数据中控', icon: ChartLineUp, group: '平台运营' },
@@ -67,7 +70,7 @@ const NAVIGATION = [
   { key: 'memberships', label: '会员与收入', icon: Crown, group: '平台运营' }
 ] as const;
 
-type AdminSection = AssetSection | PlatformSection | 'book-card' | 'rhythm' | 'creative' | 'workflow' | 'agents' | 'prompt-context' | 'creation-ops' | 'features' | 'rebuild' | 'configuration';
+type AdminSection = AssetSection | PlatformSection | 'book-card' | 'rhythm' | 'creative' | 'workflow' | 'time-machine' | 'agents' | 'prompt-context' | 'creation-ops' | 'features' | 'rebuild' | 'configuration';
 
 const DEFAULT_METHOD_FILTERS: MethodFilters = { query: '', dimension: 'all', scope: 'all' };
 const DEFAULT_PATTERN_FILTERS: PatternFilters = { query: '', category: 'all', genre: 'all' };
@@ -165,6 +168,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
         {section === 'overview' && <AuditedMethodsPage />}
         {section === 'book-card' && <BookCardTemplatePage />}
         {section === 'workflow' && <AgentWorkflowPage />}
+      {section === 'time-machine' && <TimeMachineOpsPage />}
         {section === 'methods' && <MethodsPage items={methods} filters={methodFilters} onFilters={setMethodFilters} onOpen={(value) => setDetail({ kind: 'method', value })} onClear={clearFilters} />}
         {section === 'patterns' && <PatternsPage items={patterns} filters={patternFilters} onFilters={setPatternFilters} onOpen={(value) => setDetail({ kind: 'pattern', value })} onClear={clearFilters} />}
         {section === 'recipes' && <RecipesPage items={recipes} filters={recipeFilters} onFilters={setRecipeFilters} onOpen={(value) => setDetail({ kind: 'recipe', value })} onClear={clearFilters} />}

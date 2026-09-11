@@ -25,6 +25,53 @@ export async function registerV7AdminConsoleRoutes(app: FastifyInstance, databas
     reply.header('Cache-Control', 'no-store');
     return success(await readRebuildControl(config, database), request.id);
   });
+  // 时光机运行只读状态：管理员可见阶段/成员/用量与失败恢复，不暴露提示词、输出或作者正文（第22.8节脱敏）。
+  app.get<{ Querystring: { limit?: string; state?: string } }>('/api/v1/admin/time-machine/runs', async (request, reply) => {
+    requireAdministrator(request);
+    reply.header('Cache-Control', 'no-store');
+    const limitRaw = Number(request.query.limit ?? '50');
+    const limit = Number.isSafeInteger(limitRaw) && limitRaw > 0 && limitRaw <= 200 ? limitRaw : 50;
+    const stateFilter = typeof request.query.state === 'string' && ['queued', 'working', 'failed', 'succeeded'].includes(request.query.state) ? request.query.state : null;
+    const rows = database.prepare(`
+      SELECT r.id, r.owner_id, r.book_id, r.kind, r.scheme, r.round_key, r.state, r.phase, r.error_code,
+             r.created_at, r.updated_at, r.result_json,
+             json_extract(r.snapshot_json, '$.members.writer.displayName') AS writer_name,
+             b.title AS book_title
+      FROM tm2_design_runs r LEFT JOIN books b ON b.owner_id = r.owner_id AND b.book_id = r.book_id
+      ${stateFilter !== null ? 'WHERE r.state = ?' : ''}
+      ORDER BY r.updated_at DESC LIMIT ?
+    `).all(...(stateFilter !== null ? [stateFilter] : []), limit) as unknown as Array<{
+      id: string; owner_id: string; book_id: string; kind: string; scheme: string | null; round_key: string | null;
+      state: string; phase: string; error_code: string | null;
+      created_at: string; updated_at: string; result_json: string | null;
+      writer_name: string | null; book_title: string | null;
+    }>;
+    const usageByRun = new Map<string, { calls: number; tokens: number; failedCalls: number }>();
+    for (const row of database.prepare(`
+      SELECT a.step AS step, c.state AS state,
+             CASE WHEN c.input_tokens IS NOT NULL AND c.output_tokens IS NOT NULL THEN c.input_tokens + c.output_tokens ELSE 0 END AS tokens
+      FROM tm2_model_calls c JOIN tm2_attempts a ON a.id = c.id
+    `).all() as unknown as Array<{ step: string; state: string; tokens: number }>) {
+      const runId = row.step.includes(':') ? row.step.slice(0, row.step.indexOf(':')) : null;
+      if (runId === null) continue;
+      const entry = usageByRun.get(runId) ?? { calls: 0, tokens: 0, failedCalls: 0 };
+      entry.calls += 1; entry.tokens += row.tokens;
+      if (row.state === 'failed') entry.failedCalls += 1;
+      usageByRun.set(runId, entry);
+    }
+    const runs = rows.map(row => {
+      const result = row.result_json !== null ? JSON.parse(row.result_json) as { revision?: number; review?: { pass?: boolean }; editedBy?: string } : null;
+      const usage = usageByRun.get(row.id) ?? { calls: 0, tokens: 0, failedCalls: 0 };
+      return {
+        id: row.id, ownerId: row.owner_id, bookId: row.book_id, bookTitle: row.book_title,
+        kind: row.kind, scheme: row.scheme !== null && row.scheme !== '' ? row.scheme : null, roundKey: row.round_key !== null && row.round_key !== '' ? row.round_key : null,
+        state: row.state, phase: row.phase, errorCode: row.error_code, updatedAt: row.updated_at, createdAt: row.created_at,
+        writer: row.writer_name, revision: result?.revision ?? null, reviewPass: result?.review?.pass ?? null, editedBy: result?.editedBy ?? null,
+        calls: usage.calls, tokens: usage.tokens, failedCalls: usage.failedCalls
+      };
+    });
+    return success({ runs, totals: { calls: runs.reduce((sum, run) => sum + run.calls, 0), tokens: runs.reduce((sum, run) => sum + run.tokens, 0) } }, request.id);
+  });
   app.get<{
     Params: { runKind: string; runId: string };
     Querystring: { ownerId?: string; bookId?: string };

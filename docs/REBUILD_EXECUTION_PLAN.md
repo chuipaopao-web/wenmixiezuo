@@ -1099,6 +1099,14 @@
 - **设计·响应速度**：新全书任务对已支持快速直出的DeepSeek Pro/豆包使用现有interactive_planning通道，并按同模式预留用量；其他模型与旧任务保持兼容。Flash旧结构化通道的本批合成样例180秒未返回，不算通过，也不据此宣称所有Flash任务都慢。阶段、因果与格式要求仍保留，不以关闭额外推理替代结果检查。
 - **本轮补全**：本批在现网可用的API/Worker与SQLite版本化任务链上增量实现，作者新工作区同步组件与类型；不声称已将所有规划迁移到独立PostgreSQL后端。真实长篇质量需后续多题材观察。
 - **运行验证**：2026-09-07第141批正式发布。受影响来源/运行恢复、候选确认/权限、蓝图/路线解析、作者与后台测试通过；390/1440时光机合成UI和实际管理员资产页面通过。最终Pro直出合成样例6卷60万字、6阶段3线、117秒、一次返回无需修复；篇幅8/11/11/11/11/8万与理由对应。旧提示74份哈希不变。终局与阶段设计可用，具体战役/治理容量仍需下层展开；不宣称长期文学质量已通过。
+- **实际AI节点·AI-173**：整理资料短卡｜资料编辑｜资料整理｜新时光机任务开始时分页提取六栏短卡并合并，主编逐页核对后才缓存。｜apps/api/src/application/books/time-machine-design-service.ts:109
+- **实际AI节点·AI-174**：推荐故事线｜主编｜推荐｜作者首次进入时光机时幂等建立，推荐主线支线与单多线建议。｜apps/api/src/application/books/time-machine-design-service.ts:73
+- **实际AI节点·AI-175**：查询并选用方法｜策划编剧｜设计｜设计前最多6轮只读方法搜索/读取，允许原创不选方法。｜apps/api/src/application/books/time-machine-design-service.ts:182
+- **实际AI节点·AI-176**：设计全书骨架｜策划编剧｜设计｜含字数预算、主线过程与关键落点建议卷区间，格式错误一次修复。｜apps/api/src/application/books/time-machine-design-service.ts:149
+- **实际AI节点·AI-177**：分批设计卷卡｜策划编剧｜设计｜每批两卷，含锚点条件、职责强度与字数，卷卡锚点上提蓝图层。｜apps/api/src/application/books/time-machine-design-service.ts:152
+- **实际AI节点·AI-178**：编剧自检修订｜策划编剧｜审查｜分批卷完成后自检字数/锚点/职责，发现问题触发一轮修订。｜apps/api/src/application/books/time-machine-design-service.ts:157
+- **实际AI节点·AI-179**：独立核对方案｜审查主编｜审查｜可最多3次补查原文后给出结论；明确问题与文学建议分开。｜apps/api/src/application/books/time-machine-design-service.ts:166
+- **实际AI节点·AI-180**：时光机调用传输与恢复｜策划编剧及审查主编共用传输｜重试｜按步骤持久化预留与用量，明确失败有限重试，未知结果不重复派发。｜apps/api/src/infrastructure/models/time-machine-model-gateway.ts:46
 
 <a id="rb-23"></a>
 
