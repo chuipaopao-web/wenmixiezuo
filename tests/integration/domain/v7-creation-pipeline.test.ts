@@ -25,7 +25,11 @@ import {renderRhythmFragment} from '@wenmi/v7-backend';
 import {V7RhythmPolicyStore} from '../../../apps/api/src/application/planning/v7-rhythm-policy-store.js';
 
 it('方法工具通过真实创作网关执行，最终请求可追溯且重放不再次下单',async()=>{
- const local=createTestContext('wenmi-method-gateway-');const app=await createServer(local.config,local.database);
+ const local=createTestContext('wenmi-method-gateway-');
+ // createServer注册治理路由时会以真实当前时间seed策略v1（INSERT OR IGNORE）；
+ // 必须先以固定日期seed，否则真实日期越过任务时间2026-09-10后快照按旧任务返回null（2026-09-12实测时间炸弹）。
+ new V7RhythmPolicyStore(local.database).initialize('2026-09-09');
+ const app=await createServer(local.config,local.database);
  try{
   const cookie=await register(app,'method-loop@example.com','方法测试作者');const bookId=await createBook(app,cookie,'合成方法测试','method-book-0001');
   const ownerId=String(local.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId)!.owner_id),workflowId='method-workflow';

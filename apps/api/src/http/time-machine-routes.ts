@@ -14,11 +14,14 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
  const service=new TimeMachineDesignService(db,new TimeMachineModelGateway(db,resolve),windowTokens);
  const scope=(request:Parameters<typeof requireAuthenticatedOwner>[0],bookId:string)=>{const owner=requireAuthenticatedOwner(request),s={ownerId:owner.ownerId,bookId};const book=new BookRepository(db).require(s);if(book.status==='archived')throw new DomainError(errorCodes.validation,'书籍已归档',{},false,409);return s;};
  const guard=<T>(fn:()=>T):T=>{try{return fn();}catch(e){if(e instanceof DomainError)throw e;throw new DomainError(errorCodes.validation,e instanceof Conflict?e.message:'当前操作未能完成，请核对资料或稍后重试',{},false,409);}};
- let active:Promise<void>|null=null,closed=false;
- const tick=()=>{if(closed||active||windowTokens<16000)return;
-  db.prepare("UPDATE tm2_design_runs SET state='failed',error_code='interrupted' WHERE state='working' AND updated_at<?").run(new Date(Date.now()-20*60*1000).toISOString());
+ let active:Promise<void>|null=null,activeId:string|null=null,closed=false;
+ const tick=()=>{if(closed||windowTokens<16000)return;
+  // 孤儿运行清理不能被在飞运行阻塞：进程重启会让working行永远滞留（R192浏览器验证实测）。
+  // 按id排除当前在飞运行——单步骤含自动重试可静默超过20分钟，不能按新鲜度误杀活运行。
+  db.prepare("UPDATE tm2_design_runs SET state='failed',error_code='interrupted' WHERE state='working' AND updated_at<? AND id<>coalesce(?, '')").run(new Date(Date.now()-20*60*1000).toISOString(),activeId);
+  if(active)return;
   const row=db.prepare("SELECT id FROM tm2_design_runs WHERE state='queued' ORDER BY created_at LIMIT 1").get() as {id:string}|undefined;
-  if(row)active=service.process(row.id).catch(()=>{app.log.error('time-machine executor failed; durable run retained');}).finally(()=>{active=null;});
+  if(row){activeId=row.id;active=service.process(row.id).catch(()=>{app.log.error('time-machine executor failed; durable run retained');}).finally(()=>{active=null;activeId=null;});}
  };
  const timer=setInterval(tick,2000);timer.unref();app.addHook('onClose',async()=>{closed=true;clearInterval(timer);if(active)await active;});
  app.get<{Params:{bookId:string}}>('/api/time-machine/books/:bookId/state',async request=>{

@@ -276,7 +276,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings, onBackToLegacy }: { 
                 {adopted.numbering !== null
                   ? `${adopted.numbering.volumes.map(v => `卷${v.code}`).join('、')}；${[...adopted.numbering.mainLines, ...adopted.numbering.branchLines].join('、')}`
                   : `${adopted.plan.volumes.length}卷规划`}
-                ，全书${formatWords(adopted.plan.words.target)}
+                ，全书{formatWords(adopted.plan.words.target)}
               </span>
             </div>
           </div>
