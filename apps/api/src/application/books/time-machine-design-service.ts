@@ -16,31 +16,51 @@ export class TimeMachineDesignService {
  constructor(private readonly db:DatabaseSync,private readonly gateway:TimeMachineModelGateway,private readonly windowTokens:number){this.plans=new SqlPlanRepository(db);this.steps=new StepRepository(db);}
  start(scope:Scope,kind:'recommend'|'design',intent:string,key:string):string{
   if(!['recommend','design'].includes(kind)||typeof key!=='string'||!key.trim()||key.length>160)throw Error('请求参数错误');
-  const snapshot=snapshotTimeMachine(this.db,scope,intent,this.windowTokens),hash=digest(snapshot);
+  const snapshot=snapshotTimeMachine(this.db,scope,intent,this.windowTokens);
+  this.db.exec('BEGIN IMMEDIATE');try{const id=this.createRun(scope,kind,key,'','',snapshot,[key]);this.db.exec('COMMIT');return id;}
+  catch(e){if(this.db.isTransaction)this.db.exec('ROLLBACK');throw e;}
+ }
+ /** 三套方案一轮：独立编剧、独立状态与失败恢复；同一轮共享资料短卡与作者选择，资料只整理一次（第23.12节阶段二）。 */
+ startDesignRound(scope:Scope,intent:string,key:string):{id:string;scheme:string}[]{
+  if(typeof intent!=='string'||intent.length>4000||typeof key!=='string'||!key.trim()||key.length>160)throw Error('请求参数错误');
+  const base=snapshotTimeMachine(this.db,scope,intent,this.windowTokens);
+  const writers=base.writers.slice(0,3);
+  if(!writers.length)throw Error('成员岗位尚未配置：planning_writer');
+  const schemes=['A','B','C'].slice(0,writers.length) as string[];
+  const keys=schemes.map(scheme=>`${key}#${scheme}`);
   this.db.exec('BEGIN IMMEDIATE');try{
-   const old=this.db.prepare('SELECT id,input_hash FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND kind=? AND request_key=?').get(scope.ownerId,scope.bookId,kind,key) as {id:string;input_hash:string}|undefined;
-   if(old){if(old.input_hash!==hash)throw Error('该操作对应的资料已变化，请发起新设计');this.db.exec('COMMIT');return old.id;}
-   const working=this.db.prepare("SELECT id FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND state IN ('queued','working')").get(scope.ownerId,scope.bookId);if(working)throw Error('本书已有新时光机任务');
-   const legacy=this.db.prepare("SELECT run_id FROM v7_planning_recipe_runs WHERE owner_id=? AND book_id=? AND status IN ('queued','working') UNION ALL SELECT generation_run_id FROM v7_planning_generation_runs WHERE owner_id=? AND book_id=? AND status IN ('queued','working') LIMIT 1").get(scope.ownerId,scope.bookId,scope.ownerId,scope.bookId);if(legacy)throw Error('本书旧规划任务仍在运行，请待其结束');
-   this.plans.syncManifest(scope,snapshot.manifest);const id=randomUUID(),now=new Date().toISOString();
-   this.db.prepare("INSERT INTO tm2_design_runs(id,owner_id,book_id,kind,request_key,input_hash,snapshot_json,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'queued',?,?)").run(id,scope.ownerId,scope.bookId,kind,key,hash,JSON.stringify(snapshot),now,now);this.db.exec('COMMIT');return id;
+   const created=schemes.map((scheme,index)=>({id:this.createRun(scope,'design',keys[index]!,scheme,key,{...base,members:{...base.members,writer:writers[index]!}},keys),scheme}));
+   this.db.exec('COMMIT');return created;
   }catch(e){if(this.db.isTransaction)this.db.exec('ROLLBACK');throw e;}
  }
- state(scope:Scope){return this.db.prepare('SELECT id,kind,state,result_json,error_code,updated_at,phase,json_extract(snapshot_json,\'$.members\') AS members_json FROM tm2_design_runs WHERE owner_id=? AND book_id=? ORDER BY created_at DESC LIMIT 10').all(scope.ownerId,scope.bookId).map(row=>{
+ /** Caller owns the transaction. ownKeys lets one round's schemes coexist while another round stays blocked. */
+ private createRun(scope:Scope,kind:'recommend'|'design',key:string,scheme:string,roundKey:string,snapshot:TimeMachineSnapshot,ownKeys:readonly string[]):string{
+  const hash=digest(snapshot);
+  const old=this.db.prepare('SELECT id,input_hash FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND kind=? AND request_key=?').get(scope.ownerId,scope.bookId,kind,key) as {id:string;input_hash:string}|undefined;
+  if(old){if(old.input_hash!==hash)throw Error('该操作对应的资料已变化，请发起新设计');return old.id;}
+  const placeholders=ownKeys.map(()=>'?').join(',');
+  const working=this.db.prepare(`SELECT id FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND state IN ('queued','working') AND request_key NOT IN (${placeholders})`).get(scope.ownerId,scope.bookId,...ownKeys);if(working)throw Error('本书已有新时光机任务');
+  const legacy=this.db.prepare("SELECT run_id FROM v7_planning_recipe_runs WHERE owner_id=? AND book_id=? AND status IN ('queued','working') UNION ALL SELECT generation_run_id FROM v7_planning_generation_runs WHERE owner_id=? AND book_id=? AND status IN ('queued','working') LIMIT 1").get(scope.ownerId,scope.bookId,scope.ownerId,scope.bookId);if(legacy)throw Error('本书旧规划任务仍在运行，请待其结束');
+  this.plans.syncManifest(scope,snapshot.manifest);const id=randomUUID(),now=new Date().toISOString();
+  this.db.prepare("INSERT INTO tm2_design_runs(id,owner_id,book_id,kind,request_key,input_hash,snapshot_json,state,scheme,round_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'queued',?,?,?,?)").run(id,scope.ownerId,scope.bookId,kind,key,hash,JSON.stringify(snapshot),scheme,roundKey,now,now);return id;
+ }
+ state(scope:Scope){return this.db.prepare('SELECT id,kind,state,result_json,error_code,updated_at,phase,scheme,round_key,json_extract(snapshot_json,\'$.members\') AS members_json FROM tm2_design_runs WHERE owner_id=? AND book_id=? ORDER BY created_at DESC LIMIT 12').all(scope.ownerId,scope.bookId).map(row=>{
   const phase=String(row.phase);const label=phase.startsWith('card-review')?'正在核对资料':phase.startsWith('card')||phase.startsWith('merge')?'正在整理资料':phase.startsWith('methods')?'正在选择设计方法':phase.startsWith('self')?'正在自检方案':phase.startsWith('skeleton')?'正在设计全书骨架':phase.startsWith('volumes')?'正在设计分卷方向':phase.startsWith('review')?'正在核对方案':phase.startsWith('recommend')?'正在推荐故事线':'等待成员接手';
   const result=typeof row.result_json==='string'?JSON.parse(row.result_json):null;
   const needsReview=row.kind==='design'&&result?.review?.pass===false;
   const members=JSON.parse(String(row.members_json)) as TimeMachineSnapshot['members'];
   const activeMember=phase.startsWith('card-review')||phase.startsWith('review')||phase.startsWith('recommend')?members.chief:phase.startsWith('card')||phase.startsWith('merge')?members.researcher:members.writer;
-  return {id:row.id,kind:row.kind,state:row.state,updatedAt:row.updated_at,member:row.state==='working'?{id:activeMember.memberKey,name:activeMember.displayName}:null,progress:row.state==='working'?label:row.state==='succeeded'?(needsReview?'方案待调整':'已完成'):row.state==='failed'?'未完成':'等待成员接手',result,message:needsReview?'方案仍有待核对的问题，暂不能采用。':row.error_code==='unknown'?'上次调用结果尚未确认，已保留记录，不会自动重复调用。':row.error_code?'本次工作尚未完成，已保存的步骤会保留。':null};
+  return {id:row.id,kind:row.kind,scheme:String(row.scheme||'')||null,roundKey:String(row.round_key||'')||null,state:row.state,updatedAt:row.updated_at,member:row.state==='working'?{id:activeMember.memberKey,name:activeMember.displayName}:null,progress:row.state==='working'?label:row.state==='succeeded'?(needsReview?'方案待调整':'已完成'):row.state==='failed'?'未完成':'等待成员接手',result,message:needsReview?'方案仍有待核对的问题，暂不能采用。':row.error_code==='unknown'?'上次调用结果尚未确认，已保留记录，不会自动重复调用。':row.error_code?'本次工作尚未完成，已保存的步骤会保留。':null};
  });}
  retry(scope:Scope,id:string):string{
-  const row=this.db.prepare('SELECT state,error_code,snapshot_json,kind FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND id=?').get(scope.ownerId,scope.bookId,id) as {state:string;error_code:string|null;snapshot_json:string;kind:'recommend'|'design'}|undefined;
+  const row=this.db.prepare('SELECT state,error_code,snapshot_json,kind,scheme,round_key FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND id=?').get(scope.ownerId,scope.bookId,id) as {state:string;error_code:string|null;snapshot_json:string;kind:'recommend'|'design';scheme:string|null;round_key:string|null}|undefined;
   if(!row)throw Error('任务不存在');if(row.state!=='failed')return id;
   if(row.error_code==='unknown')throw new TimeMachineCallError('unknown','上次调用结果尚未确认，不能重复发送');
   if(row.error_code!=='temporary'&&row.error_code!=='interrupted'){
    const snapshot=JSON.parse(row.snapshot_json) as TimeMachineSnapshot;
-   return this.start(scope,row.kind,snapshot.intent,`retry:${id}`);
+   const retryKey=`retry:${id}`;
+   this.db.exec('BEGIN IMMEDIATE');try{const newId=this.createRun(scope,row.kind,retryKey,String(row.scheme??''),String(row.round_key??''),snapshot,[retryKey]);this.db.exec('COMMIT');return newId;}
+   catch(e){if(this.db.isTransaction)this.db.exec('ROLLBACK');throw e;}
   }
   this.db.prepare("UPDATE tm2_design_runs SET state='queued',error_code=NULL,updated_at=? WHERE owner_id=? AND book_id=? AND id=? AND state='failed'").run(new Date().toISOString(),scope.ownerId,scope.bookId,id);return id;
  }

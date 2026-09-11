@@ -34,11 +34,19 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
    return volumePlanningContext(active.candidate,active.adoption,request.params.volumeId,{id:'utf8-upper-bound',mode:'conservative',count:text=>Buffer.byteLength(text,'utf8')},Math.min(16000,Math.floor(windowTokens/2)));
   }),request.id);
  });
- for(const [path,kind] of [['recommendation-runs','recommend'],['design-runs','design']] as const)app.post<{Params:{bookId:string};Body:{intent?:unknown;idempotencyKey?:unknown}}>(`/api/time-machine/books/:bookId/${path}`,async(request,reply)=>{
+ app.post<{Params:{bookId:string};Body:{intent?:unknown;idempotencyKey?:unknown}}>('/api/time-machine/books/:bookId/recommendation-runs',async(request,reply)=>{
   const s=scope(request,request.params.bookId);const body=request.body??{};
   if(typeof body.idempotencyKey!=='string'||(body.intent!==undefined&&typeof body.intent!=='string'))throw new DomainError(errorCodes.validation,'提交格式不正确',{},false,400);
-  const id=guard(()=>service.start(s,kind,String(body.intent??''),body.idempotencyKey as string));
+  const id=guard(()=>service.start(s,'recommend',String(body.intent??''),body.idempotencyKey as string));
   const run=service.state(s).find(item=>item.id===id);reply.code(run?.state==='queued'||run?.state==='working'?202:200);return success({id,state:run?.state??'unknown'},request.id);
+ });
+ // 一轮设计同时建立A/B/C三套方案：独立编剧、独立状态与失败恢复（第23.12节阶段二）。
+ app.post<{Params:{bookId:string};Body:{intent?:unknown;idempotencyKey?:unknown}}>('/api/time-machine/books/:bookId/design-runs',async(request,reply)=>{
+  const s=scope(request,request.params.bookId);const body=request.body??{};
+  if(typeof body.idempotencyKey!=='string'||(body.intent!==undefined&&typeof body.intent!=='string'))throw new DomainError(errorCodes.validation,'提交格式不正确',{},false,400);
+  const created=guard(()=>service.startDesignRound(s,String(body.intent??''),body.idempotencyKey as string));
+  const states=service.state(s);const runs=created.map(item=>({id:item.id,scheme:item.scheme,state:states.find(row=>row.id===item.id)?.state??'unknown'}));
+  reply.code(runs.some(run=>run.state==='queued'||run.state==='working')?202:200);return success({runs},request.id);
  });
  app.post<{Params:{bookId:string;id:string}}>('/api/time-machine/books/:bookId/runs/:id/retry',async request=>{const s=scope(request,request.params.bookId);const id=guard(()=>service.retry(s,request.params.id));return success({id},request.id);});
  app.post<{Params:{bookId:string};Body:{candidateId:string;revision:number;expectedRevision:number;idempotencyKey:string}}>('/api/time-machine/books/:bookId/adoptions',async request=>{
