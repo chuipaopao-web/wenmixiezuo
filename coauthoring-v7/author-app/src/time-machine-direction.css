@@ -68,9 +68,25 @@
 .tmd-suggestions ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; }
 
 .tmd-plan { display: grid; gap: 14px; }
+.tmd-plan h4 { margin: 0; font-family: var(--font-display); font-size: 15px; }
 .tmd-baseline { display: grid; gap: 8px; }
 .tmd-baseline p, .tmd-expectations p { margin: 0; line-height: 1.7; font-size: 14px; }
-.tmd-baseline strong, .tmd-expectations strong, .tmd-volume-body strong { display: inline; color: var(--ink); background: var(--panel-muted); border-radius: 6px; padding: 1px 7px; margin-right: 7px; font-size: 12.5px; }
+.tmd-baseline strong, .tmd-volume-body strong { display: inline; color: var(--ink); background: var(--panel-muted); border-radius: 6px; padding: 1px 7px; margin-right: 7px; font-size: 12.5px; }
+
+.tmd-opening-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.tmd-opening-card { display: grid; gap: 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-raised); padding: 12px 14px; }
+.tmd-opening-card span { font-size: 12px; color: var(--accent); background: var(--accent-soft); justify-self: start; border-radius: 999px; padding: 2px 9px; }
+.tmd-opening-card b { font-size: 14px; line-height: 1.65; font-weight: 600; }
+
+.tmd-expect-head, .tmd-expect-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.tmd-expect-head { font-size: 12px; color: var(--ink-soft); border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.tmd-expect-row p { margin: 0; padding: 8px 0; border-bottom: 1px dashed var(--line); line-height: 1.65; font-size: 13.5px; }
+@media (max-width: 480px) { .tmd-expect-head, .tmd-expect-row { grid-template-columns: 1fr; } .tmd-expect-head { display: none; } .tmd-expect-row p { border-bottom: none; padding: 4px 0; } }
+
+.tmd-chain { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin-top: 6px; }
+.tmd-chain-node { display: grid; gap: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-raised); padding: 8px 11px; font-size: 13px; line-height: 1.55; max-width: 240px; }
+.tmd-chain-node small { color: var(--ink-faint); font-size: 11.5px; }
+.tmd-chain-end { border-color: var(--accent); background: var(--accent-soft); }
 
 .tmd-lines { display: grid; gap: 8px; }
 .tmd-line-item { display: grid; gap: 4px; border-left: 3px solid var(--accent); padding-left: 12px; }

@@ -48,9 +48,10 @@ export interface TimeMachineVolumeView {
 export interface TimeMachinePlanView {
   baseline: string;
   ending: string;
+  openingHooks: [string, string, string];
   words: { target: number; min: number | null; max: number | null; hard: boolean; policy: string };
   lines: TimeMachineLineView[];
-  expectations: { id: string; opening: string; answer: string; lineIds: string[] }[];
+  expectations: { id: string; opening: string; change: string; answer: string; lineIds: string[] }[];
   relations: { from: string; to: string; kind: string; effect: string }[];
   anchors: TimeMachineAnchorView[];
   volumes: TimeMachineVolumeView[];

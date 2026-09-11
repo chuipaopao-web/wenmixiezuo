@@ -11,12 +11,13 @@ function planFixture(baseline: string) {
   return {
     baseline,
     ending: '机甲和无灵根的人获得公平生存机会。',
+    openingHooks: ['开头约300字：工坊收回倒计时与神秘机甲同场', '第一章：危险订单成立，读者想知道能否完成', '前三章：无灵根者与机甲伙伴的立足之战',] as [string, string, string],
     words: { target: 500000, min: null, max: null, hard: false, policy: 'chars-v1' },
     lines: [
       { id: 'main', role: 'main' as const, title: '工坊主线', goal: '立足', answer: '建立工坊', process: '从修理接单到建立工坊', parentIds: [], milestones: [{ id: 'ms1', summary: '第一台自装机甲', suggestedVolumes: ['v1'], importance: 'flexible' as const }] },
       { id: 'sub', role: 'through' as const, title: '伙伴支线', goal: '信任', answer: '互相信任', process: '从戒备到并肩', parentIds: [], milestones: [] }
     ],
-    expectations: [{ id: 'promise', opening: '无灵根能否立足', answer: '以机甲立足', lineIds: ['main'] }],
+    expectations: [{ id: 'promise', opening: '无灵根能否立足', change: '看到技术与伙伴替代灵根', answer: '以机甲立足', lineIds: ['main'] }],
     relations: [],
     anchors: [
       { id: 'v1-in', ownerEntityId: 'v1', kind: 'entry' as const, summary: '店铺濒临倒闭', span: '本卷开篇', conditions: [{ summary: '订单危机已经成立', subjectIds: ['main'] }], logic: 'all' as const, importance: 'required' as const, fallback: '未达成需修订开场', keywords: [], aliases: [] },
@@ -119,8 +120,8 @@ describe('time machine direction page', () => {
     await waitFor(() => { expect(retried).toBe(true); });
     expect(screen.getByText('轻快成长')).toBeVisible();
     expect(screen.getByText('约30万字')).toBeVisible();
-    expect(screen.getByText('卷A')).toBeVisible();
-    expect(screen.getByText('卷B')).toBeVisible();
+    expect(screen.getAllByText('卷A').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('卷B').length).toBeGreaterThanOrEqual(1);
     fireEvent.click(screen.getAllByText(/工坊危机/)[0]!.closest('details')!.querySelector('summary')!);
     expect(screen.getByText(/订单危机已经成立/)).toBeInTheDocument();
     expect(screen.getByText('采用本方案')).toBeEnabled();

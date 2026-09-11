@@ -5,6 +5,8 @@ export interface Manifest { sources: SourceRef[]; templateRevision: string; reda
 export interface Member { id: string; name: string; model: string; routeRevision: string }
 export interface Line { id: string; role: 'main'|'through'|'stage'; title: string; goal: string; answer: string; parentIds: string[] }
 export interface Expectation { id: string; opening: string; answer: string; lineIds: string[] }
+/** v2开篇三钩子（按顺序：开头约300字/第一章/前三章）与期待的中间列“想看到的变化”。 */
+export interface ExpectationV2 { id: string; opening: string; change: string; answer: string; lineIds: string[] }
 export interface Relation { from: string; to: string; kind: 'push'|'conflict'|'reveal'|'meet'; effect: string }
 export interface Volume { id: string; title: string; start: string; goal: string; conflict: string; turningPoint: string; gain: string; loss: string; ending: string; handoff: string; duties: {lineId: string; action: 'start'|'advance'|'pause'|'close'; result: string}[] }
 export interface Blueprint { baseline: string; ending: string; lines: Line[]; expectations: Expectation[]; relations: Relation[]; volumes: Volume[] }
@@ -19,7 +21,7 @@ export interface LineMilestone { id: string; summary: string; suggestedVolumes: 
 export interface LineV2 { id: string; role: 'main'|'through'|'stage'; title: string; goal: string; answer: string; process: string; parentIds: string[]; milestones: LineMilestone[] }
 export interface DutyV2 { lineId: string; action: 'start'|'advance'|'pause'|'close'; result: string; anchorIds: string[]; strength: 'required'|'flexible'; reason: string }
 export interface VolumeV2 { id: string; title: string; beat: string; start: string; goal: string; conflict: string; turningPoint: string; gain: string|null; loss: string|null; arc: string|null; payoff: string|null; hook: string|null; mood: string|null; ending: string; handoff: string; words: WordBudget; duties: DutyV2[] }
-export interface BlueprintV2 { baseline: string; ending: string; words: WordBudget; lines: LineV2[]; expectations: Expectation[]; relations: Relation[]; anchors: Anchor[]; volumes: VolumeV2[] }
+export interface BlueprintV2 { baseline: string; ending: string; openingHooks: [string, string, string]; words: WordBudget; lines: LineV2[]; expectations: ExpectationV2[]; relations: Relation[]; anchors: Anchor[]; volumes: VolumeV2[] }
 export interface CandidateV2 { schemaVersion: 2; manifest: Manifest; member: Member; plan: BlueprintV2 }
 export type Candidate = CandidateV1 | CandidateV2
 export class ContractError extends Error { constructor(message: string) { super(message); this.name = 'ContractError'; } }
@@ -85,6 +87,11 @@ function parseExpectations(v: unknown, ref: (v:unknown)=>string): Expectation[] 
   unique(expectations.map(e=>e.id));
   return expectations;
 }
+function parseExpectationsV2(v: unknown, ref: (v:unknown)=>string): ExpectationV2[] {
+  const expectations = list(v, x => {const a=object(x,['id','opening','change','answer','lineIds']);const lineIds=list(a.lineIds,ref);unique(lineIds);if(!lineIds.length)throw new ContractError('期待未关联故事线');return {id:id(a.id),opening:text(a.opening),change:text(a.change),answer:text(a.answer),lineIds};});
+  unique(expectations.map(e=>e.id));
+  return expectations;
+}
 function parseRelations(v: unknown, ref: (v:unknown)=>string): Relation[] {
   return list(v, x=>{const a=object(x,['from','to','kind','effect']);const from=ref(a.from),to=ref(a.to);if(from===to)throw new ContractError('关系不能指向自身');return {from,to,kind:choice(a.kind,['push','conflict','reveal','meet']),effect:text(a.effect)};});
 }
@@ -118,7 +125,9 @@ export function parseCandidate(v: unknown): Candidate {
     return {schemaVersion:1,manifest:parseManifest(c.manifest),member,plan:{baseline:text(p.baseline),ending:text(p.ending),lines,expectations,relations,volumes}};
   }
   if (c.schemaVersion === 2) {
-    const p = object(c.plan, ['baseline','ending','words','lines','expectations','relations','anchors','volumes']);
+    const p = object(c.plan, ['baseline','ending','openingHooks','words','lines','expectations','relations','anchors','volumes']);
+    const hooks = list(p.openingHooks, h => text(h, 300), 3);
+    if (hooks.length !== 3) throw new ContractError('开篇三钩子必须完整（开头/第一章/前三章）');
     const bookWords = words(p.words);
     const volumes=list(p.volumes,x=>{
       const a=object(x,['id','title','beat','start','goal','conflict','turningPoint','gain','loss','arc','payoff','hook','mood','ending','handoff','words','duties']);
@@ -139,7 +148,7 @@ export function parseCandidate(v: unknown): Candidate {
     const visit=(key:string):void=> {if(visiting.has(key))throw new ContractError('包含关系循环');if(done.has(key))return;visiting.add(key);lines.find(l=>l.id===key)!.parentIds.forEach(visit);visiting.delete(key);done.add(key);};
     lines.forEach(l=>visit(l.id));
     for(const volume of volumes)for(const duty of volume.duties)duty.lineId=ref(duty.lineId);
-    const expectations=parseExpectations(p.expectations,ref);
+    const expectations=parseExpectationsV2(p.expectations,ref);
     const relations=parseRelations(p.relations,ref);
     const anchorList=anchors(p.anchors,volumeIds,ids);
     const anchorIds=new Set(anchorList.map(a=>a.id));
@@ -153,7 +162,7 @@ export function parseCandidate(v: unknown): Candidate {
     }
     const total=volumes.reduce((sum,v)=>sum+v.words.target,0);
     if(total!==bookWords.target)throw new ContractError('分卷字数合计与全书预算不一致，需要成员重新分配或提出新预算版本');
-    return {schemaVersion:2,manifest:parseManifest(c.manifest),member,plan:{baseline:text(p.baseline),ending:text(p.ending),words:bookWords,lines,expectations,relations,anchors:anchorList,volumes}};
+    return {schemaVersion:2,manifest:parseManifest(c.manifest),member,plan:{baseline:text(p.baseline),ending:text(p.ending),openingHooks:[hooks[0]!,hooks[1]!,hooks[2]!],words:bookWords,lines,expectations,relations,anchors:anchorList,volumes}};
   }
   throw new ContractError('不支持的协议版本');
 }

@@ -401,32 +401,46 @@ function PlanDetail({ plan, numbering }: { plan: TimeMachinePlanView; numbering:
         <p><strong>最终回答</strong>{plan.ending}</p>
         <p><strong>计划字数</strong>{formatWords(plan.words.target)}{plan.words.hard ? '（作者硬要求）' : '（软目标，超出会重新估量）'}</p>
       </div>
+      {plan.openingHooks.length === 3 && (
+        <div className="tmd-opening">
+          <h4>开篇，就让读者想看下去</h4>
+          <div className="tmd-opening-grid">
+            <article className="tmd-opening-card"><span>开头约300字</span><b>{plan.openingHooks[0]}</b></article>
+            <article className="tmd-opening-card"><span>第一章</span><b>{plan.openingHooks[1]}</b></article>
+            <article className="tmd-opening-card"><span>前三章</span><b>{plan.openingHooks[2]}</b></article>
+          </div>
+        </div>
+      )}
+      {plan.expectations.length > 0 && (
+        <div className="tmd-expectations">
+          <h4>从开篇惦记到结尾</h4>
+          <div className="tmd-expect-head"><span>开篇的期待</span><span>想看到的变化</span><span>结尾的回应</span></div>
+          {plan.expectations.map(expectation => (
+            <div key={expectation.id} className="tmd-expect-row"><p>{expectation.opening}</p><p>{expectation.change}</p><p>{expectation.answer}</p></div>
+          ))}
+        </div>
+      )}
       <div className="tmd-lines">
+        <h4>故事线怎样交织</h4>
         {plan.lines.map((line, index) => (
           <div key={line.id} className="tmd-line-item">
             <span className="tmd-line-role">{lineLabel(line.id, index)}</span>
             <strong>{line.title}</strong>
             <small>{line.process}</small>
             {line.milestones.length > 0 && (
-              <ul className="tmd-milestones">
+              <div className="tmd-chain">
                 {line.milestones.map(milestone => (
-                  <li key={milestone.id}>{milestone.summary}（建议{milestone.suggestedVolumes.map(id => {
+                  <span key={milestone.id} className="tmd-chain-node">{milestone.summary}<small>{milestone.suggestedVolumes.map(id => {
                     const volumeIndex = plan.volumes.findIndex(v => v.id === id);
                     return volumeIndex >= 0 ? `卷${codeOf(id, volumeIndex)}` : id;
-                  }).join('—')}·{milestone.importance === 'required' ? '必选' : '可调'}）</li>
+                  }).join('—')}{milestone.importance === 'required' ? '·必选' : ''}</small></span>
                 ))}
-              </ul>
+                <span className="tmd-chain-node tmd-chain-end">{line.answer}<small>收束</small></span>
+              </div>
             )}
           </div>
         ))}
       </div>
-      {plan.expectations.length > 0 && (
-        <div className="tmd-expectations">
-          {plan.expectations.map(expectation => (
-            <p key={expectation.id}><strong>开篇期待</strong>{expectation.opening}<strong>最终回答</strong>{expectation.answer}</p>
-          ))}
-        </div>
-      )}
       <div className="tmd-volumes">
         {plan.volumes.map((volume, index) => (
           <VolumeCard key={volume.id} volume={volume} code={codeOf(volume.id, index)} plan={plan} lineLabel={lineLabel} />
