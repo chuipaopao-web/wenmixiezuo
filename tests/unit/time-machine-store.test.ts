@@ -1,11 +1,11 @@
 import {afterEach,describe,expect,it} from 'vitest';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
-import {parseCandidate,type Candidate} from '../../rebuild/packages/time-machine-core/src/contracts.js';
+import {parseCandidate,type CandidateV1} from '../../rebuild/packages/time-machine-core/src/contracts.js';
 import {schema,SqlPlanRepository} from '../../rebuild/packages/time-machine-core/src/store.js';
 import {volumePlanningContext} from '../../rebuild/packages/time-machine-core/src/volume-context.js';
 const scope={ownerId:'alice',bookId:'book'};
-function sample():Candidate {return {schemaVersion:1,manifest:{sources:[{kind:'opening',id:'opening',revision:'v1',hash:'a'.repeat(64)},{kind:'intent',id:'intent',revision:'v1',hash:'b'.repeat(64)}],templateRevision:'v1',redactionRevision:'v1'},member:{id:'writer',name:'编剧',model:'model',routeRevision:'route1'},plan:{baseline:'无灵根修理工争取立足',ending:'工坊建立',lines:[{id:'main',role:'main',title:'工坊',goal:'立足',answer:'能否建立工坊',parentIds:[]}],expectations:[{id:'promise',opening:'没有灵根能否立足',answer:'以机甲建立工坊',lineIds:['main']}],relations:[],volumes:[{id:'v1',title:'开张',start:'店铺将倒闭',goal:'完成订单',conflict:'封锁',turningPoint:'新机甲成功',gain:'伙伴',loss:'独占技术',ending:'订单交付',handoff:'',duties:[{lineId:'main',action:'close',result:'工坊成立'}]}]}};}
+function sample():CandidateV1 {return {schemaVersion:1,manifest:{sources:[{kind:'opening',id:'opening',revision:'v1',hash:'a'.repeat(64)},{kind:'intent',id:'intent',revision:'v1',hash:'b'.repeat(64)}],templateRevision:'v1',redactionRevision:'v1'},member:{id:'writer',name:'编剧',model:'model',routeRevision:'route1'},plan:{baseline:'无灵根修理工争取立足',ending:'工坊建立',lines:[{id:'main',role:'main',title:'工坊',goal:'立足',answer:'能否建立工坊',parentIds:[]}],expectations:[{id:'promise',opening:'没有灵根能否立足',answer:'以机甲建立工坊',lineIds:['main']}],relations:[],volumes:[{id:'v1',title:'开张',start:'店铺将倒闭',goal:'完成订单',conflict:'封锁',turningPoint:'新机甲成功',gain:'伙伴',loss:'独占技术',ending:'订单交付',handoff:'',duties:[{lineId:'main',action:'close',result:'工坊成立'}]}]}};}
 const databases:DatabaseSync[]=[];
 afterEach(()=>{databases.splice(0).forEach(d=>d.close());});
 function setup(){const db=new DatabaseSync(':memory:');databases.push(db);db.exec('PRAGMA foreign_keys=ON');db.exec(schema);const repo=new SqlPlanRepository(db);repo.syncManifest(scope,sample().manifest);return {db,repo};}

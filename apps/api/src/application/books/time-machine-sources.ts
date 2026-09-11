@@ -6,7 +6,9 @@ import {V7AgentGovernanceRepository} from '../../infrastructure/db/repositories/
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
 export interface SourceDocument {key:string;text:string}
 export interface MethodCard {id:string;name:string;category:string;intro:string;usage:string}
-export interface TimeMachineSnapshot {manifest:Manifest;documents:SourceDocument[];methods:MethodCard[];members:{researcher:V7EffectiveMember;chief:V7EffectiveMember;writer:V7EffectiveMember};intent:string;targetWords:number|null;windowTokens:number}
+/** 字数口径：规划字数与作者正文统计使用同一以"字"为单位的字符计数口径；作者开书填写的总字数按软目标处理（第23.3节）。 */
+export interface WordPolicy {policy:'chars-v1';unit:'字';hard:false}
+export interface TimeMachineSnapshot {manifest:Manifest;documents:SourceDocument[];methods:MethodCard[];members:{researcher:V7EffectiveMember;chief:V7EffectiveMember;writer:V7EffectiveMember};intent:string;targetWords:number|null;wordPolicy:WordPolicy|null;windowTokens:number}
 /** Reads upstream formal records only; it does not invoke old planning or context compilation. */
 export function snapshotTimeMachine(db:DatabaseSync,scope:Scope,intent:string,windowTokens:number):TimeMachineSnapshot {
  const book=new BookRepository(db).require(scope);if(book.status==='archived')throw Error('书籍已归档');
@@ -28,5 +30,5 @@ export function snapshotTimeMachine(db:DatabaseSync,scope:Scope,intent:string,wi
  if(asset){const policy=JSON.parse(asset.policy_json) as {cards?:unknown[]};if(!Array.isArray(policy.cards))throw Error('方法库格式无效');for(const value of policy.cards){const c=value as Record<string,unknown>;if(!['key','title','instruction','boundary'].every(k=>typeof c[k]==='string'))throw Error('方法卡格式无效');methods.push({id:String(c.key),name:String(c.title),category:String(c.methodCategory??c.category),intro:String(c.instruction),usage:String(c.boundary)});}manifest.sources.push({kind:'asset',id:'methods',revision:String(asset.version),hash:digest(methods)});}
  const registry=new V7AgentGovernanceRepository(db);registry.ensureSeeded(new Date().toISOString());const roster=registry.snapshot();
  const member=(role:V7EffectiveMember['fixedRoleKey'])=>{const found=roster.members.filter(m=>m.enabled&&m.fixedRoleKey===role&&m.model.plan!=='image').sort((a,b)=>Number(b.defaultForRole)-Number(a.defaultForRole)||a.fallbackPriority-b.fallbackPriority)[0];if(!found)throw Error(`成员岗位尚未配置：${role}`);return found;};
- return {manifest,documents,methods,members:{researcher:member('deputy_editor'),chief:member('chief_editor'),writer:member('planning_writer')},intent,targetWords,windowTokens};
+ return {manifest,documents,methods,members:{researcher:member('deputy_editor'),chief:member('chief_editor'),writer:member('planning_writer')},intent,targetWords,wordPolicy:targetWords===null?null:{policy:'chars-v1',unit:'字',hard:false},windowTokens};
 }

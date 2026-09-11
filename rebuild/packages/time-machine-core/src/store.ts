@@ -1,6 +1,7 @@
 import {createHash, randomUUID} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
 import {parseCandidate,parseManifest,parseScope,type Candidate,type Scope,type Manifest} from './contracts.js';
+import {volumeDisplayCode,lineDisplayCode} from './numbering.js';
 /** Independent SQL adapter. Host owns connection, access checks and migration lifecycle. */
 export const schema = `
 CREATE TABLE tm2_books(owner TEXT NOT NULL,book TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0,manifest TEXT NOT NULL,adoption TEXT,PRIMARY KEY(owner,book)) STRICT;
@@ -62,17 +63,24 @@ export class SqlPlanRepository {
       if(manifestDigest(candidate.manifest)!==manifestDigest(parseManifest(JSON.parse(book.manifest))))throw new Conflict('来源已变化，需要核对后形成新修订');
       const mapping:Adoption['mapping']={};
       // Same candidate revisions preserve identity; another candidate owns a separate local namespace.
-      for(const [kind,items] of [['line',candidate.plan.lines],['expectation',candidate.plan.expectations]] as const)for(const item of items){
+      // v1 keeps the shared integer line sequence readable; v2 allocates 卷/主线/支线 as独立书内序列（第23.2节）。
+      const allocations:readonly [string,readonly {id:string}[]][]=candidate.schemaVersion===1
+        ? [['line',candidate.plan.lines],['expectation',candidate.plan.expectations]]
+        : [['volume',candidate.plan.volumes],['main-line',candidate.plan.lines.filter(l=>l.role==='main')],['branch-line',candidate.plan.lines.filter(l=>l.role!=='main')],['expectation',candidate.plan.expectations]];
+      for(const [kind,items] of allocations)for(const item of items){
         const stableId=digest({owner:s.ownerId,book:s.bookId,candidate:id,kind,local:item.id});
         let number=(this.db.prepare('SELECT number FROM tm2_numbers WHERE owner=? AND book=? AND kind=? AND stable_id=?').get(s.ownerId,s.bookId,kind,stableId) as {number:number}|undefined)?.number;
         if(number===undefined){const max=this.db.prepare('SELECT COALESCE(MAX(number),0) AS n FROM tm2_numbers WHERE owner=? AND book=? AND kind=?').get(s.ownerId,s.bookId,kind) as {n:number};number=max.n+1;this.db.prepare('INSERT INTO tm2_numbers VALUES(?,?,?,?,?)').run(s.ownerId,s.bookId,kind,stableId,number);}
         mapping[`${kind}:${item.id}`]={id:stableId,number};
       }
       const result:Adoption={id:randomUUID(),revision:book.revision+1,mapping};
+      const numbering=candidate.schemaVersion===2
+        ? {volumeCodes:candidate.plan.volumes.map(v=>({localId:v.id,code:volumeDisplayCode(mapping[`volume:${v.id}`]!.number)})),mainLines:candidate.plan.lines.filter(l=>l.role==='main').map(l=>lineDisplayCode('main',mapping[`main-line:${l.id}`]!.number)),branchLines:candidate.plan.lines.filter(l=>l.role!=='main').map(l=>lineDisplayCode('branch',mapping[`branch-line:${l.id}`]!.number))}
+        : null;
       this.db.prepare('INSERT INTO tm2_adoptions VALUES(?,?,?,?,?,?,?)').run(s.ownerId,s.bookId,result.id,id,candidateRevision,result.revision,JSON.stringify(mapping));
       this.db.prepare('UPDATE tm2_books SET revision=?,adoption=? WHERE owner=? AND book=?').run(result.revision,result.id,s.ownerId,s.bookId);
       this.db.prepare("INSERT INTO tm2_operations VALUES(?,?,'adopt',?,?,?)").run(s.ownerId,s.bookId,key,requestHash,JSON.stringify(result));
-      this.db.prepare("INSERT INTO tm2_outbox(owner,book,id,kind,body) VALUES(?,?,?,'plan.adopted',?)").run(s.ownerId,s.bookId,randomUUID(),JSON.stringify({adoptionId:result.id,revision:result.revision}));return result;
+      this.db.prepare("INSERT INTO tm2_outbox(owner,book,id,kind,body) VALUES(?,?,?,'plan.adopted',?)").run(s.ownerId,s.bookId,randomUUID(),JSON.stringify({adoptionId:result.id,revision:result.revision,schemaVersion:candidate.schemaVersion,numbering}));return result;
     });
   }
   events(s:Scope,after=0):{sequence:number;id:string;kind:string;body:string}[] {this.book(s);if(!Number.isSafeInteger(after)||after<0)throw new Error('游标错误');return this.db.prepare('SELECT sequence,id,kind,body FROM tm2_outbox WHERE owner=? AND book=? AND sequence>? ORDER BY sequence LIMIT 100').all(s.ownerId,s.bookId,after) as unknown as {sequence:number;id:string;kind:string;body:string}[];}
