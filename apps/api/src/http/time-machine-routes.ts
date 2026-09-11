@@ -1,6 +1,7 @@
 import type {FastifyInstance} from 'fastify';
 import type {DatabaseSync} from 'node:sqlite';
-import {Conflict,SqlPlanRepository,volumePlanningContext} from '@wenmi/time-machine-core';
+import {Conflict,SqlPlanRepository,volumePlanningContext,parseCandidate} from '@wenmi/time-machine-core';
+import type {V7EffectiveMember} from '@wenmi/v7-backend';
 import {TimeMachineDesignService} from '../application/books/time-machine-design-service.js';
 import {snapshotTimeMachine} from '../application/books/time-machine-sources.js';
 import {TimeMachineModelGateway} from '../infrastructure/models/time-machine-model-gateway.js';
@@ -49,6 +50,15 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
   reply.code(runs.some(run=>run.state==='queued'||run.state==='working')?202:200);return success({runs},request.id);
  });
  app.post<{Params:{bookId:string;id:string}}>('/api/time-machine/books/:bookId/runs/:id/retry',async request=>{const s=scope(request,request.params.bookId);const id=guard(()=>service.retry(s,request.params.id));return success({id},request.id);});
+ // 作者人工修改：原候选修订保留，人工修订成为新修订；不自动覆盖、不改变审查结论归属（第22.7节）。
+ app.post<{Params:{bookId:string;candidateId:string};Body:{plan?:unknown;expectedRevision?:unknown}}>('/api/time-machine/books/:bookId/candidates/:candidateId/revisions',async request=>{
+  const s=scope(request,request.params.bookId),body=request.body??{};
+  const expectedRevision=body?.expectedRevision;
+  if(!body||typeof body.plan!=='object'||body.plan===null||typeof expectedRevision!=='number'||!Number.isSafeInteger(expectedRevision)||expectedRevision<0)throw new DomainError(errorCodes.validation,'修订参数不正确',{},false,400);
+  const row=db.prepare("SELECT snapshot_json FROM tm2_design_runs WHERE id=? AND owner_id=? AND book_id=?").get(request.params.candidateId,s.ownerId,s.bookId) as {snapshot_json:string}|undefined;
+  if(!row)throw new DomainError(errorCodes.validation,'候选不存在',{},false,404);
+  return success(guard(()=>{const snapshot=JSON.parse(row.snapshot_json) as {manifest:unknown;members:{writer:V7EffectiveMember}};const candidate=parseCandidate({schemaVersion:2,manifest:snapshot.manifest,member:{id:snapshot.members.writer.memberKey,name:snapshot.members.writer.displayName,model:snapshot.members.writer.model.modelId,routeRevision:String(snapshot.members.writer.governanceRevision)},plan:body.plan});const plans=new SqlPlanRepository(db);return {revision:plans.saveCandidate(s,request.params.candidateId,expectedRevision,candidate)};}),request.id);
+ });
  app.post<{Params:{bookId:string};Body:{candidateId:string;revision:number;expectedRevision:number;idempotencyKey:string}}>('/api/time-machine/books/:bookId/adoptions',async request=>{
   const s=scope(request,request.params.bookId),body=request.body;
   if(!body||typeof body.candidateId!=='string'||!Number.isSafeInteger(body.revision)||!Number.isSafeInteger(body.expectedRevision)||typeof body.idempotencyKey!=='string')throw new DomainError(errorCodes.validation,'采用参数不正确',{},false,400);
