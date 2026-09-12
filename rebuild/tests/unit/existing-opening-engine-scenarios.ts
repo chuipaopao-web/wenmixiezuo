@@ -16,6 +16,7 @@ import type {
   OpeningReview
 } from '../../packages/backend/src/legacy-opening/opening-agent/opening-agent-contracts.js';
 import { OpeningAgentEngine } from '../../packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.js';
+import {V7_OPENING_MEMBERS} from '../../packages/backend/src/legacy-opening/agents/agent-roster.js';
 import { OpeningAgentModelError, OpeningAgentStoppedError } from '../../packages/backend/src/legacy-opening/opening-agent/opening-agent-contracts.js';
 import { buildOpeningAgentPrompt } from '../../packages/backend/src/legacy-opening/opening-agent/opening-prompt-compiler.js';
 import { buildOpeningReferencePack, inferGenreFamilies, V7_OPENING_REFERENCE_LIMIT } from '../../packages/backend/src/legacy-opening/opening-agent/opening-reference-tools.js';
@@ -498,6 +499,17 @@ function modelResult(request: OpeningModelRequest, outputValue: string): Opening
 }
 
 await normalFlow();
+{
+ const roster=V7_OPENING_MEMBERS.map(member=>({...member,model:{...member.model}}));
+ const writer=roster.find(member=>member.roleKey==='screenwriter'&&member.defaultForRole)!;
+ const chief=roster.find(member=>member.roleKey==='chief_editor'&&member.defaultForRole)!;
+ chief.model.modelId=writer.model.modelId;
+ chief.model.plan=writer.model.plan==='coding'?'agent':'coding';
+ const models=new ScriptedModels([output(PACKAGE),output(PASS_REVIEW)]);
+ await new OpeningAgentEngine(models,new MemoryTools(IDEA)).run({ownerId:'owner-a',taskId:'different-base-model',memberRoster:roster,selectedScreenwriterMemberKey:writer.memberKey,selectedChiefMemberKey:chief.memberKey});
+ assert.equal(models.generateCalls.length,2);
+ assert.notEqual(models.generateCalls[0]!.member.model.modelId,models.generateCalls[1]!.member.model.modelId,'不同套餐仍是同一模型，审查必须换模型');
+}
 await freeTextMeaningIsNotGuessedByRegex();
 await retiredWorkOrderNeverCallsModel();
 await invalidOutputRepairsThenSwitches();

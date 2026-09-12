@@ -4,6 +4,7 @@ import {BookRepository} from '../../../apps/api/src/infrastructure/db/repositori
 import {TimeMachineDesignService} from '../../../apps/api/src/application/books/time-machine-design-service.js';
 import {TimeMachineModelGateway} from '../../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
 import {SqlPlanRepository} from '@wenmi/time-machine-core';
+import {BookSynopsisService} from '../../../apps/api/src/application/books/book-synopsis-service.js';
 const contexts:TestContext[]=[];afterEach(()=>contexts.splice(0).forEach(c=>c.close()));
 function setup(){const c=createTestContext();contexts.push(c);const scope={ownerId:c.config.ownerId,bookId:'tm-book'};c.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run(scope.ownerId,'测试作者','2026-09-10','2026-09-10');new BookRepository(c.database).create(scope,'机甲会修仙','2026-09-10','active');c.database.prepare("INSERT INTO book_opening_blueprints VALUES('opening',?,?,1,'v1','male','fantasy','玄幻',?,?,'active','2026-09-10')").run(scope.ownerId,scope.bookId,JSON.stringify({protagonists:['林舟'],storyDirection:'无灵根修理工建立工坊'}),'a'.repeat(64));return {c,scope};}
 function output(prompt:string):unknown{
@@ -18,6 +19,26 @@ function output(prompt:string):unknown{
  return {fields:{premise:[{text:'修理工建立工坊',sourceKeys:['opening:opening:1']}],protagonists:[{text:'林舟',sourceKeys:['opening:opening:1']}],world:[],openingEnding:[],preferences:[],prohibitions:[]}};
 }
 describe('new time machine orchestration with real persistence and simulated model',()=>{
+ it('gates synopsis on adoption, keeps generated drafts separate, and rejects stale saves',async()=>{
+  const {c,scope}=setup();let synopsisCalls=0;
+  const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
+   const synopsis=request.prompt.includes('请设计面向读者的中文作品简介');if(synopsis){synopsisCalls++;expect(request.prompt).toContain('番茄');}
+   return {provider,modelId,output:JSON.stringify(synopsis?{text:'没有灵根的修理工带着机甲进入修仙世界。当别人争抢传承时，他只想接下第一张订单，却发现这台被称作死物的机甲藏着自己的秘密。'}:output(request.prompt)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
+  }}));
+  const service=new BookSynopsisService(c.database,gateway,64000);
+  await expect(service.generate(scope,'synopsis-before')).rejects.toThrow('全书基线');expect(synopsisCalls).toBe(0);
+  const design=new TimeMachineDesignService(c.database,gateway,64000),id=design.start(scope,'design','','synopsis-plan');await design.process(id);
+  const plans=new SqlPlanRepository(c.database);plans.adopt(scope,id,1,0,'synopsis-adopt');
+  const candidate=await service.generate(scope,'synopsis-generate');expect(candidate.state).toBe('candidate');expect(service.state(scope).saved).toBeNull();
+  await service.generate(scope,'synopsis-generate');expect(synopsisCalls).toBe(1);
+  c.database.prepare("UPDATE book_synopsis_versions SET state='working',text='' WHERE id=?").run(candidate.id);
+  service.recover();expect(service.state(scope).latest?.state).toBe('candidate');expect(synopsisCalls).toBe(1);
+  const input={text:candidate.text,adoptionId:candidate.adoptionId,profileVersion:candidate.profileVersion,expectedSavedId:null,requestKey:'synopsis-save'};
+  expect(service.save(scope,input).saved?.text).toBe(candidate.text);expect(service.save(scope,input).saved?.text).toBe(candidate.text);
+  expect(()=>service.save(scope,{...input,requestKey:'synopsis-stale'})).toThrow('其他页面');
+  c.database.prepare('UPDATE book_opening_blueprints SET version=2 WHERE owner_id=? AND book_id=?').run(scope.ownerId,scope.bookId);
+  expect(service.state(scope).eligible).toBe(false);expect(service.state(scope).saved?.stale).toBe(true);
+ });
  it('passes author adjustments to the chief when recommending again',async()=>{
   const {c,scope}=setup();let checked=false;
   const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){

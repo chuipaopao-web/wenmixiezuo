@@ -32,6 +32,8 @@ if d.execute("SELECT 1 FROM sqlite_master WHERE name='tm2_design_runs'").fetchon
 if d.execute("SELECT 1 FROM sqlite_master WHERE name='tm2_steps'").fetchone():
  checks['tm2_steps']=('state',['ready','running'])
 total=0
+if d.execute("SELECT 1 FROM sqlite_master WHERE name='book_synopsis_versions'").fetchone():
+ checks['book_synopsis_versions']=('state',['working'])
 for table,(col,states) in checks.items():
  total+=d.execute('SELECT count(*) FROM '+table+' WHERE '+col+' IN ('+','.join('?'*len(states))+')',states).fetchone()[0]
 print(total)

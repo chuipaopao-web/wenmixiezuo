@@ -10,8 +10,11 @@ import {BookRepository} from '../infrastructure/db/repositories/book-repository.
 import {requireAuthenticatedOwner} from '../infrastructure/security/auth-context.js';
 import {success} from '../contracts/api.js';
 import {DomainError,errorCodes} from '../domain/errors.js';
+import {BookSynopsisService} from '../application/books/book-synopsis-service.js';
 export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseSync,resolve:(provider:string,model:string)=>ModelAdapter,windowTokens:number):Promise<void>{
  const service=new TimeMachineDesignService(db,new TimeMachineModelGateway(db,resolve),windowTokens);
+ const synopses=new BookSynopsisService(db,new TimeMachineModelGateway(db,resolve),windowTokens);
+ synopses.recover();
  const scope=(request:Parameters<typeof requireAuthenticatedOwner>[0],bookId:string)=>{const owner=requireAuthenticatedOwner(request),s={ownerId:owner.ownerId,bookId};const book=new BookRepository(db).require(s);if(book.status==='archived')throw new DomainError(errorCodes.validation,'书籍已归档',{},false,409);return s;};
  const guard=<T>(fn:()=>T):T=>{try{return fn();}catch(e){if(e instanceof DomainError)throw e;throw new DomainError(errorCodes.validation,e instanceof Conflict?e.message:'当前操作未能完成，请核对资料或稍后重试',{},false,409);}};
  let active:Promise<void>|null=null,activeId:string|null=null,closed=false;
@@ -24,6 +27,12 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
   if(row){activeId=row.id;active=service.process(row.id).catch(()=>{app.log.error('time-machine executor failed; durable run retained');}).finally(()=>{active=null;activeId=null;});}
  };
  const timer=setInterval(tick,2000);timer.unref();app.addHook('onClose',async()=>{closed=true;clearInterval(timer);if(active)await active;});
+ app.get<{Params:{bookId:string}}>('/api/time-machine/books/:bookId/synopsis',async request=>success(synopses.state(scope(request,request.params.bookId)),request.id));
+ app.post<{Params:{bookId:string};Body:{requestKey:string}}>('/api/time-machine/books/:bookId/synopsis/generate',async request=>{
+  if(typeof request.body?.requestKey!=='string')throw new DomainError(errorCodes.validation,'操作编号无效');
+  return success(await synopses.generate(scope(request,request.params.bookId),request.body.requestKey),request.id);
+ });
+ app.put<{Params:{bookId:string};Body:Parameters<BookSynopsisService['save']>[1]}>('/api/time-machine/books/:bookId/synopsis',async request=>success(synopses.save(scope(request,request.params.bookId),request.body??{}),request.id));
  app.get<{Params:{bookId:string}}>('/api/time-machine/books/:bookId/state',async request=>{
   const s=scope(request,request.params.bookId);
   const adopted=(()=>{

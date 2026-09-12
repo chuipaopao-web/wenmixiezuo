@@ -48,6 +48,7 @@ describe('V7随时设计书名', () => {
     expect(repeated).toEqual(first);
     expect(generate).toHaveBeenCalledTimes(1);
     expect(generate.mock.calls[0]?.[0].prompt).toContain('identity-gap');
+    expect(generate.mock.calls[0]?.[0].prompt).toContain('统一参考番茄小说');
     expect(context.database.prepare('SELECT owner_id, book_id, state FROM v7_book_title_design_calls').get())
       .toEqual({ owner_id: context.config.ownerId, book_id: book.bookId, state: 'succeeded' });
     expect(context.database.prepare(`SELECT source_kind,state,input_tokens,output_tokens FROM account_usage_supplemental_calls

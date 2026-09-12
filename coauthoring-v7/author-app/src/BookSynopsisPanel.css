@@ -1,0 +1,6 @@
+.book-synopsis-panel{margin:24px 0;border:1px solid var(--line);border-radius:16px;padding:20px;background:var(--panel-muted,#f7faf7)}
+.book-synopsis-panel header,.book-synopsis-panel footer,.book-synopsis-panel footer>div{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.book-synopsis-panel h3{margin:0;font-size:18px}.book-synopsis-panel header span,.book-synopsis-panel p,.book-synopsis-panel small{color:var(--ink-faint);font-size:13px;line-height:1.7}
+.book-synopsis-panel textarea{display:block;width:100%;box-sizing:border-box;min-height:150px;margin:14px 0;border:1px solid var(--line);border-radius:12px;padding:12px 14px;font:inherit;font-size:16px;line-height:1.8;resize:vertical;background:#fff;color:var(--ink)}
+.book-synopsis-panel footer>span{font-size:13px;color:var(--ink-faint)}.book-synopsis-panel button{min-height:44px}.book-synopsis-panel textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media(max-width:600px){.book-synopsis-panel{padding:16px}.book-synopsis-panel footer>div{width:100%}.book-synopsis-panel footer button{flex:1}}

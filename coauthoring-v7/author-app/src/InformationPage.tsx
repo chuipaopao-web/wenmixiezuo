@@ -1,4 +1,5 @@
 import { BookOpenTextIcon, CheckCircleIcon, MagicWandIcon, PencilSimpleIcon, SlidersHorizontalIcon, TagIcon } from '@phosphor-icons/react';
+import { BookSynopsisPanel } from './BookSynopsisPanel';
 import { useEffect, useState } from 'react';
 import { BookCoverDesignDialog, BookProfileEditDialog, BookTitleDesignDialog } from './BookProfileDialogs';
 import { openingProfileCharacters, openingProfileRows, uniqueNonEmpty } from './book-profile-presentation';
@@ -66,6 +67,7 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
             </article>)}</div>
           </section>
           <dl className="profile-detail-list">{openingProfileRows(profile).filter((row) => row.label !== '时代与世界').map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>
+          <BookSynopsisPanel key={bookId} bookId={bookId}/>
           <footer className="information-page-actions" aria-label="开书资料操作">
               <button type="button" className="secondary-action" onClick={() => setTitleOpen(true)}><MagicWandIcon />设计书名</button>
               <button type="button" className="secondary-action" onClick={() => setCoverOpen(true)}><MagicWandIcon />设计封面</button>

@@ -410,14 +410,16 @@ export class V7OpeningAgentService {
     // strict parser above, so an invalid frozen roster can never be resumed.
     const roster = parseMemberRoster(row.member_roster_json, false);
     const state = row.state_json === null ? null : JSON.parse(row.state_json) as OpeningAgentTaskState;
-    const chiefKey = row.selected_chief_member_key
-      ?? latestAttemptedMember(state, 'chief_editor', roster)
-      ?? roster.find((member) => member.roleKey === 'chief_editor' && member.defaultForRole)?.memberKey
-      ?? null;
-    const screenwriterKey = row.selected_screenwriter_member_key
-      ?? latestAttemptedMember(state, 'screenwriter', roster)
+    const screenwriterKey = latestAttemptedMember(state, 'screenwriter', roster)
+      ?? row.selected_screenwriter_member_key
       ?? roster.find((member) => member.roleKey === 'screenwriter' && member.defaultForRole)?.memberKey
       ?? null;
+    const writerModel = roster.find(member => member.memberKey === screenwriterKey)?.model.modelId.trim().toLowerCase();
+    const eligibleChiefs = roster.filter(member => member.roleKey === 'chief_editor' && member.enabledByDefault && member.model.modelId.trim().toLowerCase() !== writerModel);
+    const chiefKey = latestAttemptedMember(state, 'chief_editor', roster)
+      ?? eligibleChiefs.find(member => member.memberKey === row.selected_chief_member_key)?.memberKey
+      ?? eligibleChiefs.find(member => member.defaultForRole)?.memberKey
+      ?? eligibleChiefs.sort((a,b)=>a.fallbackPriority-b.fallbackPriority)[0]?.memberKey ?? null;
     const retiredWorkflow = !isCurrentV7OpeningTask(row);
     const storedStatus = row.error_code === 'archived_by_author' ? 'archived' : row.status;
     const status = retiredWorkflow && canResume(storedStatus) ? 'failed' : storedStatus;

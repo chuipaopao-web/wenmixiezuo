@@ -215,7 +215,7 @@ function titlePrompt(profile: BookProfileView, preferences: TitlePreferences): s
     instructions: [
       '你是这本书的主编。只设计书名，不修改其他开书资料。',
       '给出5个真正不同的中文书名，每个2至15字；好记、吸睛、有脑洞，符合频道和题材，不照搬知名作品。',
-      '起点风：短、稳、有题材辨识和升级想象；番茄风：冲突或反差一眼可懂，卖点更直接；主流通用：兼顾质感和点击欲。',
+      '统一参考番茄小说的商业书名表达：题材或处境清楚，以本书独有的能力、身份反差、行动或利益冲突制造点击期待；可用口语短句、冒号或转折，不强制一个句式。只借鉴表达方法，不照抄现有书名，不以换人名或近义词仿写。',
       '严格落实作者选择的平台倾向、吸睛方式和补充想法。五个候选至少覆盖三种不同命名结构，禁止全部使用“地名+身份”“时代+职业”这种平淡拼接。',
       '书名必须钩住本书独有的人物处境、核心冲突、能力反差或长期野心，不能只换近义词，也不能使用“某年某人”“某地小卒”式占位感名称。',
       '吸睛不能牺牲词义、人物状态和时代事实的准确性；不得用“尸体、亡者、帝王”等已经成立的身份指代尚未成为该身份的活人，也不得为了夸张虚构资料包里不存在的能力、系统、后宫或结局。',
@@ -227,7 +227,7 @@ function titlePrompt(profile: BookProfileView, preferences: TitlePreferences): s
 
 function titlePreferences(input: V7BookTitleDesignInput): TitlePreferences {
   return {
-    platformStyle: input.platformStyle === 'qidian' || input.platformStyle === 'fanqie' || input.platformStyle === 'mainstream' ? input.platformStyle : 'mainstream',
+    platformStyle: 'fanqie',
     titleFlavor: input.titleFlavor === 'high-concept' || input.titleFlavor === 'strong-conflict' || input.titleFlavor === 'identity-gap' || input.titleFlavor === 'suspense' || input.titleFlavor === 'epic' ? input.titleFlavor : 'high-concept',
     authorDirection: optionalDirection(input.authorDirection)
   };

@@ -736,6 +736,8 @@
 
 ### RB-19 单页创意开书与结果采用
 
+- **开发·审查规则**：第194批，单人设计按真实modelId排除同模型主编；不同套餐或供应商不能冒充不同模型。页面预告按可用异模型主编显示，执行后显示真实尝试成员；无合格审查者则阻断，不伪装完成。首次取名参考番茄式题材/反差/独有卖点表达，不照抄作品名称。
+
 - **开发·当前记录**：2026-09-12 Codex第193批：想法输入框缩为116px、删除仅改变确认文案的按钮，输入按账号自动保存本机草稿；存储失败明确提示。保留2000字、中文输入、成员及尺度选择、开始设计。57项开书回归、类型构建与390/1440输入刷新验证通过。仅静态发布，不重启后端。记录见[本批清单](../coauthoring-v7/docs/worklists/OPENING-INPUT-193.md)。
 
 - **收尾·线上现状**：该单元有已发布批次，具体交付范围见下方合同与证据；整体验收和当前实时健康分别核对。
@@ -744,7 +746,7 @@
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,rebuild/packages/agent-catalog/creative-assets.js,rebuild/packages/backend/src/legacy-opening/opening-agent/opening-prompt-compiler.ts,apps/api/src/application/books/v7-opening-agent-service.ts,coauthoring-v7/author-app/src/NewNovelPage.tsx,coauthoring-v7/author-app/src/AuthorApp.tsx
-- **管理·代码核对**：ceff2a85410485785eefff5609ac219462006c6b639c4a8300ab2d204379d2b4
+- **管理·代码核对**：392af15f58f3af811dea210a63bf1f5ab0475ef1ffbf3c883bc57cba33f2395e
 
 - **管理·共享步骤**：none
 - **第166批确认方案**：首页直接开书，新貂蝉为亲切可爱的成年古风女性；尺度为常规发挥/趣味加料/反差脑洞/荒诞猎奇/极限整活，默认4。风格已由第167批调整为一个主偏向、最多四个辅助偏向；主导与辅助用途分别明确。完整机制库允许自由组合与原创，不宣称全网最全。后台“资产方法论→创意与金手指”查看同源卡片和节点规则；正式调用快照在本功能的上下文样例中追溯。2026-09-09 02:56:49已上线wm-v7-20260909-024500-108646da，静态a950d437b17ebb3fa52b。手机/电脑和定向接口验证通过，真实合成样例设计88秒、审查21秒通过；单例不代表所有任务速度。剧本尚未开放。
@@ -798,6 +800,8 @@
 <a id="rb-20"></a>
 
 ### RB-20 作品信息与开书资料编辑
+
+- **开发·简介栏**：第194批新增对外作品简介，和内部fullBookOutline分开。未采用全书基线可手写保存但禁止AI生成；生成只使用当前采用方案与开书必要资料，参考番茄式短段落、强开头、具体冲突和阅读期待，不剧透、不虚构卖点。候选先供编辑，保存追加版本，旧保存保持；上游开书/设定/采用版本改变提示核对。请求按owner/book隔离，费用走现有模型网关；失败与重启可恢复已有调用结果，不重复扣费。接口/api/time-machine/books/:bookId/synopsis，说明与验证见[R194](../coauthoring-v7/docs/worklists/BRANDING-REVIEW-194.md)。仍挂现有API，不代表独立新后端迁移完成。
 
 - **收尾·进度状态**：已上线·待补全
 
@@ -1635,13 +1639,15 @@
 
 ### RB-34 命名与封面工作室
 
+- **开发·取名更新**：第194批信息页书名设计统一参考番茄式商业表达，移除起点/通用风格选择，作者仍可选择吸睛方式与补充要求；名称原创、有资料依据，禁止凭空承诺系统/无敌/CP或照抄已有书名。封面配置不变。
+
 - **收尾·线上现状**：现有书名、命名和封面生成/采用入口保留；完整新工作室不是已交付范围。
 - **收尾·执行归属**：作者端NamingWorkspace、书籍资料入口及当前取名/封面服务继续负责。
 - **收尾·剩余工作**：按现有证据核对尚未完成范围：[第120批已确认取名子功能保留迁移；其余范围未因此定稿](../coauthoring-v7/docs/worklists/REBUILD-OPENING-UI-20260906-120.md)
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：apps/api/src/application/books/v7-book-cover-design-service.ts,apps/api/src/application/books/v7-book-title-design-service.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：aba2cf13c5a041595f2fe219c24e9c7d6fd108d9412bf7f9391cd3d7e29bf5f2
+- **管理·代码核对**：ed8f959101d928afea5073e03cc7803eb921831284e04d39128ca1b5bb68fb6a
 
 - **管理·共享步骤**：none
 

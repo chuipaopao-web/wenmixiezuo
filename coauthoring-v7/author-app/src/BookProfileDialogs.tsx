@@ -68,7 +68,7 @@ export function BookTitleDesignDialog({ bookId, currentTitle, onClose, onApply }
   const [applying, setApplying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [platformStyle, setPlatformStyle] = useState<'qidian' | 'fanqie' | 'mainstream'>('mainstream');
+  const platformStyle = 'fanqie' as const;
   const [titleFlavor, setTitleFlavor] = useState<'high-concept' | 'strong-conflict' | 'identity-gap' | 'suspense' | 'epic'>('high-concept');
   const [authorDirection, setAuthorDirection] = useState('');
   useEffect(() => {
@@ -109,7 +109,7 @@ export function BookTitleDesignDialog({ bookId, currentTitle, onClose, onApply }
   return createPortal(<div className="setting-dialog-backdrop" role="presentation">
     <section className="setting-dialog title-design-dialog" role="dialog" aria-modal="true" aria-labelledby="title-design-title">
       <header><div><p className="eyebrow">当前书名：{currentTitle}</p><h3 id="title-design-title">请主编设计书名</h3></div><button type="button" aria-label="关闭" onClick={onClose}><XIcon /></button></header>
-      <DesignChoice label="平台倾向" value={platformStyle} onChange={(value) => setPlatformStyle(value as typeof platformStyle)} options={[['mainstream', '主流通用'], ['qidian', '起点风'], ['fanqie', '番茄风']]}/>
+      <p className="profile-dialog-note">参考番茄风格，突出本书题材、反差和独有卖点。</p>
       <DesignChoice label="吸睛方式" value={titleFlavor} onChange={(value) => setTitleFlavor(value as typeof titleFlavor)} options={[['high-concept', '脑洞卖点'], ['strong-conflict', '强冲突'], ['identity-gap', '身份反差'], ['suspense', '悬念感'], ['epic', '史诗感']]}/>
       <label className="design-direction"><span>我的想法（可不填）</span><textarea maxLength={800} value={authorDirection} onChange={(event) => setAuthorDirection(event.target.value)} placeholder="例如：想突出主角穿越后从边军小卒逆袭，但不要太俗。"/><small>{Array.from(authorDirection).length}/800</small></label>
       {notice && <div className="design-order-notice" role="status">{notice}</div>}

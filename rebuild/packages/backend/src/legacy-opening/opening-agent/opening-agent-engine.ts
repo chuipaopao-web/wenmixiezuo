@@ -212,8 +212,9 @@ export class OpeningAgentEngine {
     }).filter((member) => !excludedModelSignatures.includes(modelSignature(member)));
     if (fallbackChain.length === 0) throw new OpeningAgentModelError('没有与设计者底座不同的可用审查成员', 'provider_unavailable');
     const attempted = new Set(state.attemptedMemberKeys[state.phase] ?? []);
-    let member = this.pendingMember(state, specification.nodeKey, memberRoster)
-      ?? nextFallbackMember(fallbackChain, attempted);
+    const pendingMember = this.pendingMember(state, specification.nodeKey, memberRoster);
+    if (pendingMember && excludedModelSignatures.includes(modelSignature(pendingMember))) throw new OpeningAgentModelError('待恢复审查与设计使用同一模型，请重新发起设计', 'provider_unavailable');
+    let member = pendingMember ?? nextFallbackMember(fallbackChain, attempted);
     let validationRepair: string | null = null;
 
     while (member !== null) {
@@ -683,7 +684,7 @@ function savedCandidate(candidate: OpeningSavedCandidate | null): OpeningSavedCa
 }
 
 function modelSignature(member: V7OpeningMemberDefinition): string {
-  return `${member.model.provider}:${member.model.modelId}:${member.model.plan}`;
+  return member.model.modelId.trim().toLowerCase();
 }
 
 function modelSignatureForCandidate(
@@ -691,7 +692,8 @@ function modelSignatureForCandidate(
   roster: readonly V7OpeningMemberDefinition[]
 ): string {
   const member = roster.find((item) => item.memberKey === candidate.createdByMemberKey);
-  return member === undefined ? '' : modelSignature(member);
+  if(member===undefined)throw new OpeningAgentModelError('无法确认设计者使用的模型，不能进行独立审查', 'provider_unavailable');
+  return modelSignature(member);
 }
 
 function constrainOpeningRevision(
