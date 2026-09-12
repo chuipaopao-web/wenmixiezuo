@@ -76,6 +76,40 @@ describe('time machine direction page', () => {
   beforeEach(() => { vi.unstubAllGlobals(); });
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+  it('allows deselecting every recommendation and sends the chosen story description', async () => {
+    let intent='';const state=stateFixture({runs:[recommendRun('succeeded')]});
+    vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      if(String(input).endsWith('/state'))return response(state);
+      if(String(input).endsWith('/design-runs')){intent=JSON.parse(String(init?.body)).intent;return response({runs:[]});}
+      throw Error('Unexpected request');
+    }));
+    render(<TimeMachineDirectionEntry bookId="bk-1"/>);
+    await screen.findByText('已选 1 条故事线');
+    const boxes=screen.getAllByRole('checkbox') as HTMLInputElement[];
+    const growth=boxes.find(box=>box.closest('label')?.textContent?.includes('成长线'))!;
+    fireEvent.click(growth);expect(await screen.findByText('已选 0 条故事线')).toBeVisible();
+    fireEvent.click(growth);fireEvent.click(screen.getByRole('button',{name:'开始设计'}));
+    await waitFor(()=>expect(intent).toContain('成长线（林舟建立工坊）'));
+  });
+
+  it('keeps scheme selection after adoption and repeats the saved intent while showing stored line numbers', async () => {
+    const plan=planFixture('当前方案');plan.relations=[{from:'sub',to:'main',kind:'push',effect:'伙伴的选择推动工坊改变'}] as never;
+    const savedIntent='主线·成长线（林舟建立工坊），不写感情线';let submitted='';
+    const state=stateFixture({runs:[recommendRun('succeeded'),{...designRun('A','succeeded','红玉','候选A'),intent:savedIntent},designRun('B','succeeded','幼薇','候选B')],adopted:{revision:2,member:{id:'writer-a',name:'红玉'},plan,numbering:{volumes:[{localId:'v1',code:'C'},{localId:'v2',code:'D'}],mainLines:['主线4'],branchLines:['支线7']}}});
+    vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      if(String(input).endsWith('/state'))return response(state);
+      if(String(input).endsWith('/design-runs')){submitted=JSON.parse(String(init?.body)).intent;return response({runs:[]});}
+      throw Error('Unexpected request');
+    }));
+    render(<TimeMachineDirectionEntry bookId="bk-1"/>);
+    expect(await screen.findByText('主线4')).toBeVisible();expect(screen.getByText('支线7 → 主线4')).toBeVisible();
+    expect(screen.getByRole('button',{name:/方案B/})).toBeEnabled();
+    fireEvent.click(screen.getByRole('button',{name:'重新设计全书方向'}));
+    await waitFor(()=>expect(submitted).toBe(savedIntent));
+    fireEvent.click(screen.getByRole('button',{name:'调整故事线'}));
+    expect(await screen.findByText('老板，我们来设计全书骨架。')).toBeVisible();
+  });
+
   it('detects a fresh book, auto-starts the recommendation once and begins a three-scheme round', async () => {
     let state = stateFixture({ runs: [] });
     let posted = { recommend: 0, design: 0 };

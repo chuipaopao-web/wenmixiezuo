@@ -74,10 +74,9 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
   const row=db.prepare("SELECT snapshot_json,result_json FROM tm2_design_runs WHERE id=? AND owner_id=? AND book_id=? AND state='succeeded'").get(request.params.candidateId,s.ownerId,s.bookId) as {snapshot_json:string;result_json:string|null}|undefined;
   if(!row)throw new DomainError(errorCodes.validation,'候选不存在',{},false,404);
   return success(guard(()=>{const snapshot=JSON.parse(row.snapshot_json) as {manifest:unknown;members:{writer:V7EffectiveMember}};const prior=row.result_json!==null?JSON.parse(row.result_json) as {member?:{id:string;name:string};review?:{suggestions?:string[]};selfCheck?:unknown}:null;const candidate=parseCandidate({schemaVersion:2,manifest:snapshot.manifest,member:{id:snapshot.members.writer.memberKey,name:snapshot.members.writer.displayName,model:snapshot.members.writer.model.modelId,routeRevision:String(snapshot.members.writer.governanceRevision)},plan:body.plan});const plans=new SqlPlanRepository(db);const revision=plans.saveCandidate(s,request.params.candidateId,expectedRevision,candidate);
-   // 人工修订由作者本人确认；主编的审查结论归属保留在各修订上，不冒充异模型复核。
-   plans.review(s,request.params.candidateId,revision,'author','pass');
-   const result={candidateId:request.params.candidateId,revision,member:prior?.member??{id:snapshot.members.writer.memberKey,name:snapshot.members.writer.displayName},plan:candidate.plan,review:{pass:true,issues:[],suggestions:prior?.review?.suggestions??[]},selfCheck:prior?.selfCheck??null,editedBy:'author'};
-   db.prepare("UPDATE tm2_design_runs SET result_json=?,updated_at=? WHERE id=? AND owner_id=? AND book_id=?").run(JSON.stringify(result),new Date().toISOString(),request.params.candidateId,s.ownerId,s.bookId);
+   // 保存不等于审查通过：复用持久化执行器核对这一修订，旧审查仍归属旧修订。
+   const result={candidateId:request.params.candidateId,revision,member:prior?.member??{id:snapshot.members.writer.memberKey,name:snapshot.members.writer.displayName},plan:candidate.plan,review:{pass:false,pending:true,issues:[],suggestions:[]},selfCheck:null,editedBy:'author'};
+   db.prepare("UPDATE tm2_design_runs SET result_json=?,state='queued',phase='review-author',error_code=NULL,error_message=NULL,updated_at=? WHERE id=? AND owner_id=? AND book_id=?").run(JSON.stringify(result),new Date().toISOString(),request.params.candidateId,s.ownerId,s.bookId);
    return {revision};}),request.id);
  });
  app.post<{Params:{bookId:string};Body:{candidateId:string;revision:number;expectedRevision:number;idempotencyKey:string}}>('/api/time-machine/books/:bookId/adoptions',async request=>{

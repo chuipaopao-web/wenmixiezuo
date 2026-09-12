@@ -18,6 +18,38 @@ function output(prompt:string):unknown{
  return {fields:{premise:[{text:'修理工建立工坊',sourceKeys:['opening:opening:1']}],protagonists:[{text:'林舟',sourceKeys:['opening:opening:1']}],world:[],openingEnding:[],preferences:[],prohibitions:[]}};
 }
 describe('new time machine orchestration with real persistence and simulated model',()=>{
+ it('reviews a saved author revision without regenerating its design and keeps earlier evidence',async()=>{
+  const {c,scope}=setup();const prompts:string[]=[];
+  const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){prompts.push(request.prompt);return {provider,modelId,output:JSON.stringify(output(request.prompt)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};}}));
+  const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','成长线','author-review');await service.process(id);
+  const repo=new SqlPlanRepository(c.database),original=repo.readCandidate(scope,id,1)!;
+  const edited={...original,plan:{...original.plan,baseline:'作者修订：共同成长'}};
+  const revision=repo.saveCandidate(scope,id,1,edited);
+  const result={...service.state(scope).find(run=>run.id===id)!.result,revision,plan:edited.plan,editedBy:'author',review:{pass:false,pending:true,issues:[],suggestions:[]}};
+  c.database.prepare("UPDATE tm2_design_runs SET state='queued',result_json=? WHERE id=?").run(JSON.stringify(result),id);
+  expect(()=>repo.adopt(scope,id,revision,0,'early')).toThrow('核查');
+  prompts.length=0;await service.process(id);
+  expect(prompts.some(prompt=>prompt.includes('设计全书骨架。只设计'))).toBe(false);
+  expect(prompts.some(prompt=>prompt.includes('核对候选骨架')&&prompt.includes('作者修订：共同成长'))).toBe(true);
+  expect(service.state(scope).find(run=>run.id===id)).toMatchObject({state:'succeeded',result:{revision:2,review:{pass:true}}});
+  expect(repo.readCandidate(scope,id,1)).toEqual(original);expect(repo.adopt(scope,id,revision,0,'reviewed').revision).toBe(1);
+ });
+ it('delivers stored anchor conditions to self-check and chief review, and retains detected failures',async()=>{
+  const {c,scope}=setup();const prompts:string[]=[];
+  const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
+   let value=output(request.prompt);
+   if(request.prompt.includes('自检候选锚点')||request.prompt.includes('核对候选锚点')){
+    prompts.push(request.prompt);
+    const found=request.prompt.includes('订单交付完成');
+    value={pass:!found,issues:found?['订单交付的证据条件需要明确']:[],suggestions:[]};
+   }
+   return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
+  }}));
+  const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','成长线','anchor-evidence');await service.process(id);
+  expect(prompts.length).toBeGreaterThan(1);
+  for(const prompt of prompts){expect(prompt).toContain('订单交付完成');expect(prompt).toContain('subjectIds');expect(prompt).toContain('logic');expect(prompt).toContain('未达成需修订开场');}
+  expect(service.state(scope).find(r=>r.id===id)).toMatchObject({result:{review:{pass:false,issues:['订单交付的证据条件需要明确']}}});
+ });
  it('keeps literary suggestions separate from source violations and does not block adoption for taste alone',async()=>{
   const {c,scope}=setup();let reviews=0;const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
    const value=request.prompt.includes('核对候选骨架')?(reviews++,{action:'verdict',pass:true,issues:[],suggestions:['可以减少相似损失，增加轻快的变化']}):output(request.prompt);
@@ -125,6 +157,14 @@ describe('new time machine orchestration with real persistence and simulated mod
   const service=new TimeMachineDesignService(c2.database,svcGateway,64000);const id=service.start(bigScope,'design','成长线','red-line');await service.process(id);
   expect(service.state(bigScope).find(r=>r.id===id)).toMatchObject({state:'succeeded'});
   expect(dispatched.length).toBeGreaterThan(5);
+  const reviews=dispatched.filter(prompt=>prompt.includes('核对候选锚点'));
+  expect(reviews).toHaveLength(5);
+  for(const [index,prompt] of reviews.entries()){
+   const batch=JSON.parse(prompt.split('\n本批：')[1]!.split('\n作者：')[0]!) as {volumes:{id:string;anchors:{ownerEntityId:string;conditions:{summary:string;subjectIds:string[]}[];logic:string;fallback:string}[]}[]};
+   expect(batch.volumes.map(v=>v.id)).toEqual([`v${index*2+1}`,`v${index*2+2}`]);
+   for(const v of batch.volumes){expect(v.anchors).toHaveLength(2);for(const a of v.anchors){expect(a.ownerEntityId).toBe(v.id);expect(a.conditions[0]?.subjectIds).toEqual(['main']);expect(a.logic).toBe('all');expect(a.fallback).toContain('过渡戏');}}
+   expect(prompt).toContain('正式资料短卡');
+  }
   const oversize=dispatched.map((p,i)=>({i,chars:p.length})).filter(x=>x.chars>15000);
   expect(oversize).toEqual([]);
   const recorded=c2.database.prepare('SELECT MAX(prompt_chars) AS m, COUNT(*) AS n FROM tm2_model_calls WHERE prompt_chars IS NOT NULL').get() as {m:number;n:number};

@@ -88,10 +88,11 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const [ensemble, setEnsemble] = useState(true);
   const [addedLines, setAddedLines] = useState<typeof ADD_LINE_PRESETS>([]);
   // 故事线推荐是首次进入时光机的落地页，不占导航；导航只列二级功能页。
-  const [section, setSection] = useState<'landing' | 'plan'>('landing');
+  const [section, setSection] = useState<'landing' | 'plan' | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<TimeMachinePlanView | null>(null);
   const recommendStarted = useRef(false);
+  const initializedRecommendation = useRef<string | null>(null);
   const addDialogRef = useRef<HTMLDialogElement | null>(null);
   const designKey = useRef(`design:${bookId}:${Date.now()}`);
 
@@ -118,12 +119,12 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const recommendRun = useMemo(() => {
     const candidates = runs.filter(run => run.kind === 'recommend');
     if (candidates.length === 0) return null;
-    const byLatest = list => [...list].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    const byLatest = (list: typeof candidates) => [...list].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
     // 有进行中的一轮就显示它；否则优先已成功的推荐——一次失败的重启不该把好的推荐盖成"未完成"。
     const active = candidates.find(run => timeMachineRunBusy(run) || run.state === 'queued');
     if (active !== undefined) return active;
     const succeeded = candidates.filter(run => run.state === 'succeeded');
-    if (succeeded.length > 0) return byLatest(succeeded)[0];
+    if (succeeded.length > 0) return byLatest(succeeded)[0] ?? null;
     return byLatest(candidates)[0] ?? null;
   }, [runs]);
   const designRuns = useMemo(() => runs.filter(run => run.kind === 'design'), [runs]);
@@ -146,22 +147,23 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   useEffect(() => {
     if (state === null || !state.enabled || loadFailed) return;
     // 没有推荐运行就自动开一轮（含已有设计轮的旧书）：主编先给出推荐，再谈设计。
-    if (recommendRun === null && !recommendStarted.current && state.adopted === null) {
+    if (recommendRun === null && !recommendStarted.current && (state.adopted === null || section === 'landing')) {
       recommendStarted.current = true;
       void (async () => {
         try { await startTimeMachineRecommendation(bookId, `recommend-initial:${bookId}`); await refresh(); }
         catch (error) { setFeedback({ tone: 'error', text: error instanceof AuthorApiError ? error.message : '推荐尚未建立，请稍后重试' }); }
       })();
     }
-  }, [state, loadFailed, recommendRun, bookId, refresh]);
+  }, [state, loadFailed, recommendRun, bookId, refresh, section]);
 
   const recommendation = recommendRun !== null && isRecommendation(recommendRun.result) ? recommendRun.result : null;
 
   useEffect(() => {
-    if (recommendation !== null && selectedLineIds.length === 0) {
+    if (recommendation !== null && recommendRun && initializedRecommendation.current !== recommendRun.id) {
+      initializedRecommendation.current = recommendRun.id;
       setSelectedLineIds(recommendation.lines.filter(line => line.recommended).map(line => line.id));
     }
-  }, [recommendation, selectedLineIds.length]);
+  }, [recommendation, recommendRun]);
 
   useEffect(() => {
     if (selectedScheme === null) {
@@ -174,7 +176,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const selectedResult = selectedRun !== null && isDesignResult(selectedRun.result) ? selectedRun.result : null;
   const adopted = state?.adopted ?? null;
   // 已采用方案的书直接进全书基线；其余书每次进入先见故事线推荐。
-  const activeSection = adopted !== null ? 'plan' : section;
+  const activeSection = section ?? (adopted !== null ? 'plan' : 'landing');
 
   const runAction = async (action: () => Promise<unknown>, success?: () => void) => {
     if (busy) return;
@@ -192,11 +194,12 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
       ? (recommendation.structure === 'multiple' ? '（主编建议多线交织）' : '（主编建议单主线推进）')
       : '';
     const chosen = [
-      ...picked.map(line => `${roleLabel(line.role)}·${line.title}`),
+      ...picked.map(line => `${roleLabel(line.role)}·${line.title}（${line.description}）`),
       ...addedLines.map(line => `${line.title}（${line.description}）`)
     ];
     const intent = `选择的故事线：${chosen.join('；')}${authorNote.trim() ? `。作者补充：${authorNote.trim()}` : ''}。故事展开方式：${shapeLabelText(shape)}${ensemble ? '；也希望配角拥有自己的完整故事' : ''}${structureHint}`;
     designKey.current = `design:${bookId}:${Date.now()}`;
+    setSelectedScheme(null);
     void runAction(() => startTimeMachineDesignRound(bookId, intent, designKey.current).then(() => setSection('plan')));
   };
 
@@ -218,7 +221,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
     void runAction(async () => {
       const saved = await saveTimeMachineCandidateRevision(bookId, selectedResult.candidateId, draft, selectedResult.revision);
       setEditing(false);
-      setFeedback({ tone: 'info', text: `修改已保存为第${saved.revision}版，原方案仍可回看。` });
+      setFeedback({ tone: 'info', text: `修改已保存为第${saved.revision}版，正在安排主编重新核查。` });
     });
   };
 
@@ -232,9 +235,11 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   };
 
   const redesign = () => {
-    if (recommendation === null) return;
     designKey.current = `design:${bookId}:${Date.now()}`;
-    void runAction(() => startTimeMachineDesignRound(bookId, `重新设计。${authorNote.trim() ? `作者补充：${authorNote.trim()}` : ''}`, designKey.current));
+    const intent = selectedRun?.intent ?? roundRuns.find(run => run.intent)?.intent;
+    if (!intent) { setSection('landing'); setFeedback({ tone: 'info', text: '请确认这次想写的故事线，再开始设计。' }); return; }
+    setSelectedScheme(null);
+    void runAction(() => startTimeMachineDesignRound(bookId, intent, designKey.current));
   };
 
   if (state === null) {
@@ -269,7 +274,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
 
       {feedback !== null && <div className={feedback.tone === 'error' ? 'tmd-error' : 'tmd-info'}>{feedback.text}</div>}
 
-      {activeSection === 'plan' && adopted === null && (
+      {activeSection === 'plan' && (
         <button type="button" className="tmd-back" onClick={() => setSection('landing')}>‹ 返回故事线推荐</button>
       )}
 
@@ -289,13 +294,14 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
           </div>
           <PlanDetail plan={adopted.plan} numbering={adopted.numbering} />
           <div className="tmd-actions">
-            <button type="button" disabled={busy || roundActive || recommendation === null} onClick={redesign}>重新设计全书方向</button>
+            <button type="button" disabled={busy || roundActive} onClick={redesign}>重新设计全书方向</button>
+            <button type="button" disabled={busy || roundActive} onClick={()=>setSection('landing')}>调整故事线</button>
           </div>
           <p className="tmd-note">下方仍可查看最近一轮的方案对比；重新设计并采用新方案后，这里的规划会更新，历史结果保留可回看。</p>
         </section>
       )}
 
-      {adopted === null && activeSection === 'landing' && (
+      {activeSection === 'landing' && (
         <section className="tmd-section">
           {recommendRun !== null && recommendBusy && (
             <div className="tmd-welcome tmd-working">
@@ -422,7 +428,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
         </section>
       )}
 
-      {activeSection === 'plan' && roundRuns.length > 0 && adopted === null && (
+      {activeSection === 'plan' && roundRuns.length > 0 && (
         <section className="tmd-panel">
           <h3>设计进度</h3>
           <div className="tmd-scheme-grid">
@@ -453,11 +459,11 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
                     <button type="button" className="tmd-primary" disabled={busy} onClick={saveEdit}>保存修改</button>
                     <button type="button" className="tmd-ghost" disabled={busy} onClick={() => { setEditing(false); setDraft(null); }}>取消</button>
                   </>
-                : <button type="button" disabled={busy} onClick={beginEdit}><PencilSimpleIcon /> 修改方案</button>}
-              <button type="button" className="tmd-primary" disabled={busy || selectedResult.review.pass !== true} onClick={adopt}>采用本方案</button>
+                : <button type="button" disabled={busy || timeMachineRunBusy(selectedRun)} onClick={beginEdit}><PencilSimpleIcon /> 修改方案</button>}
+              <button type="button" className="tmd-primary" disabled={busy || editing || timeMachineRunBusy(selectedRun) || selectedResult.review.pass !== true} onClick={adopt}>采用本方案</button>
             </div>
           </div>
-          {selectedResult.review.pass !== true && <div className="tmd-error">方案仍有待核对的问题，暂不能采用；可先修改，或等主编核对通过。</div>}
+          {selectedResult.review.pass !== true && <div className="tmd-error">{timeMachineRunBusy(selectedRun) ? '修改已保存，主编正在核查这一版，完成后可以采用。' : '方案仍有待核对的问题，暂不能采用。'}{selectedResult.review.issues.map((issue,index)=><p key={index}>{issue}</p>)}</div>}
           {selectedResult.review.suggestions.length > 0 && (
             <details className="tmd-suggestions">
               <summary>主编文学建议（{selectedResult.review.suggestions.length}条，不阻断采用）</summary>
@@ -478,10 +484,9 @@ function PlanDetail({ plan, numbering }: { plan: TimeMachinePlanView; numbering:
   const lineLabel = (lineId: string, index: number) => {
     const line = plan.lines.find(item => item.id === lineId);
     if (line === undefined) return lineId;
-    if (numbering === null) return `${roleLabel(line.role)}${index + 1}`;
     const mainIndex = plan.lines.filter(l => l.role === 'main').indexOf(line);
     const branchIndex = plan.lines.filter(l => l.role !== 'main').indexOf(line);
-    return line.role === 'main' ? `主线${mainIndex + 1}` : `支线${branchIndex + 1}`;
+    return line.role === 'main' ? (numbering?.mainLines[mainIndex] ?? `主线${mainIndex + 1}`) : (numbering?.branchLines[branchIndex] ?? `支线${branchIndex + 1}`);
   };
   return (
     <div className="tmd-plan">
@@ -531,6 +536,7 @@ function PlanDetail({ plan, numbering }: { plan: TimeMachinePlanView; numbering:
         ))}
       </div>
       <div className="tmd-volumes">
+        {plan.relations.length > 0 && <section className="tmd-panel"><h4>关键交织</h4>{plan.relations.map((relation,index)=><p key={index}><strong>{lineLabel(relation.from,0)} → {lineLabel(relation.to,0)}</strong>　{relation.effect}</p>)}</section>}
         {plan.volumes.map((volume, index) => (
           <VolumeCard key={volume.id} volume={volume} code={codeOf(volume.id, index)} plan={plan} lineLabel={lineLabel} />
         ))}
@@ -584,7 +590,11 @@ function PlanEditor({ plan, onChange }: { plan: TimeMachinePlanView; onChange: (
   const update = (patch: Partial<TimeMachinePlanView>) => onChange({ ...plan, ...patch });
   const updateVolume = (index: number, patch: Partial<TimeMachineVolumeView>) => {
     const volumes = plan.volumes.map((volume, i) => i === index ? { ...volume, ...patch } : volume);
-    update({ volumes });
+    const volume = plan.volumes[index];
+    const anchors = patch.ending === undefined ? plan.anchors : plan.anchors.map(anchor => anchor.ownerEntityId === volume?.id && anchor.kind === 'exit'
+      ? { ...anchor, summary: patch.ending! }
+      : anchor);
+    update({ volumes, anchors });
   };
   return (
     <div className="tmd-editor">
@@ -597,6 +607,10 @@ function PlanEditor({ plan, onChange }: { plan: TimeMachinePlanView; onChange: (
           <label><span>卷名</span><input value={volume.title} onChange={event => updateVolume(index, { title: event.target.value })} /></label>
           <label><span>本卷目标</span><textarea rows={2} value={volume.goal} onChange={event => updateVolume(index, { goal: event.target.value })} /></label>
           <label><span>收束</span><textarea rows={2} value={volume.ending} onChange={event => updateVolume(index, { ending: event.target.value })} /></label>
+          {plan.anchors.filter(anchor=>anchor.ownerEntityId===volume.id&&anchor.kind==='exit').map(anchor=><div key={anchor.id}>
+            <p>收束核对条件（修改后由主编检查是否一致）</p>
+            {anchor.conditions.map((condition,conditionIndex)=><label key={conditionIndex}><span>条件{conditionIndex+1}</span><textarea rows={2} value={condition.summary} onChange={event=>update({anchors:plan.anchors.map(item=>item.id===anchor.id?{...item,conditions:item.conditions.map((entry,i)=>i===conditionIndex?{...entry,summary:event.target.value}:entry)}:item)})}/></label>)}
+          </div>)}
         </fieldset>
       ))}
     </div>

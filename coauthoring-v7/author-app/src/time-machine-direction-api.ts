@@ -74,6 +74,7 @@ export interface TimeMachineDesignResultView {
 }
 
 export interface TimeMachineRunView {
+  intent?: string;
   id: string;
   kind: 'recommend' | 'design';
   scheme: string | null;

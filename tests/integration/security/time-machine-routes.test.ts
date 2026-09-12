@@ -36,12 +36,13 @@ describe('new time machine session boundary',()=>{
    expect((repo.readCandidate(scope,'cand-1',1) as {plan:{baseline:string}}).plan.baseline).not.toBe('作者改过的基线');
    expect((repo.readCandidate(scope,'cand-1',2) as {plan:{baseline:string}}).plan.baseline).toBe('作者改过的基线');
    const stale=await app.inject({method:'POST',url,headers:{...headers,cookie},payload:{plan:edited,expectedRevision:1}});
-   expect(stale.statusCode).toBe(409);
+   expect(stale.statusCode).toBe(404);
    const stateResponse=await app.inject({url:'/api/time-machine/books/tm-rev-book/state',headers:{...headers,cookie}});
    const stateData=stateResponse.json().data as {runs:{result:{revision:number;plan:{baseline:string};review:{pass:boolean};editedBy?:string}}[]};
    const editedRun=stateData.runs.find(run=>run.result!==null)!;
-   expect(editedRun.result.revision).toBe(2);expect(editedRun.result.plan.baseline).toBe('作者改过的基线');expect(editedRun.result.review.pass).toBe(true);expect(editedRun.result.editedBy).toBe('author');
-   expect(repo.adopt(scope,'cand-1',2,0,'adopt-edited').revision).toBe(1);
+   expect(editedRun.result.revision).toBe(2);expect(editedRun.result.plan.baseline).toBe('作者改过的基线');expect(editedRun.result.review.pass).toBe(false);expect(editedRun.result.editedBy).toBe('author');
+   expect(()=>repo.adopt(scope,'cand-1',2,0,'adopt-edited')).toThrow('核查');
+   c.database.prepare("UPDATE tm2_design_runs SET state='succeeded' WHERE id='cand-1'").run();
    expect((await app.inject({method:'POST',url,headers:{...headers,cookie},payload:{plan:{...edited,volumes:[]},expectedRevision:2}})).statusCode).toBe(409);
    expect((await app.inject({method:'POST',url:'/api/time-machine/books/tm-rev-book/candidates/missing/revisions',headers:{...headers,cookie},payload:{plan:edited,expectedRevision:1}})).statusCode).toBe(404);
    expect((await app.inject({method:'POST',url,headers:{...headers,cookie:await register('tm-rev-2@example.com')},payload:{plan:edited,expectedRevision:1}})).statusCode).toBe(404);
