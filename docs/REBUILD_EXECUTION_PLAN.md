@@ -736,13 +736,15 @@
 
 ### RB-19 单页创意开书与结果采用
 
+- **开发·当前记录**：2026-09-12 Codex第193批：想法输入框缩为116px、删除仅改变确认文案的按钮，输入按账号自动保存本机草稿；存储失败明确提示。保留2000字、中文输入、成员及尺度选择、开始设计。57项开书回归、类型构建与390/1440输入刷新验证通过。仅静态发布，不重启后端。记录见[本批清单](../coauthoring-v7/docs/worklists/OPENING-INPUT-193.md)。
+
 - **收尾·线上现状**：该单元有已发布批次，具体交付范围见下方合同与证据；整体验收和当前实时健康分别核对。
 - **收尾·执行归属**：由当前V7页面/API及共享包承担已发布范围；独立rebuild/apps和PG整站未切换。
 - **收尾·剩余工作**：按现有证据核对尚未完成范围：[第167批：一个主偏向、最多四个辅助偏向及全链继承上线](../coauthoring-v7/docs/worklists/CREATIVE-STYLES-167.md)
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,rebuild/packages/agent-catalog/creative-assets.js,rebuild/packages/backend/src/legacy-opening/opening-agent/opening-prompt-compiler.ts,apps/api/src/application/books/v7-opening-agent-service.ts,coauthoring-v7/author-app/src/NewNovelPage.tsx,coauthoring-v7/author-app/src/AuthorApp.tsx
-- **管理·代码核对**：1dee70901467a0e87309cb625f6de65d9be4ae78ae47fc4db9852a6e8d7d9e1c
+- **管理·代码核对**：ceff2a85410485785eefff5609ac219462006c6b639c4a8300ab2d204379d2b4
 
 - **管理·共享步骤**：none
 - **第166批确认方案**：首页直接开书，新貂蝉为亲切可爱的成年古风女性；尺度为常规发挥/趣味加料/反差脑洞/荒诞猎奇/极限整活，默认4。风格已由第167批调整为一个主偏向、最多四个辅助偏向；主导与辅助用途分别明确。完整机制库允许自由组合与原创，不宣称全网最全。后台“资产方法论→创意与金手指”查看同源卡片和节点规则；正式调用快照在本功能的上下文样例中追溯。2026-09-09 02:56:49已上线wm-v7-20260909-024500-108646da，静态a950d437b17ebb3fa52b。手机/电脑和定向接口验证通过，真实合成样例设计88秒、审查21秒通过；单例不代表所有任务速度。剧本尚未开放。
