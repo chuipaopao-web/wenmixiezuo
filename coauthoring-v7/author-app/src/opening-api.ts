@@ -1016,7 +1016,8 @@ export interface PlanningTreeGenerationView {
 
 export interface PlanningTaskView {
   taskId: string;
-  taskKind: 'planning_route' | 'planning_tree';
+  taskKind: 'planning_route' | 'planning_tree' | 'time_machine_recommend' | 'time_machine_design';
+  progressKnown?: boolean;
   bookId: string;
   bookTitle: string;
   status: 'waiting' | 'working' | 'waiting_for_you' | 'completed' | 'failed' | 'cancelled';
@@ -1068,8 +1069,8 @@ export function fetchPlanningMembers(signal?: AbortSignal): Promise<PlanningMemb
   return request('/api/v1/v7/editorial/planning-members', signal === undefined ? undefined : { signal });
 }
 
-export function fetchPlanningTasks(signal?: AbortSignal): Promise<PlanningTaskView[]> {
-  return request<PlanningTaskWireView[]>('/api/v1/v7/planning-tasks?limit=80', signal === undefined ? undefined : { signal })
+export function fetchPlanningTasks(signal?: AbortSignal,bookId?:string): Promise<PlanningTaskView[]> {
+  return request<PlanningTaskWireView[]>(`/api/v1/v7/planning-tasks?limit=80${bookId?`&bookId=${encodeURIComponent(bookId)}`:''}`, signal === undefined ? undefined : { signal })
     .then((items) => items.map(normalizePlanningTaskView));
 }
 

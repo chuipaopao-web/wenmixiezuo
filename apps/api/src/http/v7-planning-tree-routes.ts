@@ -12,6 +12,7 @@ import { DomainError, errorCodes } from '../domain/errors.js';
 import { requireAdministrator, requireAuthenticatedOwner } from '../infrastructure/security/auth-context.js';
 import type { V7PlanningModelAdapterResolver } from '../infrastructure/models/v7-planning-model-gateway.js';
 import { V7AgentGovernanceRepository } from '../infrastructure/db/repositories/v7-agent-governance-repository.js';
+import { listTimeMachineTasks } from '../application/books/time-machine-task-list.js';
 
 type TreeParams = { bookId: string; treeKind: string; scopeId: string };
 
@@ -49,11 +50,15 @@ export async function registerV7PlanningTreeRoutes(
     return success(routes.publicMembers(), request.id);
   });
 
-  app.get<{ Querystring: { limit?: string } }>('/api/v1/v7/planning-tasks', async (request) => {
+  app.get<{ Querystring: { limit?: string; bookId?: string } }>('/api/v1/v7/planning-tasks', async (request) => {
     const ownerId = requireAuthenticatedOwner(request).ownerId;
     const parsed = Number(request.query.limit ?? 50);
     const limit = Number.isInteger(parsed) ? Math.max(1, Math.min(100, parsed)) : 50;
-    const tasks = [...routes.listTasks(ownerId, limit), ...generation.listTasks(ownerId, limit)]
+    const bookId=request.query.bookId;
+    if(bookId!==undefined)books.requireVisible(ownerId,bookId);
+    const visible=new Set(database.prepare("SELECT book_id FROM books WHERE owner_id=? AND status='active'").all(ownerId).map(row=>String(row.book_id)));
+    const tasks = [...routes.listTasks(ownerId, 100), ...generation.listTasks(ownerId, 100),...listTimeMachineTasks(database,ownerId,bookId,limit)]
+      .filter(task=>visible.has(task.bookId)&&(bookId===undefined||task.bookId===bookId))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, limit);
     return success(tasks, request.id);
   });

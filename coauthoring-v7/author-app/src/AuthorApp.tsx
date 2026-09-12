@@ -134,6 +134,7 @@ function mainNavKeyForView(view: AuthorView): MainNavKey | null {
 }
 
 function StatusPage(props: {
+  bookId: string | null;
   section: 'tasks' | 'team';
   onSectionChange: (section: 'tasks' | 'team') => void;
   onOpenTask: (taskId: string) => void;
@@ -156,7 +157,7 @@ function StatusPage(props: {
         </div>
       </header>
       {section === 'tasks'
-        ? <TaskLogPage {...taskLogProps} />
+        ? <TaskLogPage key={props.bookId??'all'} {...taskLogProps} />
         : <TeamPage />}
     </section>
   );
@@ -502,7 +503,7 @@ export function AuthorApp(): React.JSX.Element {
         {view === 'chain' && bookId !== null && <CreationWorkspacePage bookId={bookId} focus="chain" onNavigate={(next, scope) => navigate(next, bookId, openingEntry, null, scope)} />}
         {view === 'chapter' && bookId !== null && <CreationWorkspacePage bookId={bookId} focus="chapter" onNavigate={(next, scope) => navigate(next, bookId, openingEntry, null, scope)} />}
         {view === 'library' && bookId !== null && <LibraryPage bookId={bookId} />}
-        {(view === 'status' || view === 'tasks' || view === 'team') && <StatusPage section={view === 'team' ? 'team' : 'tasks'} onSectionChange={(section) => navigate(section === 'team' ? 'team' : 'tasks', bookId)} onOpenTask={(taskId) => navigate('new-novel', null, 'ai', taskId)} onOpenBook={(nextBookId) => navigate('information', nextBookId)} onOpenSetting={openSettings} onOpenPlanning={(nextBookId) => navigate('time-machine', nextBookId)} onOpenCreation={(nextBookId, focus) => navigate(focus, nextBookId)} />}
+        {(view === 'status' || view === 'tasks' || view === 'team') && <StatusPage bookId={bookId} section={view === 'team' ? 'team' : 'tasks'} onSectionChange={(section) => navigate(section === 'team' ? 'team' : 'tasks', bookId)} onOpenTask={(taskId) => navigate('new-novel', null, 'ai', taskId)} onOpenBook={(nextBookId) => navigate('information', nextBookId)} onOpenSetting={openSettings} onOpenPlanning={(nextBookId) => navigate('time-machine', nextBookId)} onOpenCreation={(nextBookId, focus) => navigate(focus, nextBookId)} />}
         {view === 'benefits' && <BenefitsPage onOpenAccount={() => { setOpeningAccountReturn(null); navigate('account', bookId); }} />}
         {view === 'account' && <section className="v7-account-page"><AuthorAccountCenter {...(openingAccountReturn === null ? {} : { onClose: returnToOpeningFromAccount, closeLabel: membershipReturnRefresh === 'running' ? '正在确认会员状态…' : '返回这次开书' })} /></section>}
       </main>

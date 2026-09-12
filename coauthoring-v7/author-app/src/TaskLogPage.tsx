@@ -20,7 +20,8 @@ import {
 import { useAuthorAccount } from './AuthorAccountBoundary';
 import { clearOpeningDraftForTask } from './opening-draft-storage';
 
-export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlanning, onOpenSetting }: {
+export function TaskLogPage({ bookId, onOpenTask, onOpenBook, onOpenCreation, onOpenPlanning, onOpenSetting }: {
+  bookId?: string | null;
   onOpenTask: (taskId: string) => void;
   onOpenBook: (bookId: string) => void;
   onOpenCreation?: (bookId: string, focus: 'volume' | 'chain' | 'chapter') => void;
@@ -57,20 +58,20 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
     const load = async () => {
       try {
         const results = await Promise.allSettled([
-          fetchOpeningTasks(), fetchDesignTasks(), fetchCreationTasks(), fetchPlanningTasks(), fetchSettingTasks()
+          fetchOpeningTasks(), fetchDesignTasks(), fetchCreationTasks(), fetchPlanningTasks(undefined,bookId??undefined), fetchSettingTasks()
         ]);
         if (stopped) return;
         const [openingResult, designResult, creationResult, planningResult, settingResult] = results;
         const visible = openingResult.status === 'fulfilled'
-          ? openingResult.value.filter((task) => !(
+          ? openingResult.value.filter((task) => (!bookId||task.resultBookId===bookId)&&!(
             task.resultBookId === null && task.status === 'failed' && task.errorMessage === null
           ))
           : null;
         if (visible !== null) setTasks(visible);
-        if (designResult.status === 'fulfilled') setDesignTasks(designResult.value);
-        if (creationResult.status === 'fulfilled') setCreationTasks(creationResult.value);
-        if (planningResult.status === 'fulfilled') setPlanningTasks(planningResult.value);
-        if (settingResult.status === 'fulfilled') setSettingTasks(settingResult.value);
+        if (designResult.status === 'fulfilled') setDesignTasks(designResult.value.filter(t=>!bookId||t.bookId===bookId));
+        if (creationResult.status === 'fulfilled') setCreationTasks(creationResult.value.filter(t=>!bookId||t.bookId===bookId));
+        if (planningResult.status === 'fulfilled') setPlanningTasks(planningResult.value.filter(t=>!bookId||t.bookId===bookId));
+        if (settingResult.status === 'fulfilled') setSettingTasks(settingResult.value.filter(t=>!bookId||t.bookId===bookId));
         const failed = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
         setError(failed.length === 0 ? null : '部分工作记录暂时没有加载出来，编辑部会自动重试。');
         setLoading(false);
@@ -81,7 +82,7 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
         const hasSettingRunning = settingResult.status === 'fulfilled' && settingResult.value.some((task) => ['waiting', 'working'].includes(task.status));
         if (failed.length > 0 || hasVisibleRunning || hasDesignRunning || hasCreationRunning || hasPlanningRunning || hasSettingRunning) {
           timer = window.setTimeout(load, failed.length > 0 ? 4_000 : 2_000);
-        }
+        } else timer = window.setTimeout(load, 10_000);
       } catch (reason) {
         if (stopped) return;
         setError(reason instanceof Error ? reason.message : '任务记录暂时没有加载出来。');
@@ -91,7 +92,7 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
     };
     void load();
     return () => { stopped = true; window.clearTimeout(timer); };
-  }, []);
+  }, [bookId]);
 
   const active = tasks.filter(openingTaskNeedsAttention);
   const history = tasks.filter((task) => !active.includes(task));
@@ -245,7 +246,7 @@ function PlanningTaskCard({ task, onOpen, onCancel }: {
   const state = !task.actionable ? '历史记录' : task.status === 'waiting_for_you' ? '等您决定' : task.status === 'completed' ? '已完成'
     : task.status === 'cancelled' ? '已停止' : task.status === 'failed' ? '本轮未完成'
       : task.status === 'working' ? '工作中' : '马上开始';
-  const kind = task.taskKind === 'planning_route' ? '全书路线'
+  const kind = task.taskKind === 'time_machine_recommend' ? '故事线推荐' : task.taskKind === 'time_machine_design' ? '全书基线设计' : task.taskKind === 'planning_route' ? '全书路线'
     : task.treeKind === 'volume' ? '本卷框架' : task.treeKind === 'chain' ? '单元链框架' : '全书框架';
   const memberEmoji = !task.actionable ? '🌿' : task.status === 'failed' ? '🙇' : task.status === 'cancelled' ? '👌' : task.status === 'waiting_for_you' ? '🌿' : '✍️';
   const displayName = task.memberKey === null || task.memberName === null ? null : memberDisplayName(task.memberKey, task.memberName);
@@ -258,7 +259,7 @@ function PlanningTaskCard({ task, onOpen, onCancel }: {
     <div className="task-log-card-main"><span className={`task-state-dot ${task.actionable && ['waiting', 'working'].includes(task.status) ? 'working' : ''}`} /><div><small>{kind} · {formatTime(task.updatedAt)}</small><strong>{task.bookTitle}</strong><p>{displayName === null ? taskCopy : `${memberEmoji} ${displayName}：${taskCopy}`}</p></div></div>
     <div className="task-log-card-side">{task.memberKey !== null && <div className="task-member-stack"><i title={displayName ?? '编辑部成员'} style={{ backgroundPosition: memberAvatarPosition(task.memberKey) }} /></div>}<span className="task-state-label">{state}</span><button type="button" onClick={onOpen}>{task.actionable ? '继续处理' : '查看当前进度'}<ArrowRightIcon /></button>{task.actionable && task.canStop && onCancel !== undefined && !confirmingStop && <button className="task-abandon-button" type="button" onClick={() => setConfirmingStop(true)}>停止任务</button>}</div>
     {task.canStop && onCancel !== undefined && confirmingStop && <div className="task-inline-confirm"><span>已经完成的路线会保留，只停止未完成工作。</span><button type="button" onClick={() => void onCancel().finally(() => setConfirmingStop(false))}>保留成果并停止</button><button type="button" onClick={() => setConfirmingStop(false)}>继续工作</button></div>}
-    {task.actionable && ['waiting', 'working'].includes(task.status) && <div className="task-card-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress}><span style={{ width: `${task.progress}%` }} /></div>}
+    {task.actionable && task.progressKnown !== false && ['waiting', 'working'].includes(task.status) && <div className="task-card-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress}><span style={{ width: `${task.progress}%` }} /></div>}
   </article>;
 }
 

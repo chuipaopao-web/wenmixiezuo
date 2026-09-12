@@ -26,6 +26,19 @@ const mockedOpening = vi.mocked(opening);
 const mockedCreation = vi.mocked(creation);
 
 describe('V7统一任务中心', () => {
+  it('书内状态显示新故事线真实阶段并排除其他书，不提供虚假停止或百分比',async()=>{
+    mockedOpening.fetchPlanningTasks.mockResolvedValue([
+      {...planningTask(),taskId:'new',taskKind:'time_machine_recommend',bookId:'new-book',bookTitle:'仙门售后我无敌',message:'正在整理资料',progressKnown:false,canStop:false},
+      {...planningTask(),bookTitle:'旧书'}
+    ]);
+    const onOpenPlanning=vi.fn();
+    render(<TaskLogPage bookId="new-book" onOpenTask={vi.fn()} onOpenBook={vi.fn()} onOpenPlanning={onOpenPlanning}/>);
+    expect(await screen.findByText('仙门售后我无敌')).toBeVisible();expect(screen.queryByText('旧书')).not.toBeInTheDocument();
+    expect(screen.getByText(/故事线推荐/)).toBeVisible();expect(screen.getByText(/正在整理资料/)).toBeVisible();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'停止任务'})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:/继续处理/}));expect(onOpenPlanning).toHaveBeenCalledWith('new-book');
+    expect(mockedOpening.fetchPlanningTasks).toHaveBeenCalledWith(undefined,'new-book');
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockedOpening.fetchOpeningTasks.mockResolvedValue([]);

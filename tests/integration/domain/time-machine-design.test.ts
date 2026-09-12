@@ -5,6 +5,7 @@ import {TimeMachineDesignService} from '../../../apps/api/src/application/books/
 import {TimeMachineModelGateway} from '../../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
 import {SqlPlanRepository} from '@wenmi/time-machine-core';
 import {BookSynopsisService} from '../../../apps/api/src/application/books/book-synopsis-service.js';
+import {listTimeMachineTasks} from '../../../apps/api/src/application/books/time-machine-task-list.js';
 const contexts:TestContext[]=[];afterEach(()=>contexts.splice(0).forEach(c=>c.close()));
 function setup(){const c=createTestContext();contexts.push(c);const scope={ownerId:c.config.ownerId,bookId:'tm-book'};c.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run(scope.ownerId,'测试作者','2026-09-10','2026-09-10');new BookRepository(c.database).create(scope,'机甲会修仙','2026-09-10','active');c.database.prepare("INSERT INTO book_opening_blueprints VALUES('opening',?,?,1,'v1','male','fantasy','玄幻',?,?,'active','2026-09-10')").run(scope.ownerId,scope.bookId,JSON.stringify({protagonists:['林舟'],storyDirection:'无灵根修理工建立工坊'}),'a'.repeat(64));return {c,scope};}
 function output(prompt:string):unknown{
@@ -19,6 +20,25 @@ function output(prompt:string):unknown{
  return {fields:{premise:[{text:'修理工建立工坊',sourceKeys:['opening:opening:1']}],protagonists:[{text:'林舟',sourceKeys:['opening:opening:1']}],world:[],openingEnding:[],preferences:[],prohibitions:[]}};
 }
 describe('new time machine orchestration with real persistence and simulated model',()=>{
+ it('projects scoped tasks, real phases, decisions and archived-book exclusion',async()=>{
+  const {c,scope}=setup();
+  const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){return {provider,modelId,output:JSON.stringify(output(request.prompt)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};}}));
+  const service=new TimeMachineDesignService(c.database,gateway,64000);
+  const id=service.start(scope,'recommend','','task-projection');
+  expect(listTimeMachineTasks(c.database,scope.ownerId,scope.bookId)[0]).toMatchObject({taskId:id,status:'waiting',canStop:false,progressKnown:false});
+  c.database.prepare("UPDATE tm2_design_runs SET state='working',phase='card:0' WHERE id=?").run(id);
+  expect(listTimeMachineTasks(c.database,scope.ownerId)[0]).toMatchObject({status:'working',message:'正在整理资料'});
+  expect(listTimeMachineTasks(c.database,'other')).toEqual([]);expect(listTimeMachineTasks(c.database,scope.ownerId,'other-book')).toEqual([]);
+  c.database.prepare("UPDATE tm2_design_runs SET state='queued' WHERE id=?").run(id);await service.process(id);
+  expect(listTimeMachineTasks(c.database,scope.ownerId)[0]).toMatchObject({status:'waiting_for_you',taskKind:'time_machine_recommend'});
+  const design=service.start(scope,'design','','task-projection-design');await service.process(design);
+  expect(listTimeMachineTasks(c.database,scope.ownerId).find(t=>t.taskId===id)?.status).toBe('completed');
+  expect(listTimeMachineTasks(c.database,scope.ownerId).find(t=>t.taskId===design)?.status).toBe('waiting_for_you');
+  new SqlPlanRepository(c.database).adopt(scope,design,1,0,'task-adopt');
+  expect(listTimeMachineTasks(c.database,scope.ownerId).find(t=>t.taskId===design)?.status).toBe('completed');
+  c.database.prepare("UPDATE books SET status='archived' WHERE owner_id=? AND book_id=?").run(scope.ownerId,scope.bookId);
+  expect(listTimeMachineTasks(c.database,scope.ownerId)).toEqual([]);
+ });
  it('uses one preparation and one audit for modest material, then reuses it for recommendation and baseline',async()=>{
   const {c,scope}=setup();
   c.database.prepare('UPDATE book_opening_blueprints SET blueprint_json=? WHERE owner_id=? AND book_id=?').run(JSON.stringify({protagonists:['林舟'],storyDirection:'无灵根修理工建立工坊',background:'世'.repeat(3500)}),scope.ownerId,scope.bookId);
