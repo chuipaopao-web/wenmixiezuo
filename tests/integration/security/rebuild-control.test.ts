@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseRebuildPlan, REBUILD_PLAN_PATH, summarizeTaskSignals } from '../../../apps/api/src/application/admin/rebuild-control-service.js';
+import {BookRepository} from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import { createV7Server } from '../../../apps/api/src/http/v7-server.js';
 import { createTestContext } from '../../helpers/test-context.js';
 import type { V7TaskAuditRow } from '../../../apps/api/src/infrastructure/db/repositories/v7-task-audit-repository.js';
@@ -90,6 +91,13 @@ describe('重构管理后台文档与运行证据', () => {
       expect(data.source).toHaveProperty('version');
       expect(data.runtime).toMatchObject({ taskCount: 0, sampledCount: 0, worker: 'stale_or_missing', taskSignals: [] });
       expect(JSON.stringify(data)).not.toMatch(/fixture-pass|owner-local-boss|session_token/u);
+      const now=new Date().toISOString();
+      context.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run('test-owner','合成任务作者',now,now);
+      new BookRepository(context.database).create({ownerId:'test-owner',bookId:'test-book'},'合成任务书',now,'active');
+      context.database.prepare("INSERT INTO tm2_design_runs(id,owner_id,book_id,kind,request_key,input_hash,snapshot_json,state,created_at,updated_at) VALUES('test-tm','test-owner','test-book','recommend','test-key','test-hash','{}','failed',?,?)").run(now,now);
+      const withNewTasks=(await app.inject({method:'GET',url,headers:{...headers,cookie:cookies[0]!}})).json().data;
+      expect(withNewTasks.runtime).toMatchObject({taskCount:1,sampledCount:1,taskSignals:[{taskKind:'tm2_recommend',observed:1,failed:1,succeeded:0,other:0}]});
+      expect(withNewTasks.units.find((unit:{id:string})=>unit.id==='RB-22').taskKinds).toContain('tm2_recommend');
       context.config.projectRoot = context.root;
       const missing = await app.inject({ method: 'GET', url, headers: { ...headers, cookie: cookies[0]! } });
       expect(missing.statusCode).toBe(503);

@@ -14,7 +14,7 @@ export interface TimeMachineAdminRun {
   state: 'queued' | 'working' | 'failed' | 'succeeded'; phase: string; errorCode: string | null;
   updatedAt: string; createdAt: string; writer: string | null;
   revision: number | null; reviewPass: boolean | null; editedBy: string | null;
-  calls: number; tokens: number; failedCalls: number; maxPromptChars: number | null;
+  calls: number; tokens: number; failedCalls: number; maxPromptChars?: number | null;
 }
 
 export const fetchTimeMachineRuns = (state?: 'working' | 'queued' | 'failed' | 'succeeded'): Promise<{ runs: TimeMachineAdminRun[]; totals: { calls: number; tokens: number } }> =>

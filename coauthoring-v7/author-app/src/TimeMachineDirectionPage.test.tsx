@@ -73,6 +73,35 @@ HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) { t
 HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) { this.removeAttribute('open'); };
 
 describe('time machine direction page', () => {
+  it('welcomes the author, starts recommendation automatically and never starts a design without confirmation', async()=>{
+    let recommendations=0,designs=0;let current=stateFixture({runs:[]});
+    vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{
+      if(String(input).endsWith('/state'))return response(current);
+      if(String(input).endsWith('/recommendation-runs')){recommendations++;current=stateFixture({runs:[recommendRun('working')]});return response({id:'rec-1'});}
+      if(String(input).endsWith('/design-runs'))designs++;
+      throw Error('Unexpected request');
+    }));
+    render(<TimeMachineDirectionEntry bookId="bk-1"/>);
+    expect(await screen.findByText('正在整理本书故事线，请您耐心等待。')).toBeVisible();
+    await waitFor(()=>expect(recommendations).toBe(1));expect(designs).toBe(0);
+  });
+  it('adds a custom story and carries author requests into chief recommendations',async()=>{
+    let sent='';const state=stateFixture({runs:[recommendRun('succeeded')]});
+    vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      if(String(input).endsWith('/state'))return response(state);
+      if(String(input).endsWith('/recommendation-runs')){sent=JSON.parse(String(init?.body)).intent;return response({id:'new'});}
+      throw Error('Unexpected request');
+    }));
+    render(<TimeMachineDirectionEntry bookId="bk-1"/>);
+    fireEvent.click(await screen.findByRole('button',{name:'＋ 添加其他故事线'}));
+    fireEvent.change(screen.getByLabelText('故事线名称'),{target:{value:'重建家园'}});
+    fireEvent.change(screen.getByLabelText('想写怎样的故事'),{target:{value:'林舟与伙伴让流民有家可归'}});
+    fireEvent.click(screen.getByRole('button',{name:'加入故事线'}));
+    expect(screen.getByText('已选 2 条故事线')).toBeVisible();
+    fireEvent.change(screen.getByLabelText('故事线补充要求'),{target:{value:'希望更温暖'}});
+    fireEvent.click(screen.getByRole('button',{name:'请主编重新推荐'}));
+    await waitFor(()=>expect(sent).toContain('林舟与伙伴让流民有家可归'));expect(sent).toContain('希望更温暖');
+  });
   beforeEach(() => { vi.unstubAllGlobals(); });
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -88,7 +117,7 @@ describe('time machine direction page', () => {
     const boxes=screen.getAllByRole('checkbox') as HTMLInputElement[];
     const growth=boxes.find(box=>box.closest('label')?.textContent?.includes('成长线'))!;
     fireEvent.click(growth);expect(await screen.findByText('已选 0 条故事线')).toBeVisible();
-    fireEvent.click(growth);fireEvent.click(screen.getByRole('button',{name:'开始设计'}));
+    fireEvent.click(growth);fireEvent.click(screen.getByRole('button',{name:'确认故事线，设计全书方向'}));
     await waitFor(()=>expect(intent).toContain('成长线（林舟建立工坊）'));
   });
 
@@ -102,6 +131,7 @@ describe('time machine direction page', () => {
       throw Error('Unexpected request');
     }));
     render(<TimeMachineDirectionEntry bookId="bk-1"/>);
+    fireEvent.click(await screen.findByText('查看已采用的全书方向'));
     expect(await screen.findByText('主线4')).toBeVisible();expect(screen.getByText('支线7 → 主线4')).toBeVisible();
     expect(screen.getByRole('button',{name:/方案B/})).toBeEnabled();
     fireEvent.click(screen.getByRole('button',{name:'重新设计全书方向'}));
@@ -137,12 +167,12 @@ describe('time machine direction page', () => {
     // 原型“＋ 添加其他故事线”弹窗：加入一条预设线后计入已选计数并进入设计意图。
     fireEvent.click(screen.getByRole('button', { name: '＋ 添加其他故事线' }));
     expect(await screen.findByRole('dialog', { name: '添加你想写的故事' })).toBeVisible();
-    expect(screen.getByText('点击加入，再由主编结合本书安排。')).toBeVisible();
+    expect(screen.getByLabelText('故事线名称')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: /感情线/ }));
     expect(await screen.findByText('已选 2 条故事线')).toBeVisible();
     // 弹窗关闭后DOM仍保留预设项，用数量断言加入的线卡已渲染。
     expect(screen.getAllByText(/与拥有独立追求的伴侣/).length).toBeGreaterThanOrEqual(1);
-    fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认故事线，设计全书方向' }));
     await waitFor(() => { expect(posted.design).toBe(1); });
     expect(designIntent).toContain('故事展开方式：集中讲一个核心故事');
     expect(designIntent).toContain('也希望配角拥有自己的完整故事');
@@ -198,9 +228,8 @@ describe('time machine direction page', () => {
       throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`);
     }));
     render(<TimeMachineDirectionEntry bookId="bk-1" />);
-    // 有设计轮的旧书也先落故事线推荐欢迎页；导航点"全书基线"才看进度。
-    expect(await screen.findByText('老板，我们来设计全书骨架。')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: '全书基线' }));
+    // 已有设计轮刷新后恢复到全书方向，避免误以为需要重新选线。
+    expect(await screen.findByRole('button', { name: '全书基线' })).toHaveAttribute('aria-pressed','true');
     expect(await screen.findByText('方案A')).toBeVisible();
     expect(screen.getByText('方案C')).toBeVisible();
     expect(screen.getByText('未完成')).toBeVisible();
@@ -235,8 +264,7 @@ describe('time machine direction page', () => {
       throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`);
     }));
     render(<TimeMachineDirectionEntry bookId="bk-1" />);
-    await screen.findByText('老板，我们来设计全书骨架。');
-    fireEvent.click(screen.getByRole('button', { name: '全书基线' }));
+    await screen.findByRole('button', { name: '全书基线' });
     expect(await screen.findByText(/方案仍有待核对的问题/)).toBeVisible();
     expect(screen.getByRole('button', { name: '采用本方案' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: /修改方案/ }));

@@ -70,7 +70,7 @@ export function TimeMachineOpsPage(): React.JSX.Element {
           <td>{formatDuration(run.createdAt, run.updatedAt, run.state)}</td>
           <td>{run.calls}{run.failedCalls > 0 ? `（失败${run.failedCalls}）` : ''}</td>
           <td>{run.tokens > 0 ? `${Math.round(run.tokens / 1000)}k` : '—'}</td>
-          <td>{run.maxPromptChars !== null ? `${(run.maxPromptChars / 10000).toFixed(1)}万字${run.maxPromptChars > 15000 ? '·超线' : ''}` : '—'}</td>
+          <td>{run.maxPromptChars != null ? `${(run.maxPromptChars / 10000).toFixed(1)}万字${run.maxPromptChars > 15000 ? '·超线' : ''}` : '—'}</td>
           <td>{run.updatedAt}</td>
         </tr>)}</tbody>
       </table></div>}

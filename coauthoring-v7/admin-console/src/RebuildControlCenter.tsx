@@ -7,7 +7,7 @@ import { detailText } from './WorkflowGuide';
 import { FunctionManagement } from './FunctionManagement';
 import { DeliveryScope, reviewedStage, implementationStatus } from './DeliveryScope';
 
-type Destination = 'agents' | 'prompt-context' | 'rhythm' | 'memberships' | 'issues' | 'features';
+type Destination = 'agents' | 'prompt-context' | 'rhythm' | 'memberships' | 'issues' | 'features' | 'time-machine';
 type Filter = 'all' | 'active' | 'pending' | 'accepted' | 'attention';
 type MapView = 'functions' | 'all';
 function readMapView(): MapView {
@@ -55,6 +55,7 @@ export function RebuildControlCenter({ mode, onNavigate }: {
   const [filter, setFilter] = useState<Filter>('all');
   const [mapView, setMapView] = useState<MapView>(readMapView);
   const [managerDirty, setManagerDirty] = useState(false);
+  const [railWidth, setRailWidth] = useState(280);
   const changeView = (view: MapView): void => {
     if (!window.dispatchEvent(new Event('wenmi:admin-navigate', { cancelable: true }))) return;
     setMapView(view);
@@ -147,6 +148,7 @@ export function RebuildControlCenter({ mode, onNavigate }: {
       <nav className="workflow-guide-switch" aria-label="功能地图视图">{([['functions','功能管理'],['all','开发路线']] as const).map(([view,label]) => <button key={view} type="button" aria-pressed={mapView === view} onClick={() => changeView(view)}>{label}</button>)}</nav>
       {mapView === 'functions' && <FunctionManagement units={data.units} onDetails={choose} onDirtyChange={setManagerDirty} />}
       {mapView === 'all' && <>
+      <details className="rebuild-overview-drawer"><summary>开发总览与当前批次 · {data.units.length}项功能</summary>
       <section className="rebuild-summary" aria-label="重构进度">
         <article><span>计划工作单元</span><strong>{data.units.length}<small>项</small></strong><p>覆盖 {data.sourceFeatures.length} 项来源功能</p></article>
         <article><span>已开始待完成</span><strong>{active.length}<small>项</small></strong><p>{active[0]?.name ?? '当前没有已开始待完成的单元'}</p></article>
@@ -159,6 +161,7 @@ export function RebuildControlCenter({ mode, onNavigate }: {
         <p>下方“已开始待完成”是计划累计状态；开发完成、验收通过、已发布是不同状态。</p></div>
         {(active[0] ?? next) && <button type="button" onClick={() => choose((active[0] ?? next)!.id)}>查看待完成单元<ArrowRight aria-hidden="true" /></button>}
       </section>
+      </details>
       <div className="rebuild-toolbar">
         <label className="rebuild-search"><MagnifyingGlass aria-hidden="true" /><input aria-label="搜索功能地图" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索功能、说明或编号…" /></label>
         <select aria-label="按开发阶段筛选" value={stage} onChange={(event) => setStage(event.target.value)}><option value="all">全部开发阶段</option>{stages.map((item) => <option key={item}>{item}</option>)}</select>
@@ -167,7 +170,8 @@ export function RebuildControlCenter({ mode, onNavigate }: {
         </select>
       </div>
       <p>这里记录完整重构合同的进度，不等于线上功能是否存在。已上线但仍有未完成范围的单元标为“已上线·待收尾”；点开可查看当前能力、剩余工作及旧代码退出条件。</p>
-      <div className="rebuild-workspace">
+      <label className="rebuild-rail-size">目录宽度<input type="range" min="240" max="360" step="10" value={railWidth} onChange={event => setRailWidth(Number(event.target.value))} /><span>{railWidth}px</span></label>
+      <div className="rebuild-workspace" style={{gridTemplateColumns:`${railWidth}px minmax(0, 1fr)`}}>
         <section className="rebuild-map" aria-label="按顺序排列的功能地图">
           <header><strong>开发路线</strong><span>{filtered.length} 项结果</span></header>
           {!filtered.length && <div className="rebuild-empty"><p>没有符合条件的功能。</p><button type="button" onClick={() => { setQuery(''); setStage('all'); setFilter('all'); }}>清除筛选</button></div>}
@@ -183,7 +187,7 @@ export function RebuildControlCenter({ mode, onNavigate }: {
           })}
         </section>
         <section ref={detailRef} tabIndex={-1} className="rebuild-detail" aria-label="功能详情">
-          {selected && <UnitDetail unit={selected} data={data} onSelect={choose} onNavigate={onNavigate} />}
+          {selected && <UnitDetail key={selected.id} unit={selected} data={data} onSelect={choose} onNavigate={onNavigate} />}
         </section>
       </div>
       <button className="rebuild-text-link" type="button" onClick={() => onNavigate('features')}>查看现有产品能力对照<ArrowRight aria-hidden="true" /></button>
@@ -197,6 +201,8 @@ export function RebuildControlCenter({ mode, onNavigate }: {
 function UnitDetail({ unit, data, onSelect, onNavigate }: {
   unit: RebuildUnit; data: RebuildControlData; onSelect: (id: string) => void; onNavigate: (section: Destination) => void;
 }): React.JSX.Element {
+  const [tab, setTab] = useState('overview');
+  const tabs=[['overview','功能概览'],['flow','功能流程'],['plan','方案文档'],['history','开发记录'],['checks','缺陷与核查'],['config','调整入口']];
   const signals = data.runtime.taskSignals.filter((signal) => unit.taskKinds.includes(signal.taskKind));
   const failed = signals.reduce((sum, item) => sum + item.failed, 0);
   const issues = unit.details.find((item) => item.label === '已知问题');
@@ -207,6 +213,9 @@ function UnitDetail({ unit, data, onSelect, onNavigate }: {
   ];
   return <>
     <header><span className="rebuild-eyebrow">第 {unit.order} 项 · {unit.id}</span><h3>{unit.name}</h3><span className="rebuild-state">{unitStage(unit)}</span></header>
+    <nav className="rebuild-detail-tabs" aria-label="功能档案分页">{tabs.map(([id,label])=><button type="button" key={id} aria-pressed={tab===id} onClick={()=>setTab(id!)}>{label}</button>)}</nav>
+    <div className="rebuild-detail-pages" data-page={tab}>
+    <div data-part="overview" hidden={tab!=='overview'}>
     <DeliveryScope unit={unit} />
     <section className="rebuild-detail-section" aria-label="功能方案概览"><h4>功能简介</h4><p>{detailText(unit, '设计·功能简介') ?? detailText(unit, '讨论') ?? '尚未登记功能简介。'}</p>
       <h4>功能逻辑</h4><p>{detailText(unit, '设计·功能逻辑') ?? detailText(unit, '后端逐项实现') ?? '尚未登记功能逻辑。'}</p>
@@ -214,11 +223,19 @@ function UnitDetail({ unit, data, onSelect, onNavigate }: {
       <h4>待确认 / 待验证</h4><p>{detailText(unit, '设计·待验证') ?? '按下方设计状态、验收要求和证据判断；没有记录不代表已经验证。'}</p>
     </section>
     <dl className="rebuild-status-grid">{[['设计', unit.design], ['前端', implementationStatus(unit, unit.frontend)], ['后端', implementationStatus(unit, unit.backend)], ['验收', unit.acceptance], ['上线', unit.deployment]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+    <section className="rebuild-detail-section"><h4>方案与实现是否一致</h4><p>{detailText(unit,'核查·方案一致性') ?? '尚无逐项对照结论。已实现或已发布不代表完整符合方案。'}</p><h4>待补充能力</h4><p>{detailText(unit,'收尾·剩余工作') ?? detailText(unit,'设计·待验证') ?? '尚未登记专项清单，需要核对方案与代码后补充。'}</p></section>
+    </div>
+    <div data-part="checks" hidden={tab!=='checks'}>
     <section className="rebuild-evidence"><h4>BUG与当前可用性</h4><p><strong>缺陷核查：</strong>{issues?.text ?? '尚未完成该功能的专项缺陷核查；不能据此判断没有BUG。'}</p>
       <p><strong>业务畅通：</strong>{failed > 0 ? `相关现有链路观察到 ${failed} 条失败记录，需在问题记录核查。` : recordedRun ? '已有本批运行验证记录，见下方；当前实时业务畅通仍未验证。' : signals.length ? '相关现有链路有任务记录；尚无本功能完整探针，仍为未验证。' : '尚无本功能的完整运行证据，未验证。'}</p>
       {signals.length > 0 && <p>关联样本：{signals.reduce((sum, item) => sum + item.observed, 0)} 条，其中成功 {signals.reduce((sum, item) => sum + item.succeeded, 0)} 条、失败 {failed} 条。多个功能可能共享同一链路，样本不能相加当总任务数。</p>}
       <button type="button" onClick={() => onNavigate('issues')}>打开问题记录<ArrowRight aria-hidden="true" /></button>
     </section>
+    <section className="rebuild-detail-section"><h4>BUG自检与测试证据</h4><p>{detailText(unit,'核查·自检记录') ?? recordedRun?.text ?? '尚未登记专项自检证据，未验证。'}</p><h4>核查范围与时间</h4><p>{detailText(unit,'核查·范围与时间') ?? `记录读取时间：${displayTime(data.runtime.checkedAt)}；这不是功能专项测试时间。`}</p></section>
+    </div>
+    <div data-part="flow"><section className="rebuild-detail-section"><h4>用户操作与成员执行流程</h4><p>{detailText(unit,'设计·功能流程') ?? detailText(unit,'前端交付') ?? detailText(unit,'设计·功能逻辑') ?? '尚未登记本功能完整流程。'}</p><h4>后端处理</h4><p>{detailText(unit,'后端逐项实现') ?? '尚未登记。'}</p><h4>失败与恢复</h4><p>{detailText(unit,'设计·失败恢复') ?? '请核对下方方案中的异常处理；未登记不等于已经支持自动恢复。'}</p></section></div>
+    <div data-part="plan" hidden={tab!=='plan'}>
+    {['RB-22','RB-30'].includes(unit.id)&&<button type="button" className="rebuild-button" onClick={()=>onNavigate('time-machine')}>打开时光机完整方案与运行记录</button>}
     {sections.map(([key, title]) => {
       if (key === '讨论' && !detailText(unit, '设计·功能简介')) return null;
       if (key === '后端逐项实现' && !detailText(unit, '设计·功能逻辑')) return null;
@@ -232,6 +249,10 @@ function UnitDetail({ unit, data, onSelect, onNavigate }: {
     })}</div> : <p>没有重构单元前置依赖，具体复用范围见上方方案。</p>}</section>
     <section className="rebuild-detail-section"><h4>合同与验收记录</h4><p>{unit.evidence}</p></section>
     {unit.sourceFeatures.length > 0 && <section className="rebuild-detail-section"><h4>对应的来源功能 · {unit.sourceFeatures.length} 项</h4><div className="rebuild-feature-sources">{unit.sourceFeatures.map((item) => <details key={item.id}><summary>{item.id} {item.name}</summary><p>{item.decision}</p><p><strong>验收：</strong>{item.acceptance}</p><small>规格 {item.specification} · 协作单元 {item.unitIds.join('、')}</small></details>)}</div></section>}
+    </div>
+    <div data-part="history"><section className="rebuild-detail-section"><h4>开发与维护者</h4><p>{detailText(unit,'开发·维护者') ?? '尚未登记开发者；执行模块名称不能作为开发者身份。'}</p><h4>本轮开发记录</h4><p>{detailText(unit,'开发·当前记录') ?? unit.evidence}</p><h4>历史批次</h4>{unit.details.filter(item=>/第\d+批|开发记录|发布结果|开发合同/u.test(item.label)).map((item,index)=><details key={index}><summary>{item.label}</summary><p>{item.text}</p></details>)}<p>历史验证仅对当时版本与范围有效；当前发布版本为 {data.runtime.releaseId}。</p></section></div>
+    <div data-part="config"><section className="rebuild-detail-section"><h4>可调整的配置</h4>{data.configurations.filter(item=>item.unitIds.includes(unit.id)).map(item=><article key={item.id}><h4>{item.name}</h4><p>{item.description}</p><p>{item.scope}</p>{item.section ? <button type="button" className="rebuild-button" onClick={()=>onNavigate(item.section!)}>打开{item.name}</button> : <p>入口尚未实现</p>}</article>)}{!data.configurations.some(item=>item.unitIds.includes(unit.id))&&<p>本单元尚无已登记的独立配置入口。</p>}<h4>修改功能说明与方案</h4><p>正式记录来源：{data.source.path}。由开发者在项目中更新并随版本发布，避免后台说明与代码各存一份。尚未提供在线修改方案功能。</p></section></div>
+    </div>
   </>;
 }
 

@@ -18,6 +18,14 @@ function output(prompt:string):unknown{
  return {fields:{premise:[{text:'修理工建立工坊',sourceKeys:['opening:opening:1']}],protagonists:[{text:'林舟',sourceKeys:['opening:opening:1']}],world:[],openingEnding:[],preferences:[],prohibitions:[]}};
 }
 describe('new time machine orchestration with real persistence and simulated model',()=>{
+ it('passes author adjustments to the chief when recommending again',async()=>{
+  const {c,scope}=setup();let checked=false;
+  const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
+   if(request.prompt.includes('你是主编，推荐')){expect(request.prompt).toContain('增加重建家园，减少宿敌对抗');checked=true;}
+   return {provider,modelId,output:JSON.stringify(output(request.prompt)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
+  }}));
+  const service=new TimeMachineDesignService(c.database,gateway,64000);await service.process(service.start(scope,'recommend','增加重建家园，减少宿敌对抗','re-recommend-intent'));expect(checked).toBe(true);
+ });
  it('corrects one short-card claim without replacing the protagonist and direction',async()=>{
   const {c,scope}=setup();let reviews=0;let correctionSeen=false;
   const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){

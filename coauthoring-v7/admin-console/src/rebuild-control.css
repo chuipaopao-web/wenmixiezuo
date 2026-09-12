@@ -33,14 +33,26 @@
 .rebuild-search { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 220px; padding: 0 14px; background: white; border: 1px solid var(--asset-line); border-radius: 10px; }
 .rebuild-search input { min-width: 0; width: 100%; background: transparent; border: 0; min-height: 46px; font-size: 16px; }
 .rebuild-toolbar select { min-width: 0; max-width: 100%; border: 1px solid var(--asset-line); border-radius: 10px; padding: 10px; background: white; font-size: 16px; }
-.rebuild-workspace { display: grid; grid-template-columns: minmax(320px,.95fr) minmax(0,1.05fr); align-items: start; gap: 20px; }
+.rebuild-workspace { display: grid; grid-template-columns: 280px minmax(0,1fr); align-items: start; gap: 20px; }
+.rebuild-rail-size { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #607568; }
+.rebuild-rail-size input { width: 120px; accent-color: #285b49; }
+.rebuild-detail-tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--asset-line); padding: 12px 0; }
+.rebuild-overview-drawer > summary { min-height:44px; align-content:center; cursor:pointer; color:#285b49; font-weight:600; }
+.rebuild-overview-drawer > section { margin-top:12px; }
+.rebuild-detail-tabs button { min-height: 44px; border: 0; border-radius: 9px; padding: 8px 12px; color: #546a5d; background: #f2f6f3; cursor: pointer; }
+.rebuild-detail-tabs button[aria-pressed=true] { background: #285b49; color: #fff; }
+.rebuild-detail-pages > [data-part] { display: none; }
+.rebuild-detail-pages[data-page=overview] > [data-part=overview], .rebuild-detail-pages[data-page=flow] > [data-part=flow], .rebuild-detail-pages[data-page=plan] > [data-part=plan], .rebuild-detail-pages[data-page=history] > [data-part=history], .rebuild-detail-pages[data-page=checks] > [data-part=checks], .rebuild-detail-pages[data-page=config] > [data-part=config] { display: block; }
+.rebuild-detail-pages details { margin: 12px 0; }
+.rebuild-detail-pages summary { min-height: 44px; align-content: center; cursor: pointer; }
 .rebuild-map { position: sticky; top: 100px; min-width: 0; max-height: calc(100dvh - 120px); overflow-y: auto; scrollbar-width: thin; border: 1px solid var(--asset-line); background: #fff; border-radius: 14px; }
 .rebuild-map > header { display: flex; justify-content: space-between; padding: 17px 20px; border-bottom: 1px solid var(--asset-line); }
 .rebuild-map > header span { font-size: 13px; color: #6d8174; }
 .rebuild-phase { padding: 0 12px 12px; }
 .rebuild-phase h3 { margin: 0; padding: 22px 10px 12px; font-size: 12px; font-weight: 600; color: #607568; }
 .rebuild-phase ol { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
-.rebuild-phase li > button { width: 100%; display: grid; grid-template-columns: 30px minmax(0,1fr) auto; gap: 10px; align-items: center; text-align: left; padding: 13px 10px; border: 1px solid transparent; background: #f7faf8; border-radius: 9px; min-height: 70px; }
+.rebuild-phase li > button { width: 100%; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 6px; align-items: center; text-align: left; padding: 10px 8px; border: 1px solid transparent; background: #f7faf8; border-radius: 9px; min-height: 70px; }
+.rebuild-phase .rebuild-state { grid-column: 2; justify-self: start; }
 .rebuild-phase li > button:hover { background: #f0f7f2; }
 .rebuild-phase li > button[aria-current=true] { border-color: #73a58a; background: #eaf4ee; box-shadow: inset 3px 0 #347761; }
 .rebuild-order { font-size: 12px; font-weight: 700; color: #7d9486; }
@@ -81,7 +93,8 @@
 .rebuild-empty button { padding: 10px 16px; min-height: 44px; border: 1px solid var(--asset-line); border-radius: 8px; background: #fff; }
 .rebuild-alert { padding: 14px 18px; margin: 0; background: #fff1e9; color: #974625; border-radius: 10px; }
 @media (max-width: 1100px) {
-  .rebuild-workspace { grid-template-columns: minmax(0,1fr); }
+  .rebuild-workspace { grid-template-columns: minmax(0,1fr) !important; }
+  .rebuild-rail-size { display: none; }
   .rebuild-map { position: static; max-height: 520px; }
 }
 @media (max-width: 600px) {

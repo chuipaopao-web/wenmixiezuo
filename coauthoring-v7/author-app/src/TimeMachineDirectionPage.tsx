@@ -18,7 +18,6 @@ import { AuthorApiError } from './opening-api';
 import { memberAvatarStyle } from './member-avatars';
 import './time-machine-direction.css';
 
-type EntryMode = 'detecting' | 'legacy' | 'v2';
 type Feedback = { tone: 'error' | 'info'; text: string } | null;
 
 const SHAPE_OPTIONS: { value: 'auto' | 'single' | 'multiple'; title: string; desc: string }[] = [
@@ -31,7 +30,7 @@ const SHAPE_OPTIONS: { value: 'auto' | 'single' | 'multiple'; title: string; des
 const ADD_LINE_PRESETS: { id: string; title: string; description: string }[] = [
   { id: 'romance', title: '感情线', description: '与拥有独立追求的伴侣，在合作与分歧中发展感情。' },
   { id: 'family', title: '亲情线', description: '从独自扛事，到重新拥有值得牵挂的家人。' },
-  { id: 'rival', title: '宿敌线', description: '一个看不起机关的天才，逐渐成为最懂他的对手。' }
+  { id: 'rival', title: '宿敌线', description: '立场不同的对手，在反复交锋中改变彼此。' }
 ];
 
 function shapeLabelText(shape: 'auto' | 'single' | 'multiple'): string {
@@ -73,7 +72,7 @@ function isRecommendation(value: unknown): value is TimeMachineRecommendationVie
 
 /** 时光机入口：重构后只保留新版全书方向（老板决定：旧版UI删除，全部走新后端）。 */
 export function TimeMachineDirectionEntry({ bookId, onOpenSettings }: { bookId: string; onOpenSettings?: (() => void) | undefined }): React.JSX.Element {
-  return <TimeMachineDirectionPage bookId={bookId} onOpenSettings={onOpenSettings} />;
+  return <TimeMachineDirectionPage key={bookId} bookId={bookId} onOpenSettings={onOpenSettings} />;
 }
 
 function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; onOpenSettings?: (() => void) | undefined }): React.JSX.Element {
@@ -87,6 +86,8 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const [shape, setShape] = useState<'auto' | 'single' | 'multiple'>('auto');
   const [ensemble, setEnsemble] = useState(true);
   const [addedLines, setAddedLines] = useState<typeof ADD_LINE_PRESETS>([]);
+  const [customTitle, setCustomTitle] = useState('');
+  const [customDescription, setCustomDescription] = useState('');
   // 故事线推荐是首次进入时光机的落地页，不占导航；导航只列二级功能页。
   const [section, setSection] = useState<'landing' | 'plan' | null>(null);
   const [editing, setEditing] = useState(false);
@@ -176,7 +177,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const selectedResult = selectedRun !== null && isDesignResult(selectedRun.result) ? selectedRun.result : null;
   const adopted = state?.adopted ?? null;
   // 已采用方案的书直接进全书基线；其余书每次进入先见故事线推荐。
-  const activeSection = section ?? (adopted !== null ? 'plan' : 'landing');
+  const activeSection = section ?? (adopted !== null || designRuns.length > 0 ? 'plan' : 'landing');
 
   const runAction = async (action: () => Promise<unknown>, success?: () => void) => {
     if (busy) return;
@@ -188,7 +189,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   };
 
   const startDesign = () => {
-    if (recommendation === null) return;
+    if (recommendation === null || anyBusy || busy) return;
     const picked = recommendation.lines.filter(line => selectedLineIds.includes(line.id));
     const structureHint = shape === 'auto'
       ? (recommendation.structure === 'multiple' ? '（主编建议多线交织）' : '（主编建议单主线推进）')
@@ -207,8 +208,10 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
 
   /** 推荐失败（含重启后调用结果未确认）的恢复路径：以全新幂等键开一轮新推荐，旧运行与账本记录保留可核对。 */
   const restartRecommendation = () => {
+    if (anyBusy || busy) return;
     recommendStarted.current = true;
-    void runAction(() => startTimeMachineRecommendation(bookId, `recommend-restart:${bookId}:${Date.now()}`));
+    const intent = [authorNote.trim(), ...addedLines.map(line => `${line.title}：${line.description}`)].filter(Boolean).join('；');
+    void runAction(() => startTimeMachineRecommendation(bookId, `recommend-restart:${bookId}:${Date.now()}`, intent));
   };
 
   const beginEdit = () => {
@@ -267,12 +270,14 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   return (
     <div className="tmd-shell">
       <nav className="tmd-nav" aria-label="时光机功能">
+        <button type="button" aria-pressed={activeSection === 'landing'} onClick={() => setSection('landing')}>故事线</button>
         <button type="button" aria-pressed={activeSection === 'plan'} onClick={() => setSection('plan')}>全书基线</button>
         <button type="button" disabled>时光树</button>
         <button type="button" disabled>正文轨迹</button>
       </nav>
 
       {feedback !== null && <div className={feedback.tone === 'error' ? 'tmd-error' : 'tmd-info'}>{feedback.text}</div>}
+      {loadFailed && <div className="tmd-error" role="alert">状态刷新失败，以下是上次读取的结果。<button type="button" className="tmd-add-line" onClick={()=>void refresh()}>重试读取</button></div>}
 
       {activeSection === 'plan' && (
         <button type="button" className="tmd-back" onClick={() => setSection('landing')}>‹ 返回故事线推荐</button>
@@ -292,7 +297,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
               </span>
             </div>
           </div>
-          <PlanDetail plan={adopted.plan} numbering={adopted.numbering} />
+          <details className="tmd-adopted-details"><summary>查看已采用的全书方向</summary><PlanDetail plan={adopted.plan} numbering={adopted.numbering} /></details>
           <div className="tmd-actions">
             <button type="button" disabled={busy || roundActive} onClick={redesign}>重新设计全书方向</button>
             <button type="button" disabled={busy || roundActive} onClick={()=>setSection('landing')}>调整故事线</button>
@@ -303,12 +308,15 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
 
       {activeSection === 'landing' && (
         <section className="tmd-section">
-          {recommendRun !== null && recommendBusy && (
-            <div className="tmd-welcome tmd-working">
-              <span className="tmd-avatar-lg" style={memberAvatarStyle(recommendRun.member?.id ?? 'chief-deepseek-v4-pro')} aria-hidden="true" />
+          {(recommendBusy || recommendRun === null) && (
+            <div className="tmd-welcome tmd-working" role="status">
+              <span className="tmd-avatar-lg" style={memberAvatarStyle('chief-deepseek-v4-pro')} aria-hidden="true" />
               <div>
-                <div className="tmd-eyebrow">{recommendRun.member !== null ? `${recommendRun.member.name} · 编辑部` : '貂蝉 · 主编'}</div>
-                <p>{recommendRun.progress}……</p>
+                <div className="tmd-eyebrow">貂蝉 · 主编</div>
+                <p>老板，欢迎来到时光机。我们一起设计全书故事。</p>
+                <p className="tmd-wait-note">{feedback?.tone === 'error' && recommendRun === null ? '这次未能启动，请重试。' : '正在整理本书故事线，请您耐心等待。'}</p>
+                {recommendRun && <small>{recommendRun.progress}</small>}
+                {feedback?.tone === 'error' && recommendRun === null && <button type="button" className="tmd-restart" disabled={busy} onClick={restartRecommendation}>重新启动</button>}
               </div>
               <ClockCounterClockwiseIcon className="spin" />
             </div>
@@ -360,6 +368,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
               <section className="tmd-block">
                 <div className="tmd-row">
                   <h2 className="tmd-section-title-lg">为本书推荐</h2>
+                  <button type="button" className="tmd-add-line" disabled={busy || anyBusy} onClick={restartRecommendation}>请主编重新推荐</button>
                   <button type="button" className="tmd-add-line" onClick={() => addDialogRef.current?.showModal()}>＋ 添加其他故事线</button>
                 </div>
                 <div className="tmd-line-grid">
@@ -392,13 +401,15 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
                 <textarea
                   className="tmd-custom-line"
                   value={authorNote}
+                  aria-label="故事线补充要求"
+                  maxLength={1200}
                   onChange={event => setAuthorNote(event.target.value)}
                   rows={3}
-                  placeholder="比如：给机甲安排一个傲娇的性格……"
+                  placeholder="写下想加入的人物关系、故事目标，或希望主编调整的方向。"
                 />
                 <div className="tmd-footer">
                   <small>已选 {selectedLineIds.length + addedLines.length} 条故事线</small>
-                  <button type="button" className="tmd-primary" disabled={busy || selectedLineIds.length + addedLines.length === 0} onClick={startDesign}>开始设计</button>
+                  <button type="button" className="tmd-primary" disabled={busy || anyBusy || selectedLineIds.length + addedLines.length === 0} onClick={startDesign}>确认故事线，设计全书方向</button>
                 </div>
               </div>
               <dialog ref={addDialogRef} className="tmd-dialog" aria-label="添加你想写的故事">
@@ -406,7 +417,12 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
                   <h2>添加你想写的故事</h2>
                   <button type="button" onClick={() => addDialogRef.current?.close()}>关闭</button>
                 </div>
-                <p>点击加入，再由主编结合本书安排。</p>
+                <form className="tmd-custom-form" onSubmit={event => { event.preventDefault(); if (!customTitle.trim() || !customDescription.trim()) return; setAddedLines(prev => [...prev, {id:`custom-${crypto.randomUUID()}`,title:customTitle.trim(),description:customDescription.trim()}]); setCustomTitle(''); setCustomDescription(''); addDialogRef.current?.close(); }}>
+                  <label>故事线名称<input value={customTitle} onChange={event => setCustomTitle(event.target.value)} maxLength={40} required placeholder="例如：重建家园" /></label>
+                  <label>想写怎样的故事<textarea value={customDescription} onChange={event => setCustomDescription(event.target.value)} maxLength={400} required rows={3} placeholder="谁想完成什么，会经历怎样的变化？" /></label>
+                  <button type="submit" className="tmd-primary" disabled={!customTitle.trim() || !customDescription.trim()}>加入故事线</button>
+                </form>
+                <p>也可以从这些方向开始：</p>
                 {ADD_LINE_PRESETS.map(preset => (
                   <button
                     type="button"
@@ -436,12 +452,12 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
               const run = roundRuns.find(item => item.scheme === scheme);
               if (run === undefined) return null;
               return (
-                <button type="button" key={scheme} className={`tmd-scheme-card${selectedScheme === scheme ? ' selected' : ''}${run.state === 'failed' ? ' failed' : ''}`} onClick={() => setSelectedScheme(scheme)}>
+                <div key={scheme} className="tmd-scheme-slot"><button type="button" disabled={editing || busy} aria-pressed={selectedScheme===scheme} className={`tmd-scheme-card${selectedScheme === scheme ? ' selected' : ''}${run.state === 'failed' ? ' failed' : ''}`} onClick={() => setSelectedScheme(scheme)}>
                   <span className="tmd-scheme-tag">方案{scheme}</span>
+                  <span className="tmd-scheme-avatar" style={memberAvatarStyle(isDesignResult(run.result)?run.result.member.id:run.member?.id ?? '')} aria-hidden="true" />
                   <strong>{isDesignResult(run.result) ? run.result.member.name : run.member?.name ?? '待接手'}</strong>
                   <span className={`tmd-scheme-state state-${run.state}`}>{run.state === 'failed' ? '未完成' : run.progress}</span>
-                  {run.state === 'failed' && <span className="tmd-scheme-retry" role="button" tabIndex={0} onClick={event => { event.stopPropagation(); retryRun(run.id); }} onKeyDown={event => { if (event.key === 'Enter') { event.stopPropagation(); retryRun(run.id); } }}>续做</span>}
-                </button>
+                </button>{run.state === 'failed' && <button type="button" className="tmd-scheme-retry" disabled={busy || editing} onClick={()=>retryRun(run.id)}>续做</button>}</div>
               );
             })}
           </div>

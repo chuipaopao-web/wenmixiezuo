@@ -111,10 +111,10 @@ export async function fetchTimeMachineDirectionState(bookId: string, signal?: Ab
   return request<TimeMachineStateView>(`/api/time-machine/books/${encodeURIComponent(bookId)}/state`, signal === undefined ? undefined : { signal });
 }
 
-export async function startTimeMachineRecommendation(bookId: string, idempotencyKey: string): Promise<{ id: string; state: string }> {
+export async function startTimeMachineRecommendation(bookId: string, idempotencyKey: string, intent = ''): Promise<{ id: string; state: string }> {
   return request<{ id: string; state: string }>(`/api/time-machine/books/${encodeURIComponent(bookId)}/recommendation-runs`, {
     method: 'POST',
-    body: JSON.stringify({ intent: '', idempotencyKey })
+    body: JSON.stringify({ intent, idempotencyKey })
   });
 }
 

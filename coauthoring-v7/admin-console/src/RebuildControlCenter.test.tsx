@@ -97,6 +97,7 @@ describe('功能地图与配置中心', () => {
     fireEvent.click(within(guide).getByRole('button', { name: '开发路线与变更说明' }));
     expect(screen.queryByRole('region', { name: '按功能统一管理' })).not.toBeInTheDocument();
     expect(screen.getByText('已确认保留身份。')).toBeVisible();
+    fireEvent.click(screen.getByRole('button',{name:'方案文档'}));
     expect(screen.getByText('不能隐藏这条设计记录。')).toBeVisible();
     expect(window.location.search).toContain('unit=RB-01');
   });
@@ -108,18 +109,21 @@ describe('功能地图与配置中心', () => {
   });
   it('显示登记的当前批次，按开发顺序筛选、查看技术路线与前置功能', async () => {
     render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);
+    fireEvent.click(await screen.findByText('开发总览与当前批次 · 3项功能'));
     expect(await screen.findByText('当前批次：第122批：保留功能接入与分批发布')).toBeVisible();
     expect(screen.getByText('当前工作：后台路线状态与发布闭包更新')).toBeVisible();
     expect(within(screen.getByRole('region', { name: '重构进度' })).getByText('已开始待完成')).toBeVisible();
     expect(screen.queryByText(/当前：RB-00\.1/u)).not.toBeInTheDocument();
     expect(screen.getByText('Worker心跳缺失或过期')).toBeVisible();
+    fireEvent.click(screen.getByRole('button',{name:'缺陷与核查'}));
     expect(screen.getByText('尚无本功能的完整运行证据，未验证。')).toBeVisible();
     fireEvent.change(screen.getByLabelText('搜索功能地图'), { target: { value: '登录页' } });
     const map = screen.getByRole('region', { name: '按顺序排列的功能地图' });
     expect(within(map).queryByText('注册页')).not.toBeInTheDocument();
     fireEvent.click(within(map).getByRole('button', { name: /登录页/ }));
     const detail = screen.getByRole('region', { name: '功能详情' });
-    expect(within(detail).getByText('验证并发唯一身份。')).toBeVisible();
+    expect(within(detail).getAllByText('验证并发唯一身份。').some(element=>!element.closest('[hidden]'))).toBe(true);
+    fireEvent.click(screen.getByRole('button',{name:'方案文档'}));
     fireEvent.click(within(detail).getByRole('button', { name: /RB-01 注册页/ }));
     expect(within(detail).getByRole('heading', { name: '注册页' })).toBeVisible();
     expect(window.location.search).toContain('unit=RB-01');
@@ -146,12 +150,14 @@ describe('功能地图与配置中心', () => {
     mockedFetch.mockRejectedValueOnce(new Error('offline'));
     fireEvent.click(screen.getByRole('button', { name: '刷新状态' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('保留上次读取结果');
+    fireEvent.click(screen.getByText('开发总览与当前批次 · 3项功能'));
     expect(screen.getByText('当前批次：第122批：保留功能接入与分批发布')).toBeVisible();
   });
 
   it('旧接口未返回当前批次字段时明确显示未登记，不按开发中推导', async () => {
     mockedFetch.mockResolvedValueOnce({ ...data, source: { version: '1.2', updatedAt: '2026-09-05T01:00:00Z', digest: 'a'.repeat(64), path: 'docs/REBUILD_EXECUTION_PLAN.md' } });
     render(<RebuildControlCenter mode="map" onNavigate={vi.fn()} />);
+    fireEvent.click(await screen.findByText('开发总览与当前批次 · 3项功能'));
     expect(await screen.findByText('当前批次：未登记')).toBeVisible();
     expect(screen.getByText('当前工作：未登记')).toBeVisible();
     expect(screen.queryByText(/当前：RB-00\.1/u)).not.toBeInTheDocument();

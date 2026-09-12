@@ -22,7 +22,7 @@ const STATUS_VALUES = [
 // a new rebuild unit has been implemented or passed an end-to-end probe.
 const TASK_KINDS: Readonly<Record<string, string[]>> = {
   'RB-19': ['opening_design'], 'RB-21': ['setting_item', 'setting_item_fusion', 'setting_item_review', 'setting_item_redesign', 'setting_item_revision', 'setting_catalog_recommendation', 'setting_final_review'],
-  'RB-22': ['planning_recipe', 'planning_tree'], 'RB-23': ['planning_tree'], 'RB-24': ['planning_tree'],
+  'RB-22': ['tm2_recommend', 'tm2_design'], 'RB-23': ['planning_tree'], 'RB-24': ['planning_tree'],
   'RB-26': ['creation_workflow'], 'RB-27': ['creation_workflow'],
   'RB-28': ['formalization'], 'RB-29': ['formalization', 'character_maintenance', 'planning_maintenance'],
   'RB-30': ['planning_maintenance'], 'RB-32': ['character_maintenance', 'character_context'],
@@ -168,6 +168,7 @@ export async function readRebuildControl(config: RuntimeConfig, database: Databa
   const audit = new V7TaskAuditRepository(database);
   const taskCount = audit.count({ start: windowStart });
   const rows = audit.list({ start: windowStart, limit: 1000 });
+  const timeMachineSignals = database.prepare("SELECT 'tm2_' || kind AS taskKind, COUNT(*) AS observed, SUM(state='succeeded') AS succeeded, SUM(state='failed') AS failed, SUM(state NOT IN ('succeeded','failed')) AS other, MAX(updated_at) AS latestAt FROM tm2_design_runs WHERE updated_at>=? GROUP BY kind").all(windowStart) as unknown as RebuildControlData['runtime']['taskSignals'];
   const heartbeat = audit.latestWorkerHeartbeat();
   const age = heartbeat ? now.getTime() - Date.parse(heartbeat) : NaN;
   const openIssueCount = audit.issuePage({ status: 'open', offset: 0, limit: 1 }).total
@@ -182,7 +183,7 @@ export async function readRebuildControl(config: RuntimeConfig, database: Databa
     units: plan.units, sourceFeatures: plan.sourceFeatures, configurations: CONFIGURATIONS,
     runtime: { checkedAt: now.toISOString(), origin: config.publicOrigin ?? '本地或隔离服务', releaseId: config.releaseId,
       database: 'responding', worker: age >= 0 && age <= 15_000 ? 'recent_heartbeat' : 'stale_or_missing',
-      heartbeatAt: heartbeat, windowStart, taskCount, sampledCount: rows.length,
-      taskSignals: summarizeTaskSignals(rows), openIssueCount }
+      heartbeatAt: heartbeat, windowStart, taskCount:taskCount+timeMachineSignals.reduce((sum,item)=>sum+Number(item.observed),0), sampledCount: rows.length+timeMachineSignals.reduce((sum,item)=>sum+Number(item.observed),0),
+      taskSignals: [...summarizeTaskSignals(rows), ...timeMachineSignals], openIssueCount }
   };
 }

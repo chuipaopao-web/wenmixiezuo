@@ -2123,4 +2123,4 @@ PostgreSQL队列锁、行权限和PITR使用第37、44、55章官方文档；法
 6. 现有规则与真实生产状态不被本文改写；开发状态由后续实现证据更新。
 7. 另附功能总览85项各有处理依据和执行归属，新增关键子单元列入真实依赖；没有把来源表的状态复制为当前事实。
 
-文档初次编制见[第93批清单](../coauthoring-v7/docs/worklists/REBUILD-SPEC-20260905-93.md)，本轮85项覆盖与补全见[第95批清单](../coauthoring-v7/docs/worklists/REBUILD-COVERAGE-20260905-95.md)。本稿仍处于逐页评审阶段，产品实施/验收以执行文档唯一状态表为准。
+文档初次编制见[当前开发规格](REBUILD_DEVELOPMENT_SPEC.md)，本轮85项覆盖与补全见[当前开发规格](REBUILD_DEVELOPMENT_SPEC.md)。本稿仍处于逐页评审阶段，产品实施/验收以执行文档唯一状态表为准。
