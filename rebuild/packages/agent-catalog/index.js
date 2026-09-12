@@ -4,7 +4,7 @@ export { OPENING_EVALUATION_REPORT } from './opening-evaluations.js';
 import { OPENING_EVALUATION_REPORT } from './opening-evaluations.js';
 export { SETTING_EVALUATION_REPORT } from './setting-evaluations.js';
 import { SETTING_EVALUATION_REPORT } from './setting-evaluations.js';
-export const SETTING_DESIGN_PRIORITY = Object.freeze(['deepseek-v4-pro','deepseek-v4-flash','kimi-k2.7-code']);
+export const SETTING_DESIGN_PRIORITY = Object.freeze(['deepseek-v4-pro','glm-5.3','doubao-seed-2.1-turbo','deepseek-v4-flash']);
 export const MODEL_SUFFIXES = Object.freeze({'deepseek-v4-pro':'4p','deepseek-v4-flash':'4f','glm-5.3':'G3','glm-5.3-flash':'GF','kimi-k3':'K3','kimi-k2.7-code':'K7','minimax-m3':'M3','doubao-seed-2.1-turbo':'DB','doubao-seedream':'S5','doubao-seedream-5-0-260128':'S5'});
 export function memberNameWithModel(name, modelId) {
  const base=name.replace(/\s*·\s*(?:4p|4f|G3|GF|K3|K7|M3|DB|S5)$/u,'');

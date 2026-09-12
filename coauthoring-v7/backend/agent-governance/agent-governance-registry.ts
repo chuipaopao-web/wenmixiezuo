@@ -79,7 +79,7 @@ const LEGACY_EXECUTABLE_TEXT_KEYS = [
 export const V7_TEXT_MODEL_PROFILE_KEYS: readonly string[] = TEXT_MODELS.filter(model => model.profileKey !== 'glm-5.2').map(model => model.profileKey);
 
 const V7_STRONG_MODEL_PROFILE_KEYS = [
-  'deepseek-v4-pro', 'glm-5.3', 'kimi-k3'
+  'deepseek-v4-pro', 'glm-5.3', 'kimi-k3', 'doubao-seed-2.1-turbo'
 ] as const;
 
 export const V7_GLOBAL_MEMBERS: readonly V7GlobalMemberDefinition[] = [
@@ -133,9 +133,6 @@ export function modelAdmissionForRole(roleKey: V7FixedRoleKey, profileKey: strin
 } {
   if (!candidateModelProfilesForRole(roleKey).includes(profileKey)) {
     return { status: 'pending', reason: '模型类型与岗位不匹配。' };
-  }
-  if (profileKey === 'glm-5.3') {
-    return { status: 'suspended', reason: '9月6日实测出现长等待及无可见输出；复测通过前不接新配置返岗。' };
   }
   if (!allowedModelProfilesForRole(roleKey).includes(profileKey)) {
     return { status: 'pending', reason: '候选模型；尚未完成该岗位的完整执行与交接验证，不能直接上岗。' };
@@ -210,9 +207,6 @@ export function validateGlobalAgentRegistry(members: readonly V7GlobalMemberDefi
     if (candidate.modelProfileKey === 'kimi-k3' && candidate.model.plan !== 'agent') errors.push(`${candidate.displayName}的Kimi K3必须使用Agent Plan`);
     if (!['kimi-k3', 'doubao-seedream'].includes(candidate.modelProfileKey) && candidate.model.plan !== 'coding') {
       errors.push(`${candidate.displayName}的文本模型必须使用Coding Plan`);
-    }
-    if (candidate.modelProfileKey === 'doubao-seed-2.1-turbo' && !['lead_writer', 'planning_writer'].includes(candidate.fixedRoleKey)) {
-      errors.push(`${candidate.displayName}的豆包模型只能担任主笔或策划编剧`);
     }
   }
   const minimums: Record<V7FixedRoleKey, number> = {

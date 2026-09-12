@@ -50,7 +50,9 @@ export class V7AgentGovernanceService {
       const fixedRoleKey=node==='design'?'planning_writer':'chief_editor';
       const roleKey=node==='design'?'screenwriter':'chief_editor';
       // Default preference is independent of the recorded speed ranking.
-      const preferred = openingRanking(node).toSorted((a, b) =>
+      const profiles = [...new Set([...openingRanking(node).map(row => row.profileKey),
+        ...this.members(fixedRoleKey).map(member => member.modelProfileKey)])];
+      const preferred = profiles.map(profileKey => ({profileKey})).toSorted((a, b) =>
         Number(b.profileKey === 'deepseek-v4-pro') - Number(a.profileKey === 'deepseek-v4-pro'));
       for (const row of preferred) {
         const legacy=snapshot.members.find(m=>m.fixedRoleKey===fixedRoleKey && m.modelProfileKey===row.profileKey && m.enabled);
@@ -60,7 +62,6 @@ export class V7AgentGovernanceService {
         const model=modelBindingForProfile(row.profileKey);
         if (model.plan==='image' || !this.credentialReady({model})) continue;
         const position=result.filter(m=>m.roleKey===roleKey).length;
-        if (node==='design' && position>=3) break;
         result.push({memberKey,displayName:memberNameWithModel(publicMemberIdentity(memberKey)!.displayName,model.modelId),roleKey,
           enabledByDefault:true,defaultForRole:position===0,fallbackPriority:position+1,
           model:{provider:model.provider as 'volcengine-ark-coding-plan'|'volcengine-ark-agent-plan',modelId:model.modelId,plan:model.plan},promptInstruction:''});
@@ -93,7 +94,8 @@ export class V7AgentGovernanceService {
 
   public settingRoster(): import('@wenmi/v7-backend').V7SettingMemberDefinition[] {
     const roster=settingRosterFromGlobal(this.snapshot().members);
-    const ranked=settingReviewRanking();
+    const ranked=[...new Set([...settingReviewRanking().map(row=>row.profileKey),
+      ...this.members('chief_editor').map(member=>member.modelProfileKey)])].map(profileKey=>({profileKey}));
     const eligible=this.connectedMembers().filter(m=>this.credentialReady(m));
     for(const member of eligible){
       const reviewRank=ranked.findIndex(r=>r.profileKey===member.modelProfileKey);

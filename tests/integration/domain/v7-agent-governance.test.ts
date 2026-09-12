@@ -9,6 +9,27 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7统一岗位、模型与任务参数', () => {
+  it('GLM全岗位启用，豆包接替非主笔Kimi，解绑不修改历史快照', () => {
+    context = createTestContext();
+    const repository = new V7AgentGovernanceRepository(context.database);
+    const service = new V7AgentGovernanceService(repository,new SequenceIds(),new FixedClock(),{codingPlan:true,agentPlan:true,image:true});
+    const frozen=service.taskSnapshot(service.members('planning_writer').find(m=>m.modelProfileKey==='kimi-k3')!,'setting_design');
+    for(const member of service.snapshot().members){
+      if(member.modelProfileKey==='glm-5.3')service.updateMember('admin',member.memberKey,{expectedRevision:service.snapshot().revision,enabled:true});
+      if(member.fixedRoleKey!=='lead_writer'&&member.modelProfileKey.startsWith('kimi-'))service.updateMember('admin',member.memberKey,{expectedRevision:service.snapshot().revision,modelProfileKey:'doubao-seed-2.1-turbo',enabled:true});
+    }
+    for(const slot of repository.candidateSlots())if(slot.roleKey!=='lead_writer'&&slot.modelProfileKey?.startsWith('kimi-'))service.updateMember('admin',slot.memberKey,{expectedRevision:service.snapshot().revision,modelProfileKey:null});
+    expect(service.members().filter(m=>m.modelProfileKey==='glm-5.3')).toHaveLength(6);
+    expect(service.connectedMembers().filter(m=>m.enabled&&m.fixedRoleKey!=='lead_writer'&&m.modelProfileKey.startsWith('kimi-'))).toHaveLength(0);
+    for(const roster of [service.settingRoster(),service.openingRoster()]){
+      expect(roster.some(m=>m.model.modelId.startsWith('kimi-'))).toBe(false);
+      expect(roster.some(m=>m.roleKey==='screenwriter'&&m.model.modelId==='glm-5.3')).toBe(true);
+      expect(roster.some(m=>m.roleKey==='chief_editor'&&m.model.modelId==='glm-5.3')).toBe(true);
+    }
+    expect(service.members('lead_writer').some(m=>m.modelProfileKey==='kimi-k3')).toBe(true);
+    expect(frozen.modelProfileKey).toBe('kimi-k3');
+    expect(service.reviewersFor(service.members('planning_writer').find(m=>m.modelProfileKey==='glm-5.3')!).every(m=>m.modelProfileKey!=='glm-5.3')).toBe(true);
+  });
   it('已绑定席位可追踪，设定独立准入；新增成员不改写旧任务模型', () => {
     context = createTestContext();
     const repository = new V7AgentGovernanceRepository(context.database);
@@ -19,9 +40,9 @@ describe('V7统一岗位、模型与任务参数', () => {
     expect(new Set(connected.map(m=>m.memberKey)).size).toBe(connected.length);
     const roster=service.settingRoster();
     const design=roster.filter(m=>m.roleKey==='screenwriter'&&m.fallbackPriority<100).sort((a,b)=>a.fallbackPriority-b.fallbackPriority);
-    expect(design.map(m=>m.model.modelId)).toEqual(['deepseek-v4-pro','deepseek-v4-flash','kimi-k2.7-code']);
+    expect(design.map(m=>m.model.modelId)).toEqual(expect.arrayContaining(['deepseek-v4-pro','glm-5.3','doubao-seed-2.1-turbo','deepseek-v4-flash']));
     const reviewers=roster.filter(m=>m.roleKey==='chief_editor'&&m.fallbackPriority<100).sort((a,b)=>a.fallbackPriority-b.fallbackPriority);
-    expect(reviewers.map(m=>m.model.modelId)).toEqual(['glm-5.3-flash','kimi-k3','doubao-seed-2.1-turbo']);
+    expect(reviewers.map(m=>m.model.modelId)).toEqual(expect.arrayContaining(['glm-5.3-flash','kimi-k3','doubao-seed-2.1-turbo','glm-5.3']));
     const extra=reviewers.find(m=>m.model.modelId==='glm-5.3-flash')!;
     expect(repository.resolveTaskPolicy(extra.memberKey,'setting_review').temperature).toBe(.25);
     expect(()=>repository.resolveTaskPolicy(extra.memberKey,'setting_design')).toThrow();
@@ -57,7 +78,7 @@ describe('V7统一岗位、模型与任务参数', () => {
     expect(snapshot.members).toHaveLength(23);
     expect(new Set(snapshot.members.map((member) => member.displayName)).size).toBe(23);
     expect(service.members('planning_writer').map((member) => member.modelProfileKey)).toEqual([
-      'deepseek-v4-pro', 'glm-5.3', 'kimi-k3'
+      'deepseek-v4-pro', 'glm-5.3', 'kimi-k3', 'doubao-seed-2.1-turbo'
     ]);
     expect(service.members('lead_writer').map((member) => member.modelProfileKey)).toEqual([
       'deepseek-v4-pro', 'kimi-k3', 'deepseek-v4-flash', 'glm-5.3', 'kimi-k2.7-code', 'doubao-seed-2.1-turbo'
@@ -68,13 +89,13 @@ describe('V7统一岗位、模型与任务参数', () => {
     expect(service.reviewersFor(writer).every((reviewer) => reviewer.modelProfileKey !== writer.modelProfileKey)).toBe(true);
   });
 
-  it('候选可停岗保存，未验证的岗位组合及暂停模型不能直接上岗', () => {
+  it('按授权开放GLM及豆包文字岗位，候选仍可停岗保存', () => {
     context = createTestContext();
     const service = new V7AgentGovernanceService(new V7AgentGovernanceRepository(context.database), new SequenceIds(), new FixedClock(),
       { codingPlan: true, agentPlan: true, image: true });
     expect(() => service.updateMember('admin', 'planner-glm-5-3', {
       expectedRevision: service.snapshot().revision, modelProfileKey: 'doubao-seed-2.1-turbo'
-    })).toThrow('尚未完成');
+    })).not.toThrow();
     service.updateMember('admin', 'planner-glm-5-3', {
       expectedRevision: service.snapshot().revision, enabled: false, modelProfileKey: 'doubao-seed-2.1-turbo'
     });
@@ -84,10 +105,10 @@ describe('V7统一岗位、模型与任务参数', () => {
     expect(() => service.updateMember('admin', 'chief-glm-5-3', {
       expectedRevision: service.snapshot().revision,
       modelProfileKey: 'doubao-seed-2.1-turbo'
-    })).toThrow('尚未完成');
+    })).not.toThrow();
     expect(() => service.updateMember('admin', 'writer-glm-5-3', {
       expectedRevision: service.snapshot().revision, enabled: true
-    })).toThrow('复测');
+    })).not.toThrow();
     expect(service.snapshot().members.some((member) => member.modelProfileKey === 'minimax-m3')).toBe(false);
   });
 
