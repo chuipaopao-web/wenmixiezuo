@@ -149,7 +149,14 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings, onBackToLegacy }: { 
   }, [anyBusy, refresh]);
 
   const runs = state?.runs ?? [];
-  const recommendRun = useMemo(() => runs.find(run => run.kind === 'recommend') ?? null, [runs]);
+  const recommendRun = useMemo(() => {
+    const candidates = runs.filter(run => run.kind === 'recommend');
+    if (candidates.length <= 1) return candidates[0] ?? null;
+    // 重新开始推荐会并存多轮：优先进行中的，否则取最新一轮。
+    const active = candidates.find(run => timeMachineRunBusy(run) || run.state === 'queued');
+    if (active !== undefined) return active;
+    return [...candidates].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0] ?? null;
+  }, [runs]);
   const designRuns = useMemo(() => runs.filter(run => run.kind === 'design'), [runs]);
   const latestRoundKey = useMemo(() => {
     if (designRuns.length === 0) return null;
@@ -219,6 +226,12 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings, onBackToLegacy }: { 
 
   const retryRun = (runId: string) => { void runAction(() => retryTimeMachineRun(bookId, runId)); };
 
+  /** 推荐失败（含重启后调用结果未确认）的恢复路径：以全新幂等键开一轮新推荐，旧运行与账本记录保留可核对。 */
+  const restartRecommendation = () => {
+    recommendStarted.current = true;
+    void runAction(() => startTimeMachineRecommendation(bookId, `recommend-restart:${bookId}:${Date.now()}`));
+  };
+
   const beginEdit = () => {
     if (selectedResult === null) return;
     setDraft(structuredClone(selectedResult.plan)); setEditing(true); setFeedback(null);
@@ -280,6 +293,13 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings, onBackToLegacy }: { 
         {onBackToLegacy !== undefined && <button type="button" className="tmd-ghost" onClick={onBackToLegacy}>旧版规划</button>}
       </header>
 
+      <nav className="tmd-nav" aria-label="时光机分区">
+        <button type="button" aria-pressed={designRuns.length === 0 && adopted === null}>故事线推荐</button>
+        <button type="button" aria-pressed={designRuns.length > 0 || adopted !== null}>全书方案</button>
+        <button type="button" disabled>时光树 · 后续开放</button>
+        <button type="button" disabled>正文轨迹 · 后续开放</button>
+      </nav>
+
       {feedback !== null && <div className={feedback.tone === 'error' ? 'tmd-error' : 'tmd-info'}>{feedback.text}</div>}
 
       {adopted !== null && (
@@ -328,10 +348,10 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings, onBackToLegacy }: { 
 
       {recommendation !== null && adopted === null && designRuns.length === 0 && (
         <section className="tmd-panel">
-          <div className="tmd-recommend-head">
-            <span className="tmd-avatar" style={memberAvatarStyle(recommendRun?.member?.id ?? 'chief-deepseek-v4-pro')} aria-hidden="true" />
-            <div className="tmd-bubble">
-              <small>貂蝉 · 主编</small>
+          <div className="tmd-welcome">
+            <span className="tmd-avatar-lg" style={memberAvatarStyle(recommendRun?.member?.id ?? 'chief-deepseek-v4-pro')} aria-hidden="true" />
+            <div>
+              <div className="tmd-eyebrow">貂蝉 · 主编</div>
               <p>{recommendation.greeting}</p>
             </div>
           </div>
@@ -365,11 +385,11 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings, onBackToLegacy }: { 
           <h3>设计进度</h3>
           {recommendRun !== null && (recommendBusy || recommendRun.state === 'failed') && (
             <div className="tmd-working">
-              <span className="tmd-avatar" style={memberAvatarStyle(recommendRun.member?.id ?? 'chief-deepseek-v4-pro')} aria-hidden="true" />
+              <span className="tmd-avatar-md" style={memberAvatarStyle(recommendRun.member?.id ?? 'chief-deepseek-v4-pro')} aria-hidden="true" />
               <div>
                 <strong>{recommendRun.member !== null ? `${recommendRun.member.name} · 编辑部` : '编辑部'}</strong>
                 <p>{recommendRun.progress}{recommendBusy ? '……' : ''}</p>
-                {recommendRun.state === 'failed' && <button type="button" onClick={() => retryRun(recommendRun.id)}>续做</button>}
+                {recommendRun.state === 'failed' && <button type="button" onClick={restartRecommendation}>重新开始推荐</button>}
               </div>
               {recommendBusy && <ClockCounterClockwiseIcon className="spin" />}
             </div>

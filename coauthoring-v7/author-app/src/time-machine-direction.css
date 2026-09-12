@@ -1,49 +1,57 @@
-/* 新版全书方向页：手机优先，沿用作者端已批准的绿色视觉 token。 */
+/* 新版全书方向页：视觉与GPT6定稿原型（docs/prototypes/time-machine-v2.html）对齐——同一套token与卡面。 */
 
-.tmd-shell { min-height: 100%; max-width: 920px; margin: 0 auto; padding: clamp(10px, 2vw, 24px); display: grid; gap: 14px; color: var(--ink); }
-.tmd-loading { min-height: 240px; display: grid; place-items: center; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 20px; background: var(--panel); }
+.tmd-shell { --line:#dce5dc; --panel-raised:#fffefa; min-height:100%; max-width:1240px; margin:0 auto; padding:clamp(14px,2vw,28px); display:grid; gap:6px; color:var(--ink); }
+.tmd-loading { min-height: 240px; display: grid; place-items: center; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 20px; background: #fffefa; }
 .tmd-load-failure { min-height: 220px; display: grid; gap: 8px; place-items: center; text-align: center; border: 1px solid #e6bfb8; border-radius: 20px; padding: 22px; color: #6e382f; background: #fff8f5; }
 .tmd-load-failure span { color: #8c5d54; line-height: 1.6; }
 .tmd-load-failure button { min-height: 44px; border: 1px solid #d5aaa2; border-radius: 13px; padding: 0 18px; color: #713d34; background: #fff; font-weight: 700; }
 
-.tmd-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.tmd-header h2 { margin: 0; font-family: var(--font-display); font-size: 22px; }
-.tmd-header p { margin: 6px 0 0; color: var(--ink-soft); line-height: 1.6; font-size: 14px; max-width: 620px; }
-.tmd-ghost { min-height: 40px; border: 1px solid var(--line-strong); background: var(--panel-raised); color: var(--ink-soft); border-radius: 12px; padding: 0 14px; font-weight: 600; flex: none; }
+.tmd-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 8px; }
+.tmd-header h2 { margin: 0; font-family: var(--font-display); font-size: 23px; }
+.tmd-header p { margin: 6px 0 0; color: #789084; line-height: 1.6; font-size: 14px; max-width: 620px; }
+.tmd-ghost { min-height: 40px; border: 1px solid var(--line-strong); background: #fffefa; color: var(--ink-soft); border-radius: 12px; padding: 0 14px; font-weight: 600; flex: none; }
 
-.tmd-panel { border: 1px solid var(--line); border-radius: 18px; background: var(--panel); padding: clamp(14px, 2.4vw, 22px); display: grid; gap: 14px; }
+.tmd-nav { display: flex; gap: 8px; padding: 14px 0 20px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+.tmd-nav button { border: 0; background: transparent; color: var(--ink-soft); font-weight: 600; }
+.tmd-nav button[aria-pressed='true'] { background: #e2ece3; color: #285b49; }
+.tmd-nav button:disabled { opacity: 0.55; }
+
+.tmd-panel { border: 1px solid var(--line); border-radius: 20px; background: #fffefa; padding: clamp(16px, 2.2vw, 26px); display: grid; gap: 14px; margin-top: 8px; }
 .tmd-panel h2, .tmd-panel h3 { margin: 0; font-family: var(--font-display); }
+.tmd-panel h3 { font-size: 18px; }
 .tmd-error { border: 1px solid #e6bfb8; border-radius: 12px; padding: 10px 13px; color: #8c3f33; background: #fff6f3; line-height: 1.6; }
-.tmd-info { border: 1px solid var(--line); border-radius: 12px; padding: 10px 13px; color: var(--ink); background: var(--accent-soft); line-height: 1.6; }
-.tmd-note { margin: 0; color: var(--ink-faint); font-size: 13px; line-height: 1.65; }
+.tmd-info { border: 1px solid var(--line); border-radius: 12px; padding: 10px 13px; color: var(--ink); background: #edf3e8; line-height: 1.6; }
+.tmd-note { margin: 0; color: #789084; font-size: 13px; line-height: 1.65; }
 
-.tmd-recommend-head { display: flex; gap: 12px; align-items: flex-start; }
-.tmd-recommend-head p { margin: 0; line-height: 1.7; }
-.tmd-avatar { width: 58px; height: 58px; border-radius: 50%; flex: none; background-color: var(--accent-soft); background-repeat: no-repeat; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(31, 58, 47, 0.16); }
-.tmd-bubble { background: var(--panel-raised); border: 1px solid var(--line); border-radius: 4px 16px 16px 16px; padding: 10px 14px; }
-.tmd-bubble small { display: block; color: var(--accent); font-weight: 700; margin-bottom: 3px; }
-.tmd-bubble p { margin: 0; line-height: 1.7; font-size: 16px; font-weight: 600; }
+/* 主编欢迎区：与原型 .welcome 一致（大头像白边投影 + 21px 问候）。 */
+.tmd-welcome { display: flex; gap: 26px; align-items: center; }
+.tmd-avatar-lg { width: 132px; height: 132px; border-radius: 50%; flex: none; background-color: #e2ece3; background-repeat: no-repeat; border: 7px solid #fff; box-shadow: 0 10px 40px #23473c12; }
+.tmd-eyebrow { color: #789084; font-size: 13px; letter-spacing: 0.08em; margin-bottom: 8px; }
+.tmd-welcome p { margin: 0; font-size: 21px; line-height: 1.7; font-weight: 600; }
 
-.tmd-questions h3 { font-size: 17px; }
-.tmd-shape-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.tmd-shape-card { display: grid; grid-template-columns: auto 1fr; grid-template-areas: 'check title' 'check desc'; column-gap: 9px; align-items: start; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-raised); padding: 12px 14px; cursor: pointer; }
-.tmd-shape-card input { grid-area: check; width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); }
-.tmd-shape-card strong { grid-area: title; font-size: 15px; }
-.tmd-shape-card small { grid-area: desc; color: var(--ink-soft); line-height: 1.55; margin-top: 3px; }
-.tmd-shape-card.selected { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
-.tmd-ensemble { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: start; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-raised); padding: 12px 14px; cursor: pointer; }
-.tmd-ensemble input { width: 18px; height: 18px; margin-top: 3px; accent-color: var(--accent); }
-.tmd-ensemble strong { display: block; font-size: 15px; }
-.tmd-ensemble small { display: block; color: var(--ink-soft); line-height: 1.55; margin-top: 3px; }
-.tmd-ensemble.selected { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+/* 展开方式问题卡：与原型 .choices 一致。 */
+.tmd-questions h3 { font-size: 18px; margin-bottom: 2px; }
+.tmd-shape-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.tmd-shape-card { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 14px; background: #fffefa; padding: 16px; cursor: pointer; }
+.tmd-shape-card input { accent-color: #285b49; width: 18px; height: 18px; flex-shrink: 0; margin-top: 5px; }
+.tmd-shape-card.selected { border-color: #648872; background: #edf3e8; }
+.tmd-shape-card strong { display: block; font-size: 15.5px; }
+.tmd-shape-card small { display: block; color: #698171; margin-top: 4px; font-size: 13px; line-height: 1.6; }
+.tmd-ensemble { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 14px; background: #fffefa; padding: 16px; cursor: pointer; }
+.tmd-ensemble input { accent-color: #285b49; width: 18px; height: 18px; flex-shrink: 0; margin-top: 5px; }
+.tmd-ensemble.selected { border-color: #648872; background: #edf3e8; }
+.tmd-ensemble strong { display: block; font-size: 15.5px; }
+.tmd-ensemble small { display: block; color: #698171; margin-top: 4px; font-size: 13px; line-height: 1.6; }
 
-.tmd-working { display: flex; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-raised); padding: 12px 14px; }
-.tmd-working strong { font-size: 15px; }
-.tmd-working p { margin: 2px 0 0; color: var(--ink-soft); line-height: 1.6; }
-.tmd-working button { margin-top: 8px; min-height: 38px; border: 1px solid var(--line-strong); border-radius: 11px; padding: 0 16px; background: var(--panel); color: var(--ink); font-weight: 700; }
-.tmd-working > svg { margin-left: auto; width: 20px; height: 20px; color: var(--accent); flex: none; }
+/* 推荐进行中：与原型 .welcome 同构的中型头像状态卡。 */
+.tmd-working { display: flex; gap: 22px; align-items: center; }
+.tmd-avatar-md { width: 92px; height: 92px; border-radius: 50%; flex: none; background-color: #e2ece3; background-repeat: no-repeat; border: 5px solid #fff; box-shadow: 0 8px 28px #23473c12; }
+.tmd-working strong { font-size: 14px; color: #789084; letter-spacing: 0.06em; }
+.tmd-working p { margin: 4px 0 0; font-size: 19px; font-weight: 600; line-height: 1.6; }
+.tmd-working button { margin-top: 10px; min-height: 42px; border: 1px solid var(--line); border-radius: 12px; padding: 0 16px; background: #fff; color: var(--ink); font-weight: 700; }
+.tmd-working > svg { margin-left: auto; width: 22px; height: 22px; color: #285b49; flex: none; }
 
-.tmd-line-grid { display: grid; gap: 10px; }
+.tmd-line-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 .tmd-line-card { display: grid; grid-template-columns: auto auto; grid-template-areas: 'check role' 'check title' 'check desc'; column-gap: 10px; align-items: start; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-raised); padding: 12px 14px; cursor: pointer; }
 .tmd-line-card input { grid-area: check; width: 20px; height: 20px; margin-top: 3px; accent-color: var(--accent); }
 .tmd-line-card.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -145,11 +153,19 @@
 .tmd-legacy-switch { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; border: 1px solid var(--line); border-radius: 14px; background: var(--accent-soft); padding: 10px 14px; color: var(--ink); font-size: 14px; }
 .tmd-legacy-switch button { min-height: 40px; border: 1px solid var(--accent); border-radius: 12px; background: var(--accent); color: #fff; font-weight: 700; padding: 0 14px; }
 
-@media (max-width: 480px) {
+@media (max-width: 700px) {
   .tmd-header { flex-direction: column; }
   .tmd-plan-head { flex-direction: column; align-items: stretch; }
   .tmd-actions button { flex: 1; justify-content: center; }
   .tmd-line-card { grid-template-columns: auto 1fr; }
   .tmd-shape-grid { grid-template-columns: 1fr; }
-  .tmd-avatar { width: 48px; height: 48px; }
+  .tmd-line-grid { grid-template-columns: 1fr; }
+  .tmd-nav { gap: 0; justify-content: space-between; padding: 12px 0; }
+  .tmd-nav button { padding: 8px 10px; font-size: 14px; }
+  .tmd-welcome { flex-direction: column; gap: 14px; text-align: center; margin: 4px 0; }
+  .tmd-avatar-lg { width: 112px; height: 112px; }
+  .tmd-welcome p { font-size: 19px; }
+  .tmd-working { flex-direction: column; gap: 12px; text-align: center; }
+  .tmd-avatar-md { width: 84px; height: 84px; }
+  .tmd-working > svg { display: none; }
 }
