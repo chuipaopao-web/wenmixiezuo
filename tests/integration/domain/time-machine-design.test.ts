@@ -130,4 +130,25 @@ describe('new time machine orchestration with real persistence and simulated mod
   const recorded=c2.database.prepare('SELECT MAX(prompt_chars) AS m, COUNT(*) AS n FROM tm2_model_calls WHERE prompt_chars IS NOT NULL').get() as {m:number;n:number};
   expect(recorded.n).toBe(dispatched.length);expect(recorded.m).toBeLessThanOrEqual(15000);
  });
+ it('normalizes invalid model identifiers instead of failing assembly',async()=>{
+  const {c,scope}=setup();const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
+   let value=output(request.prompt);
+   if(request.prompt.includes('设计全书骨架。只设计')){
+    const base=output(request.prompt) as {lines:Record<string,unknown>[];expectations:Record<string,unknown>[];volumeBriefs:Record<string,unknown>[]};
+    value={...base,
+     lines:[{...base.lines[0]!,id:'主线'}],
+     expectations:[{...base.expectations[0]!,id:'期待',lineIds:['主线']}],
+     volumeBriefs:[{...base.volumeBriefs[0]!,id:'第一卷'}]};
+   }
+   if(request.prompt.includes('补全本批卷卡')){
+    expect(request.prompt).toContain('"id":"line"');
+    const card=output(request.prompt) as {volumes:Record<string,unknown>[]};
+    value={volumes:card.volumes.map(v=>({...(v as Record<string,unknown>),anchors:[{id:'开场-危机',ownerEntityId:'v1',kind:'entry',summary:'危机',span:'本卷开篇',conditions:[{summary:'危机成立',subjectIds:['line']}],logic:'all',importance:'required',fallback:'补开场',keywords:[],aliases:[]},{id:'收束-交付',ownerEntityId:'v1',kind:'exit',summary:'交付',span:'本卷收束',conditions:[{summary:'交付完成',subjectIds:['line']}],logic:'all',importance:'required',fallback:'补收束',keywords:[],aliases:[]}],duties:[{lineId:'line',action:'close',result:'工坊建立',anchorIds:['开场-危机','收束-交付'],strength:'required',reason:'主线'}]}))};
+   }
+   return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
+  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','成长线','bad-ids');await service.process(id);
+  expect(service.state(scope).find(r=>r.id===id)).toMatchObject({state:'succeeded'});
+  const adoption=new SqlPlanRepository(c.database).adopt(scope,id,1,0,'bad-ids');
+  expect(adoption.mapping['volume:v1']!.number).toBe(1);expect(adoption.mapping['main-line:line']!.number).toBe(1);
+ });
 });

@@ -10,13 +10,13 @@ SHA=$2
 MODE=$3
 [[ $FIX =~ ^[a-f0-9]{8}$ && $SHA =~ ^[a-f0-9]{64}$ && $MODE =~ ^(stage|cutover)$ && $EUID == 0 ]] || exit 64
 
-BASE=wm-v7-20260912-180500-199472df
-NEW=wm-v7-20260912-233000-$FIX
+BASE=wm-v7-20260912-233000-515fec5f
+NEW=wm-v7-20260913-030000-$FIX
 ROOT=/opt/wenmi-releases/$NEW
 SRC=$ROOT/source
 OLD=/opt/wenmi-releases/$BASE/source
 DB=/opt/wenmi/data/database/wenmi.sqlite
-STATIC_OLD=/opt/wenmi/releases/versions/b4ef37cfe6075e0d3436
+STATIC_OLD=/opt/wenmi/releases/versions/3be7739cb653fbba26e4
 ARCHIVE=/tmp/r192-$FIX.tar.gz
 PLAN_TARGET=/opt/wenmi/docs/REBUILD_EXECUTION_PLAN.md
 ENV_FILE=/opt/wenmi/deploy/.env.production
