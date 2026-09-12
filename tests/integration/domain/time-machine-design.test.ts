@@ -20,6 +20,26 @@ function output(prompt:string):unknown{
  return {fields:{premise:[{text:'修理工建立工坊',sourceKeys:['opening:opening:1']}],protagonists:[{text:'林舟',sourceKeys:['opening:opening:1']}],world:[],openingEnding:[],preferences:[],prohibitions:[]}};
 }
 describe('new time machine orchestration with real persistence and simulated model',()=>{
+ it('merges multiple pages with scoped aliases, restores stored sources and reuses successful steps',async()=>{
+  const {c,scope}=setup();
+  c.database.prepare('UPDATE book_opening_blueprints SET blueprint_json=? WHERE owner_id=? AND book_id=?').run(JSON.stringify({protagonists:['林舟'],storyDirection:'无灵根修理工建立工坊',background:'世'.repeat(9000)}),scope.ownerId,scope.bookId);
+  let merges=0,calls=0;
+  const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
+   calls++;let value=output(request.prompt);
+   if(request.prompt.includes('这是全书方向资料的归纳合并')){
+    merges++;expect(request.prompt).not.toContain('opening:opening:1');
+    expect(request.maxOutputTokens).toBe(5000);
+    value=JSON.parse(JSON.stringify(value).replaceAll('opening:opening:1','s1'));
+   }
+   return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
+  }}));
+  const service=new TimeMachineDesignService(c.database,gateway,64000);
+  const id=service.start(scope,'recommend','','multi-page-merge');await service.process(id);
+  expect(service.state(scope).find(r=>r.id===id)?.state).toBe('succeeded');expect(merges).toBeGreaterThan(0);
+  const saved=String(c.database.prepare('SELECT fields_json FROM tm2_context_cards').get()!.fields_json);
+  expect(saved).toContain('opening:opening:1');expect(saved).not.toContain('"s1"');
+  const count=calls;await service.process(id);expect(calls).toBe(count);
+ });
  it('projects scoped tasks, real phases, decisions and archived-book exclusion',async()=>{
   const {c,scope}=setup();
   const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){return {provider,modelId,output:JSON.stringify(output(request.prompt)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};}}));

@@ -8,6 +8,7 @@ import {timeMachineReviewChecks} from './time-machine-review.js';
 import {applyTimeMachineCardEdits} from './time-machine-card-edits.js';
 import {timeMachineCardContract as cardContract,planningMaterial} from './time-machine-card-template.js';
 import {packCardSources} from './time-machine-source-pages.js';
+import {prepareCardMerge,cardMergeGuidance} from './time-machine-card-merge.js';
 interface Run {id:string;owner_id:string;book_id:string;kind:'recommend'|'design';snapshot_json:string;state:string;result_json:string|null;error_code:string|null}
 type ReviewAction={action:'read_source';key:string;offset:number}|{action:'verdict';issues:string[];suggestions:string[];pass:boolean};
 function json(text:string):unknown{return JSON.parse(text.trim().replace(/^```(?:json)?\s*/u,'').replace(/\s*```$/u,''));}
@@ -174,7 +175,13 @@ export class TimeMachineDesignService {
   const pages=packCardSources(snapshot.documents.filter(d=>!d.key.startsWith('intent:')));
   let cards:ContextCard[]=[];
   for(let i=0;i<pages.length;i++)cards.push(await this.structured(run,scope,snapshot,`card:${i}`,snapshot.members.researcher,`${cardContract}\n这可能是一部分资料，未知保持空，来源key不可创造。\n${JSON.stringify(pages[i])}`,v=>parseCard({...scope,manifest:snapshot.manifest,fields:record(v).fields},true)));
-  let level=0;while(cards.length>1){const next:ContextCard[]=[];for(let i=0;i<cards.length;i+=2){if(!cards[i+1]){next.push(cards[i]!);continue;}next.push(await this.structured(run,scope,snapshot,`merge:${level}:${i}`,snapshot.members.researcher,`${cardContract}\n合并以下两份短卡，去重保留必要约束和原始sourceKeys，保留人物差异、能力条件、因果和例外。不要把建议当事实，不因另一页没有提及而删除已有资料。\n${JSON.stringify([cards[i]!.fields,cards[i+1]!.fields])}`,v=>parseCard({...scope,manifest:snapshot.manifest,fields:record(v).fields},true)));}cards=next;level++;}
+  const merge=async(node:string,parts:ContextCard[])=>{
+   const transport=prepareCardMerge(parts);
+   return this.structured(run,scope,snapshot,node,snapshot.members.researcher,`${cardContract}\n${cardMergeGuidance}\n${JSON.stringify(transport.fields)}`,v=>parseCard({...scope,manifest:snapshot.manifest,fields:record(transport.restore(v)).fields},true));
+  };
+  // A previous saved page may be oversized. Reuse it as input; never alter its checkpoint.
+  for(let i=0;i<cards.length;i++)if(JSON.stringify(cards[i]!.fields).length>6000)cards[i]=await merge(`merge:v2:page:${i}`,[cards[i]!]);
+  let level=0;while(cards.length>1){const next:ContextCard[]=[];for(let i=0;i<cards.length;i+=2){if(!cards[i+1]){next.push(cards[i]!);continue;}next.push(await merge(`merge:v2:${level}:${i}`,[cards[i]!,cards[i+1]!]));}cards=next;level++;}
   let final:ContextCard;
   try{final=parseCard(cards[0]);}catch{
    final=await this.structured(run,scope,snapshot,'card-finalize',snapshot.members.researcher,`${cardContract}\n这是最终短卡，premise必须归纳已有资料中的故事核心方向，protagonists必须保留主角。不得把storyDirection误放为风格偏好。只根据现有短卡与开书原文纠正分类。\n短卡：${JSON.stringify(cards[0]?.fields)}\n开书：${JSON.stringify(snapshot.documents.filter(d=>d.key.startsWith('opening:')))}`,v=>parseCard({...scope,manifest:snapshot.manifest,fields:record(v).fields}));
