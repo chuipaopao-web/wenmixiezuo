@@ -38,17 +38,17 @@ function stateFixture(partial: Partial<TimeMachineStateView> & { runs?: TimeMach
   return { enabled: true, runs: partial.runs ?? [], adopted: partial.adopted ?? null, planRevision: partial.planRevision ?? 0 };
 }
 
-function recommendRun(status: 'working' | 'succeeded') {
+function recommendRun(status: 'working' | 'succeeded' | 'failed', id = 'rec-1') {
   return {
-    id: 'rec-1', kind: 'recommend' as const, scheme: null, roundKey: null, state: status, updatedAt: '2026-09-11T10:00:00Z',
-    member: status === 'working' ? { id: 'chief', name: '貂蝉' } : null, progress: status === 'working' ? '正在推荐故事线' : '已完成',
+    id, kind: 'recommend' as const, scheme: null, roundKey: null, state: status, updatedAt: '2026-09-11T10:00:00Z',
+    member: status === 'working' ? { id: 'chief', name: '貂蝉' } : null, progress: status === 'working' ? '正在推荐故事线' : status === 'failed' ? '未完成' : '已完成',
     result: status === 'succeeded'
       ? { greeting: '老板，我们现在设计全书骨架。', lines: [
           { id: 'growth', role: 'main' as const, title: '成长线', description: '林舟建立工坊', recommended: true },
           { id: 'partner', role: 'through' as const, title: '机甲伙伴线', description: '机甲的自主选择', recommended: false }
         ], structure: 'single' as const, reason: '聚焦修理工成长' }
       : null,
-    message: null
+    message: status === 'failed' ? '本期剩余创作额度不足，推荐已暂停。' : null
   };
 }
 
@@ -120,6 +120,36 @@ describe('time machine direction page', () => {
     expect(screen.getByText('幼薇')).toBeVisible();
     expect(screen.getByText('苏映棠')).toBeVisible();
     expect(designStarted).toBe(true);
+  }, 20000);
+
+  it('keeps showing a succeeded recommendation when a later restart failed, and renders an honest failure with restart when none succeeded', async () => {
+    const succeeded = recommendRun('succeeded');
+    const failedRestart = { ...recommendRun('failed', 'rec-2'), updatedAt: '2026-09-11T11:00:00Z' };
+    let state = stateFixture({ runs: [succeeded, failedRestart] });
+    let restarted = 0;
+    const renderWith = () => {
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/state')) return response(state);
+        if (url.endsWith('/recommendation-runs')) { restarted += 1; return response({ id: 'rec-3', state: 'queued' }); }
+        if (url.endsWith('/planning-routes/latest')) return response(null);
+        if (url.endsWith('/generation-runs/latest')) return response(null);
+        throw new Error(`Unexpected request: ${url}`);
+      }));
+      render(<TimeMachineDirectionEntry bookId="bk-1" />);
+    };
+    // 失败的重启不掩盖已成功的推荐：欢迎页照常显示，不出现"未完成"大字。
+    renderWith();
+    expect(await screen.findByText('老板，我们来设计全书骨架。')).toBeVisible();
+    expect(screen.queryByText('重新开始推荐')).toBeNull();
+    cleanup();
+    // 没有成功推荐时诚实展示失败原因与重试入口。
+    state = stateFixture({ runs: [failedRestart] });
+    renderWith();
+    expect(await screen.findByText('本期剩余创作额度不足，推荐已暂停。')).toBeVisible();
+    expect(screen.getByText('点下面按钮，我们重新开始。')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '重新开始推荐' }));
+    await waitFor(() => { expect(restarted).toBe(1); });
   }, 20000);
 
   it('shows scheme detail with volume budget and anchors, lets a failed scheme retry without blocking others', async () => {

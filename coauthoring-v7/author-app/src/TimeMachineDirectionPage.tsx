@@ -117,11 +117,14 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const runs = state?.runs ?? [];
   const recommendRun = useMemo(() => {
     const candidates = runs.filter(run => run.kind === 'recommend');
-    if (candidates.length <= 1) return candidates[0] ?? null;
-    // 重新开始推荐会并存多轮：优先进行中的，否则取最新一轮。
+    if (candidates.length === 0) return null;
+    const byLatest = list => [...list].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    // 有进行中的一轮就显示它；否则优先已成功的推荐——一次失败的重启不该把好的推荐盖成"未完成"。
     const active = candidates.find(run => timeMachineRunBusy(run) || run.state === 'queued');
     if (active !== undefined) return active;
-    return [...candidates].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0] ?? null;
+    const succeeded = candidates.filter(run => run.state === 'succeeded');
+    if (succeeded.length > 0) return byLatest(succeeded)[0];
+    return byLatest(candidates)[0] ?? null;
   }, [runs]);
   const designRuns = useMemo(() => runs.filter(run => run.kind === 'design'), [runs]);
   const latestRoundKey = useMemo(() => {
@@ -294,15 +297,28 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
 
       {adopted === null && activeSection === 'landing' && (
         <section className="tmd-section">
-          {recommendRun !== null && (recommendBusy || recommendRun.state === 'failed') && (
+          {recommendRun !== null && recommendBusy && (
             <div className="tmd-welcome tmd-working">
               <span className="tmd-avatar-lg" style={memberAvatarStyle(recommendRun.member?.id ?? 'chief-deepseek-v4-pro')} aria-hidden="true" />
               <div>
-                <div className="tmd-eyebrow">{recommendRun.member !== null ? `${recommendRun.member.name} · 编辑部` : '编辑部'}</div>
-                <p>{recommendRun.progress}{recommendBusy ? '……' : ''}</p>
-                {recommendRun.state === 'failed' && <button type="button" className="tmd-restart" onClick={restartRecommendation}>重新开始推荐</button>}
+                <div className="tmd-eyebrow">{recommendRun.member !== null ? `${recommendRun.member.name} · 编辑部` : '貂蝉 · 主编'}</div>
+                <p>{recommendRun.progress}……</p>
               </div>
-              {recommendBusy && <ClockCounterClockwiseIcon className="spin" />}
+              <ClockCounterClockwiseIcon className="spin" />
+            </div>
+          )}
+          {recommendRun !== null && recommendRun.state === 'failed' && (
+            <div className="tmd-welcome tmd-failed">
+              <span className="tmd-avatar-lg" style={memberAvatarStyle(recommendRun.member?.id ?? 'chief-deepseek-v4-pro')} aria-hidden="true" />
+              <div>
+                <div className="tmd-eyebrow">{recommendRun.member !== null ? `${recommendRun.member.name} · 编辑部` : '貂蝉 · 主编'}</div>
+                <p>
+                  <span>{recommendRun.message ?? '这次推荐没有完成，推荐记录已保留。'}</span>
+                  <br />
+                  <span>点下面按钮，我们重新开始。</span>
+                </p>
+                <button type="button" className="tmd-restart" onClick={restartRecommendation}>重新开始推荐</button>
+              </div>
             </div>
           )}
           {recommendation !== null && (
