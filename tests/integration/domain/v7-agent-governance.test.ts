@@ -9,6 +9,26 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7统一岗位、模型与任务参数', () => {
+  it('K3成员恢复本人模型后停岗，由原豆包与GLM成员出场', () => {
+    context=createTestContext();
+    const repository=new V7AgentGovernanceRepository(context.database);
+    const service=new V7AgentGovernanceService(repository,new SequenceIds(),new FixedClock(),{codingPlan:true,agentPlan:true,image:true});
+    const original=service.members('planning_writer').find(m=>m.memberKey==='planner-kimi-k3')!;
+    const frozen=service.taskSnapshot(original,'setting_design');
+    for(const m of service.snapshot().members.filter(m=>m.modelProfileKey==='kimi-k3'&&m.fixedRoleKey!=='lead_writer')){
+      service.updateMember('admin',m.memberKey,{expectedRevision:service.snapshot().revision,modelProfileKey:'doubao-seed-2.1-turbo',enabled:true});
+      service.updateMember('admin',m.memberKey,{expectedRevision:service.snapshot().revision,modelProfileKey:'kimi-k3',enabled:false});
+    }
+    service.updateMember('admin','planner-doubao-turbo',{expectedRevision:service.snapshot().revision,enabled:true});
+    expect(service.members().filter(m=>m.modelProfileKey==='kimi-k3').map(m=>m.memberKey)).toEqual(['writer-kimi-k3']);
+    for(const roster of [service.openingRoster(),service.settingRoster()]){
+      expect(roster.some(m=>m.model.modelId==='kimi-k3')).toBe(false);
+      expect(roster.find(m=>m.memberKey==='planner-doubao-turbo')?.displayName).toContain('陆青禾');
+      expect(roster.find(m=>m.memberKey==='planner-glm-5-3')?.displayName).toContain('幼薇');
+    }
+    expect(service.snapshot().members.find(m=>m.memberKey===original.memberKey)).toMatchObject({enabled:false,modelProfileKey:'kimi-k3',displayName:original.displayName});
+    expect(frozen.modelProfileKey).toBe('kimi-k3');
+  });
   it('GLM全岗位启用，豆包接替非主笔Kimi，解绑不修改历史快照', () => {
     context = createTestContext();
     const repository = new V7AgentGovernanceRepository(context.database);

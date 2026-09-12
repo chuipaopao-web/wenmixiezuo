@@ -5,6 +5,7 @@ import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 const [root, database, mode] = process.argv.slice(2);
 if (!root || !database || !['inspect','apply'].includes(mode)) throw Error('root database inspect|apply required');
+if (mode === 'apply') throw Error('R200调整已被用户纠正，禁止重新应用；请使用R202成员停岗方案。');
 const { V7AgentGovernanceService } = await import(pathToFileURL(root+'/apps/api/dist/application/agents/v7-agent-governance-service.js'));
 const { V7AgentGovernanceRepository } = await import(pathToFileURL(root+'/apps/api/dist/infrastructure/db/repositories/v7-agent-governance-repository.js'));
 const db=new DatabaseSync(database);db.exec('PRAGMA busy_timeout=5000');
