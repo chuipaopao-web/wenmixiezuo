@@ -1,5 +1,5 @@
 /** Stable storage shape; richer guidance does not turn source summaries into invented plans. */
-export const TIME_MACHINE_CARD_TEMPLATE_REVISION='tm2-card-4';
+export const TIME_MACHINE_CARD_TEMPLATE_REVISION='tm2-card-5';
 export const timeMachineCardContract=`返回JSON {"fields":{"premise":[],"protagonists":[],"world":[],"openingEnding":[],"preferences":[],"prohibitions":[]}}。
 每条为{"text":"有依据的完整资料要点","sourceKeys":["原始来源key"]}。按以下六栏整理：
 premise：题材及融合题材、作品核心构想、storyDirection故事方向、独有卖点与已有核心矛盾。

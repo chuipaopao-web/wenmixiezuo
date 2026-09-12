@@ -177,11 +177,12 @@ export class TimeMachineDesignService {
   for(let i=0;i<pages.length;i++)cards.push(await this.structured(run,scope,snapshot,`card:${i}`,snapshot.members.researcher,`${cardContract}\n这可能是一部分资料，未知保持空，来源key不可创造。\n${JSON.stringify(pages[i])}`,v=>parseCard({...scope,manifest:snapshot.manifest,fields:record(v).fields},true)));
   const merge=async(node:string,parts:ContextCard[])=>{
    const transport=prepareCardMerge(parts);
-   return this.structured(run,scope,snapshot,node,snapshot.members.researcher,`${cardContract}\n${cardMergeGuidance}\n${JSON.stringify(transport.fields)}`,v=>parseCard({...scope,manifest:snapshot.manifest,fields:record(transport.restore(v)).fields},true));
+   const prompt=JSON.stringify({operation:'summarize_book_material',sourceCards:transport.fields,instructions:cardMergeGuidance,outputContract:{fields:{premise:[],protagonists:[],world:[],openingEnding:[],preferences:[],prohibitions:[]}}});
+   return this.structured(run,scope,snapshot,node,snapshot.members.researcher,prompt,v=>parseCard({...scope,manifest:snapshot.manifest,fields:record(transport.restore(v)).fields},true));
   };
   // A previous saved page may be oversized. Reuse it as input; never alter its checkpoint.
-  for(let i=0;i<cards.length;i++)if(JSON.stringify(cards[i]!.fields).length>6000)cards[i]=await merge(`merge:v2:page:${i}`,[cards[i]!]);
-  let level=0;while(cards.length>1){const next:ContextCard[]=[];for(let i=0;i<cards.length;i+=2){if(!cards[i+1]){next.push(cards[i]!);continue;}next.push(await merge(`merge:v2:${level}:${i}`,[cards[i]!,cards[i+1]!]));}cards=next;level++;}
+  for(let i=0;i<cards.length;i++)if(JSON.stringify(cards[i]!.fields).length>6000)cards[i]=await merge(`merge:v3:page:${i}`,[cards[i]!]);
+  let level=0;while(cards.length>1){const next:ContextCard[]=[];for(let i=0;i<cards.length;i+=2){if(!cards[i+1]){next.push(cards[i]!);continue;}next.push(await merge(`merge:v3:${level}:${i}`,[cards[i]!,cards[i+1]!]));}cards=next;level++;}
   let final:ContextCard;
   try{final=parseCard(cards[0]);}catch{
    final=await this.structured(run,scope,snapshot,'card-finalize',snapshot.members.researcher,`${cardContract}\n这是最终短卡，premise必须归纳已有资料中的故事核心方向，protagonists必须保留主角。不得把storyDirection误放为风格偏好。只根据现有短卡与开书原文纠正分类。\n短卡：${JSON.stringify(cards[0]?.fields)}\n开书：${JSON.stringify(snapshot.documents.filter(d=>d.key.startsWith('opening:')))}`,v=>parseCard({...scope,manifest:snapshot.manifest,fields:record(v).fields}));

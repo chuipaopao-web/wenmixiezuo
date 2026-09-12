@@ -28,6 +28,7 @@ describe('new time machine orchestration with real persistence and simulated mod
    calls++;let value=output(request.prompt);
    if(request.prompt.includes('这是全书方向资料的归纳合并')){
     merges++;expect(request.prompt).not.toContain('opening:opening:1');
+    expect(JSON.parse(request.prompt).operation).toBe('summarize_book_material');
     expect(request.maxOutputTokens).toBe(5000);
     value=JSON.parse(JSON.stringify(value).replaceAll('opening:opening:1','s1'));
    }
