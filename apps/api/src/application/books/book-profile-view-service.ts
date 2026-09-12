@@ -62,10 +62,11 @@ export class BookProfileViewService {
       title: row.title,
       channel: row.channel === 'male' ? '男频' : '女频',
       category: row.category_name,
-      subjects: blueprint.auxiliaryTags,
-      mainTags: blueprint.mainTags,
-      customTags: blueprint.customTags,
-      protagonists: blueprint.protagonists,
+      // 旧书存储的blueprint可能早于这些字段；补默认值，前端直接展开数组不能吃undefined。
+      subjects: blueprint.auxiliaryTags ?? [],
+      mainTags: blueprint.mainTags ?? [],
+      customTags: blueprint.customTags ?? [],
+      protagonists: blueprint.protagonists ?? [],
       synopsis: storedBlueprint.fullBookOutline?.trim() ?? '',
       // 信息页展示字段：旧书没有独立故事方向时只读回退到历史全书简介；
       // blueprint.storyDirection 保持存储原值供编辑弹窗回显，不用回退值覆盖。
@@ -76,7 +77,7 @@ export class BookProfileViewService {
       storyEnding,
       stylePrimary: storedBlueprint.stylePrimary?.trim() ?? '',
       styleSecondary: storedBlueprint.styleSecondary?.trim() ?? '',
-      mustFollow: blueprint.mustFollow,
+      mustFollow: blueprint.mustFollow ?? [],
       style,
       source: '老板确认的开书资料',
       version: row.version,

@@ -54,7 +54,7 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
             <div><p className="eyebrow">开书信息 · 已确认</p><h2 id="information-title">{profile.title}</h2><p>{profile.channel} · {profile.category}</p></div>
             <div className="profile-heading-actions"><span className="confirmed-badge"><CheckCircleIcon />作者已确认</span></div>
           </header>
-          <div className="information-tags"><TagIcon />{uniqueNonEmpty([...profile.subjects, ...profile.mainTags, ...(profile.customTags ?? [])]).map((tag) => <span key={tag}>{tag}</span>)}</div>
+          <div className="information-tags"><TagIcon />{uniqueNonEmpty([...(profile.subjects ?? []), ...(profile.mainTags ?? []), ...(profile.customTags ?? [])]).map((tag) => <span key={tag}>{tag}</span>)}</div>
           {profile.openingBlueprint.openingIdea?.trim() && <section className="profile-opening-idea"><small>最初的开书想法</small><p>{profile.openingBlueprint.openingIdea.trim()}</p></section>}
           <dl className="profile-detail-list profile-detail-list-first">{openingProfileRows(profile).filter((row) => row.label === '时代与世界').map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>
           <section className="profile-character-section" aria-labelledby="profile-characters-title">

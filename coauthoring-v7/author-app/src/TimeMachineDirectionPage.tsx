@@ -87,6 +87,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const [shape, setShape] = useState<'auto' | 'single' | 'multiple'>('auto');
   const [ensemble, setEnsemble] = useState(true);
   const [addedLines, setAddedLines] = useState<typeof ADD_LINE_PRESETS>([]);
+  const [section, setSection] = useState<'recommend' | 'plan'>('recommend');
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<TimeMachinePlanView | null>(null);
   const recommendStarted = useRef(false);
@@ -140,14 +141,15 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
 
   useEffect(() => {
     if (state === null || !state.enabled || loadFailed) return;
-    if (recommendRun === null && designRuns.length === 0 && !recommendStarted.current && state.adopted === null) {
+    // 没有推荐运行就自动开一轮（含已有设计轮的旧书）：主编先给出推荐，再谈设计。
+    if (recommendRun === null && !recommendStarted.current && state.adopted === null) {
       recommendStarted.current = true;
       void (async () => {
         try { await startTimeMachineRecommendation(bookId, `recommend-initial:${bookId}`); await refresh(); }
         catch (error) { setFeedback({ tone: 'error', text: error instanceof AuthorApiError ? error.message : '推荐尚未建立，请稍后重试' }); }
       })();
     }
-  }, [state, loadFailed, recommendRun, designRuns.length, bookId, refresh]);
+  }, [state, loadFailed, recommendRun, bookId, refresh]);
 
   const recommendation = recommendRun !== null && isRecommendation(recommendRun.result) ? recommendRun.result : null;
 
@@ -167,6 +169,8 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const selectedRun = roundRuns.find(run => run.scheme === selectedScheme) ?? null;
   const selectedResult = selectedRun !== null && isDesignResult(selectedRun.result) ? selectedRun.result : null;
   const adopted = state?.adopted ?? null;
+  // 老板要求：从设定等入口进来默认落在故事线推荐欢迎页；已采用的书直接看全书方案。
+  const activeSection = adopted !== null ? 'plan' : section;
 
   const runAction = async (action: () => Promise<unknown>, success?: () => void) => {
     if (busy) return;
@@ -189,7 +193,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
     ];
     const intent = `选择的故事线：${chosen.join('；')}${authorNote.trim() ? `。作者补充：${authorNote.trim()}` : ''}。故事展开方式：${shapeLabelText(shape)}${ensemble ? '；也希望配角拥有自己的完整故事' : ''}${structureHint}`;
     designKey.current = `design:${bookId}:${Date.now()}`;
-    void runAction(() => startTimeMachineDesignRound(bookId, intent, designKey.current));
+    void runAction(() => startTimeMachineDesignRound(bookId, intent, designKey.current).then(() => setSection('plan')));
   };
 
   const retryRun = (runId: string) => { void runAction(() => retryTimeMachineRun(bookId, runId)); };
@@ -254,15 +258,15 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   return (
     <div className="tmd-shell">
       <nav className="tmd-nav" aria-label="时光机分区">
-        <button type="button" aria-pressed={designRuns.length === 0 && adopted === null}>故事线推荐</button>
-        <button type="button" aria-pressed={designRuns.length > 0 || adopted !== null}>全书方案</button>
+        <button type="button" aria-pressed={activeSection === 'recommend'} disabled={adopted !== null} onClick={() => setSection('recommend')}>故事线推荐</button>
+        <button type="button" aria-pressed={activeSection === 'plan'} onClick={() => setSection('plan')}>全书方案</button>
         <button type="button" disabled>时光树</button>
         <button type="button" disabled>正文轨迹</button>
       </nav>
 
       {feedback !== null && <div className={feedback.tone === 'error' ? 'tmd-error' : 'tmd-info'}>{feedback.text}</div>}
 
-      {adopted !== null && (
+      {activeSection === 'plan' && adopted !== null && (
         <section className="tmd-panel tmd-adopted">
           <div className="tmd-adopted-head">
             <CheckCircleIcon weight="fill" />
@@ -284,7 +288,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
         </section>
       )}
 
-      {adopted === null && designRuns.length === 0 && (
+      {adopted === null && activeSection === 'recommend' && (
         <section className="tmd-section">
           {recommendRun !== null && (recommendBusy || recommendRun.state === 'failed') && (
             <div className="tmd-welcome tmd-working">
@@ -398,7 +402,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
         </section>
       )}
 
-      {roundRuns.length > 0 && adopted === null && (
+      {activeSection === 'plan' && roundRuns.length > 0 && adopted === null && (
         <section className="tmd-panel">
           <h3>设计进度</h3>
           <div className="tmd-scheme-grid">
@@ -419,7 +423,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
         </section>
       )}
 
-      {selectedResult !== null && selectedRun !== null && (
+      {activeSection === 'plan' && selectedResult !== null && selectedRun !== null && (
         <section className="tmd-panel">
           <div className="tmd-plan-head">
             <h3>方案{selectedRun.scheme} · {selectedResult.member.name} · 第{selectedResult.revision}版</h3>

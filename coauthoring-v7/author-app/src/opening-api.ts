@@ -579,8 +579,27 @@ export function submitAuthorFeedback(input: {
   return request('/api/v1/feedback', { method: 'POST', body: JSON.stringify(input) });
 }
 
+/** 旧书存储的资料可能早于这些字段存在；在数据入口归一化一次，展示层不必逐处兜底。 */
+function normalizeBookProfile<T extends BookProfile>(profile: T): T {
+  const blueprint = { ...(profile.openingBlueprint ?? {}) } as BookProfile['openingBlueprint'];
+  const protagonists = (blueprint.protagonists ?? profile.protagonists ?? []).map(item => ({
+    ...item,
+    personalities: Array.isArray(item.personalities) ? item.personalities : []
+  })) as BookProfile['protagonists'];
+  return {
+    ...profile,
+    subjects: profile.subjects ?? [],
+    mainTags: profile.mainTags ?? [],
+    customTags: profile.customTags ?? [],
+    mustFollow: profile.mustFollow ?? [],
+    protagonists,
+    openingBlueprint: { ...blueprint, protagonists }
+  } as T;
+}
+
 export function fetchBookProfile(bookId: string, signal?: AbortSignal): Promise<BookProfile> {
-  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/book-profile`, signal === undefined ? undefined : { signal });
+  return request<BookProfile>(`/api/v1/v7/books/${encodeURIComponent(bookId)}/book-profile`, signal === undefined ? undefined : { signal })
+    .then(normalizeBookProfile);
 }
 
 export function updateBookProfile(bookId: string, input: { expectedVersion: number; title: string; openingBlueprint: BookProfile['openingBlueprint'] }): Promise<BookProfile> {
