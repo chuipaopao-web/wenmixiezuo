@@ -1,6 +1,6 @@
 /* 新版全书方向页：视觉与GPT6定稿原型（docs/prototypes/time-machine-v2.html）对齐——同一套token与卡面。 */
 
-.tmd-shell { --line:#dce5dc; --panel-raised:#fffefa; min-height:100%; max-width:1240px; margin:0 auto; padding:clamp(14px,2vw,28px); display:grid; gap:6px; color:var(--ink); }
+.tmd-shell { --line:#dce5dc; --panel-raised:#fffefa; min-height:100%; max-width:1240px; margin:0 auto; padding:clamp(14px,2vw,28px); display:grid; gap:6px; align-content:start; color:var(--ink); }
 .tmd-loading { min-height: 240px; display: grid; place-items: center; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 20px; background: #fffefa; }
 .tmd-load-failure { min-height: 220px; display: grid; gap: 8px; place-items: center; text-align: center; border: 1px solid #e6bfb8; border-radius: 20px; padding: 22px; color: #6e382f; background: #fff8f5; }
 .tmd-load-failure span { color: #8c5d54; line-height: 1.6; }
@@ -12,9 +12,10 @@
 .tmd-ghost { min-height: 40px; border: 1px solid var(--line-strong); background: #fffefa; color: var(--ink-soft); border-radius: 12px; padding: 0 14px; font-weight: 600; flex: none; }
 
 .tmd-nav { display: flex; gap: 8px; padding: 14px 0 20px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
-.tmd-nav button { border: 0; background: transparent; color: var(--ink-soft); font-weight: 600; }
+.tmd-nav button { border: 0; background: transparent; color: var(--ink-soft); font-weight: 600; align-self: center; }
 .tmd-nav button[aria-pressed='true'] { background: #e2ece3; color: #285b49; }
 .tmd-nav button:disabled { opacity: 0.55; }
+.tmd-back { justify-self: start; border: 0; background: transparent; color: var(--accent); font-weight: 700; cursor: pointer; padding: 4px 0; }
 
 .tmd-panel { border: 1px solid var(--line); border-radius: 20px; background: #fffefa; padding: clamp(16px, 2.2vw, 26px); display: grid; gap: 14px; margin-top: 8px; }
 .tmd-panel h2, .tmd-panel h3 { margin: 0; font-family: var(--font-display); }

@@ -134,10 +134,9 @@ describe('time machine direction page', () => {
       throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`);
     }));
     render(<TimeMachineDirectionEntry bookId="bk-1" />);
-    // 有设计轮的旧书也默认落在故事线推荐欢迎页（老板要求：从设定进来先见主编欢迎语）。
+    // 有设计轮的旧书也先落故事线推荐欢迎页；导航点"全书基线"才看进度。
     expect(await screen.findByText('老板，我们来设计全书骨架。')).toBeVisible();
-    expect(screen.getByText('你希望故事怎样展开？')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: '全书方案' }));
+    fireEvent.click(screen.getByRole('button', { name: '全书基线' }));
     expect(await screen.findByText('方案A')).toBeVisible();
     expect(screen.getByText('方案C')).toBeVisible();
     expect(screen.getByText('未完成')).toBeVisible();
@@ -172,8 +171,8 @@ describe('time machine direction page', () => {
       throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`);
     }));
     render(<TimeMachineDirectionEntry bookId="bk-1" />);
-    await screen.findByText('故事线推荐', { selector: '.tmd-nav button' });
-    fireEvent.click(screen.getByRole('button', { name: '全书方案' }));
+    await screen.findByText('老板，我们来设计全书骨架。');
+    fireEvent.click(screen.getByRole('button', { name: '全书基线' }));
     expect(await screen.findByText(/方案仍有待核对的问题/)).toBeVisible();
     expect(screen.getByRole('button', { name: '采用本方案' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: /修改方案/ }));

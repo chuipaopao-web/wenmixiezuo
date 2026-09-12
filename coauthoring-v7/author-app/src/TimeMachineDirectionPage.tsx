@@ -87,7 +87,8 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const [shape, setShape] = useState<'auto' | 'single' | 'multiple'>('auto');
   const [ensemble, setEnsemble] = useState(true);
   const [addedLines, setAddedLines] = useState<typeof ADD_LINE_PRESETS>([]);
-  const [section, setSection] = useState<'recommend' | 'plan'>('recommend');
+  // 故事线推荐是首次进入时光机的落地页，不占导航；导航只列二级功能页。
+  const [section, setSection] = useState<'landing' | 'plan'>('landing');
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<TimeMachinePlanView | null>(null);
   const recommendStarted = useRef(false);
@@ -169,7 +170,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const selectedRun = roundRuns.find(run => run.scheme === selectedScheme) ?? null;
   const selectedResult = selectedRun !== null && isDesignResult(selectedRun.result) ? selectedRun.result : null;
   const adopted = state?.adopted ?? null;
-  // 老板要求：从设定等入口进来默认落在故事线推荐欢迎页；已采用的书直接看全书方案。
+  // 已采用方案的书直接进全书基线；其余书每次进入先见故事线推荐。
   const activeSection = adopted !== null ? 'plan' : section;
 
   const runAction = async (action: () => Promise<unknown>, success?: () => void) => {
@@ -257,19 +258,22 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
 
   return (
     <div className="tmd-shell">
-      <nav className="tmd-nav" aria-label="时光机分区">
-        <button type="button" aria-pressed={activeSection === 'recommend'} disabled={adopted !== null} onClick={() => setSection('recommend')}>故事线推荐</button>
-        <button type="button" aria-pressed={activeSection === 'plan'} onClick={() => setSection('plan')}>全书方案</button>
+      <nav className="tmd-nav" aria-label="时光机功能">
+        <button type="button" aria-pressed={activeSection === 'plan'} onClick={() => setSection('plan')}>全书基线</button>
         <button type="button" disabled>时光树</button>
         <button type="button" disabled>正文轨迹</button>
       </nav>
 
       {feedback !== null && <div className={feedback.tone === 'error' ? 'tmd-error' : 'tmd-info'}>{feedback.text}</div>}
 
+      {activeSection === 'plan' && adopted === null && (
+        <button type="button" className="tmd-back" onClick={() => setSection('landing')}>‹ 返回故事线推荐</button>
+      )}
+
       {activeSection === 'plan' && adopted !== null && (
         <section className="tmd-panel tmd-adopted">
           <div className="tmd-adopted-head">
-            <CheckCircleIcon weight="fill" />
+          <CheckCircleIcon weight="fill" />
             <div>
               <strong>已采用 · {adopted.member.name} 的方案</strong>
               <span>
@@ -288,7 +292,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
         </section>
       )}
 
-      {adopted === null && activeSection === 'recommend' && (
+      {adopted === null && activeSection === 'landing' && (
         <section className="tmd-section">
           {recommendRun !== null && (recommendBusy || recommendRun.state === 'failed') && (
             <div className="tmd-welcome tmd-working">

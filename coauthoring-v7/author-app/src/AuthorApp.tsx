@@ -479,10 +479,10 @@ export function AuthorApp(): React.JSX.Element {
       {leftOpen && <button className="drawer-scrim" type="button" aria-label="关闭书架" onClick={closeLeftMenu} />}
 
       <main className="workspace-main">
-        {(view === 'time-machine' || view === 'library') && bookId !== null && (
-          <div className="workspace-secondary-tabs" aria-label="时光机二级入口">
-            <button type="button" className={view === 'time-machine' ? 'active' : ''} onClick={() => navigate('time-machine', bookId)}>时光机</button>
-            <button type="button" className={view === 'library' ? 'active' : ''} onClick={() => navigate('library', bookId)}>库</button>
+        {view === 'library' && bookId !== null && (
+          <div className="workspace-secondary-tabs" aria-label="资料库入口">
+            <button type="button" onClick={() => navigate('time-machine', bookId)}>时光机</button>
+            <button type="button" className="active">库</button>
           </div>
         )}
         {(view === 'volume' || view === 'chain' || view === 'chapter') && bookId !== null && (
