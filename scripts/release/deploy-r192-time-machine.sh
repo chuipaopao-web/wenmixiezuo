@@ -212,12 +212,16 @@ PY
   ID=$(python3 -c 'import json; print(json.load(open("artifacts/v7-static-releases/current.json"))["releaseId"])')
   [[ $ID =~ ^[a-f0-9]{20}$ ]]
   TARGET=/opt/wenmi/releases/versions/$ID
-  [[ ! -e "$TARGET" ]]
-  cp -a "$SRC/artifacts/v7-static-releases/$ID" "$TARGET"
-  chown -R wenmi:wenmi "$TARGET"
-  find "$TARGET" -type d -exec chmod 755 {} +
-  find "$TARGET" -type f -exec chmod 644 {} +
-  node "$SRC/scripts/release/verify-v7-static.mjs" "$TARGET" >"$ROOT/verified-static.json"
+  if [[ -e "$TARGET" ]]; then
+    # 内容寻址同号：已安装的同号静态视为复用（仅API变更的发布会走到这里）。
+    node "$SRC/scripts/release/verify-v7-static.mjs" "$TARGET" >"$ROOT/verified-static.json"
+  else
+    cp -a "$SRC/artifacts/v7-static-releases/$ID" "$TARGET"
+    chown -R wenmi:wenmi "$TARGET"
+    find "$TARGET" -type d -exec chmod 755 {} +
+    find "$TARGET" -type f -exec chmod 644 {} +
+    node "$SRC/scripts/release/verify-v7-static.mjs" "$TARGET" >"$ROOT/verified-static.json"
+  fi
   printf '%s\n' "$ID" >"$ROOT/static-id"
   remember_plan_state
   touch "$ROOT/stage-passed"
