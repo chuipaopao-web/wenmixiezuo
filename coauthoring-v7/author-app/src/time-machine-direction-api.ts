@@ -101,6 +101,7 @@ export interface TimeMachineAdoptedView {
 }
 
 export interface TimeMachineStateView {
+  preparation?: {ready:boolean;message:string;version:string|null};
   enabled: boolean;
   runs: TimeMachineRunView[];
   adopted: TimeMachineAdoptedView | null;

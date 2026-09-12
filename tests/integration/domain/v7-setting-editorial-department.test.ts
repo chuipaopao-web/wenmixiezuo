@@ -1085,6 +1085,9 @@ describe('V7设定编辑部', () => {
     try {
       const cookie = await register(app, 'setting-final-review@example.com', '统一设定作者', 'strong-pass-901');
       const bookId = await createBook(app, cookie, '设定统一整理测试', 'final-review-book-0001', '历史脑洞');
+      const early=await app.inject({method:'POST',url:`/api/time-machine/books/${bookId}/recommendation-runs`,headers:{...HEADERS,cookie},payload:{idempotencyKey:'early-recommend'}});
+      expect(early.statusCode).toBe(409);
+      expect(context.database.prepare('SELECT COUNT(*) AS n FROM tm2_design_runs WHERE book_id=?').get(bookId)).toEqual({n:0});
       const created = await app.inject({
         method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
         payload: { selectedItemKeys: ['world-stage', 'history'], customItems: [], authorNotes: {}, idempotencyKey: 'final-review-items-0001' }
@@ -1117,6 +1120,9 @@ describe('V7设定编辑部', () => {
       expect(context.database.prepare('SELECT * FROM v7_setting_item_versions WHERE book_id=? ORDER BY version_id').all(bookId)).toEqual(before);
       const confirmed=await app.inject({method:'POST',url:`/api/v1/v7/books/${bookId}/setting-items/confirm-all`,headers:{...HEADERS,cookie},payload:{items}});
       expect(confirmed.statusCode,confirmed.body).toBe(200);
+      const prepared=await app.inject({url:`/api/time-machine/books/${bookId}/state`,headers:{...HEADERS,cookie}});
+      expect(prepared.statusCode,prepared.body).toBe(200);
+      expect(prepared.json().data.preparation.ready).toBe(true);
       const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
         .get(bookId) as { owner_id: string }).owner_id);
       expect(() => new V7PlanningSourceCompiler(context!.database, new SequenceIds(), new FixedClock()).compile({

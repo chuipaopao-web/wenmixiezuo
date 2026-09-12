@@ -219,6 +219,18 @@ export class V7SettingEditorialService {
     this.genreProfiles = new V7BookGenreProfileEnsureService(database, adapters, ids, clock);
   }
 
+  /** Read-only prerequisite shared by the time-machine entry and mutation routes. */
+  public timeMachinePrerequisite(ownerId: string, bookId: string): {ready:boolean;message:string;version:string|null} {
+    const profile=this.profile(ownerId,bookId);
+    const batch=this.latestBatch(ownerId,bookId);
+    if(batch&& !['completed','awaiting_author'].includes(batch.status))return {ready:false,message:'请先完成设定设计，再确认设定并由主编统一整理。',version:null};
+    const items=this.currentItems(ownerId,bookId);
+    if(!items.length||items.some(item=>item.state!=='confirmed'))return {ready:false,message:'请先在设定页确认并保存本书设定。',version:null};
+    const review=this.currentFinalReview(ownerId,bookId,profile,items,finalReviewRequestHash(profile,items));
+    if(!review||!['awaiting_author','completed'].includes(review.status)||!parseFinalReviewStoredResult(review.selected_items_json)?.result)return {ready:false,message:'请先由主编完成设定总清单的统一整理。',version:null};
+    return {ready:true,message:'设定已确认并完成统一整理。',version:finalReviewRequestHash(profile,items)};
+  }
+
   public listTasks(ownerId: string, limit = 50): V7SettingTaskView[] {
     return this.repository.latestAuthorTasksForOwner(ownerId, limit)
       .flatMap((row) => {

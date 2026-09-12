@@ -1,6 +1,6 @@
 import type {FastifyInstance} from 'fastify';
 import type {DatabaseSync} from 'node:sqlite';
-import {Conflict,SqlPlanRepository,volumePlanningContext,parseCandidate,volumeDisplayCode,lineDisplayCode} from '@wenmi/time-machine-core';
+import {Conflict,SqlPlanRepository,volumePlanningContext,parseCandidate,volumeDisplayCode,lineDisplayCode,digest} from '@wenmi/time-machine-core';
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
 import {TimeMachineDesignService} from '../application/books/time-machine-design-service.js';
 import {snapshotTimeMachine} from '../application/books/time-machine-sources.js';
@@ -11,8 +11,21 @@ import {requireAuthenticatedOwner} from '../infrastructure/security/auth-context
 import {success} from '../contracts/api.js';
 import {DomainError,errorCodes} from '../domain/errors.js';
 import {BookSynopsisService} from '../application/books/book-synopsis-service.js';
+import {V7SettingEditorialService} from '../application/books/v7-setting-editorial-service.js';
+import {SystemClock,UuidGenerator} from '../domain/ids.js';
+import {V7SettingEditorialRepository} from '../infrastructure/db/repositories/v7-setting-editorial-repository.js';
 export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseSync,resolve:(provider:string,model:string)=>ModelAdapter,windowTokens:number):Promise<void>{
  const service=new TimeMachineDesignService(db,new TimeMachineModelGateway(db,resolve),windowTokens);
+ const settings=new V7SettingEditorialService(db,{resolve},new UuidGenerator(),new SystemClock(),{codingPlan:false,agentPlan:false});
+ const prerequisite=(s:{ownerId:string;bookId:string})=>settings.timeMachinePrerequisite(s.ownerId,s.bookId);
+ const requirePrepared=(s:{ownerId:string;bookId:string})=>{const p=prerequisite(s);if(!p.ready)throw new DomainError(errorCodes.validation,p.message,{},false,409);};
+ const currentRuns=(s:{ownerId:string;bookId:string})=>{
+  const opening=db.prepare("SELECT version,blueprint_json FROM book_opening_blueprints WHERE owner_id=? AND book_id=? AND status='active' ORDER BY version DESC LIMIT 1").get(s.ownerId,s.bookId);
+  const sources=[...(opening?[{kind:'opening',id:'opening',revision:String(opening.version),hash:digest(JSON.parse(String(opening.blueprint_json)))}]:[]),...new V7SettingEditorialRepository(db).confirmedVersions(s.ownerId,s.bookId).map(x=>({kind:'setting',id:x.item_key,revision:x.version_id,hash:digest(JSON.parse(x.content_json))}))];
+  const signature=(xs:typeof sources)=>digest(xs.filter(x=>x.kind==='opening'||x.kind==='setting').sort((a,b)=>a.kind.localeCompare(b.kind)||a.id.localeCompare(b.id)));
+  const expected=signature(sources);
+  return service.state(s).filter(run=>{const r=db.prepare('SELECT snapshot_json FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND id=?').get(s.ownerId,s.bookId,String(run.id));return r&&signature(JSON.parse(String(r.snapshot_json)).manifest.sources)===expected;});
+ };
  const synopses=new BookSynopsisService(db,new TimeMachineModelGateway(db,resolve),windowTokens);
  synopses.recover();
  const scope=(request:Parameters<typeof requireAuthenticatedOwner>[0],bookId:string)=>{const owner=requireAuthenticatedOwner(request),s={ownerId:owner.ownerId,bookId};const book=new BookRepository(db).require(s);if(book.status==='archived')throw new DomainError(errorCodes.validation,'书籍已归档',{},false,409);return s;};
@@ -47,7 +60,8 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
   })();
   let planRevision=0;
   try{planRevision=new SqlPlanRepository(db).state(s).revision;}catch{planRevision=0;}
-  return success({enabled:windowTokens>=16000,runs:service.state(s),adopted,planRevision},request.id);
+  const preparation=prerequisite(s);
+  return success({enabled:windowTokens>=16000,preparation,runs:preparation.ready?currentRuns(s):[],adopted,planRevision},request.id);
  });
  app.get<{Params:{bookId:string;volumeId:string}}>('/api/time-machine/books/:bookId/volumes/:volumeId/planning-context',async request=>{
   const s=scope(request,request.params.bookId);
@@ -62,6 +76,7 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
  });
  app.post<{Params:{bookId:string};Body:{intent?:unknown;idempotencyKey?:unknown}}>('/api/time-machine/books/:bookId/recommendation-runs',async(request,reply)=>{
   const s=scope(request,request.params.bookId);const body=request.body??{};
+  requirePrepared(s);
   if(typeof body.idempotencyKey!=='string'||(body.intent!==undefined&&typeof body.intent!=='string'))throw new DomainError(errorCodes.validation,'提交格式不正确',{},false,400);
   const id=guard(()=>service.start(s,'recommend',String(body.intent??''),body.idempotencyKey as string));
   const run=service.state(s).find(item=>item.id===id);reply.code(run?.state==='queued'||run?.state==='working'?202:200);return success({id,state:run?.state??'unknown'},request.id);
@@ -69,15 +84,17 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
  // 一轮设计同时建立A/B/C三套方案：独立编剧、独立状态与失败恢复（第23.12节阶段二）。
  app.post<{Params:{bookId:string};Body:{intent?:unknown;idempotencyKey?:unknown}}>('/api/time-machine/books/:bookId/design-runs',async(request,reply)=>{
   const s=scope(request,request.params.bookId);const body=request.body??{};
+  requirePrepared(s);
   if(typeof body.idempotencyKey!=='string'||(body.intent!==undefined&&typeof body.intent!=='string'))throw new DomainError(errorCodes.validation,'提交格式不正确',{},false,400);
   const created=guard(()=>service.startDesignRound(s,String(body.intent??''),body.idempotencyKey as string));
   const states=service.state(s);const runs=created.map(item=>({id:item.id,scheme:item.scheme,state:states.find(row=>row.id===item.id)?.state??'unknown'}));
   reply.code(runs.some(run=>run.state==='queued'||run.state==='working')?202:200);return success({runs},request.id);
  });
- app.post<{Params:{bookId:string;id:string}}>('/api/time-machine/books/:bookId/runs/:id/retry',async request=>{const s=scope(request,request.params.bookId);const id=guard(()=>service.retry(s,request.params.id));return success({id},request.id);});
+ app.post<{Params:{bookId:string;id:string}}>('/api/time-machine/books/:bookId/runs/:id/retry',async request=>{const s=scope(request,request.params.bookId);requirePrepared(s);const id=guard(()=>service.retry(s,request.params.id));return success({id},request.id);});
  // 作者人工修改：原候选修订保留，人工修订成为新修订；不自动覆盖、不改变审查结论归属（第22.7节）。
  app.post<{Params:{bookId:string;candidateId:string};Body:{plan?:unknown;expectedRevision?:unknown}}>('/api/time-machine/books/:bookId/candidates/:candidateId/revisions',async request=>{
   const s=scope(request,request.params.bookId),body=request.body??{};
+  requirePrepared(s);
   const expectedRevision=body?.expectedRevision;
   if(!body||typeof body.plan!=='object'||body.plan===null||typeof expectedRevision!=='number'||!Number.isSafeInteger(expectedRevision)||expectedRevision<0)throw new DomainError(errorCodes.validation,'修订参数不正确',{},false,400);
   const row=db.prepare("SELECT snapshot_json,result_json FROM tm2_design_runs WHERE id=? AND owner_id=? AND book_id=? AND state='succeeded'").get(request.params.candidateId,s.ownerId,s.bookId) as {snapshot_json:string;result_json:string|null}|undefined;
@@ -90,6 +107,7 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
  });
  app.post<{Params:{bookId:string};Body:{candidateId:string;revision:number;expectedRevision:number;idempotencyKey:string}}>('/api/time-machine/books/:bookId/adoptions',async request=>{
   const s=scope(request,request.params.bookId),body=request.body;
+  requirePrepared(s);
   if(!body||typeof body.candidateId!=='string'||!Number.isSafeInteger(body.revision)||!Number.isSafeInteger(body.expectedRevision)||typeof body.idempotencyKey!=='string')throw new DomainError(errorCodes.validation,'采用参数不正确',{},false,400);
   const row=db.prepare("SELECT snapshot_json FROM tm2_design_runs WHERE id=? AND owner_id=? AND book_id=? AND state='succeeded'").get(body.candidateId,s.ownerId,s.bookId) as {snapshot_json:string}|undefined;
   if(!row)throw new DomainError(errorCodes.validation,'候选尚未完成',{},false,409);

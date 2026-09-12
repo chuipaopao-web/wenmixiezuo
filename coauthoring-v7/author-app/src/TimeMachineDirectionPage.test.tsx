@@ -35,7 +35,7 @@ function designResult(memberName: string, baseline: string, pass: boolean) {
 }
 
 function stateFixture(partial: Partial<TimeMachineStateView> & { runs?: TimeMachineStateView['runs'] }): TimeMachineStateView {
-  return { enabled: true, runs: partial.runs ?? [], adopted: partial.adopted ?? null, planRevision: partial.planRevision ?? 0 };
+  return { enabled: true, preparation:partial.preparation??{ready:true,message:'已准备',version:'confirmed-v1'},runs: partial.runs ?? [], adopted: partial.adopted ?? null, planRevision: partial.planRevision ?? 0 };
 }
 
 function recommendRun(status: 'working' | 'succeeded' | 'failed', id = 'rec-1') {
@@ -73,6 +73,13 @@ HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) { t
 HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) { this.removeAttribute('open'); };
 
 describe('time machine direction page', () => {
+  it('blocks early recommendations until settings are confirmed and consolidated',async()=>{
+    const fetcher=vi.fn(async()=>response(stateFixture({preparation:{ready:false,message:'请先完成设定设计',version:null},runs:[recommendRun('succeeded')]})));
+    vi.stubGlobal('fetch',fetcher);const open=vi.fn();render(<TimeMachineDirectionEntry bookId="bk-1" onOpenSettings={open}/>);
+    expect(await screen.findByText('先完成本书设定')).toBeVisible();
+    expect(screen.queryByText('为本书推荐')).not.toBeInTheDocument();
+    expect(fetcher.mock.calls).toHaveLength(1);fireEvent.click(screen.getByRole('button',{name:'返回设定'}));expect(open).toHaveBeenCalledOnce();
+  });
   it('welcomes the author, starts recommendation automatically and never starts a design without confirmation', async()=>{
     let recommendations=0,designs=0;let current=stateFixture({runs:[]});
     vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{

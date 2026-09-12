@@ -144,14 +144,15 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const roundRuns = useMemo(() => designRuns.filter(run => run.roundKey === latestRoundKey), [designRuns, latestRoundKey]);
   const roundActive = roundRuns.some(timeMachineRunBusy);
   const recommendBusy = recommendRun !== null && timeMachineRunBusy(recommendRun);
+  useEffect(()=>{recommendStarted.current=false;},[state?.preparation?.version]);
 
   useEffect(() => {
-    if (state === null || !state.enabled || loadFailed) return;
+    if (state === null || !state.enabled || state.preparation?.ready!==true || loadFailed) return;
     // 没有推荐运行就自动开一轮（含已有设计轮的旧书）：主编先给出推荐，再谈设计。
     if (recommendRun === null && !recommendStarted.current && (state.adopted === null || section === 'landing')) {
       recommendStarted.current = true;
       void (async () => {
-        try { await startTimeMachineRecommendation(bookId, `recommend-initial:${bookId}`); await refresh(); }
+        try { await startTimeMachineRecommendation(bookId, `recommend-initial:${bookId}:${state.preparation?.version}`); await refresh(); }
         catch (error) { setFeedback({ tone: 'error', text: error instanceof AuthorApiError ? error.message : '推荐尚未建立，请稍后重试' }); }
       })();
     }
@@ -255,6 +256,9 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
     );
   }
 
+  if (state.preparation?.ready!==true) {
+    return <div className="tmd-shell"><div className="tmd-panel"><h2>先完成本书设定</h2><p>{state.preparation?.message??'正在核对设定准备情况，请稍后刷新。'}</p><p>设定确认并由主编统一整理后，再整理资料、推荐故事线。</p>{onOpenSettings&&<button type="button" className="tmd-primary" onClick={onOpenSettings}>返回设定</button>}</div></div>;
+  }
   if (!state.enabled) {
     return (
       <div className="tmd-shell">
