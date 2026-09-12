@@ -105,7 +105,7 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
       review: input.review
     },
     stageBoundary: {
-      keepNow: ['作品定位', '预计总字数', '时代与世界', '主角基础资料', '故事方向', '结局方向', '创作边界'],
+      keepNow: ['作品定位', '核心卖点', '阅读味道', '预计总字数', '时代与世界', '主角基础资料', '故事方向', '结局方向', '创作边界'],
       optionalNow: ['外貌', '身形', '辨识特征'],
       designLater: ['建议卷数', '商业受众', '追读定位', '当前困境', '开局处境', '触发事件', '眼前冲突', '读者承诺'],
       instruction: '本轮只设计稳定的开书资料。建议卷数、商业受众与追读定位由时光机里的三席全案策划分别提出；其余designLater内容留给第一卷设计。不得在开书阶段生成、补写或因缺失判定资料不完整。'
@@ -124,6 +124,7 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
       '书名必须让读者一眼看出至少一个具体卖点，例如主角身份差、时代处境、核心能力或主要冲突；不得只用空泛朝代词、单字意象或“某时归、某世录、某朝传”一类缺少内容信息的名称。',
       '首次取名参考番茄小说的商业表达：题材或处境清楚，突出本书独有的能力、身份反差、行动或利益冲突，让小白读者一眼懂看点。可用口语、短句、冒号或转折，不强制每本同一格式。借鉴表达方法，不照抄现有书名，不靠改人名换词仿写；不得编造正文方案没有的系统、无敌、感情或身份承诺。',
       '预计总字数必须根据本书题材、平台和可持续故事容量具体设计，不能照抄统一默认值。建议卷数、商业受众和追读定位不属于本轮输出，由时光机里的全案策划分别规划。',
+      '核心卖点从作者想法、题材融合、独特身份/能力/关系/处境中归纳本书吸引力，写成具体短句，不以"精彩、爽、值得期待"等空话代替。阅读味道结合作者明确的尺度与偏向，说明本书希望带来的阅读体验，例如轻松反差、热血成长、紧张解谜。没有作者明确限制，不以合理性为由默认削弱金手指、禁止人物成长或补一长串硬禁令。不新增全书长期期待、故事线或分卷。题材常见写法只是可能性，不强制三国收名将、后宫、争霸，也不强制所有作品爽文化。',
       '修订任务中，authorInstructions只调整当前开书资料；保持未被作者点名的既有字段，不能扩展修改设定、蓝图、分卷或正文。',
       'visualIdentity中的appearance、build、signatureFeature只写2至8个简短中文标签，用顿号连接，例如“面容刚毅、剑眉、锐利眼神”；不要写完整句子或剧情。',
       'mustFollow只记录作者原话中明确提出的禁止项或不能写错的边界；不得替作者虚构限制。作者没有提出限制时返回["无额外限制"]。',
@@ -133,7 +134,8 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
       '只有作者原意被改错、必填结构无效或存在姓名身份或作者明确要求的硬冲突时，才能返回revise或author_decision。题材容量、预计字数、书名强度等合理区间内的商业偏好不能作为阻断理由。作者已经处理过的决定不得换一种说法反复提出。',
       '返回revise或author_decision时，每一项需要作者处理的内容都必须生成decisions决定卡，并使用白名单中的精确field；不得只写requiredChanges或authorDecisions。positioning.expectedTotalWords的recommendation必须只写100000至10000000之间的阿拉伯整数，不写“万”“字”或说明文字。',
       '严格遵守outputJsonSchema的字段名、嵌套层级和类型；不能把应为对象或数组的字段写成一段字符串。',
-      '不能省略outputJsonSchema.required中的字段；没有内容的可选数组返回空数组。'
+      '不能省略outputJsonSchema.required中的字段；没有内容的可选数组返回空数组。',
+      '审查核心卖点与阅读味道时：检查作者意图是否保留、卖点是否具体、阅读味道是否与作者选择的尺度/偏向冲突；文学建议与事实错误分开，写入issues而不是直接阻断。禁止因为无感情线、无战争、无牺牲等主观模板判不通过。检查限制是否来自作者：不把"开局弱"解释成"永远弱"，不把"升级不自动获得身份"改写成"始终不能获得身份"。'
     ]
   });
 }
@@ -204,7 +206,7 @@ function outputJsonSchema(
               field: {
                 type: 'string',
                 enum: [
-                  'title', 'positioning.coreAppeal', 'positioning.expectedTotalWords', 'backgrounds.eraAndWorld',
+                  'title', 'positioning.coreAppeal', 'positioning.readingTone', 'positioning.expectedTotalWords', 'backgrounds.eraAndWorld',
                   'longTermDirection.centralConflict', 'longTermDirection.progression',
                   'longTermDirection.relationshipDirection', 'longTermDirection.storyPotential',
                   'possibleEnding.direction', 'possibleEnding.price', 'possibleEnding.openness',
@@ -232,7 +234,7 @@ function outputJsonSchema(
     {
       title: textSchema(publishingPlatform === 'qidian' ? 4 : 6, 15),
       positioning: objectSchema(
-        ['publishingPlatform', 'channel', 'category', 'genres', 'tags', 'coreAppeal', 'expectedTotalWords'],
+        ['publishingPlatform', 'channel', 'category', 'genres', 'tags', 'coreAppeal', 'readingTone', 'expectedTotalWords'],
         {
           publishingPlatform: { type: 'string', enum: [publishingPlatform] },
           channel: { type: 'string', enum: ['male', 'female'] },
@@ -243,6 +245,8 @@ function outputJsonSchema(
           genres: textListSchema(1, 5, 50, taxonomy?.subjects),
           tags: textListSchema(3, 12, 50, taxonomy?.tagSuggestions),
           coreAppeal: textSchema(8, 800),
+          // R208：新AI开书要求输出阅读味道短句（1—300字符）。
+          readingTone: textSchema(1, 300),
           expectedTotalWords: { type: 'integer', minimum: 100000, maximum: 10000000 }
         }
       ),

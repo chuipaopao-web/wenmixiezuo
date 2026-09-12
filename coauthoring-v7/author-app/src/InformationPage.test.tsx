@@ -12,6 +12,7 @@ const profile = {
   openingBlueprint: {
     creationMode: 'new' as const, openingIdea: '现代青年穿越到三国乱世，从流民开始改变命运。', taxonomyVersion: 'test-v1', channel: 'male' as const,
     categoryKey: 'male-history-brain', targetAudience: '喜欢历史成长的读者',
+    planningProfile: { publishingPlatform: 'fanqie' as const, expectedTotalWords: 1_500_000 },
     protagonists: [{ role: 'male_lead', name: '张牧', age: '23岁', background: '现代历史系学生穿越成流民', familyBackground: '普通家庭', careerBackground: '学生', goldenFinger: '', visualIdentity: { appearance: '眉眼清朗', build: '高瘦挺拔', signatureFeature: '眉骨浅疤' }, personalities: ['谨慎', '果断'] }],
     storyDirection: '从流民成长为能够保护一方的将领。', openingStart: '张牧被边军临时征发。', storyEnding: '成为一方名将。',
     worldBackground: '东汉末年，地方秩序松动。', openingBackground: '边军屯所正遭夜袭。', stageOne: { start: '', development: '', end: '' }, fullBookOutline: '张牧在汉末乱世从流民起步。',
@@ -171,6 +172,80 @@ describe('V7开书资料页', () => {
     expect(history).toHaveTextContent('上一轮没有制作完成');
     expect(screen.getAllByText('封面正在制作')).toHaveLength(1);
   });
+
+  it('R208：卖点与味道是多行输入，中文输入与超长粘贴不丢字、超限中文报错并阻断保存，修短后可保存', async () => {
+    render(<InformationPage bookId="book-1" />);
+    await screen.findByRole('heading', { name: '边军起势' });
+    fireEvent.click(screen.getByRole('button', { name: /修改开书资料/ }));
+    const dialog = await screen.findByRole('dialog', { name: '修改当前资料' });
+    const appeal = within(dialog).getByLabelText('核心卖点') as HTMLTextAreaElement;
+    const tone = within(dialog).getByLabelText('阅读味道') as HTMLTextAreaElement;
+    expect(appeal.tagName).toBe('TEXTAREA');
+    expect(tone.tagName).toBe('TEXTAREA');
+    expect(appeal.rows).toBeGreaterThanOrEqual(2);
+    fireEvent.compositionStart(appeal);
+    fireEvent.change(appeal, { target: { value: '末世废土里一碗碗热汤面换人心的反差经营流' } });
+    fireEvent.compositionEnd(appeal);
+    expect(appeal.value).toBe('末世废土里一碗碗热汤面换人心的反差经营流');
+    const longAppeal = '爽'.repeat(801);
+    fireEvent.change(appeal, { target: { value: longAppeal } });
+    expect(appeal.value).toBe(longAppeal);
+    expect(appeal.value.length).toBe(801);
+    const longTone = '燃'.repeat(301);
+    fireEvent.change(tone, { target: { value: longTone } });
+    expect(tone.value.length).toBe(301);
+    expect(within(dialog).getAllByText(/已超出1字/).length).toBeGreaterThan(0);
+    fireEvent.click(within(dialog).getByRole('button', { name: '下一步' }));
+    const save = await within(dialog).findByRole('button', { name: /保存修改/ });
+    expect(save).toBeDisabled();
+    expect(within(dialog).getByText(/还需要确认/)).toHaveTextContent('核心卖点不能超过800字');
+    expect(within(dialog).getByText(/还需要确认/)).toHaveTextContent('阅读味道不能超过300字');
+    fireEvent.click(within(dialog).getByRole('button', { name: /上一步/ }));
+    fireEvent.change(within(dialog).getByLabelText('核心卖点'), { target: { value: '爽'.repeat(800) } });
+    fireEvent.change(within(dialog).getByLabelText('阅读味道'), { target: { value: '燃'.repeat(300) } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '下一步' }));
+    const saveAgain = await within(dialog).findByRole('button', { name: /保存修改/ });
+    expect(saveAgain).toBeEnabled();
+  });
+
+  it('R208 A4：保存失败与版本冲突保留输入、如实报错，不假报成功', async () => {
+    const baseFetch = fetchMock;
+    const conflictMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/book-profile') && init?.method === 'PUT') {
+        return new Response(JSON.stringify({ error: { message: '资料已被其他管理员更新，请重新读取后再修改。' } }), { status: 409, headers: { 'content-type': 'application/json' } });
+      }
+      return baseFetch(input, init);
+    });
+    vi.stubGlobal('fetch', conflictMock);
+    render(<InformationPage bookId="book-1" />);
+    await screen.findByRole('heading', { name: '边军起势' });
+    fireEvent.click(screen.getByRole('button', { name: /修改开书资料/ }));
+    const dialog = await screen.findByRole('dialog', { name: '修改当前资料' });
+    fireEvent.change(await within(dialog).findByLabelText('书名'), { target: { value: '边军起势改' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '下一步' }));
+    fireEvent.click(await within(dialog).findByRole('button', { name: /保存修改/ }));
+    expect(await within(dialog).findByText(/资料已被其他管理员更新/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /上一步/ }));
+    expect(within(dialog).getByLabelText('书名')).toHaveValue('边军起势改');
+    fireEvent.click(within(dialog).getByRole('button', { name: '下一步' }));
+    expect(screen.queryByText(/已保存为第/)).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /保存修改/ })).toBeEnabled();
+    const serverErrorMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/book-profile') && init?.method === 'PUT') {
+        return new Response(JSON.stringify({ error: { message: '开书资料没有保存成功' } }), { status: 500, headers: { 'content-type': 'application/json' } });
+      }
+      return baseFetch(input, init);
+    });
+    vi.stubGlobal('fetch', serverErrorMock);
+    fireEvent.click(within(dialog).getByRole('button', { name: /保存修改/ }));
+    expect(await within(dialog).findByText(/开书资料没有保存成功/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /上一步/ }));
+    expect(within(dialog).getByLabelText('书名')).toHaveValue('边军起势改');
+    expect(screen.queryByText(/已保存为第/)).not.toBeInTheDocument();
+  });
+
 });
 
 function json(data: unknown): Response {

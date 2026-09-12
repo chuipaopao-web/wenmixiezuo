@@ -300,4 +300,42 @@ describe('new time machine orchestration with real persistence and simulated mod
   const adoption=new SqlPlanRepository(c.database).adopt(scope,id,1,0,'bad-ids');
   expect(adoption.mapping['volume:v1']!.number).toBe(1);expect(adoption.mapping['main-line:line']!.number).toBe(1);
  });
+ it('card-5 snapshots keep the original card and review prompts, and resume reuses succeeded steps without new calls',async()=>{
+  const {c,scope}=setup();const prompts:string[]=[];let calls=0;
+  const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
+   calls++;prompts.push(request.prompt);
+   return {provider,modelId,output:JSON.stringify(output(request.prompt)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
+  }}));
+  const service=new TimeMachineDesignService(c.database,gateway,64000);
+  const id=service.start(scope,'recommend','','card5-resume');
+  c.database.prepare("UPDATE tm2_design_runs SET snapshot_json=REPLACE(snapshot_json,'\"templateRevision\":\"tm2-card-6\"','\"templateRevision\":\"tm2-card-5\"') WHERE id=?").run(id);
+  await service.process(id);
+  expect(service.state(scope).find(r=>r.id===id)?.state).toBe('succeeded');
+  const cardPrompts=prompts.filter(pp=>pp.includes('这可能是一部分资料')||pp.includes('这是最终短卡'));
+  expect(cardPrompts.length).toBeGreaterThan(0);
+  for(const pp of cardPrompts){expect(pp).not.toContain('coreAppeal核心卖点');expect(pp).not.toContain('readingTone阅读味道');expect(pp).not.toContain('资料含coreAppeal或readingTone');}
+  const reviewPrompts=prompts.filter(pp=>pp.includes('核对短卡是否'));
+  expect(reviewPrompts.length).toBeGreaterThan(0);
+  for(const pp of reviewPrompts){expect(pp).not.toContain('核心卖点（coreAppeal归premise）');}
+  expect(prompts.some(pp=>pp.includes('资料含coreAppeal或readingTone'))).toBe(false);
+  c.database.prepare('DELETE FROM tm2_context_cards WHERE owner=? AND book=?').run(scope.ownerId,scope.bookId);
+  c.database.prepare("UPDATE tm2_design_runs SET state='queued',result_json=NULL,error_code=NULL WHERE id=?").run(id);
+  const callsBefore=calls;
+  await service.process(id);
+  expect(calls).toBe(callsBefore);
+  expect(service.state(scope).find(r=>r.id===id)?.state).toBe('succeeded');
+ });
+ it('new card-6 snapshots carry the two-field responsibilities in card and review prompts',async()=>{
+  const {c,scope}=setup();const prompts:string[]=[];
+  const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
+   prompts.push(request.prompt);
+   return {provider,modelId,output:JSON.stringify(output(request.prompt)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
+  }}));
+  const service=new TimeMachineDesignService(c.database,gateway,64000);
+  const id=service.start(scope,'recommend','','card6-fresh');
+  await service.process(id);
+  expect(service.state(scope).find(r=>r.id===id)?.state).toBe('succeeded');
+  expect(prompts.some(pp=>pp.includes('coreAppeal核心卖点')&&pp.includes('readingTone阅读味道'))).toBe(true);
+  expect(prompts.some(pp=>pp.includes('核对短卡是否')&&pp.includes('核心卖点（coreAppeal归premise）'))).toBe(true);
+ });
 });

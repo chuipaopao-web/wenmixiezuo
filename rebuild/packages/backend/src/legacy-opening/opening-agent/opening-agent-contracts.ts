@@ -68,6 +68,8 @@ export interface OpeningPackage {
     genres: string[];
     tags: string[];
     coreAppeal: string;
+    /** 阅读味道：本书希望产生的阅读感受短句（R208新增；历史候选允许缺失）。 */
+    readingTone?: string;
     expectedTotalWords: number;
     /** 旧版开书候选兼容字段；新路线由全案策划重新判断。 */
     targetReaders?: string;
@@ -140,6 +142,7 @@ export interface OpeningReviewIssue {
 export const OPENING_DECISION_FIELDS = [
   'title',
   'positioning.coreAppeal',
+  'positioning.readingTone',
   'positioning.expectedTotalWords',
   // 只用于恢复旧V7任务；新主编审查合同不再产生这三类开书决定。
   'positioning.volumePlan',

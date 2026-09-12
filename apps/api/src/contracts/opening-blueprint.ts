@@ -97,6 +97,10 @@ export interface OpeningBlueprintInput {
     retentionPositioning?: string;
   };
   protagonists: OpeningProtagonistInput[];
+  /** 核心卖点：本书区别于同题材的一句话创意和吸引力（R208新增，可空）。 */
+  coreAppeal?: string;
+  /** 阅读味道：本书希望产生的阅读感受短句（R208新增，可空；空字符串=作者明确留空）。 */
+  readingTone?: string;
   storyDirection: string;
   /** 开局与结局：新版开书用两个短句替代长篇故事方向；storyDirection 变为可选补充。 */
   openingStart?: string;
@@ -436,6 +440,9 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     custom: uniqueTexts(input.styleIntent?.custom ?? [], '自定义风格', 0, 12, 80)
   };
   const planningProfile = input.planningProfile === undefined ? undefined : validatePlanningProfile(input.planningProfile);
+  // R208：核心卖点0—800字符；阅读味道0—300字符。空=留空/未补充，超长报中文错误不静默截断。
+  const coreAppeal = optionalText(input.coreAppeal, '核心卖点', 800);
+  const readingTone = optionalText(input.readingTone, '阅读味道', 300);
   const validated: OpeningBlueprintInput = {
     creationMode,
     ...(openingIdea.length > 0 ? { openingIdea } : {}),
@@ -447,6 +454,9 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     targetAudience: optionalText(input.targetAudience, '目标读者', 500),
     ...(planningProfile === undefined ? {} : { planningProfile }),
     protagonists,
+    ...(coreAppeal.length > 0 ? { coreAppeal } : {}),
+    // 空字符串是作者明确留空的语义，必须保留键，不能丢成undefined与历史缺键混淆后自动回退。
+    ...(input.readingTone !== undefined ? { readingTone } : (readingTone.length > 0 ? { readingTone } : {})),
     storyDirection,
     ...(openingStart.length > 0 ? { openingStart } : {}),
     ...(storyEnding.length > 0 ? { storyEnding } : {}),

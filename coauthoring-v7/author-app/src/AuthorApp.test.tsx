@@ -653,6 +653,8 @@ describe('V7 author opening flow', () => {
     expect(screen.getByRole('button', { name: '精壮 ×' })).toBeVisible();
     expect(reviewFieldLabel('possibleEnding.price')).toBe('结局方向');
     expect(reviewFieldLabel('authorNotes.大小乘收服')).toBe('作者补充');
+    expect(reviewFieldLabel('positioning.coreAppeal')).toBe('核心卖点');
+    expect(reviewFieldLabel('positioning.readingTone')).toBe('阅读味道');
     expect(authorFacingReviewText('请检查 opening.immediateConflict 和 possibleEnding.price')).toBe('请检查 后续开局资料 和 结局方向');
   });
 

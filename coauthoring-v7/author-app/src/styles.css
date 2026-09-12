@@ -835,6 +835,9 @@ img.product-logo { object-fit: cover; flex-shrink: 0; background: #ffe3a1; }
 .manual-field input, .manual-field select, .manual-custom-row input { min-height: 44px; }
 .manual-field textarea { min-height: 104px; resize: vertical; padding-bottom: 25px; }
 .manual-field > small { position: absolute; right: 9px; bottom: 7px; color: var(--ink-faint); background: white; font-size: 10px; font-weight: 400; }
+/* R208卖点/味道多行输入：超限时计数转为流式中文错误，不遮正文；边框给可见警示。 */
+.manual-field > small.manual-count-over { position: static; align-self: end; color: #a05242; background: transparent; font-size: 12px; }
+.manual-field textarea.manual-text-over { border-color: #d5a49b; }
 .manual-field input:focus, .manual-field select:focus, .manual-field textarea:focus, .manual-opening-section > textarea:focus, .manual-tag-search input:focus, .manual-custom-row input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(44 74 66 / 10%); outline: 0; }
 .opening-field-disclosure { min-width: 0; overflow: clip; border: 1px solid var(--line); border-radius: 13px; background: #fff; }
 .opening-field-disclosure > summary { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 11px 14px; cursor: pointer; list-style: none; }

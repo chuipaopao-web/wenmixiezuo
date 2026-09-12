@@ -261,7 +261,7 @@
 
 ### 9.2 开书输入
 
-R208增量已定、待实施：不增加作者初始必填问题。在开书候选中复用positioning.coreAppeal作为“核心卖点”，新增可选positioning.readingTone作为“阅读味道”，正式blueprint分别存coreAppeal/readingTone，信息→资料页可看可改。原styleIntent/主副基调及创意偏向保留；旧数据不自动回填，历史候选仍可读。长期期待、全书钩子、故事线与分卷继续留在时光机，题材创作思路库另批。确切字段、UI顺序、提示边界、运行入口和12项验收以[本批合同](../coauthoring-v7/docs/worklists/OPENING-APPEAL-208.md)执行，不把文档定稿当作上线。
+R208已实现并发布：不增加作者初始必填问题。候选复用positioning.coreAppeal作为核心卖点，新增positioning.readingTone作为阅读味道；正式blueprint保存两项，信息→资料可看可改。原styleIntent、创意偏向与历史版本保留，缺失不伪造，清空不回填。旧资料任务使用原版提示，新卡使用card-6。105项相关工程测试及手机编辑保存刷新通过；三国/悬疑合成样例完整解析通过，日常样例目录外标签问题仍待修。长期期待留时光机，题材库另批；详见[本批合同](../coauthoring-v7/docs/worklists/OPENING-APPEAL-208.md)。
 
 提供两个清楚入口：“带着想法开书”“让AI提议一个故事”。后者允许零创作输入，但必须明确它会产生推荐方向，不能把系统猜想标为作者原始意图。书名、简介、题材、目标篇幅和参考材料可选填；不强迫新手先填世界百科。
 

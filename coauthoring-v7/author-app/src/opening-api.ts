@@ -31,6 +31,8 @@ export interface OpeningPackage {
     genres: string[];
     tags: string[];
     coreAppeal: string;
+    /** R208：阅读味道；undefined=历史候选从未提供，''=作者明确留空。 */
+    readingTone?: string;
     targetReaders?: string;
     expectedTotalWords: number;
     volumePlan?: { minimum: number; recommended: number; maximum: number };
@@ -229,6 +231,10 @@ export interface BookProfile {
     personalities: string[];
   }>;
   synopsis?: string;
+  /** R208：核心卖点，旧书缺字段视为空串。 */
+  coreAppeal?: string;
+  /** R208：阅读味道；undefined=旧书从未保存，''=作者明确留空。 */
+  readingTone?: string;
   storyDirection: string;
   openingStart: string;
   storyEnding: string;
@@ -274,6 +280,8 @@ export interface BookProfile {
       };
       personalities: string[];
     }>;
+    coreAppeal?: string;
+    readingTone?: string;
     storyDirection?: string;
     openingStart?: string;
     storyEnding?: string;

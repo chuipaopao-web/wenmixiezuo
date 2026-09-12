@@ -12,7 +12,7 @@ export function emptyOpeningPackage(): OpeningPackage {
   return {
     title: '',
     positioning: {
-      publishingPlatform: 'fanqie', channel: 'male', category: '', genres: [], tags: [], coreAppeal: '', expectedTotalWords: 0
+      publishingPlatform: 'fanqie', channel: 'male', category: '', genres: [], tags: [], coreAppeal: '', readingTone: '', expectedTotalWords: 0
     },
     backgrounds: { eraAndWorld: '', openingSituation: '' },
     protagonists: [emptyManualProtagonist('male')],
@@ -48,6 +48,8 @@ export function validateManualOpening(
     ...(channel === 'general' ? ['创作频道'] : []),
     ...(taxonomy === null ? ['分类目录'] : []),
     ...(!categoryValid ? ['作品分类'] : []),
+    ...(Array.from(value.positioning.coreAppeal).length > 800 ? ['核心卖点不能超过800字'] : []),
+    ...(value.positioning.readingTone !== undefined && Array.from(value.positioning.readingTone).length > 300 ? ['阅读味道不能超过300字'] : []),
     ...(value.positioning.expectedTotalWords < 100_000 || value.positioning.expectedTotalWords > 10_000_000 ? ['预计总字数'] : [])
   ];
   const protagonists = value.protagonists.flatMap((item, index) => [
@@ -87,6 +89,28 @@ function TextAreaField({ id, label, value, onChange, placeholder, rows = 3 }: {
   return <OpeningFieldDisclosure label={label} value={value}>
     <label className="manual-field" htmlFor={id}><span>{label}</span><ImeTextarea id={id} aria-label={label} value={value} onChange={onChange} maxChars={LONG_LIMIT} rows={rows} placeholder={placeholder} /><small>{Array.from(value).length}/{LONG_LIMIT}</small></label>
   </OpeningFieldDisclosure>;
+}
+
+/**
+ * R208卖点/味道专用多行输入：不按上限截断（Ime系组件会静默丢字），完整保留粘贴内容，
+ * 超限时显示中文错误并由validateManualOpening阻断保存；修短后即可保存。
+ */
+function FullTextTextArea({ id, label, value, onChange, placeholder, maxChars, rows = 2 }: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+  placeholder?: string;
+  maxChars: number;
+  rows?: number;
+}): React.JSX.Element {
+  const length = Array.from(value).length;
+  const over = length > maxChars;
+  return <label className="manual-field" htmlFor={id}><span>{label}</span>
+    <textarea id={id} aria-label={label} value={value} rows={rows} placeholder={placeholder}
+      onChange={(event) => onChange(event.target.value)} className={over ? 'manual-text-over' : undefined} />
+    <small className={over ? 'manual-count-over' : undefined}>{over ? `已超出${length - maxChars}字，请精简到${maxChars}字内` : `${length}/${maxChars}`}</small>
+  </label>;
 }
 
 function OpeningFieldDisclosure({ label, value, children }: {
@@ -252,7 +276,12 @@ export function ManualOpeningForm({ value, taxonomy, onChange, step, onStepChang
         })}</div></details>)}</div>}</OpeningFieldDisclosure>
       </section>
       <section className="manual-opening-section">
-        <div className="manual-section-title"><span>04</span><h3>预计篇幅</h3><small>全书路线会按这里规划</small></div>
+        <div className="manual-section-title"><span>04</span><h3>卖点与味道</h3><small>选填 · 让推荐更准</small></div>
+        <OpeningFieldDisclosure label="核心卖点" value={value.positioning.coreAppeal}><div className="manual-field"><FullTextTextArea id="manual-core-appeal" label="核心卖点" maxChars={800} value={value.positioning.coreAppeal} onChange={(text) => updatePositioning({ coreAppeal: text })} placeholder="本书独特的创意和吸引力，1—2句话即可。" /></div></OpeningFieldDisclosure>
+        <OpeningFieldDisclosure label="阅读味道" value={value.positioning.readingTone ?? ''}><div className="manual-field"><FullTextTextArea id="manual-reading-tone" label="阅读味道" maxChars={300} value={value.positioning.readingTone ?? ''} onChange={(text) => updatePositioning({ readingTone: text })} placeholder="希望读起来是什么感受，例如轻松反差、热血成长。" /></div></OpeningFieldDisclosure>
+      </section>
+      <section className="manual-opening-section">
+        <div className="manual-section-title"><span>05</span><h3>预计篇幅</h3><small>全书路线会按这里规划</small></div>
         <OpeningFieldDisclosure label="预计总字数" value={value.positioning.expectedTotalWords > 0 ? `${Math.round(value.positioning.expectedTotalWords / 10_000)}万字` : ''}>
           <div className="manual-field"><span>预计总字数</span><div className="manual-chip-grid">{[80, 150, 200, 300].map((wan) => <button className={value.positioning.expectedTotalWords === wan * 10_000 ? 'selected' : ''} type="button" key={wan} onClick={() => updatePositioning({ expectedTotalWords: wan * 10_000 })}>{wan}万字</button>)}</div><label htmlFor="manual-total-words"><span>其他字数（万字）</span><ImeInput id="manual-total-words" aria-label="预计总字数（万字）" inputMode="numeric" maxChars={4} value={value.positioning.expectedTotalWords > 0 ? String(Math.round(value.positioning.expectedTotalWords / 10_000)) : ''} onChange={(text) => updatePositioning({ expectedTotalWords: Math.min(1_000, Number(text.replace(/\D+/gu, '')) || 0) * 10_000 })} /></label></div>
         </OpeningFieldDisclosure>

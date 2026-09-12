@@ -43,6 +43,10 @@ export function parseOpeningPackage(
       genres,
       tags,
       coreAppeal: boundedText(positioning.coreAppeal, '核心看点', 8, 800),
+      // 新AI输出可带阅读味道（0—300字符）；历史候选缺该键时保持缺省，不伪造。
+      ...(positioning.readingTone === undefined || positioning.readingTone === null
+        ? {}
+        : { readingTone: optionalBoundedText(positioning.readingTone, '阅读味道', 300) }),
       expectedTotalWords: integer(positioning.expectedTotalWords, '预计总字数', 100_000, 10_000_000),
       ...legacyPlanningFields(positioning)
     },
@@ -188,6 +192,15 @@ function parseReviewIssue(value: unknown, index: number): OpeningReviewIssue {
 function boundedText(value: unknown, label: string, minimum: number, maximum: number): string {
   const result = requiredText(value, label, maximum);
   if ([...result].length < minimum) throw new Error(`${label}至少需要${minimum}个字`);
+  return result;
+}
+
+/** 可选文字：空值合法（模型/作者明确留空），有值时按上限校验。 */
+function optionalBoundedText(value: unknown, label: string, maximum: number): string {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value !== 'string') throw new Error(`${label}必须是文字`);
+  const result = value.trim();
+  if ([...result].length > maximum) throw new Error(`${label}不能超过${maximum}个字`);
   return result;
 }
 

@@ -516,7 +516,7 @@ interface NormalizedDecisionResolution {
 
 const REVISION_EDITABLE_FIELDS = [
   'title', 'positioning.publishingPlatform', 'positioning.channel', 'positioning.category',
-  'positioning.genres', 'positioning.tags', 'positioning.coreAppeal', 'positioning.expectedTotalWords',
+  'positioning.genres', 'positioning.tags', 'positioning.coreAppeal', 'positioning.readingTone', 'positioning.expectedTotalWords',
   // 保留旧任务的恢复能力；新开书不会产生这些决定。
   'positioning.targetReaders', 'positioning.volumePlan', 'positioning.commercialAudience', 'positioning.retentionPositioning',
   'backgrounds.eraAndWorld', 'longTermDirection.centralConflict', 'longTermDirection.progression',

@@ -241,7 +241,9 @@ function profileToPackage(profile: BookProfile): OpeningPackage {
       category: profile.category,
       genres: [...profile.subjects],
       tags: unique([...profile.mainTags, ...(profile.customTags ?? [])]),
-      coreAppeal: (blueprint.storyTraits ?? []).join('、'),
+      // R208：卖点/味道只从正式blueprint字段读取；旧书缺值=空串。
+      coreAppeal: blueprint.coreAppeal ?? '',
+      ...(blueprint.readingTone === undefined ? {} : { readingTone: blueprint.readingTone }),
       expectedTotalWords: blueprint.planningProfile?.expectedTotalWords ?? 0,
       ...(blueprint.planningProfile?.commercialAudience === undefined ? {} : { targetReaders: blueprint.planningProfile.commercialAudience }),
       ...(blueprint.planningProfile?.volumePlan === undefined ? {} : { volumePlan: blueprint.planningProfile.volumePlan }),
@@ -288,6 +290,10 @@ function packageToBlueprint(profile: BookProfile, value: OpeningPackage, taxonom
       } }),
       personalities: [...item.personality]
     })),
+    // R208：两项准确写回；只改书名（值来自profileToPackage原样）也不会丢失。
+    coreAppeal: value.positioning.coreAppeal.trim(),
+    // 值存在（含空串）才写键：作者明确清空存''，旧书从未有过则继续缺键。
+    ...(value.positioning.readingTone === undefined ? {} : { readingTone: value.positioning.readingTone.trim() }),
     storyDirection: value.longTermDirection.centralConflict.trim(),
     openingStart: previous.openingStart ?? profile.openingStart,
     storyEnding: value.possibleEnding.direction.trim(),
@@ -307,6 +313,9 @@ function profileEditErrors(value: OpeningPackage, taxonomy: OpeningTaxonomy | nu
   if (value.positioning.channel === 'general') errors.push('请选择创作频道');
   if (taxonomy !== null && !taxonomy.categories.some((entry) => entry.channel === value.positioning.channel && entry.name === value.positioning.category)) errors.push('请选择作品分类');
   if (value.positioning.expectedTotalWords < 100_000 || value.positioning.expectedTotalWords > 10_000_000) errors.push('预计总字数需要在10万至1000万字之间');
+  // R208：两项超限时阻止保存并保留输入，服务器同样拒绝（0—800/0—300）。
+  if (Array.from(value.positioning.coreAppeal).length > 800) errors.push('核心卖点不能超过800字');
+  if (value.positioning.readingTone !== undefined && Array.from(value.positioning.readingTone).length > 300) errors.push('阅读味道不能超过300字');
   if (value.protagonists.length < 1 || value.protagonists.length > 2) errors.push('角色需要1至2位');
   value.protagonists.forEach((item, index) => {
     if (item.name.trim().length === 0) errors.push(`角色${index + 1}姓名`);

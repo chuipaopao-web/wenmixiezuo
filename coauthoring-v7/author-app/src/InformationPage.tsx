@@ -2,7 +2,7 @@ import { BookOpenTextIcon, CheckCircleIcon, MagicWandIcon, PencilSimpleIcon, Sli
 import { BookSynopsisPanel } from './BookSynopsisPanel';
 import { useEffect, useState } from 'react';
 import { BookCoverDesignDialog, BookProfileEditDialog, BookTitleDesignDialog } from './BookProfileDialogs';
-import { openingProfileCharacters, openingProfileRows, uniqueNonEmpty } from './book-profile-presentation';
+import { openingProfileCharacters, openingProfileRows, readingToneDisplay, uniqueNonEmpty } from './book-profile-presentation';
 import { NamingWorkspace } from './NamingWorkspace';
 import { fetchBookProfile, updateBookProfile, type BookProfile } from './opening-api';
 import { SettingPage } from './SettingPage';
@@ -57,7 +57,11 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
           </header>
           <div className="information-tags"><TagIcon />{uniqueNonEmpty([...(profile.subjects ?? []), ...(profile.mainTags ?? []), ...(profile.customTags ?? [])]).map((tag) => <span key={tag}>{tag}</span>)}</div>
           {profile.openingBlueprint.openingIdea?.trim() && <section className="profile-opening-idea"><small>最初的开书想法</small><p>{profile.openingBlueprint.openingIdea.trim()}</p></section>}
-          <dl className="profile-detail-list profile-detail-list-first">{openingProfileRows(profile).filter((row) => row.label === '时代与世界').map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>
+          <dl className="profile-detail-list profile-detail-list-first">
+            <div><dt>核心卖点</dt><dd>{(profile.coreAppeal ?? (profile.openingBlueprint.coreAppeal ?? '')).trim().length > 0 ? (profile.coreAppeal ?? profile.openingBlueprint.coreAppeal ?? '').trim() : '暂未补充'}</dd></div>
+            <div><dt>阅读味道</dt><dd>{readingToneDisplay(profile)}</dd></div>
+          </dl>
+          <dl className="profile-detail-list">{openingProfileRows(profile).filter((row) => row.label === '时代与世界').map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>
           <section className="profile-character-section" aria-labelledby="profile-characters-title">
             <h3 id="profile-characters-title">主要角色</h3>
             <div className="profile-character-list">{openingProfileCharacters(profile).map((character) => <article key={character.key}>

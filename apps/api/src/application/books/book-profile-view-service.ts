@@ -10,6 +10,9 @@ export interface BookProfileView {
   subjects: string[];
   mainTags: string[];
   customTags: string[];
+  coreAppeal: string;
+  /** undefined=旧书从未保存过阅读味道（可做历史风格只读回退）；''=作者明确留空。 */
+  readingTone?: string;
   protagonists: OpeningBlueprintInput['protagonists'];
   synopsis: string;
   storyDirection: string;
@@ -66,6 +69,9 @@ export class BookProfileViewService {
       subjects: blueprint.auxiliaryTags ?? [],
       mainTags: blueprint.mainTags ?? [],
       customTags: blueprint.customTags ?? [],
+      // R208：卖点0—800；味道保留缺键语义（旧书undefined vs 作者清空''）。
+      coreAppeal: (blueprint.coreAppeal ?? '').trim(),
+      ...(blueprint.readingTone === undefined ? {} : { readingTone: blueprint.readingTone.trim() }),
       protagonists: blueprint.protagonists ?? [],
       synopsis: storedBlueprint.fullBookOutline?.trim() ?? '',
       // 信息页展示字段：旧书没有独立故事方向时只读回退到历史全书简介；

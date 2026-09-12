@@ -50,6 +50,32 @@ export function uniqueNonEmpty(values: Array<string | undefined>): string[] {
   return [...new Set(values.map((value) => value?.trim() ?? '').filter(Boolean))];
 }
 
+/**
+ * 阅读味道展示（R208）：
+ * - 正式readingTone存在（含空串=作者明确留空）→ 只按它显示；
+ * - 旧书从未保存过（undefined）→ 只读回退展示历史stylePrimary/styleSecondary/styleIntent
+ *   的非空文字并标注"历史风格"；该回退值绝不能写回readingTone；
+ * - 什么都没有 → 暂未补充。
+ */
+export function readingToneDisplay(profile: BookProfile): string {
+  if (profile.openingBlueprint?.readingTone !== undefined || profile.readingTone !== undefined) {
+    const tone = (profile.readingTone ?? profile.openingBlueprint?.readingTone ?? '').trim();
+    return tone.length > 0 ? tone : '暂未补充';
+  }
+  const historical = uniqueNonEmpty([
+    profile.stylePrimary,
+    profile.styleSecondary,
+    ...(profile.openingBlueprint?.styleIntent ? [
+      ...profile.openingBlueprint.styleIntent.languageTones,
+      ...profile.openingBlueprint.styleIntent.emotionalTones,
+      ...profile.openingBlueprint.styleIntent.pacingAndPayoff,
+      ...profile.openingBlueprint.styleIntent.atmospheres,
+      ...profile.openingBlueprint.styleIntent.custom
+    ] : [])
+  ]);
+  return historical.length > 0 ? `${historical.join('、')}（历史风格）` : '暂未补充';
+}
+
 function roleLabel(role = ''): string {
   return ({ male_lead: '男主', female_lead: '女主', co_lead: '共同主角', dual_lead: '共同主角', ensemble: '群像主角', ensemble_lead: '群像主角', non_human: '非人主角', male_support: '男配', female_support: '女配', male_villain: '男反派', female_villain: '女反派' } as Record<string, string>)[role] ?? '';
 }

@@ -6,7 +6,7 @@ import {snapshotTimeMachine,type TimeMachineSnapshot} from './time-machine-sourc
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
 import {timeMachineReviewChecks} from './time-machine-review.js';
 import {applyTimeMachineCardEdits} from './time-machine-card-edits.js';
-import {timeMachineCardContract as cardContract,planningMaterial} from './time-machine-card-template.js';
+import {TIME_MACHINE_CARD_TEMPLATE_REVISION,cardContractFor,planningMaterial} from './time-machine-card-template.js';
 import {packCardSources} from './time-machine-source-pages.js';
 import {prepareCardMerge,cardMergeGuidance} from './time-machine-card-merge.js';
 interface Run {id:string;owner_id:string;book_id:string;kind:'recommend'|'design';snapshot_json:string;state:string;result_json:string|null;error_code:string|null}
@@ -169,6 +169,9 @@ export class TimeMachineDesignService {
   }
  }
  private async makeCard(run:Run,scope:Scope,snapshot:TimeMachineSnapshot):Promise<ContextCard>{
+  // 模板版本门控：旧快照（card-5及更早）必须逐字复用原合同与审查提示，否则同节点input_hash变化会阻断续跑。
+  const cardContract=cardContractFor(snapshot.manifest.templateRevision);
+  const reviewContract=snapshot.manifest.templateRevision===TIME_MACHINE_CARD_TEMPLATE_REVISION;
   const sourceKey=digest({sources:snapshot.manifest.sources.filter(s=>s.kind!=='intent'&&s.kind!=='asset'),template:snapshot.manifest.templateRevision,redaction:snapshot.manifest.redactionRevision});
   const cached=this.db.prepare('SELECT fields_json FROM tm2_context_cards WHERE owner=? AND book=? AND source_key=?').get(scope.ownerId,scope.bookId,sourceKey) as {fields_json:string}|undefined;
   if(cached)return parseCard({...scope,manifest:snapshot.manifest,fields:JSON.parse(cached.fields_json)});
@@ -190,7 +193,9 @@ export class TimeMachineDesignService {
   for(let audit=0;audit<2;audit++){
    const corrections:{index:number;issues:unknown[]}[]=[];
    for(let i=0;i<pages.length;i++){
-    const review=await this.structured(run,scope,snapshot,`card-review:${audit}:${i}`,snapshot.members.chief,`核对短卡是否错误转述或遗漏这页资料中的主角身份、核心限制、开局结局和作者明确要求。无需保留普通价格等细则。返回 {"pass":true或false,"issues":["具体问题"]}。这是语义核对，不因引用字符串存在就判正确。\n原始本页：${JSON.stringify(pages[i])}\n短卡：${JSON.stringify(final.fields)}`,v=>{const r=record(v);if(typeof r.pass!=='boolean'||!Array.isArray(r.issues)||r.issues.some(x=>typeof x!=='string'))throw Error('核对格式错误');return {pass:r.pass,issues:r.issues};});
+    const review=await this.structured(run,scope,snapshot,`card-review:${audit}:${i}`,snapshot.members.chief,`${reviewContract
+      ?'核对短卡是否错误转述或遗漏这页资料中的主角身份、核心限制、开局结局、作者明确要求，以及核心卖点（coreAppeal归premise）与阅读味道（readingTone归preferences）是否被遗漏或反向改写；不要求逐字照搬或固定长度。'
+      :'核对短卡是否错误转述或遗漏这页资料中的主角身份、核心限制、开局结局和作者明确要求。'}无需保留普通价格等细则。返回 {"pass":true或false,"issues":["具体问题"]}。这是语义核对，不因引用字符串存在就判正确。\n原始本页：${JSON.stringify(pages[i])}\n短卡：${JSON.stringify(final.fields)}`,v=>{const r=record(v);if(typeof r.pass!=='boolean'||!Array.isArray(r.issues)||r.issues.some(x=>typeof x!=='string'))throw Error('核对格式错误');return {pass:r.pass,issues:r.issues};});
     if(review.pass!==true||review.issues.length)corrections.push({index:i,issues:review.issues});
    }
    if(!corrections.length)break;

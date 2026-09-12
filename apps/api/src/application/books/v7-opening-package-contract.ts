@@ -121,7 +121,11 @@ export function validateV7ManualOpeningPackage(value: unknown): OpeningPackage {
       category,
       genres,
       tags,
-      coreAppeal: manualText(positioning.coreAppeal, '核心看点', 800),
+      coreAppeal: manualText(positioning.coreAppeal, '核心卖点', 800),
+      // R208：阅读味道可选0—300字符；未提供时省略键，保持旧候选缺省语义。
+      ...(positioning.readingTone === undefined || positioning.readingTone === null
+        ? {}
+        : { readingTone: manualText(positioning.readingTone, '阅读味道', 300) }),
       expectedTotalWords: manualInteger(positioning.expectedTotalWords, '预计总字数', 100_000, 10_000_000),
       ...legacyPlanningFields(positioning)
     },
@@ -201,7 +205,11 @@ export function validateV7OpeningRevisionDraft(
       category,
       genres,
       tags,
-      coreAppeal: manualText(positioning.coreAppeal, '核心看点', 800),
+      coreAppeal: manualText(positioning.coreAppeal, '核心卖点', 800),
+      // R208：返修稿同样接受阅读味道；未提供时回落原候选值，保持缺省语义。
+      ...(positioning.readingTone === undefined || positioning.readingTone === null
+        ? (fallback.positioning.readingTone === undefined ? {} : { readingTone: fallback.positioning.readingTone })
+        : { readingTone: manualText(positioning.readingTone, '阅读味道', 300) }),
       expectedTotalWords: manualInteger(positioning.expectedTotalWords ?? fallback.positioning.expectedTotalWords, '预计总字数', 100_000, 10_000_000),
       ...legacyPlanningFields(positioning, fallback.positioning)
     },
@@ -327,6 +335,13 @@ export function toV7OpeningBlueprint(openingPackage: OpeningPackage, openingIdea
       ...((openingPackage.positioning.retentionPositioning ?? '').trim().length === 0 ? {} : { retentionPositioning: limit(openingPackage.positioning.retentionPositioning ?? '', 800) })
     },
     protagonists,
+    // R208：两项创作意图进入正式blueprint；空字符串保留键=作者明确留空。
+    ...(openingPackage.positioning.coreAppeal.trim().length > 0
+      ? { coreAppeal: limit(openingPackage.positioning.coreAppeal, 800) }
+      : {}),
+    ...(openingPackage.positioning.readingTone !== undefined
+      ? { readingTone: limit(openingPackage.positioning.readingTone, 300) }
+      : {}),
     storyDirection: limit(openingPackage.longTermDirection.centralConflict, 800),
     openingStart: '',
     storyEnding: limit(openingPackage.possibleEnding.direction, 800),
