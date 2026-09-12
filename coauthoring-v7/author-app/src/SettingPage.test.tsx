@@ -658,13 +658,13 @@ describe('V7设定页面', () => {
     expect(screen.queryByText(resultItem.content)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '查看1项结果' }));
     expect(screen.getByText(resultItem.content)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '请主编统一整理' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认设定并请主编整理' }));
     expect(await screen.findByText('人物、年代、组织称呼和世界规则已经统一。')).toBeInTheDocument();
     expect(screen.getByText('貂蝉 · 统一整理')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '保存当前设定（1项）' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/setting-items/confirm-all'), expect.objectContaining({ method: 'POST' })));
     expect(await screen.findByRole('button', { name: '进入时光机' })).toBeDisabled();
-    expect(screen.getByText('设定已经安全保存，可以查看全书框架。')).toBeInTheDocument();
+    expect(screen.getByText('设定已保存，后台将整理资料并推荐故事线，可以离开页面。')).toBeInTheDocument();
   });
 });
 

@@ -269,7 +269,7 @@ describe('V7设定编辑部', () => {
       expect(purposes.every(p=>p==='novel_reviewer')).toBe(true);
     }finally{await app.close();}
   });
-  it.each(['normal', 'handoff', 'repair', 'unknown', 'patch', 'review_handoff'] as const)('精练设定 %s：同人统筹、草案接续与自动独立审查', async (mode) => {
+  it.each(['normal', 'handoff', 'repair', 'unknown', 'patch', 'review_handoff'] as const)('精练设定 %s：同人统筹、作者确认后独立审查', async (mode) => {
     context = createTestContext('wenmi-r139-setting-');
     const delegate = new SettingResolver(false);
     const calls: Array<{member: string; model: string; prompt: string}> = [];
@@ -325,8 +325,19 @@ describe('V7设定编辑部', () => {
       expect(deliveredCalls[1]!.prompt).toContain('当前待确认草案');
       expect(deliveredCalls[1]!.prompt).toContain('渡船每次最多12人，夜间停航；只有官署急令可破例。');
       expect(completed.items.every((item: {content: string; state: string}) => item.content.length <= 600 && item.state === 'needs_author')).toBe(true);
+      expect(calls.some(call=>call.prompt.includes('v7_setting_batch_final_review_v1'))).toBe(false);
+      if(mode==='normal'){
+        const saved=await app.inject({method:'POST',url:url+'/setting-items/confirm-all',headers:{...HEADERS,cookie},payload:{items:completed.items.map((item:{itemKey:string;revision:number})=>({itemKey:item.itemKey,expectedRevision:item.revision}))}});
+        expect(saved.statusCode,saved.body).toBe(200);
+        expect(context.database.prepare('SELECT * FROM setting_time_machine_handoffs WHERE book_id=?').all(bookId)).toHaveLength(0);
+      }
+      await app.inject({method:'GET',url:url+'/setting-department',headers:{...HEADERS,cookie}});
+      expect(calls.some(call=>call.prompt.includes('v7_setting_batch_final_review_v1'))).toBe(false);
+      const authorConfirmed=await app.inject({method:'POST',url:url+'/setting-final-reviews',headers:{...HEADERS,cookie},payload:{idempotencyKey:'author-review-'+mode}});
+      expect(authorConfirmed.statusCode,authorConfirmed.body).toBe(200);
       const reviewed = await pollFinalReview(app, cookie, bookId);
       expect(reviewed.status, JSON.stringify(reviewed)).toBe('ready');
+      if(mode==='normal')expect(context.database.prepare('SELECT state FROM setting_time_machine_handoffs WHERE book_id=?').all(bookId)).toEqual([{state:'pending'}]);
       const reviewCalls = calls.filter(call => call.prompt.includes('v7_setting_batch_final_review_v1'));
       expect(reviewCalls).toHaveLength(mode === 'review_handoff' ? 2 : 1);
       expect(reviewed.member.memberKey).toBe(reviewCalls.at(-1)!.member);
@@ -391,6 +402,7 @@ describe('V7设定编辑部', () => {
       const prompt=delegate.prompts.find(prompt=>prompt.includes('v7_setting_group_design_v1'))!;
       expect(prompt).toContain('渡船最多12人，夜间停航；官署急令例外。');
       expect(prompt).not.toContain('旧草案19');
+      expect((await app.inject({method:'POST',url:`/api/v1/v7/books/${bookId}/setting-final-reviews`,headers:{...HEADERS,cookie},payload:{idempotencyKey:'author-approved-long-draft'}})).statusCode).toBe(200);
       expect((await pollFinalReview(app,cookie,bookId)).status).toBe('ready');
       for (const row of original as Array<{version_id:string;content_json:string}>) expect(context.database.prepare('SELECT content_json FROM v7_setting_item_versions WHERE version_id=?').get(row.version_id)).toEqual({content_json:row.content_json});
     } finally {await app.close();}
@@ -1117,9 +1129,11 @@ describe('V7设定编辑部', () => {
       const stale=await app.inject({method:'POST',url:`/api/v1/v7/books/${bookId}/setting-items/confirm-all`,headers:{...HEADERS,cookie},
         payload:{items:items.map((item,index)=>({...item,expectedRevision:item.expectedRevision+(index===items.length-1?1:0)}))}});
       expect(stale.statusCode).toBe(409);
+      expect(context.database.prepare('SELECT * FROM setting_time_machine_handoffs WHERE book_id=?').all(bookId)).toHaveLength(0);
       expect(context.database.prepare('SELECT * FROM v7_setting_item_versions WHERE book_id=? ORDER BY version_id').all(bookId)).toEqual(before);
       const confirmed=await app.inject({method:'POST',url:`/api/v1/v7/books/${bookId}/setting-items/confirm-all`,headers:{...HEADERS,cookie},payload:{items}});
       expect(confirmed.statusCode,confirmed.body).toBe(200);
+      expect(context.database.prepare('SELECT state FROM setting_time_machine_handoffs WHERE book_id=?').all(bookId)).toEqual([{state:'pending'}]);
       const prepared=await app.inject({url:`/api/time-machine/books/${bookId}/state`,headers:{...HEADERS,cookie}});
       expect(prepared.statusCode,prepared.body).toBe(200);
       expect(prepared.json().data.preparation.ready).toBe(true);

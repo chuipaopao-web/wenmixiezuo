@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import {enqueueSettingHandoff} from './setting-time-machine-handoff.js';
 import { selectSettingContext, settingOpeningSelection, SettingContextPreparationError } from './setting-context-selection.js';
 import { settingChangeImpact } from '../../infrastructure/db/repositories/setting-change-impact.js';
 import { continuitySources, continuitySourceText, continuityHash, continuitySourceHash, reviewSettingContinuity, type SettingContinuityReport } from './setting-continuity.js';
@@ -405,6 +406,16 @@ export class V7SettingEditorialService {
   }
 
   public createFinalReview(ownerId: string, bookId: string, input: { idempotencyKey?: unknown }, excludedModelIds: readonly string[] = []): V7SettingFinalReviewView {
+    const batch=this.latestBatch(ownerId,bookId);
+    if(batch&&!['completed','awaiting_author'].includes(batch.status))throw new DomainError(errorCodes.validation,'请先完成本轮设定设计，再确认并整理。',{},false,409);
+    if(batch&&coherentSettingLead(batch)!==null&&excludedModelIds.length===0){
+      const roster=JSON.parse(batch.roster_json) as V7SettingMemberDefinition[];
+      excludedModelIds=[...new Set(this.jobs(ownerId,bookId,batch.batch_id).flatMap(job=>{
+        const output=this.repository.latestOutputForJob(ownerId,bookId,batch.batch_id,job.item_key,'writer_proposal');
+        const member=roster.find(m=>m.memberKey===output?.member_key);
+        return member?[member.model.modelId]:[];
+      }))];
+    }
     const profile = this.profile(ownerId, bookId);
     const items = this.currentItems(ownerId, bookId);
     if (items.length === 0) throw new DomainError(errorCodes.validation, '还没有可以统一整理的设定。');
@@ -1113,7 +1124,12 @@ export class V7SettingEditorialService {
   }
 
   public confirm(ownerId: string, bookId: string, itemKey: string, input: { expectedRevision?: unknown; acceptRuleChanges?:unknown }): V7SettingItemView {
-    return this.confirmVersion(ownerId,bookId,itemKey,input);
+    return this.repository.atomic(()=>{
+      const saved=this.confirmVersion(ownerId,bookId,itemKey,input);
+      const prepared=this.timeMachinePrerequisite(ownerId,bookId);
+      if(prepared.ready&&prepared.version)enqueueSettingHandoff(this.database,{ownerId,bookId},prepared.version,this.clock.now().toISOString());
+      return saved;
+    });
   }
 
   public confirmAll(ownerId:string,bookId:string,input:{items?:unknown}):V7SettingItemView[] {
@@ -1126,7 +1142,10 @@ export class V7SettingEditorialService {
     if(new Set(items.map(i=>i.itemKey)).size!==items.length)throw new DomainError(errorCodes.validation,'设定条目重复。');
     return this.repository.atomic(()=>{
       for(const item of items)this.confirmVersion(ownerId,bookId,item.itemKey,item,false,true);
-      return items.map(item=>this.confirmVersion(ownerId,bookId,item.itemKey,item,true));
+      const saved=items.map(item=>this.confirmVersion(ownerId,bookId,item.itemKey,item,true));
+      const prepared=this.timeMachinePrerequisite(ownerId,bookId);
+      if(prepared.ready&&prepared.version)enqueueSettingHandoff(this.database,{ownerId,bookId},prepared.version,this.clock.now().toISOString());
+      return saved;
     });
   }
 
@@ -1828,6 +1847,8 @@ export class V7SettingEditorialService {
             resultJson: JSON.stringify({ taskKind: 'batch_final_review', result, resultHash }),
             stateJson: JSON.stringify(ready), now: this.clock.now().toISOString()
           })) throw new Error('统一整理任务的租约或状态已经变化');
+          const prepared=this.timeMachinePrerequisite(task.owner_id,task.book_id);
+          if(prepared.ready&&prepared.version)enqueueSettingHandoff(this.database,{ownerId:task.owner_id,bookId:task.book_id},prepared.version,this.clock.now().toISOString());
         });
         return;
       } catch (error) {
@@ -2170,16 +2191,7 @@ export class V7SettingEditorialService {
       if (previous.status === 'queued' || previous.status === 'working') this.startFinalReview(previous);
       return;
     }
-    const items = this.currentItems(batch.owner_id, batch.book_id);
-    if (items.some((item) => item.content === null || item.state === 'failed')) return;
-    const roster = JSON.parse(batch.roster_json) as V7SettingMemberDefinition[];
-    const used = this.jobs(batch.owner_id, batch.book_id, batch.batch_id).flatMap((job) => {
-      const output = this.repository.latestOutputForJob(batch.owner_id, batch.book_id, batch.batch_id, job.item_key, 'writer_proposal');
-      const member = roster.find((entry) => entry.memberKey === output?.member_key);
-      return member === undefined ? [] : [member.model.modelId];
-    });
-    // A stable idempotency key recovers the handoff to review without restarting a failed review.
-    this.createFinalReview(batch.owner_id, batch.book_id, { idempotencyKey: reviewKey }, [...new Set(used)]);
+    // New reviews require the author's explicit confirmation. Only recover existing work above.
   }
 
   private async coherentContextPack(batch: BatchRow, jobs: readonly JobRow[], items: readonly V7SettingCatalogItem[], lead: V7SettingMemberDefinition, token: string): Promise<V7SettingContextPack> {

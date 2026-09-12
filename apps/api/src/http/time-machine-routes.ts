@@ -1,4 +1,5 @@
 import type {FastifyInstance} from 'fastify';
+import {dispatchSettingHandoffs} from '../application/books/setting-time-machine-handoff.js';
 import type {DatabaseSync} from 'node:sqlite';
 import {Conflict,SqlPlanRepository,volumePlanningContext,parseCandidate,volumeDisplayCode,lineDisplayCode,digest} from '@wenmi/time-machine-core';
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
@@ -32,6 +33,7 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
  const guard=<T>(fn:()=>T):T=>{try{return fn();}catch(e){if(e instanceof DomainError)throw e;throw new DomainError(errorCodes.validation,e instanceof Conflict?e.message:'当前操作未能完成，请核对资料或稍后重试',{},false,409);}};
  let active:Promise<void>|null=null,activeId:string|null=null,closed=false;
  const tick=()=>{if(closed||windowTokens<16000)return;
+  dispatchSettingHandoffs(db,prerequisite,(s,key)=>service.start(s,'recommend','',key));
   // 孤儿运行清理不能被在飞运行阻塞：进程重启会让working行永远滞留（R192浏览器验证实测）。
   // 按id排除当前在飞运行——单步骤含自动重试可静默超过20分钟，不能按新鲜度误杀活运行。
   db.prepare("UPDATE tm2_design_runs SET state='failed',error_code='interrupted' WHERE state='working' AND updated_at<? AND id<>coalesce(?, '')").run(new Date(Date.now()-20*60*1000).toISOString(),activeId);

@@ -371,8 +371,8 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
           />
         : <WorkflowActionDock
             title={allDesigned ? '本轮设定已经设计完成' : '完成全部条目后，由主编统一整理'}
-            detail={allDesigned ? `共 ${items.length} 项，主编还会跨条目统一核对名称、时间与规则。` : `当前完成 ${overallProgress.completed}/${overallProgress.total} 项。`}
-            primary={<button type="button" className="primary-action" disabled={!allDesigned || finalReviewBusy} onClick={() => { if (finalReview?.status === 'failed') setFinalReviewOpen(true); else void beginFinalReview(); }}><ClipboardTextIcon />{finalReviewBusy ? '正在请主编接单…' : finalReview?.status === 'ready' ? '查看统一整理结果' : finalReview?.status === 'queued' || finalReview?.status === 'working' ? '主编正在统一整理' : finalReview?.status === 'failed' ? '查看统一整理状态' : '请主编统一整理'}</button>}
+            detail={allDesigned ? `共 ${items.length} 项，请先确认这些设定；主编随后统一核对名称、时间与规则，修改内容会再交给您确认。` : `当前完成 ${overallProgress.completed}/${overallProgress.total} 项。`}
+            primary={<button type="button" className="primary-action" disabled={!allDesigned || finalReviewBusy} onClick={() => { if (finalReview?.status === 'failed') setFinalReviewOpen(true); else void beginFinalReview(); }}><ClipboardTextIcon />{finalReviewBusy ? '正在请主编接单…' : finalReview?.status === 'ready' ? '查看统一整理结果' : finalReview?.status === 'queued' || finalReview?.status === 'working' ? '主编正在统一整理' : finalReview?.status === 'failed' ? '查看统一整理状态' : '确认设定并请主编整理'}</button>}
           />)}
       {finalReviewOpen && allDesigned && finalReview !== null && <section className={`setting-final-review ${finalReview.status}`} aria-label="主编统一整理结果">
         <header><div>{finalReviewChief !== null && <span className="chief-review-avatar" style={memberAvatarStyle(finalReviewChief.memberKey)} />}<span><strong>{finalReviewChief === null ? '主编' : memberDisplayName(finalReviewChief.memberKey, finalReviewChief.displayName)} · 统一整理</strong>{finalReview.status !== 'failed' && <small>{publicStatusCopy(finalReview.statusText, finalReview.status === 'ready' ? '全部设定已经统一核对完成。' : '正在核对全部设定。')}</small>}</span></div>{finalReview.status !== 'ready' && finalReview.status !== 'failed' && <div className="setting-recommendation-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={finalReview.progress}><span style={{ width: `${finalReview.progress}%` }} /></div>}</header>
@@ -399,7 +399,7 @@ export function SettingPage({ bookId, onOpenTimeMachine, recoveryFocus = null }:
         {finalReview.status === 'ready' && <WorkflowActionDock
           mode="card"
           title={finalSaved || pendingConfirmation.length === 0 ? '当前设定已经安全保存' : '统一整理已经完成'}
-          detail={finalSaved || pendingConfirmation.length === 0 ? '设定已经安全保存，可以查看全书框架。' : `确认后保存当前 ${pendingConfirmation.length} 项设定。`}
+          detail={finalSaved || pendingConfirmation.length === 0 ? '设定已保存，后台将整理资料并推荐故事线，可以离开页面。' : `确认后保存当前 ${pendingConfirmation.length} 项设定，并自动整理资料、推荐故事线。`}
           primary={finalSaved || pendingConfirmation.length === 0
             ? <button type="button" className="primary-action" disabled={onOpenTimeMachine === undefined} onClick={onOpenTimeMachine}>进入时光机</button>
             : <button type="button" className="primary-action" disabled={savingAll || pendingConfirmation.some(item=>item.continuity?.status === 'conflicts')} onClick={() => {
