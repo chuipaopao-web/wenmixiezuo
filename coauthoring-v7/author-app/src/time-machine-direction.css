@@ -30,34 +30,28 @@
 .tmd-welcome p { margin: 0; font-size: 21px; line-height: 1.7; font-weight: 600; }
 
 /* 展开方式问题卡：与原型 .choices 一致。 */
-.tmd-questions h3 { font-size: 18px; margin-bottom: 2px; }
+.tmd-section { margin: 6px 0 25px; display: grid; gap: 22px; }
+.tmd-section-title { margin: 0; font-size: 23px; font-weight: 700; }
+.tmd-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.tmd-add-line { background: #fffefa; border: 1px solid var(--line); border-radius: 999px; padding: 10px 18px; font-weight: 600; color: var(--ink); }
+.tmd-custom-line { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fff; font: inherit; font-size: 16px; color: var(--ink); }
 .tmd-shape-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.tmd-shape-card { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 14px; background: #fffefa; padding: 16px; cursor: pointer; }
-.tmd-shape-card input { accent-color: #285b49; width: 18px; height: 18px; flex-shrink: 0; margin-top: 5px; }
-.tmd-shape-card.selected { border-color: #648872; background: #edf3e8; }
-.tmd-shape-card strong { display: block; font-size: 15.5px; }
-.tmd-shape-card small { display: block; color: #698171; margin-top: 4px; font-size: 13px; line-height: 1.6; }
-.tmd-ensemble { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 14px; background: #fffefa; padding: 16px; cursor: pointer; }
-.tmd-ensemble input { accent-color: #285b49; width: 18px; height: 18px; flex-shrink: 0; margin-top: 5px; }
-.tmd-ensemble.selected { border-color: #648872; background: #edf3e8; }
-.tmd-ensemble strong { display: block; font-size: 15.5px; }
-.tmd-ensemble small { display: block; color: #698171; margin-top: 4px; font-size: 13px; line-height: 1.6; }
-
-/* 推荐进行中：与原型 .welcome 同构的中型头像状态卡。 */
-.tmd-working { display: flex; gap: 22px; align-items: center; }
-.tmd-avatar-md { width: 92px; height: 92px; border-radius: 50%; flex: none; background-color: #e2ece3; background-repeat: no-repeat; border: 5px solid #fff; box-shadow: 0 8px 28px #23473c12; }
-.tmd-working strong { font-size: 14px; color: #789084; letter-spacing: 0.06em; }
-.tmd-working p { margin: 4px 0 0; font-size: 19px; font-weight: 600; line-height: 1.6; }
-.tmd-working button { margin-top: 10px; min-height: 42px; border: 1px solid var(--line); border-radius: 12px; padding: 0 16px; background: #fff; color: var(--ink); font-weight: 700; }
-.tmd-working > svg { margin-left: auto; width: 22px; height: 22px; color: #285b49; flex: none; }
+.tmd-choice { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 14px; background: #fffefa; padding: 16px; cursor: pointer; }
+.tmd-choice input { accent-color: #285b49; width: 18px; height: 18px; flex-shrink: 0; margin-top: 5px; }
+.tmd-choice.selected { border-color: #648872; background: #edf3e8; }
+.tmd-choice strong { display: block; font-size: 16px; }
+.tmd-choice small { display: block; color: #698171; margin-top: 4px; font-size: 13px; line-height: 1.6; }
+.tmd-choice-wide { width: 100%; }
+.tmd-working p { font-size: 21px; }
+.tmd-working .tmd-restart { margin-top: 14px; min-height: 44px; border: 1px solid var(--line); border-radius: 12px; padding: 0 18px; background: #fff; color: var(--ink); font-weight: 700; }
+.tmd-working > svg { margin-left: auto; width: 24px; height: 24px; color: #285b49; flex: none; }
 
 .tmd-line-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
-.tmd-line-card { display: grid; grid-template-columns: auto auto; grid-template-areas: 'check role' 'check title' 'check desc'; column-gap: 10px; align-items: start; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-raised); padding: 12px 14px; cursor: pointer; }
-.tmd-line-card input { grid-area: check; width: 20px; height: 20px; margin-top: 3px; accent-color: var(--accent); }
-.tmd-line-card.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-.tmd-line-card .tmd-line-role { grid-area: role; justify-self: start; font-size: 12px; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 2px 9px; }
-.tmd-line-card strong { grid-area: title; font-size: 15px; }
-.tmd-line-card small { grid-area: desc; color: var(--ink-soft); line-height: 1.6; }
+.tmd-line-card { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 14px; background: #fffefa; padding: 16px; cursor: pointer; }
+.tmd-line-card input { accent-color: #285b49; width: 18px; height: 18px; flex-shrink: 0; margin-top: 5px; }
+.tmd-line-card.selected { border-color: #648872; background: #edf3e8; }
+.tmd-line-card strong { display: block; font-size: 16px; }
+.tmd-line-card small { display: block; color: #698171; margin-top: 4px; font-size: 13px; line-height: 1.6; }
 
 .tmd-suggest { margin: 0; color: var(--ink-soft); font-size: 14px; line-height: 1.65; }
 .tmd-note-field { display: grid; gap: 6px; font-size: 14px; }
@@ -149,9 +143,6 @@
 .tmd-editor fieldset { border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 10px; }
 .tmd-editor legend { color: var(--accent); font-weight: 700; padding: 0 6px; }
 
-.tmd-legacy-wrap { display: grid; gap: 10px; }
-.tmd-legacy-switch { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; border: 1px solid var(--line); border-radius: 14px; background: var(--accent-soft); padding: 10px 14px; color: var(--ink); font-size: 14px; }
-.tmd-legacy-switch button { min-height: 40px; border: 1px solid var(--accent); border-radius: 12px; background: var(--accent); color: #fff; font-weight: 700; padding: 0 14px; }
 
 @media (max-width: 700px) {
   .tmd-header { flex-direction: column; }

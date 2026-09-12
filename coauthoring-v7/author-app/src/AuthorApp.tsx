@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import {
   ArchiveBoxIcon,
   BookOpenTextIcon,
@@ -17,7 +17,6 @@ import { InformationPage } from './InformationPage';
 import { NewNovelPage } from './NewNovelPage';
 import { TaskLogPage } from './TaskLogPage';
 import { TeamPage } from './TeamPage';
-import { TimeMachinePage } from './TimeMachinePage';
 import { TimeMachineDirectionEntry } from './TimeMachineDirectionPage';
 import { CreationWorkspacePage } from './CreationWorkspacePage';
 import { LibraryPage } from './LibraryPage';

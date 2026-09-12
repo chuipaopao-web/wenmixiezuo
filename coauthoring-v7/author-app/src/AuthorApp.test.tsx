@@ -448,55 +448,6 @@ describe('V7 author opening flow', () => {
     expect(book.querySelector('.book-cover-status')).toHaveTextContent('创作中');
   });
 
-  it('enables the time machine for a selected V7 book and opens its honest framework state', async () => {
-    window.history.replaceState({}, '', '/?view=time-machine&bookId=v7-book-tree-1');
-    installFetch((url) => url.endsWith('/api/v1/v7/books') ? response([
-      { bookId: 'v7-book-tree-1', title: '汉末小卒', status: 'active', updatedAt: '2026-08-26T00:00:00Z' }
-    ]) : null);
-    render(<AuthorApp />);
-    const mainNavigation = getMainNavigation();
-    expect(within(mainNavigation).getByRole('button', { name: '时光机' })).toBeEnabled();
-    expect(within(mainNavigation).getByRole('button', { name: '时光机' })).toHaveClass('active');
-    expect(await screen.findByRole('heading', { name: '先准备全书方向' })).toBeVisible();
-    expect(screen.getByRole('button', { name: '开始规划全书' })).toBeEnabled();
-    expect(screen.queryByText('v7-book-tree-1')).not.toBeInTheDocument();
-  });
-
-  it('remounts the time machine by book so an old core retry cannot overwrite the newly selected book', async () => {
-    window.history.replaceState({}, '', '/?view=time-machine&bookId=book-a');
-    let bookATreeCalls = 0;
-    let resolveOldRetry!: (value: Response) => void;
-    installFetch((url) => {
-      if (url.endsWith('/api/v1/v7/books')) return response([
-        { bookId: 'book-a', title: 'A书', status: 'active', updatedAt: '2026-08-26T00:00:00Z' },
-        { bookId: 'book-b', title: 'B书', status: 'active', updatedAt: '2026-08-26T00:00:00Z' }
-      ]);
-      if (url.endsWith('/api/v1/v7/books/book-a/planning-trees/book/book-a?version=confirmed')) {
-        bookATreeCalls += 1;
-        if (bookATreeCalls === 1) return response({ message: 'temporarily unavailable' }, 503);
-        return new Promise((resolve) => { resolveOldRetry = resolve; });
-      }
-      if (url.endsWith('/api/v1/v7/books/book-b/planning-trees/book/book-b?version=confirmed')) {
-        return response({ message: 'not found' }, 404);
-      }
-      return null;
-    });
-
-    render(<AuthorApp />);
-    fireEvent.click(await screen.findByRole('button', { name: '重新读取核心规划' }));
-    await waitFor(() => expect(bookATreeCalls).toBe(2));
-
-    await act(async () => {
-      window.history.pushState({}, '', '/?view=time-machine&bookId=book-b');
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    });
-    expect(await screen.findByRole('button', { name: '开始规划全书' })).toBeEnabled();
-
-    await act(async () => { resolveOldRetry(response({ message: 'old retry failed' }, 503)); });
-
-    expect(screen.getByRole('button', { name: '开始规划全书' })).toBeEnabled();
-    expect(screen.queryByRole('button', { name: '重新读取核心规划' })).not.toBeInTheDocument();
-  });
   it('opens the retained two-step form directly without repeating the opening idea', async () => {
     let bookCreated = false;
     installFetch((url, init) => {

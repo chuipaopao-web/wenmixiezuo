@@ -88,12 +88,13 @@ describe('time machine direction page', () => {
     }));
     render(<TimeMachineDirectionEntry bookId="bk-1" />);
     await waitFor(() => { expect(posted.recommend).toBe(1); }, { timeout: 4000 });
-    expect(await screen.findByText('老板，我们现在设计全书骨架。')).toBeVisible();
+    expect(await screen.findByText('老板，我们来设计全书骨架。')).toBeVisible();
+    expect(screen.getByText('这是我推荐的故事线，您看看，还想加入哪些？')).toBeVisible();
     expect(screen.getByText(/成长线/)).toBeVisible();
     expect(screen.getByText(/机甲伙伴线/)).toBeVisible();
-    expect(screen.getByText('你希望故事怎样展开？')).toBeVisible();
+    expect(screen.getByText('你希望故事怎样展开?')).toBeVisible();
     fireEvent.click(screen.getByRole('radio', { name: /集中讲一个核心故事/ }));
-    fireEvent.click(screen.getByRole('checkbox', { name: /也希望配角拥有自己的完整故事/ }));
+    // 原型默认勾选配角完整故事；直接沿用默认勾选状态。
     fireEvent.click(screen.getByRole('button', { name: '开始设计（三位编剧各出一套方案）' }));
     await waitFor(() => { expect(posted.design).toBe(1); });
     expect(designIntent).toContain('故事展开方式：集中讲一个核心故事');
@@ -167,28 +168,5 @@ describe('time machine direction page', () => {
     expect(await screen.findByText(/已采用 · 红玉 的方案/)).toBeVisible();
     expect(screen.getByText(/卷A、卷B；主线1、支线1/)).toBeVisible();
     expect(screen.getByRole('button', { name: '重新设计全书方向' })).toBeEnabled();
-  }, 20000);
-
-  it('keeps the legacy view for books with old planning data and allows switching to the new flow', async () => {
-    const state = stateFixture({ runs: [] });
-    let switched = false;
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith('/api/time-machine/books/bk-old/state')) return response(state);
-      if (url.endsWith('/planning-routes/latest')) return response(switched ? null : legacyRouteRun);
-      if (url.endsWith('/generation-runs/latest')) return response(null);
-      if (url.endsWith('/time-machine-progress')) return response({ finalizedChapterCount: 0, latestFinalChapter: null, latestConfirmedChain: null });
-      if (url.endsWith('/story-state')) return response([]);
-      if (url.endsWith('/planning-members')) return response([]);
-      if (url.endsWith('/planning-tasks?limit=80')) return response([]);
-      if (url.includes('/planning-trees/book/')) return response({ message: 'not found' }, 404);
-      if (url.endsWith('/planning-adjustment-suggestions')) return response([]);
-      throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`);
-    }));
-    render(<TimeMachineDirectionEntry bookId="bk-old" />);
-    expect(await screen.findByText('本书有旧版规划记录，先保留旧视图。')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: '用新版全书方向' }));
-    switched = true;
-    expect(await screen.findByRole('heading', { name: '全书方向' })).toBeVisible();
   }, 20000);
 });
