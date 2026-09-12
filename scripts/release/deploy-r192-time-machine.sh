@@ -10,8 +10,8 @@ SHA=$2
 MODE=$3
 [[ $FIX =~ ^[a-f0-9]{8}$ && $SHA =~ ^[a-f0-9]{64}$ && $MODE =~ ^(stage|cutover)$ && $EUID == 0 ]] || exit 64
 
-BASE=wm-v7-20260912-233000-515fec5f
-NEW=wm-v7-20260913-030000-$FIX
+BASE=wm-v7-20260913-030000-55e98d3e
+NEW=wm-v7-20260913-050000-$FIX
 ROOT=/opt/wenmi-releases/$NEW
 SRC=$ROOT/source
 OLD=/opt/wenmi-releases/$BASE/source

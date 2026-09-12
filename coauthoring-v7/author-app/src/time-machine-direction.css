@@ -17,9 +17,31 @@
 .tmd-info { border: 1px solid var(--line); border-radius: 12px; padding: 10px 13px; color: var(--ink); background: var(--accent-soft); line-height: 1.6; }
 .tmd-note { margin: 0; color: var(--ink-faint); font-size: 13px; line-height: 1.65; }
 
-.tmd-recommend-head { display: flex; gap: 10px; align-items: flex-start; }
-.tmd-recommend-head > svg { width: 22px; height: 22px; color: var(--accent); flex: none; margin-top: 2px; }
+.tmd-recommend-head { display: flex; gap: 12px; align-items: flex-start; }
 .tmd-recommend-head p { margin: 0; line-height: 1.7; }
+.tmd-avatar { width: 58px; height: 58px; border-radius: 50%; flex: none; background-color: var(--accent-soft); background-repeat: no-repeat; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(31, 58, 47, 0.16); }
+.tmd-bubble { background: var(--panel-raised); border: 1px solid var(--line); border-radius: 4px 16px 16px 16px; padding: 10px 14px; }
+.tmd-bubble small { display: block; color: var(--accent); font-weight: 700; margin-bottom: 3px; }
+.tmd-bubble p { margin: 0; line-height: 1.7; font-size: 16px; font-weight: 600; }
+
+.tmd-questions h3 { font-size: 17px; }
+.tmd-shape-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tmd-shape-card { display: grid; grid-template-columns: auto 1fr; grid-template-areas: 'check title' 'check desc'; column-gap: 9px; align-items: start; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-raised); padding: 12px 14px; cursor: pointer; }
+.tmd-shape-card input { grid-area: check; width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); }
+.tmd-shape-card strong { grid-area: title; font-size: 15px; }
+.tmd-shape-card small { grid-area: desc; color: var(--ink-soft); line-height: 1.55; margin-top: 3px; }
+.tmd-shape-card.selected { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.tmd-ensemble { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: start; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-raised); padding: 12px 14px; cursor: pointer; }
+.tmd-ensemble input { width: 18px; height: 18px; margin-top: 3px; accent-color: var(--accent); }
+.tmd-ensemble strong { display: block; font-size: 15px; }
+.tmd-ensemble small { display: block; color: var(--ink-soft); line-height: 1.55; margin-top: 3px; }
+.tmd-ensemble.selected { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+
+.tmd-working { display: flex; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-raised); padding: 12px 14px; }
+.tmd-working strong { font-size: 15px; }
+.tmd-working p { margin: 2px 0 0; color: var(--ink-soft); line-height: 1.6; }
+.tmd-working button { margin-top: 8px; min-height: 38px; border: 1px solid var(--line-strong); border-radius: 11px; padding: 0 16px; background: var(--panel); color: var(--ink); font-weight: 700; }
+.tmd-working > svg { margin-left: auto; width: 20px; height: 20px; color: var(--accent); flex: none; }
 
 .tmd-line-grid { display: grid; gap: 10px; }
 .tmd-line-card { display: grid; grid-template-columns: auto auto; grid-template-areas: 'check role' 'check title' 'check desc'; column-gap: 10px; align-items: start; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-raised); padding: 12px 14px; cursor: pointer; }
@@ -128,4 +150,6 @@
   .tmd-plan-head { flex-direction: column; align-items: stretch; }
   .tmd-actions button { flex: 1; justify-content: center; }
   .tmd-line-card { grid-template-columns: auto 1fr; }
+  .tmd-shape-grid { grid-template-columns: 1fr; }
+  .tmd-avatar { width: 48px; height: 48px; }
 }

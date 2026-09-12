@@ -16,11 +16,22 @@ import {
   type TimeMachineVolumeView
 } from './time-machine-direction-api';
 import { AuthorApiError, fetchLatestPlanningRouteRun, fetchLatestPlanningTreeGeneration } from './opening-api';
+import { memberAvatarStyle } from './member-avatars';
 import { TimeMachinePage } from './TimeMachinePage';
 import './time-machine-direction.css';
 
 type EntryMode = 'detecting' | 'legacy' | 'v2';
 type Feedback = { tone: 'error' | 'info'; text: string } | null;
+
+const SHAPE_OPTIONS: { value: 'auto' | 'single' | 'multiple'; title: string; desc: string }[] = [
+  { value: 'auto', title: '由主编推荐', desc: '根据本书人物和想写的故事安排。' },
+  { value: 'single', title: '集中讲一个核心故事', desc: '围绕一个主要追求，其他故事推动它。' },
+  { value: 'multiple', title: '几个重要故事交织', desc: '多个目标相互影响，共同走向结局。' }
+];
+
+function shapeLabelText(shape: 'auto' | 'single' | 'multiple'): string {
+  return SHAPE_OPTIONS.find(option => option.value === shape)?.title ?? '由主编推荐';
+}
 
 function volumeLetter(index: number): string {
   let n = index + 1;
@@ -111,6 +122,8 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings, onBackToLegacy }: { 
   const [selectedScheme, setSelectedScheme] = useState<string | null>(null);
   const [selectedLineIds, setSelectedLineIds] = useState<string[]>([]);
   const [authorNote, setAuthorNote] = useState('');
+  const [shape, setShape] = useState<'auto' | 'single' | 'multiple'>('auto');
+  const [ensemble, setEnsemble] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<TimeMachinePlanView | null>(null);
   const recommendStarted = useRef(false);
@@ -196,7 +209,10 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings, onBackToLegacy }: { 
   const startDesign = () => {
     if (recommendation === null) return;
     const picked = recommendation.lines.filter(line => selectedLineIds.includes(line.id));
-    const intent = `选择的故事线：${picked.map(line => `${roleLabel(line.role)}·${line.title}`).join('；')}${authorNote.trim() ? `。作者补充：${authorNote.trim()}` : ''}${recommendation.structure === 'multiple' ? '。建议多线交织' : '。建议单主线推进'}`;
+    const structureHint = shape === 'auto'
+      ? (recommendation.structure === 'multiple' ? '（主编建议多线交织）' : '（主编建议单主线推进）')
+      : '';
+    const intent = `选择的故事线：${picked.map(line => `${roleLabel(line.role)}·${line.title}`).join('；')}${authorNote.trim() ? `。作者补充：${authorNote.trim()}` : ''}。故事展开方式：${shapeLabelText(shape)}${ensemble ? '；也希望配角拥有自己的完整故事' : ''}${structureHint}`;
     designKey.current = `design:${bookId}:${Date.now()}`;
     void runAction(() => startTimeMachineDesignRound(bookId, intent, designKey.current));
   };
@@ -288,11 +304,36 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings, onBackToLegacy }: { 
         </section>
       )}
 
+      {adopted === null && designRuns.length === 0 && (
+        <section className="tmd-panel tmd-questions">
+          <h3>你希望故事怎样展开？</h3>
+          <div className="tmd-shape-grid" role="radiogroup" aria-label="故事展开方式">
+            {SHAPE_OPTIONS.map(option => (
+              <label key={option.value} className={`tmd-shape-card${shape === option.value ? ' selected' : ''}`}>
+                <input type="radio" name="tmd-shape" checked={shape === option.value} onChange={() => setShape(option.value)} />
+                <strong>{option.title}</strong>
+                <small>{option.desc}</small>
+              </label>
+            ))}
+          </div>
+          <label className={`tmd-ensemble${ensemble ? ' selected' : ''}`}>
+            <input type="checkbox" checked={ensemble} onChange={event => setEnsemble(event.target.checked)} />
+            <span>
+              <strong>也希望配角拥有自己的完整故事</strong>
+              <small>让重要人物有自己的追求，他们的选择会影响全书。</small>
+            </span>
+          </label>
+        </section>
+      )}
+
       {recommendation !== null && adopted === null && designRuns.length === 0 && (
         <section className="tmd-panel">
           <div className="tmd-recommend-head">
-            <SparkleIcon weight="fill" />
-            <p>{recommendation.greeting}</p>
+            <span className="tmd-avatar" style={memberAvatarStyle(recommendRun?.member?.id ?? 'chief-deepseek-v4-pro')} aria-hidden="true" />
+            <div className="tmd-bubble">
+              <small>貂蝉 · 主编</small>
+              <p>{recommendation.greeting}</p>
+            </div>
           </div>
           <div className="tmd-line-grid">
             {recommendation.lines.map(line => (
@@ -322,7 +363,17 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings, onBackToLegacy }: { 
       {(roundRuns.length > 0 || recommendRun !== null) && adopted === null && (recommendBusy || recommendRun?.state === 'failed' || roundRuns.length > 0) && (
         <section className="tmd-panel">
           <h3>设计进度</h3>
-          {recommendRun !== null && (recommendBusy || recommendRun.state === 'failed') && <RunRow run={recommendRun} spinning={recommendBusy} onRetry={retryRun} />}
+          {recommendRun !== null && (recommendBusy || recommendRun.state === 'failed') && (
+            <div className="tmd-working">
+              <span className="tmd-avatar" style={memberAvatarStyle(recommendRun.member?.id ?? 'chief-deepseek-v4-pro')} aria-hidden="true" />
+              <div>
+                <strong>{recommendRun.member !== null ? `${recommendRun.member.name} · 编辑部` : '编辑部'}</strong>
+                <p>{recommendRun.progress}{recommendBusy ? '……' : ''}</p>
+                {recommendRun.state === 'failed' && <button type="button" onClick={() => retryRun(recommendRun.id)}>续做</button>}
+              </div>
+              {recommendBusy && <ClockCounterClockwiseIcon className="spin" />}
+            </div>
+          )}
           {roundRuns.length > 0 && (
             <div className="tmd-scheme-grid">
               {['A', 'B', 'C'].map(scheme => {
@@ -370,16 +421,6 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings, onBackToLegacy }: { 
             : <PlanDetail plan={selectedResult.plan} numbering={null} />}
         </section>
       )}
-    </div>
-  );
-}
-
-function RunRow({ run, spinning, onRetry }: { run: TimeMachineRunView; spinning: boolean; onRetry: (id: string) => void }) {
-  return (
-    <div className="tmd-run-row">
-      {spinning && <ClockCounterClockwiseIcon className="spin" />}
-      <span>{run.member !== null ? `${run.member.name} ` : ''}{run.progress}</span>
-      {run.state === 'failed' && <button type="button" onClick={() => onRetry(run.id)}>续做</button>}
     </div>
   );
 }

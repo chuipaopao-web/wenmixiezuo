@@ -76,11 +76,12 @@ describe('time machine direction page', () => {
     let state = stateFixture({ runs: [] });
     let posted = { recommend: 0, design: 0 };
     let designStarted = false;
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    let designIntent = '';
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/api/time-machine/books/bk-1/state')) return response(state);
       if (url.endsWith('/recommendation-runs') && url.includes('/api/time-machine/')) { posted.recommend += 1; state = stateFixture({ runs: [recommendRun('succeeded')] }); return response({ id: 'rec-1', state: 'succeeded' }); }
-      if (url.endsWith('/design-runs')) { posted.design += 1; designStarted = true; state = stateFixture({ runs: [recommendRun('succeeded'), designRun('A', 'working', '红玉', 'x'), designRun('B', 'working', '幼薇', 'x'), designRun('C', 'working', '苏映棠', 'x')] }); return response({ runs: [{ id: 'design-A', scheme: 'A', state: 'queued' }, { id: 'design-B', scheme: 'B', state: 'queued' }, { id: 'design-C', scheme: 'C', state: 'queued' }] }); }
+      if (url.endsWith('/design-runs')) { posted.design += 1; designStarted = true; designIntent = typeof init?.body === 'string' ? ((JSON.parse(init.body) as { intent?: string }).intent ?? '') : ''; state = stateFixture({ runs: [recommendRun('succeeded'), designRun('A', 'working', '红玉', 'x'), designRun('B', 'working', '幼薇', 'x'), designRun('C', 'working', '苏映棠', 'x')] }); return response({ runs: [{ id: 'design-A', scheme: 'A', state: 'queued' }, { id: 'design-B', scheme: 'B', state: 'queued' }, { id: 'design-C', scheme: 'C', state: 'queued' }] }); }
       if (url.endsWith('/planning-routes/latest')) return response(null);
       if (url.endsWith('/generation-runs/latest')) return response(null);
       throw new Error(`Unexpected request: ${url}`);
@@ -90,8 +91,13 @@ describe('time machine direction page', () => {
     expect(await screen.findByText('老板，我们现在设计全书骨架。')).toBeVisible();
     expect(screen.getByText(/成长线/)).toBeVisible();
     expect(screen.getByText(/机甲伙伴线/)).toBeVisible();
+    expect(screen.getByText('你希望故事怎样展开？')).toBeVisible();
+    fireEvent.click(screen.getByRole('radio', { name: /集中讲一个核心故事/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /也希望配角拥有自己的完整故事/ }));
     fireEvent.click(screen.getByRole('button', { name: '开始设计（三位编剧各出一套方案）' }));
     await waitFor(() => { expect(posted.design).toBe(1); });
+    expect(designIntent).toContain('故事展开方式：集中讲一个核心故事');
+    expect(designIntent).toContain('也希望配角拥有自己的完整故事');
     expect(await screen.findByText('方案A')).toBeVisible();
     expect(screen.getByText('方案B')).toBeVisible();
     expect(screen.getByText('方案C')).toBeVisible();
