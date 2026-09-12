@@ -13,6 +13,15 @@ function stateLabel(state: string): string {
   return '已完成';
 }
 
+/** 运行耗时：完成/失败取创建到最终状态；进行中取到目前为止，方便对比每位成员的速度。 */
+function formatDuration(createdAt: string, updatedAt: string, state: string): string {
+  const end = state === 'succeeded' || state === 'failed' ? Date.parse(updatedAt) : Date.now();
+  const seconds = Math.max(0, Math.round((end - Date.parse(createdAt)) / 1000));
+  if (!Number.isFinite(seconds)) return '—';
+  if (seconds < 60) return `${seconds}秒`;
+  return `${Math.floor(seconds / 60)}分${seconds % 60}秒`;
+}
+
 /** 后台时光机：唯一规格同源阅读 + 运行状态/用量，只读脱敏，不在此改配置。 */
 export function TimeMachineOpsPage(): React.JSX.Element {
   const [runs, setRuns] = useState<TimeMachineAdminRun[] | null>(null);
@@ -50,7 +59,7 @@ export function TimeMachineOpsPage(): React.JSX.Element {
       {loadFailed && <p role="status">运行状态暂时读取失败，稍后自动重试。</p>}
       {runs !== null && runs.length === 0 && !loadFailed && <p role="status">还没有时光机运行记录。</p>}
       {runs !== null && runs.length > 0 && <div className="workflow-table"><table>
-        <thead><tr><th scope="col">书籍</th><th scope="col">轮次/方案</th><th scope="col">编剧</th><th scope="col">状态</th><th scope="col">阶段</th><th scope="col">修订</th><th scope="col">调用</th><th scope="col">用量</th><th scope="col">更新</th></tr></thead>
+        <thead><tr><th scope="col">书籍</th><th scope="col">轮次/方案</th><th scope="col">编剧</th><th scope="col">状态</th><th scope="col">阶段</th><th scope="col">修订</th><th scope="col">耗时</th><th scope="col">调用</th><th scope="col">用量</th><th scope="col">上下文</th><th scope="col">更新</th></tr></thead>
         <tbody>{runs.map(run => <tr key={run.id}>
           <td>{run.bookTitle ?? run.bookId}{run.kind === 'recommend' ? '（推荐）' : ''}</td>
           <td>{run.roundKey !== null ? `${run.roundKey}${run.scheme !== null ? ' · 方案' + run.scheme : ''}` : '—'}</td>
@@ -58,8 +67,10 @@ export function TimeMachineOpsPage(): React.JSX.Element {
           <td>{stateLabel(run.state)}{run.errorCode !== null ? `（${run.errorCode}）` : ''}</td>
           <td>{run.phase === 'queued' ? '等待成员接手' : run.phase}</td>
           <td>{run.revision !== null ? `第${run.revision}版${run.editedBy === 'author' ? '·作者修改' : ''}${run.reviewPass === false ? '·待核对' : ''}` : '—'}</td>
+          <td>{formatDuration(run.createdAt, run.updatedAt, run.state)}</td>
           <td>{run.calls}{run.failedCalls > 0 ? `（失败${run.failedCalls}）` : ''}</td>
           <td>{run.tokens > 0 ? `${Math.round(run.tokens / 1000)}k` : '—'}</td>
+          <td>{run.maxPromptChars !== null ? `${(run.maxPromptChars / 10000).toFixed(1)}万字${run.maxPromptChars > 15000 ? '·超线' : ''}` : '—'}</td>
           <td>{run.updatedAt}</td>
         </tr>)}</tbody>
       </table></div>}

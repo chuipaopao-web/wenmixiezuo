@@ -116,7 +116,7 @@ describe('向前迁移器', () => {
         '0110_account_usage_purge_archive.sql',
         '0111_opening_creative_profile.sql', '0112_book_design_cards.sql', '0113_method_agent_audit.sql',
          '0114_time_machine_core.sql', '0115_time_machine_execution.sql', '0116_time_machine_model_calls.sql', '0117_time_machine_design_runs.sql',
-         '0118_time_machine_design_schemes.sql'
+         '0118_time_machine_design_schemes.sql', '0119_time_machine_prompt_metrics.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(database.prepare(`SELECT name,"notnull" AS required,dflt_value AS defaultValue

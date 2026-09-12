@@ -12,7 +12,8 @@ function output(prompt:string):unknown{
  if(prompt.includes('你是主编，推荐'))return {greeting:'老板，我们现在设计全书骨架',lines:[{id:'growth',role:'main',title:'成长线',description:'林舟建立工坊',recommended:true}],structure:'single',reason:'聚焦修理工成长'};
  if(prompt.includes('设计全书骨架。只设计'))return {structure:'四幕起承转合：起于危机、承于扩张、转于公开冲突、合于公平生存',baseline:'轻快成长',ending:'建立工坊',openingHooks:['开头钩子','第一章钩子','前三章钩子'],words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'},lines:[{id:'main',role:'main',title:'工坊',goal:'立足',answer:'建立工坊',process:'从修理接单到建立工坊',parentIds:[],milestones:[{id:'ms1',summary:'第一台自装机甲完成',suggestedVolumes:['v1'],importance:'flexible'}]}],expectations:[{id:'promise',opening:'无灵根能否立足',change:'看到变化',answer:'以机甲立足',lineIds:['main']}],relations:[],volumeBriefs:[{id:'v1',title:'开张',goal:'建立工坊',words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'}}]};
  if(prompt.includes('补全本批卷卡'))return {volumes:[{id:'v1',title:'开张',start:'濒临倒闭',goal:'完成订单',conflict:'封锁',beat:'起',turningPoint:'机甲完成',gain:'伙伴',loss:null,arc:null,payoff:null,hook:null,mood:null,ending:'工坊建立',handoff:'',words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'},anchors:[{id:'v1-in',ownerEntityId:'v1',kind:'entry',summary:'店铺濒临倒闭',span:'本卷开篇',conditions:[{summary:'订单危机已经成立',subjectIds:['main']}],logic:'all',importance:'required',fallback:'未达成需修订开场',keywords:[],aliases:[]},{id:'v1-out',ownerEntityId:'v1',kind:'exit',summary:'订单交付工坊立足',span:'本卷收束',conditions:[{summary:'订单交付完成',subjectIds:['main']}],logic:'all',importance:'required',fallback:'全书结束，未兑现期待单独跟踪',keywords:[],aliases:[]}],duties:[{lineId:'main',action:'close',result:'工坊建立',anchorIds:['v1-out'],strength:'required',reason:'主线起点'}]}]};
- if(prompt.includes('自检你刚完成'))return {pass:true,issues:[]};
+ if(prompt.includes('自检你刚完成')||prompt.includes('自检候选锚点'))return {pass:true,issues:[]};
+ if(prompt.includes('核对候选锚点'))return {pass:true,issues:[],suggestions:[]};
  if(prompt.includes('核对候选骨架'))return {action:'verdict',pass:true,issues:[],suggestions:[]};
  return {fields:{premise:[{text:'修理工建立工坊',sourceKeys:['opening:opening:1']}],protagonists:[{text:'林舟',sourceKeys:['opening:opening:1']}],world:[],openingEnding:[],preferences:[],prohibitions:[]}};
 }
@@ -94,5 +95,39 @@ describe('new time machine orchestration with real persistence and simulated mod
   }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','成长线','chief-read');await service.process(id);
   expect(seen).toHaveLength(2);expect(seen[1]).toContain('已读片段');expect(seen[1]).toContain('key');
   expect(service.state(scope).find(r=>r.id===id)).toMatchObject({state:'succeeded',result:{review:{pass:true}}});
+ });
+ it('keeps every design call within the 15000-char context red line for a ten-volume epic',async()=>{
+  const c2=createTestContext();contexts.push(c2);
+  c2.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run('owner-red-line','测试作者','2026-09-10','2026-09-10');
+  new BookRepository(c2.database).create({ownerId:'owner-red-line',bookId:'tm-book-big'},'十卷大部头','2026-09-10','active');
+  c2.database.prepare("INSERT INTO book_opening_blueprints VALUES('opening2',?,?,1,'v1','male','fantasy','玄幻',?,?,'active','2026-09-10')").run('owner-red-line','tm-book-big',JSON.stringify({protagonists:['林舟'],storyDirection:'无灵根修理工建立工坊'}),'b'.repeat(64));
+  const bigScope={ownerId:'owner-red-line',bookId:'tm-book-big'};
+  const prose='低语在铁轨尽头铺开，每一个字都带着锈与尘的重量，仿佛整座城的命运压在少年肩上，而他不肯低头。'.repeat(4);
+  const volumeCard=(n:number)=>({id:`v${n}`,title:`第${n}卷·试炼`,beat:`第${Math.ceil(n/3)}幕·位置${n}`,start:prose,goal:prose,conflict:prose,turningPoint:prose,gain:'工坊壮大',loss:'伙伴负伤',arc:prose,payoff:prose,hook:prose,mood:prose,ending:'封锁破开一道缝',handoff:n<10?`第${n+1}卷的敌人是谁？`:'',words:{target:100000,min:null,max:null,hard:false,policy:'chars-v1'},
+   anchors:['in','out'].map(kind=>({id:`v${n}-${kind}`,ownerEntityId:`v${n}`,kind:kind==='in'?'entry':'exit',summary:`第${n}卷${kind==='in'?'开场危机':'收束兑现'}`,span:kind==='in'?'本卷开篇':'本卷收束',conditions:[{summary:`第${n}卷${kind}条件已按正文成立`,subjectIds:['main']}],logic:'all',importance:'required',fallback:'未达成则以一场过渡戏补齐后再进下一卷',keywords:['机甲','工坊'],aliases:[]})),
+   duties:[{lineId:'main',action:'advance',result:prose,anchorIds:[`v${n}-out`],strength:'required',reason:'主线推进'}]});
+  const dispatched:string[]=[];const svcGateway=new TimeMachineModelGateway(c2.database,(provider,modelId)=>({provider,modelId,async generate(request){
+   dispatched.push(request.prompt);
+   let value=output(request.prompt);
+   if(request.prompt.includes('设计全书骨架。只设计')){
+    const base=output(request.prompt) as Record<string,unknown>;
+    value={...base,words:{target:1000000,min:null,max:null,hard:false,policy:'chars-v1'},
+     volumeBriefs:Array.from({length:10},(_,i)=>({id:`v${i+1}`,title:`第${i+1}卷·试炼`,beat:`第${Math.ceil((i+1)/3)}幕·位置${i+1}`,goal:prose,words:{target:100000,min:null,max:null,hard:false,policy:'chars-v1'}})),
+     lines:[{id:'main',role:'main',title:'工坊',goal:prose,answer:prose,process:prose,parentIds:[],milestones:[{id:'ms1',summary:prose,suggestedVolumes:['v1','v2','v3','v4','v5','v6','v7','v8','v9','v10'],importance:'flexible'}]}],
+     expectations:[{id:'promise',opening:prose,change:prose,answer:prose,lineIds:['main']}],relations:[]};
+   }
+   if(request.prompt.includes('补全本批卷卡')){
+    const ids=(JSON.parse(request.prompt.split('\n本批：')[1]!.split('\n')[0]!) as {id:string}[]).map(x=>x.id);
+    value={volumes:ids.map(id=>volumeCard(Number(id.slice(1))))};
+   }
+   return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
+  }}));
+  const service=new TimeMachineDesignService(c2.database,svcGateway,64000);const id=service.start(bigScope,'design','成长线','red-line');await service.process(id);
+  expect(service.state(bigScope).find(r=>r.id===id)).toMatchObject({state:'succeeded'});
+  expect(dispatched.length).toBeGreaterThan(5);
+  const oversize=dispatched.map((p,i)=>({i,chars:p.length})).filter(x=>x.chars>15000);
+  expect(oversize).toEqual([]);
+  const recorded=c2.database.prepare('SELECT MAX(prompt_chars) AS m, COUNT(*) AS n FROM tm2_model_calls WHERE prompt_chars IS NOT NULL').get() as {m:number;n:number};
+  expect(recorded.n).toBe(dispatched.length);expect(recorded.m).toBeLessThanOrEqual(15000);
  });
 });

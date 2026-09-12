@@ -17,7 +17,7 @@ describe('admin time machine runs endpoint',()=>{
    .run('run-b',ownerId,scope.bookId,'design','k2','h2',JSON.stringify(snapshot),'failed','B','round-1','temporary',now,now);
   c.database.prepare("INSERT INTO tm2_steps(owner,book,id,input_hash,member,state) VALUES(?,?,?,?,?,'succeeded')").run(ownerId,scope.bookId,'run-a:review-source:0','x','writer-a');
   c.database.prepare("INSERT INTO tm2_attempts(id,owner,book,step,state,started_at) VALUES(?,?,?,?,'succeeded',?)").run('att-1',ownerId,scope.bookId,'run-a:review-source:0',Date.now());
-  c.database.prepare("INSERT INTO tm2_model_calls(id,owner_id,book_id,member_id,provider,model_id,request_hash,state,reserved_tokens,input_tokens,output_tokens,started_at) VALUES(?,?,?,?,?,?,?,'succeeded',100,60,40,'2026-09-11')")
+  c.database.prepare("INSERT INTO tm2_model_calls(id,owner_id,book_id,member_id,provider,model_id,request_hash,state,reserved_tokens,prompt_chars,input_tokens,output_tokens,started_at) VALUES(?,?,?,?,?,?,?,'succeeded',100,12000,60,40,'2026-09-11')")
    .run('att-1',ownerId,scope.bookId,'writer-a','volcengine-ark-coding-plan','deepseek-v4-pro','abc');
   c.database.prepare("INSERT INTO tm2_steps(owner,book,id,input_hash,member,state,error_code) VALUES(?,?,?,?,?,'failed','temporary')").run(ownerId,scope.bookId,'run-b:volumes:0','y','writer-b');
   c.database.prepare("INSERT INTO tm2_attempts(id,owner,book,step,state,started_at) VALUES(?,?,?,?,'failed',?)").run('att-2',ownerId,scope.bookId,'run-b:volumes:0',Date.now());
@@ -37,9 +37,9 @@ describe('admin time machine runs endpoint',()=>{
    expect((await app.inject({url:'/api/v1/admin/time-machine/runs',headers:{...headers,cookie:userCookie}})).statusCode).toBe(403);
    const response=await app.inject({url:'/api/v1/admin/time-machine/runs',headers:{...headers,cookie:adminCookie}});
    expect(response.statusCode).toBe(200);
-   const data=response.json().data as {runs:{id:string;state:string;scheme:string|null;roundKey:string|null;writer:string|null;revision:number|null;reviewPass:boolean|null;editedBy:string|null;errorCode:string|null;calls:number;tokens:number;failedCalls:number;bookTitle:string|null}[];totals:{calls:number}};
+   const data=response.json().data as {runs:{id:string;state:string;scheme:string|null;roundKey:string|null;writer:string|null;revision:number|null;reviewPass:boolean|null;editedBy:string|null;errorCode:string|null;calls:number;tokens:number;failedCalls:number;maxPromptChars:number|null;bookTitle:string|null;createdAt:string;updatedAt:string}[];totals:{calls:number}};
    const runA=data.runs.find(run=>run.id==='run-a')!;
-   expect(runA).toMatchObject({state:'succeeded',scheme:'A',roundKey:'round-1',writer:'红玉',revision:2,reviewPass:true,editedBy:'author',calls:1,tokens:100,failedCalls:0,bookTitle:'机甲会修仙'});
+   expect(runA).toMatchObject({state:'succeeded',scheme:'A',roundKey:'round-1',writer:'红玉',revision:2,reviewPass:true,editedBy:'author',calls:1,tokens:100,failedCalls:0,maxPromptChars:12000,bookTitle:'机甲会修仙'});
    const runB=data.runs.find(run=>run.id==='run-b')!;
    expect(runB).toMatchObject({state:'failed',errorCode:'temporary',calls:1,tokens:0,failedCalls:1});
    expect(data.totals.calls).toBe(2);

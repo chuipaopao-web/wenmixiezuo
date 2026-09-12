@@ -46,28 +46,29 @@ export async function registerV7AdminConsoleRoutes(app: FastifyInstance, databas
       created_at: string; updated_at: string; result_json: string | null;
       writer_name: string | null; book_title: string | null;
     }>;
-    const usageByRun = new Map<string, { calls: number; tokens: number; failedCalls: number }>();
+    const usageByRun = new Map<string, { calls: number; tokens: number; failedCalls: number; maxPromptChars: number | null }>();
     for (const row of database.prepare(`
-      SELECT a.step AS step, c.state AS state,
+      SELECT a.step AS step, c.state AS state, c.prompt_chars AS promptChars,
              CASE WHEN c.input_tokens IS NOT NULL AND c.output_tokens IS NOT NULL THEN c.input_tokens + c.output_tokens ELSE 0 END AS tokens
       FROM tm2_model_calls c JOIN tm2_attempts a ON a.id = c.id
-    `).all() as unknown as Array<{ step: string; state: string; tokens: number }>) {
+    `).all() as unknown as Array<{ step: string; state: string; tokens: number; promptChars: number | null }>) {
       const runId = row.step.includes(':') ? row.step.slice(0, row.step.indexOf(':')) : null;
       if (runId === null) continue;
-      const entry = usageByRun.get(runId) ?? { calls: 0, tokens: 0, failedCalls: 0 };
+      const entry = usageByRun.get(runId) ?? { calls: 0, tokens: 0, failedCalls: 0, maxPromptChars: null };
       entry.calls += 1; entry.tokens += row.tokens;
       if (row.state === 'failed') entry.failedCalls += 1;
+      if (row.promptChars !== null && (entry.maxPromptChars === null || row.promptChars > entry.maxPromptChars)) entry.maxPromptChars = row.promptChars;
       usageByRun.set(runId, entry);
     }
     const runs = rows.map(row => {
       const result = row.result_json !== null ? JSON.parse(row.result_json) as { revision?: number; review?: { pass?: boolean }; editedBy?: string } : null;
-      const usage = usageByRun.get(row.id) ?? { calls: 0, tokens: 0, failedCalls: 0 };
+      const usage = usageByRun.get(row.id) ?? { calls: 0, tokens: 0, failedCalls: 0, maxPromptChars: null };
       return {
         id: row.id, ownerId: row.owner_id, bookId: row.book_id, bookTitle: row.book_title,
         kind: row.kind, scheme: row.scheme !== null && row.scheme !== '' ? row.scheme : null, roundKey: row.round_key !== null && row.round_key !== '' ? row.round_key : null,
         state: row.state, phase: row.phase, errorCode: row.error_code, updatedAt: row.updated_at, createdAt: row.created_at,
         writer: row.writer_name, revision: result?.revision ?? null, reviewPass: result?.review?.pass ?? null, editedBy: result?.editedBy ?? null,
-        calls: usage.calls, tokens: usage.tokens, failedCalls: usage.failedCalls
+        calls: usage.calls, tokens: usage.tokens, failedCalls: usage.failedCalls, maxPromptChars: usage.maxPromptChars
       };
     });
     return success({ runs, totals: { calls: runs.reduce((sum, run) => sum + run.calls, 0), tokens: runs.reduce((sum, run) => sum + run.tokens, 0) } }, request.id);

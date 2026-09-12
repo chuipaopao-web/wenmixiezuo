@@ -10,13 +10,13 @@ SHA=$2
 MODE=$3
 [[ $FIX =~ ^[a-f0-9]{8}$ && $SHA =~ ^[a-f0-9]{64}$ && $MODE =~ ^(stage|cutover)$ && $EUID == 0 ]] || exit 64
 
-BASE=wm-v7-20260910-011000-635a6ed3
-NEW=wm-v7-20260912-180500-$FIX
+BASE=wm-v7-20260912-180500-199472df
+NEW=wm-v7-20260912-233000-$FIX
 ROOT=/opt/wenmi-releases/$NEW
 SRC=$ROOT/source
 OLD=/opt/wenmi-releases/$BASE/source
 DB=/opt/wenmi/data/database/wenmi.sqlite
-STATIC_OLD=/opt/wenmi/releases/versions/c25b6a3fa0efcf59ce23
+STATIC_OLD=/opt/wenmi/releases/versions/b4ef37cfe6075e0d3436
 ARCHIVE=/tmp/r192-$FIX.tar.gz
 PLAN_TARGET=/opt/wenmi/docs/REBUILD_EXECUTION_PLAN.md
 ENV_FILE=/opt/wenmi/deploy/.env.production
@@ -117,10 +117,11 @@ migrate_driver() {
 }
 verify_tm2_schema() {
   local target_db=$1
-  local tables cols
+  local tables cols promptcol
   tables=$(sudo -u wenmi sqlite3 -readonly "$target_db" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('tm2_books','tm2_candidates','tm2_steps','tm2_attempts','tm2_model_calls','tm2_design_runs','tm2_outbox','tm2_numbers','tm2_adoptions','tm2_reviews','tm2_operations','tm2_consumptions','tm2_context_cards');")
   cols=$(sudo -u wenmi sqlite3 -readonly "$target_db" "SELECT COUNT(*) FROM pragma_table_info('tm2_design_runs') WHERE name IN ('scheme','round_key');")
-  if [[ $tables != 13 || $cols != 2 ]]; then echo "tm2 schema check failed tables=$tables cols=$cols" >&2; exit 70; fi
+  promptcol=$(sudo -u wenmi sqlite3 -readonly "$target_db" "SELECT COUNT(*) FROM pragma_table_info('tm2_model_calls') WHERE name='prompt_chars';")
+  if [[ $tables != 13 || $cols != 2 || $promptcol != 1 ]]; then echo "tm2 schema check failed tables=$tables cols=$cols promptcol=$promptcol" >&2; exit 70; fi
 }
 
 if [[ $MODE == stage ]]; then
@@ -145,7 +146,7 @@ with tarfile.open(archive) as t:
 PY
   printf '%s\n' "$NEW" >"$SRC/RELEASE_ID"
   [[ -f "$SRC/docs/REBUILD_EXECUTION_PLAN.md" ]]
-  for m in 0114_time_machine_core 0115_time_machine_execution 0116_time_machine_model_calls 0117_time_machine_design_runs 0118_time_machine_design_schemes; do
+  for m in 0114_time_machine_core 0115_time_machine_execution 0116_time_machine_model_calls 0117_time_machine_design_runs 0118_time_machine_design_schemes 0119_time_machine_prompt_metrics; do
     [[ -f "$SRC/apps/api/src/infrastructure/db/migrations/$m.sql" ]]
   done
   [[ -f "$SRC/scripts/release/r119-active-count.py" && -f "$SRC/scripts/release/r192-migrate-driver.mjs" ]]

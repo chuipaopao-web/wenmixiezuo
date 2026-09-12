@@ -8,6 +8,8 @@ export interface TimeMachineCall {
  scope:Scope; id:string; memberId:string; provider:string; modelId:string;
  prompt:string; maxOutputTokens:number; windowTokens:number; temperature:number;
 }
+/** 老板红线（2026-09-12）：设计成员单次收到的上下文（提示词）不得超过1.5万字；超限必须拆批或压缩，不得截断关键条件。 */
+export const TIME_MACHINE_PROMPT_CHAR_LIMIT = 15_000;
 export class TimeMachineCallError extends Error {
  constructor(public readonly kind:'unknown'|'authentication'|'temporary'|'budget'|'truncated'|'invalid',message:string,public readonly diagnosticCode?:string){super(message);}
 }
@@ -19,6 +21,7 @@ export class TimeMachineModelGateway {
  async generate(request:TimeMachineCall):Promise<string>{
   parseScope(request.scope);
   if(!request.id.trim()||!request.memberId.trim()||!request.prompt.trim()||!Number.isSafeInteger(request.windowTokens)||request.windowTokens<=0||!Number.isSafeInteger(request.maxOutputTokens)||request.maxOutputTokens<=0||!Number.isFinite(request.temperature)||request.temperature<0||request.temperature>2)throw new TimeMachineCallError('invalid','调用配置不完整');
+  if(request.prompt.length>TIME_MACHINE_PROMPT_CHAR_LIMIT)throw new TimeMachineCallError('budget',`本次上下文${request.prompt.length}字符，超过1.5万字红线，需拆批或压缩后重试`);
   // Conservative UTF-8 bound is explicitly not a tokenizer. Include transport/reasoning allowance.
   const reasoning=thinkingTokenAllowance(request.modelId,'structured_planning',request.maxOutputTokens,request.prompt.length);
   const reserved=Buffer.byteLength(request.prompt,'utf8')+request.maxOutputTokens+reasoning+2048;
@@ -36,7 +39,7 @@ export class TimeMachineModelGateway {
    const book=this.db.prepare("SELECT 1 FROM books WHERE owner_id=? AND book_id=? AND status<>'archived'").get(request.scope.ownerId,request.scope.bookId);
    if(!book)throw new TimeMachineCallError('invalid','书籍不可访问');
    assertMembershipAllowsGeneration(this.db,request.scope.ownerId,new Date().toISOString(),reserved);
-   this.db.prepare("INSERT INTO tm2_model_calls(id,owner_id,book_id,member_id,provider,model_id,request_hash,state,reserved_tokens,started_at) VALUES(?,?,?,?,?,?,?,'working',?,?)").run(request.id,request.scope.ownerId,request.scope.bookId,request.memberId,request.provider,request.modelId,hash,reserved,new Date().toISOString());
+   this.db.prepare("INSERT INTO tm2_model_calls(id,owner_id,book_id,member_id,provider,model_id,request_hash,state,reserved_tokens,prompt_chars,started_at) VALUES(?,?,?,?,?,?,?,'working',?,?,?)").run(request.id,request.scope.ownerId,request.scope.bookId,request.memberId,request.provider,request.modelId,hash,reserved,request.prompt.length,new Date().toISOString());
    this.db.exec('COMMIT');
   }catch(error){if(this.db.isTransaction)this.db.exec('ROLLBACK');throw error;}
   let dispatched=false;
