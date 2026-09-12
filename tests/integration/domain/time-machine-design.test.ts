@@ -42,15 +42,16 @@ describe('new time machine orchestration with real persistence and simulated mod
  it('uses one preparation and one audit for modest material, then reuses it for recommendation and baseline',async()=>{
   const {c,scope}=setup();
   c.database.prepare('UPDATE book_opening_blueprints SET blueprint_json=? WHERE owner_id=? AND book_id=?').run(JSON.stringify({protagonists:['林舟'],storyDirection:'无灵根修理工建立工坊',background:'世'.repeat(3500)}),scope.ownerId,scope.bookId);
-  const prompts:string[]=[];
+  const prompts:string[]=[];const outputBudgets:number[]=[];
   const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
-   prompts.push(request.prompt);
+   prompts.push(request.prompt);outputBudgets.push(request.maxOutputTokens);
    return {provider,modelId,output:JSON.stringify(output(request.prompt)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
   }}));
   const service=new TimeMachineDesignService(c.database,gateway,64000);
   const first=service.start(scope,'recommend','','compact-first');await service.process(first);
   expect(service.state(scope).find(r=>r.id===first)?.state).toBe('succeeded');
   expect(prompts).toHaveLength(3);expect(prompts[0]).toContain('输出前自行核对');expect(prompts[1]).toContain('核对短卡是否');expect(prompts[2]).not.toContain('sourceKeys');
+  expect(outputBudgets[0]).toBe(5000);
   const saved=c.database.prepare('SELECT fields_json FROM tm2_context_cards').get()!;expect(String(saved.fields_json)).toContain('opening:opening:1');
   prompts.length=0;await service.process(service.start(scope,'recommend','增加伙伴关系','compact-repeat'));
   expect(prompts).toHaveLength(1);

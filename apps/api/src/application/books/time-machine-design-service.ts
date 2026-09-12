@@ -143,7 +143,9 @@ export class TimeMachineDesignService {
   // v2卷卡含锚点/字数/职责，2M字书16卷实测单轮超32万token；上调为可调初值（第22.4节）。
   if(spent.calls>=120||spent.tokens+snapshot.windowTokens>520000){this.steps.fail(scope,stepId,claim.attemptId,'budget',Date.now());throw new TimeMachineCallError('budget','本轮成员预算已用完，已保存进度');}
   // v2卷卡含锚点/字数/职责理由，DeepSeek结构化规划思考常超6k；8k可见输出+4k思考余量避免推理耗尽max_tokens后零可见文字。
-  const maxOutputTokens=node.startsWith('methods:')||node.startsWith('skeleton')||node.startsWith('volumes:')||node.startsWith('review')||node.startsWith('self')?8000:node.startsWith('card:')||node.startsWith('merge:')||node==='card-finalize'?6000:3000;
+  // 资料提取/合并是封闭的证据任务，5000走既有结构化直出策略；6000会开启额外思考，
+  // 生产曾两次耗尽10000输出token而没有可提交短卡。创造性设计仍使用原预算。
+  const maxOutputTokens=node.startsWith('methods:')||node.startsWith('skeleton')||node.startsWith('volumes:')||node.startsWith('review')||node.startsWith('self')?8000:node.startsWith('card:')||node.startsWith('merge:')||node==='card-finalize'?5000:3000;
   // 第22.4节：同一暂时性错误最多2次自动重试；预算/未知/格式错误不自动重发。
   for(let autoRetry=0;;autoRetry++){
    try{const output=await this.gateway.generate({scope,id:claim.attemptId,memberId:member.memberKey,provider:member.model.provider,modelId:member.model.modelId,prompt,maxOutputTokens,windowTokens:snapshot.windowTokens,temperature:0.6});this.steps.finish(scope,stepId,claim.attemptId,output,Date.now());return output;}
