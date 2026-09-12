@@ -208,6 +208,9 @@
   }
 }
 .welcome-opening { max-width: 1100px; margin: 0 auto; }
+.welcome-opening .idea-card { margin-top: 20px; padding: clamp(16px, 2.4vw, 28px); }
+.welcome-opening .idea-card textarea { min-height: 116px; padding: 12px 14px; }
+.welcome-opening .idea-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; }
 .opening-welcome { display:flex; align-items:center; gap:32px; padding:24px 16px 32px; }
 .welcome-chief-portrait { width:172px; height:172px; flex:none; object-fit:cover; object-position:center 32%; border-radius:50%; border:6px solid white; box-shadow:0 12px 32px #284c4020; }
 .opening-welcome h2 { font-size:clamp(28px,4vw,42px); margin:6px 0 12px; }

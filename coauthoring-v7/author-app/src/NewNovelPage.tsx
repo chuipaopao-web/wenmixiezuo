@@ -387,7 +387,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   const [initial] = useState(() => readSnapshot(entryMode, account.userId));
   const [idea, setIdea] = useState(initial.idea);
   const [creativeProfile, setCreativeProfile] = useState(() => normalizeCreativeProfile(initial.creativeProfile));
-  const [ideaConfirmed, setIdeaConfirmed] = useState(false);
+  const [draftSaveFailed, setDraftSaveFailed] = useState(false);
   const [mode, setMode] = useState<OpeningDraftSnapshot['mode']>(initial.mode);
   const [publishingPlatform, setPublishingPlatform] = useState<OpeningPublishingPlatform>(initial.publishingPlatform);
   const [taskId, setTaskId] = useState<string | null>(initial.taskId);
@@ -468,7 +468,9 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
         openingSubmitAction,
         manualConfirmAction
       } satisfies OpeningDraftSnapshot));
+      setDraftSaveFailed(false);
     } catch {
+      setDraftSaveFailed(true);
       // 浏览器拒绝本地存储时仍保留当前内存输入；提交失败会继续显示原位恢复提示。
     }
   }, [creativeProfile, adjustmentNote, baseCandidateId, draftStorageKey, idea, manualConfirmAction, manualStep, mode, openingPackage, openingSubmitAction, publishingPlatform, selectedDesignerMemberKey, taskId]);
@@ -506,7 +508,6 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     loadedCandidateRef.current = null;
     setIdea('');
     setCreativeProfile(normalizeCreativeProfile());
-    setIdeaConfirmed(false);
     setMode('idea');
     setTaskId(null);
     setTask(null);
@@ -819,7 +820,6 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
       loadedCandidateRef.current = null;
       setIdea('');
     setCreativeProfile(normalizeCreativeProfile());
-    setIdeaConfirmed(false);
       setMode('manual');
       setTaskId(null);
       setTask(null);
@@ -893,8 +893,8 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
         </div>
         <div className="idea-card">
           <label htmlFor="opening-idea">说说您想写什么</label>
-          <ImeTextarea id="opening-idea" maxChars={2_000} value={idea} onChange={(next) => { setIdea(next); setIdeaConfirmed(false); setError(null); }} placeholder="例如：我想写一个在仙侠世界开坦克的外卖员，越离谱越好玩……" rows={4} />
-          <div className="idea-meta"><span>一句想法也可以 · {ideaLength}/2000</span><button className="secondary-action" type="button" disabled={ideaLength<4 || busy} onClick={() => setIdeaConfirmed(true)}>{ideaConfirmed ? '想法已确认' : '确定'}</button></div>
+          <ImeTextarea id="opening-idea" maxChars={2_000} value={idea} onChange={(next) => { setIdea(next); setError(null); }} placeholder="例如：我想写一个在仙侠世界开坦克的外卖员，越离谱越好玩……" rows={3} />
+          <div className="idea-meta"><span>一句想法也可以 · {ideaLength}/2000</span><span role="status">{draftSaveFailed ? '本机保存失败，请暂勿关闭页面' : ideaLength > 0 ? '已自动保存到本机' : '输入后自动保存到本机'}</span></div>
           <DesignerMemberPicker members={designMembers} value={selectedDesignerMemberKey} onChange={setSelectedDesignerMemberKey} />
           <fieldset className="creative-choice"><legend>设计尺度</legend><div className="creative-scale-options">{CREATIVE_SCALES.map(scale => <button key={scale.level} type="button" aria-pressed={creativeProfile.scale===scale.level} onClick={() => setCreativeProfile(current=>({...current,scale:scale.level}))}><strong>{scale.name}</strong><small>{scale.description}</small></button>)}</div></fieldset>
           <fieldset className="creative-choice"><legend>主偏向 <small>选择一个，决定主要阅读体验</small></legend><div className="creative-style-options">

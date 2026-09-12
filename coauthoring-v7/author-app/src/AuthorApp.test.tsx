@@ -534,7 +534,7 @@ describe('V7 author opening flow', () => {
   it('keeps the AI entry to one 2000-character idea before team design', async () => {
     installFetch();
     window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
-    render(<AuthorApp />);
+    const mounted = render(<AuthorApp />);
     expect(await screen.findByLabelText('填写开书想法')).toBeVisible();
     expect(screen.queryByRole('heading', { name: '创建一本新书' })).not.toBeInTheDocument();
     const input = screen.getByLabelText('说说您想写什么');
@@ -542,6 +542,24 @@ describe('V7 author opening flow', () => {
     expect(screen.getByRole('button', { name: '开始设计' })).toBeDisabled();
     fireEvent.change(input, { target: { value: '张三穿越三国，从流民开始求生。' } });
     expect(screen.getByRole('button', { name: '开始设计' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /^确定$/ })).not.toBeInTheDocument();
+    expect(await screen.findByText('已自动保存到本机')).toBeVisible();
+    mounted.unmount();
+    render(<AuthorApp />);
+    expect(await screen.findByLabelText('说说您想写什么')).toHaveValue('张三穿越三国，从流民开始求生。');
+  });
+
+  it('reports unavailable local draft storage without claiming a save', async () => {
+    installFetch();
+    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+    const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('storage unavailable'); });
+    try {
+      render(<AuthorApp />);
+      fireEvent.change(await screen.findByLabelText('说说您想写什么'), { target: { value: '输入仍保留在当前页面。' } });
+      expect(await screen.findByText('本机保存失败，请暂勿关闭页面')).toBeVisible();
+      expect(screen.queryByText('已自动保存到本机')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('说说您想写什么')).toHaveValue('输入仍保留在当前页面。');
+    } finally { storage.mockRestore(); }
   });
 
   it.each(['', 'planner-on-leave'])('keeps members visible and submits an available choice (saved: %s)', async (savedMember) => {
