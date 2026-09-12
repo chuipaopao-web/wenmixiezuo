@@ -23,46 +23,63 @@
 .tmd-info { border: 1px solid var(--line); border-radius: 12px; padding: 10px 13px; color: var(--ink); background: #edf3e8; line-height: 1.6; }
 .tmd-note { margin: 0; color: #789084; font-size: 13px; line-height: 1.65; }
 
-/* 主编欢迎区：与原型 .welcome 一致（大头像白边投影 + 21px 问候）。 */
-.tmd-welcome { display: flex; gap: 26px; align-items: center; }
-.tmd-avatar-lg { width: 132px; height: 132px; border-radius: 50%; flex: none; background-color: #e2ece3; background-repeat: no-repeat; border: 7px solid #fff; box-shadow: 0 10px 40px #23473c12; }
+/* 主编欢迎区：与原型 .welcome 一致（138px大头像白边投影 + 21px问候 + 850px居中）。 */
+.tmd-welcome { display: flex; gap: 28px; align-items: center; max-width: 850px; margin: 32px auto; }
+.tmd-avatar-lg { width: 138px; height: 138px; border-radius: 50%; flex: none; background-color: #e2ece3; background-repeat: no-repeat; border: 7px solid #fff; box-shadow: 0 10px 40px #23473c12; }
 .tmd-eyebrow { color: #789084; font-size: 13px; letter-spacing: 0.08em; margin-bottom: 8px; }
-.tmd-welcome p { margin: 0; font-size: 21px; line-height: 1.7; font-weight: 600; }
+.tmd-welcome p { margin: 0; font-size: 21px; line-height: 1.7; }
 
-/* 展开方式问题卡：与原型 .choices 一致。 */
-.tmd-section { margin: 6px 0 25px; display: grid; gap: 22px; }
-.tmd-section-title { margin: 0; font-size: 23px; font-weight: 700; }
+/* 展开方式问题卡与故事线区：与原型 .section/.choices/.threads 一致。 */
+.tmd-section { margin: 0; }
+.tmd-block { margin: 0 0 25px; }
+.tmd-section-title { margin: 0; font-size: 18px; font-weight: 700; }
+.tmd-section-title-lg { margin: 0; font-size: 23px; font-weight: 700; }
 .tmd-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
-.tmd-add-line { background: #fffefa; border: 1px solid var(--line); border-radius: 999px; padding: 10px 18px; font-weight: 600; color: var(--ink); }
-.tmd-custom-line { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fff; font: inherit; font-size: 16px; color: var(--ink); }
-.tmd-shape-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.tmd-add-line { min-height: 44px; padding: 8px 17px; background: #fff; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); cursor: pointer; }
+.tmd-add-line:hover { border-color: #718e7a; }
+.tmd-shape-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
 .tmd-choice { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 14px; background: #fffefa; padding: 16px; cursor: pointer; }
 .tmd-choice input { accent-color: #285b49; width: 18px; height: 18px; flex-shrink: 0; margin-top: 5px; }
 .tmd-choice.selected { border-color: #648872; background: #edf3e8; }
 .tmd-choice strong { display: block; font-size: 16px; }
 .tmd-choice small { display: block; color: #698171; margin-top: 4px; font-size: 13px; line-height: 1.6; }
-.tmd-choice-wide { width: 100%; }
+.tmd-choice-wide { width: 100%; margin-top: 12px; }
 .tmd-working p { font-size: 21px; }
 .tmd-working .tmd-restart { margin-top: 14px; min-height: 44px; border: 1px solid var(--line); border-radius: 12px; padding: 0 18px; background: #fff; color: var(--ink); font-weight: 700; }
 .tmd-working > svg { margin-left: auto; width: 24px; height: 24px; color: #285b49; flex: none; }
 
-.tmd-line-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.tmd-line-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 16px; }
 .tmd-line-card { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 14px; background: #fffefa; padding: 16px; cursor: pointer; }
 .tmd-line-card input { accent-color: #285b49; width: 18px; height: 18px; flex-shrink: 0; margin-top: 5px; }
 .tmd-line-card.selected { border-color: #648872; background: #edf3e8; }
 .tmd-line-card strong { display: block; font-size: 16px; }
 .tmd-line-card small { display: block; color: #698171; margin-top: 4px; font-size: 13px; line-height: 1.6; }
 
-.tmd-suggest { margin: 0; color: var(--ink-soft); font-size: 14px; line-height: 1.65; }
-.tmd-note-field { display: grid; gap: 6px; font-size: 14px; }
-.tmd-note-field span { color: var(--ink-soft); }
-.tmd-note-field textarea { border: 1px solid var(--line-strong); border-radius: 12px; padding: 10px 12px; font: inherit; font-size: 16px; background: var(--panel-raised); color: var(--ink); resize: vertical; }
+/* 底部自由输入与操作行：与原型 textarea + .footer 一致。 */
+.tmd-tail { margin: 0 0 25px; }
+.tmd-custom-line { width: 100%; min-height: 80px; resize: vertical; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fff; font: inherit; font-size: 16px; color: var(--ink); margin-top: 10px; }
+.tmd-footer { display: flex; justify-content: space-between; align-items: center; gap: 15px; border-top: 1px solid var(--line); padding-top: 22px; margin-top: 26px; }
+.tmd-footer small { color: #789084; }
+
+/* “＋ 添加其他故事线”弹窗：与原型 dialog 一致。 */
+.tmd-dialog { width: min(600px, calc(100vw - 30px)); max-height: 85vh; border: 1px solid var(--line); border-radius: 22px; background: #fffefa; color: var(--ink); padding: 26px; }
+.tmd-dialog::backdrop { background: #183b2a66; }
+.tmd-dialog-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.tmd-dialog-row h2 { margin: 0; font-size: 23px; }
+.tmd-dialog-row button { min-height: 44px; padding: 8px 17px; background: #fff; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); cursor: pointer; }
+.tmd-dialog p { margin: 14px 0; }
+.tmd-dialog-option { display: block; width: 100%; text-align: left; margin: 10px 0; min-height: 44px; padding: 8px 17px; background: #fff; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); cursor: pointer; }
+.tmd-dialog-option:hover { border-color: #718e7a; }
+.tmd-dialog-option:disabled { opacity: 0.5; cursor: default; }
+.tmd-dialog-option b { display: block; }
+.tmd-dialog-option small { display: block; color: #698171; font-size: 13px; line-height: 1.6; }
 
 .tmd-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .tmd-actions button, .tmd-run-row button { min-height: 44px; border: 1px solid var(--line-strong); border-radius: 13px; padding: 0 16px; background: var(--panel-raised); color: var(--ink); font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
 .tmd-actions button:disabled { opacity: 0.45; }
-.tmd-actions .tmd-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.tmd-actions .tmd-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.tmd-primary { min-height: 44px; padding: 8px 17px; background: var(--accent); border: 1px solid var(--accent); border-radius: 12px; color: #fff; cursor: pointer; }
+.tmd-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.tmd-primary:disabled { opacity: 0.45; cursor: default; }
 
 .tmd-run-row { display: flex; align-items: center; gap: 10px; color: var(--ink-soft); }
 .tmd-run-row .spin { animation: tmd-spin 1s linear infinite; }
@@ -152,10 +169,14 @@
   .tmd-shape-grid { grid-template-columns: 1fr; }
   .tmd-line-grid { grid-template-columns: 1fr; }
   .tmd-nav { gap: 0; justify-content: space-between; padding: 12px 0; }
-  .tmd-nav button { padding: 8px 10px; font-size: 14px; }
-  .tmd-welcome { flex-direction: column; gap: 14px; text-align: center; margin: 4px 0; }
-  .tmd-avatar-lg { width: 112px; height: 112px; }
+  .tmd-nav button { padding: 7px 10px; font-size: 14px; }
+  .tmd-welcome { flex-direction: column; gap: 14px; text-align: center; margin: 25px 0; }
+  .tmd-avatar-lg { width: 116px; height: 116px; }
   .tmd-welcome p { font-size: 19px; }
+  .tmd-choice { padding: 13px; }
+  .tmd-footer { align-items: stretch; flex-direction: column; }
+  .tmd-footer button { width: 100%; }
+  .tmd-dialog { position: fixed; inset: auto 0 0; width: 100%; max-width: none; max-height: 80dvh; margin: 0; border-radius: 22px 22px 0 0; padding-bottom: max(25px, env(safe-area-inset-bottom)); }
   .tmd-working { flex-direction: column; gap: 12px; text-align: center; }
   .tmd-avatar-md { width: 84px; height: 84px; }
   .tmd-working > svg { display: none; }

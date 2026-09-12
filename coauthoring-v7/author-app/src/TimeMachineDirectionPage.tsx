@@ -27,6 +27,13 @@ const SHAPE_OPTIONS: { value: 'auto' | 'single' | 'multiple'; title: string; des
   { value: 'multiple', title: '几个重要故事交织', desc: '多个目标相互影响，共同走向结局。' }
 ];
 
+/** 原型“＋ 添加其他故事线”弹窗的预设线，文案与原型逐字一致。 */
+const ADD_LINE_PRESETS: { id: string; title: string; description: string }[] = [
+  { id: 'romance', title: '感情线', description: '与拥有独立追求的伴侣，在合作与分歧中发展感情。' },
+  { id: 'family', title: '亲情线', description: '从独自扛事，到重新拥有值得牵挂的家人。' },
+  { id: 'rival', title: '宿敌线', description: '一个看不起机关的天才，逐渐成为最懂他的对手。' }
+];
+
 function shapeLabelText(shape: 'auto' | 'single' | 'multiple'): string {
   return SHAPE_OPTIONS.find(option => option.value === shape)?.title ?? '由主编推荐';
 }
@@ -79,10 +86,11 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const [authorNote, setAuthorNote] = useState('');
   const [shape, setShape] = useState<'auto' | 'single' | 'multiple'>('auto');
   const [ensemble, setEnsemble] = useState(true);
-  const [customLines, setCustomLines] = useState<string[]>([]);
+  const [addedLines, setAddedLines] = useState<typeof ADD_LINE_PRESETS>([]);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<TimeMachinePlanView | null>(null);
   const recommendStarted = useRef(false);
+  const addDialogRef = useRef<HTMLDialogElement | null>(null);
   const designKey = useRef(`design:${bookId}:${Date.now()}`);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
@@ -172,11 +180,14 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const startDesign = () => {
     if (recommendation === null) return;
     const picked = recommendation.lines.filter(line => selectedLineIds.includes(line.id));
-    const custom = customLines.map(line => line.trim()).filter(line => line.length > 0);
     const structureHint = shape === 'auto'
       ? (recommendation.structure === 'multiple' ? '（主编建议多线交织）' : '（主编建议单主线推进）')
       : '';
-    const intent = `选择的故事线：${picked.map(line => `${roleLabel(line.role)}·${line.title}`).join('；')}${custom.length > 0 ? `${picked.length > 0 ? '；' : ''}自定义故事线：${custom.join('、')}` : ''}${authorNote.trim() ? `。作者补充：${authorNote.trim()}` : ''}。故事展开方式：${shapeLabelText(shape)}${ensemble ? '；也希望配角拥有自己的完整故事' : ''}${structureHint}`;
+    const chosen = [
+      ...picked.map(line => `${roleLabel(line.role)}·${line.title}`),
+      ...addedLines.map(line => `${line.title}（${line.description}）`)
+    ];
+    const intent = `选择的故事线：${chosen.join('；')}${authorNote.trim() ? `。作者补充：${authorNote.trim()}` : ''}。故事展开方式：${shapeLabelText(shape)}${ensemble ? '；也希望配角拥有自己的完整故事' : ''}${structureHint}`;
     designKey.current = `design:${bookId}:${Date.now()}`;
     void runAction(() => startTimeMachineDesignRound(bookId, intent, designKey.current));
   };
@@ -295,61 +306,93 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
                   <p><span>老板，我们来设计全书骨架。</span><br /><span>这是我推荐的故事线，您看看，还想加入哪些？</span></p>
                 </div>
               </div>
-              <h3 className="tmd-section-title">你希望故事怎样展开?</h3>
-              <div className="tmd-shape-grid" role="radiogroup" aria-label="故事展开方式">
-                {SHAPE_OPTIONS.map(option => (
-                  <label key={option.value} className={`tmd-choice${shape === option.value ? ' selected' : ''}`}>
-                    <input type="radio" name="tmd-shape" checked={shape === option.value} onChange={() => setShape(option.value)} />
-                    <span>
-                      <strong>{option.title}</strong>
-                      <small>{option.desc}</small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-              <label className={`tmd-choice tmd-choice-wide${ensemble ? ' selected' : ''}`}>
-                <input type="checkbox" checked={ensemble} onChange={event => setEnsemble(event.target.checked)} />
-                <span>
-                  <strong>也希望配角拥有自己的完整故事</strong>
-                  <small>让重要人物有自己的追求，他们的选择会影响全书。</small>
-                </span>
-              </label>
-              <div className="tmd-row">
-                <h3 className="tmd-section-title">为本书推荐</h3>
-                <button type="button" className="tmd-add-line" onClick={() => setCustomLines(prev => [...prev, ''])}>＋ 添加其他故事线</button>
-              </div>
-              {customLines.map((value, index) => (
-                <input
-                  key={index}
+              <section className="tmd-block">
+                <h3 className="tmd-section-title">你希望故事怎样展开？</h3>
+                <div className="tmd-shape-grid" role="radiogroup" aria-label="故事展开方式">
+                  {SHAPE_OPTIONS.map(option => (
+                    <label key={option.value} className={`tmd-choice${shape === option.value ? ' selected' : ''}`}>
+                      <input type="radio" name="tmd-shape" checked={shape === option.value} onChange={() => setShape(option.value)} />
+                      <span>
+                        <strong>{option.title}</strong>
+                        <small>{option.desc}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <label className={`tmd-choice tmd-choice-wide${ensemble ? ' selected' : ''}`}>
+                  <input type="checkbox" checked={ensemble} onChange={event => setEnsemble(event.target.checked)} />
+                  <span>
+                    <strong>也希望配角拥有自己的完整故事</strong>
+                    <small>让重要人物有自己的追求，他们的选择会影响全书。</small>
+                  </span>
+                </label>
+              </section>
+              <section className="tmd-block">
+                <div className="tmd-row">
+                  <h2 className="tmd-section-title-lg">为本书推荐</h2>
+                  <button type="button" className="tmd-add-line" onClick={() => addDialogRef.current?.showModal()}>＋ 添加其他故事线</button>
+                </div>
+                <div className="tmd-line-grid">
+                  {recommendation.lines.map(line => (
+                    <label key={line.id} className={`tmd-line-card${selectedLineIds.includes(line.id) ? ' selected' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={selectedLineIds.includes(line.id)}
+                        onChange={event => setSelectedLineIds(prev => event.target.checked ? [...prev, line.id] : prev.filter(id => id !== line.id))}
+                      />
+                      <span>
+                        <strong>{line.title}</strong>
+                        <small>{line.description}</small>
+                      </span>
+                    </label>
+                  ))}
+                  {addedLines.map(line => (
+                    <label key={`added-${line.id}`} className="tmd-line-card selected">
+                      <input type="checkbox" checked onChange={() => setAddedLines(prev => prev.filter(item => item.id !== line.id))} />
+                      <span>
+                        <strong>{line.title}</strong>
+                        <small>{line.description}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </section>
+              <div className="tmd-tail">
+                <h3 className="tmd-section-title">还有想加入的故事吗？</h3>
+                <textarea
                   className="tmd-custom-line"
-                  value={value}
-                  placeholder="输入要加入的故事线，例如：复仇线"
-                  onChange={event => setCustomLines(prev => prev.map((item, i) => i === index ? event.target.value : item))}
+                  value={authorNote}
+                  onChange={event => setAuthorNote(event.target.value)}
+                  rows={3}
+                  placeholder="比如：给机甲安排一个傲娇的性格……"
                 />
-              ))}
-              <div className="tmd-line-grid">
-                {recommendation.lines.map(line => (
-                  <label key={line.id} className={`tmd-line-card${selectedLineIds.includes(line.id) ? ' selected' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={selectedLineIds.includes(line.id)}
-                      onChange={event => setSelectedLineIds(prev => event.target.checked ? [...prev, line.id] : prev.filter(id => id !== line.id))}
-                    />
-                    <span>
-                      <strong>{line.title}</strong>
-                      <small>{line.description}</small>
-                    </span>
-                  </label>
+                <div className="tmd-footer">
+                  <small>已选 {selectedLineIds.length + addedLines.length} 条故事线</small>
+                  <button type="button" className="tmd-primary" disabled={busy || selectedLineIds.length + addedLines.length === 0} onClick={startDesign}>开始设计</button>
+                </div>
+              </div>
+              <dialog ref={addDialogRef} className="tmd-dialog" aria-label="添加你想写的故事">
+                <div className="tmd-dialog-row">
+                  <h2>添加你想写的故事</h2>
+                  <button type="button" onClick={() => addDialogRef.current?.close()}>关闭</button>
+                </div>
+                <p>点击加入，再由主编结合本书安排。</p>
+                {ADD_LINE_PRESETS.map(preset => (
+                  <button
+                    type="button"
+                    key={preset.id}
+                    className="tmd-dialog-option"
+                    disabled={addedLines.some(item => item.id === preset.id)}
+                    onClick={() => {
+                      setAddedLines(prev => prev.some(item => item.id === preset.id) ? prev : [...prev, preset]);
+                      addDialogRef.current?.close();
+                    }}
+                  >
+                    <b>{preset.title}</b>
+                    <small>{preset.description}</small>
+                  </button>
                 ))}
-              </div>
-              <p className="tmd-suggest">主编建议：{recommendation.structure === 'multiple' ? '多条故事线交织推进' : '以单主线聚焦推进'}——{recommendation.reason}</p>
-              <label className="tmd-note-field">
-                <span>补充要求（可选）</span>
-                <textarea value={authorNote} onChange={event => setAuthorNote(event.target.value)} rows={3} placeholder="例如：保留哪条线、想要的结局倾向、不想要的情节" />
-              </label>
-              <div className="tmd-actions">
-                <button type="button" className="tmd-primary" disabled={busy || selectedLineIds.length === 0} onClick={startDesign}>开始设计（三位编剧各出一套方案）</button>
-              </div>
+              </dialog>
             </>
           )}
         </section>

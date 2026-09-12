@@ -68,6 +68,10 @@ const legacyRouteRun = {
   routes: [], chiefReview: null
 };
 
+// jsdom未实现原生dialog的showModal/close，补最小行为供交互测试。
+HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) { this.setAttribute('open', ''); };
+HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) { this.removeAttribute('open'); };
+
 describe('time machine direction page', () => {
   beforeEach(() => { vi.unstubAllGlobals(); });
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -92,13 +96,23 @@ describe('time machine direction page', () => {
     expect(screen.getByText('这是我推荐的故事线，您看看，还想加入哪些？')).toBeVisible();
     expect(screen.getByText(/成长线/)).toBeVisible();
     expect(screen.getByText(/机甲伙伴线/)).toBeVisible();
-    expect(screen.getByText('你希望故事怎样展开?')).toBeVisible();
+    expect(screen.getByText('你希望故事怎样展开？')).toBeVisible();
+    expect(screen.getByText('还有想加入的故事吗？')).toBeVisible();
+    expect(screen.getByText('已选 1 条故事线')).toBeVisible();
     fireEvent.click(screen.getByRole('radio', { name: /集中讲一个核心故事/ }));
-    // 原型默认勾选配角完整故事；直接沿用默认勾选状态。
-    fireEvent.click(screen.getByRole('button', { name: '开始设计（三位编剧各出一套方案）' }));
+    // 原型“＋ 添加其他故事线”弹窗：加入一条预设线后计入已选计数并进入设计意图。
+    fireEvent.click(screen.getByRole('button', { name: '＋ 添加其他故事线' }));
+    expect(await screen.findByRole('dialog', { name: '添加你想写的故事' })).toBeVisible();
+    expect(screen.getByText('点击加入，再由主编结合本书安排。')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: /感情线/ }));
+    expect(await screen.findByText('已选 2 条故事线')).toBeVisible();
+    // 弹窗关闭后DOM仍保留预设项，用数量断言加入的线卡已渲染。
+    expect(screen.getAllByText(/与拥有独立追求的伴侣/).length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
     await waitFor(() => { expect(posted.design).toBe(1); });
     expect(designIntent).toContain('故事展开方式：集中讲一个核心故事');
     expect(designIntent).toContain('也希望配角拥有自己的完整故事');
+    expect(designIntent).toContain('感情线（与拥有独立追求的伴侣，在合作与分歧中发展感情。）');
     expect(await screen.findByText('方案A')).toBeVisible();
     expect(screen.getByText('方案B')).toBeVisible();
     expect(screen.getByText('方案C')).toBeVisible();

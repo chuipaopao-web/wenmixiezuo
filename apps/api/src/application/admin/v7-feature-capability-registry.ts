@@ -114,7 +114,7 @@ export const FEATURE_CAPABILITIES: FeatureCapabilityDefinition[] = [
     ['setting-final-review', '设定终审', '检查冲突、缺证据和当前可用性。']
   ]),
   ...currentModule('planning-trees', '规划树与故事线', 'author', '故事线 / 创作', [
-    'coauthoring-v7/author-app/src/TimeMachinePage.tsx',
+    'coauthoring-v7/author-app/src/TimeMachineDirectionPage.tsx',
     'coauthoring-v7/author-app/src/CreationWorkspacePage.tsx',
     'apps/api/src/http/v7-planning-tree-routes.ts'
   ], [
