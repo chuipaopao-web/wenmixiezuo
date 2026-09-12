@@ -181,7 +181,7 @@ describe('time machine direction page', () => {
     state = stateFixture({ runs: [failedRestart] });
     renderWith();
     expect(await screen.findByText('本期剩余创作额度不足，推荐已暂停。')).toBeVisible();
-    expect(screen.getByText('点下面按钮，我们重新开始。')).toBeVisible();
+    expect(screen.getByText('开书资料和已确认设定仍然保留，无需重新填写。')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '重新开始推荐' }));
     await waitFor(() => { expect(restarted).toBe(1); });
   }, 20000);

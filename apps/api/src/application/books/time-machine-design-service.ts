@@ -5,6 +5,7 @@ import {TimeMachineModelGateway,TimeMachineCallError} from '../../infrastructure
 import {snapshotTimeMachine,type TimeMachineSnapshot} from './time-machine-sources.js';
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
 import {timeMachineReviewChecks} from './time-machine-review.js';
+import {applyTimeMachineCardEdits} from './time-machine-card-edits.js';
 interface Run {id:string;owner_id:string;book_id:string;kind:'recommend'|'design';snapshot_json:string;state:string;result_json:string|null;error_code:string|null}
 type ReviewAction={action:'read_source';key:string;offset:number}|{action:'verdict';issues:string[];suggestions:string[];pass:boolean};
 const cardContract='返回JSON {"fields":{"premise":[],"protagonists":[],"world":[],"openingEnding":[],"preferences":[],"prohibitions":[]}}。每条为{"text":"简短必要事实","sourceKeys":["原始来源key"]}。字段含义：premise=题材、核心矛盾、storyDirection故事方向；protagonists=主角身份能力；world=故事相关世界限制；openingEnding=既定开局结局；preferences=语言、节奏、情绪风格偏好，不是剧情方向；prohibitions=明确禁止项。只摘录本次资料确有依据的信息，未提供栏目可空；不得补造。省略日常价格等无关细节；必要限制不可删。';
@@ -82,7 +83,8 @@ export class TimeMachineDesignService {
   const needsReview=row.kind==='design'&&result?.review?.pass===false;
   const members=JSON.parse(String(row.members_json)) as TimeMachineSnapshot['members'];
   const activeMember=phase.startsWith('card-review')||phase.startsWith('review')||phase.startsWith('recommend')?members.chief:phase.startsWith('card')||phase.startsWith('merge')?members.researcher:members.writer;
-  return {id:row.id,kind:row.kind,intent:String(row.intent??''),scheme:String(row.scheme||'')||null,roundKey:String(row.round_key||'')||null,state:row.state,updatedAt:row.updated_at,member:row.state==='working'?{id:activeMember.memberKey,name:activeMember.displayName}:null,progress:row.state==='working'?label:row.state==='succeeded'?(needsReview?'方案待调整':'已完成'):row.state==='failed'?'未完成':'等待成员接手',result,message:needsReview?'方案仍有待核对的问题，暂不能采用。':row.error_code==='unknown'?'上次调用结果尚未确认，已保留记录，不会自动重复调用。':row.error_code?'本次工作尚未完成，已保存的步骤会保留。':null};
+  const failureMessage=phase.startsWith('card')||phase.startsWith('merge')?`资料整理或核对尚未完成，还没有进入${row.kind==='recommend'?'故事线推荐':'方案设计'}。`: '本次工作尚未完成，已保存的步骤会保留。';
+  return {id:row.id,kind:row.kind,intent:String(row.intent??''),scheme:String(row.scheme||'')||null,roundKey:String(row.round_key||'')||null,state:row.state,updatedAt:row.updated_at,member:row.state==='working'?{id:activeMember.memberKey,name:activeMember.displayName}:null,progress:row.state==='working'?label:row.state==='succeeded'?(needsReview?'方案待调整':'已完成'):row.state==='failed'?'未完成':'等待成员接手',result,message:needsReview?'方案仍有待核对的问题，暂不能采用。':row.error_code==='unknown'?'上次调用结果尚未确认，已保留记录，不会自动重复调用。':row.error_code?failureMessage:null};
  });}
  retry(scope:Scope,id:string):string{
   const row=this.db.prepare('SELECT state,error_code,snapshot_json,kind,scheme,round_key FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND id=?').get(scope.ownerId,scope.bookId,id) as {state:string;error_code:string|null;snapshot_json:string;kind:'recommend'|'design';scheme:string|null;round_key:string|null}|undefined;
@@ -183,7 +185,7 @@ export class TimeMachineDesignService {
    }
    if(!corrections.length)break;
    if(audit===1)throw Error('短卡修正后仍需要核对，已保留来源与结果');
-   for(const correction of corrections)final=await this.structured(run,scope,snapshot,`card-correction:${correction.index}`,snapshot.members.researcher,`${cardContract}\n根据原文修正本页对应的错误或遗漏，其他页面已有事实和引用保留。只接受原文支持的修正，不照抄错误审查意见。\n本页原文：${JSON.stringify(pages[correction.index])}\n审查意见：${JSON.stringify(correction.issues)}\n现有短卡：${JSON.stringify(final.fields)}`,v=>parseCard({...scope,manifest:snapshot.manifest,fields:record(v).fields}));
+   for(const correction of corrections)final=await this.structured(run,scope,snapshot,`card-correction-edits:${correction.index}`,snapshot.members.researcher,`根据本页原文核对审查意见，只提交确有依据的条目修正，不重写整张短卡。未涉及条目由系统原样保留；审查意见不成立则edits为空。返回JSON {"edits":[{"field":"六栏之一","action":"add或replace或remove","index":原栏目数组从0开始的位置,"expectedText":"原条目完整text","claim":{"text":"修正后的简短事实","sourceKeys":["原始来源key"]}}]}。add只需field/action/claim；replace需要全部字段；remove不含claim。所有位置都对应下方现有短卡，不能重复修改同一位置。跨栏移动用删除加新增，不得清空核心方向或主角。禁止无依据增补，禁止只因本页没提就删除其他来源事实。\n本页原文：${JSON.stringify(pages[correction.index])}\n审查意见：${JSON.stringify(correction.issues)}\n现有短卡：${JSON.stringify(final.fields)}`,v=>applyTimeMachineCardEdits(final,v));
   }
   this.db.prepare('INSERT OR IGNORE INTO tm2_context_cards VALUES(?,?,?,?)').run(scope.ownerId,scope.bookId,sourceKey,JSON.stringify(final.fields));
   return final;

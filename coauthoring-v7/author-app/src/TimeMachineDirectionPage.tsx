@@ -321,9 +321,9 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
                 <p>
                   <span>{recommendRun.message ?? '这次推荐没有完成，推荐记录已保留。'}</span>
                   <br />
-                  <span>点下面按钮，我们重新开始。</span>
+                  <span>开书资料和已确认设定仍然保留，无需重新填写。</span>
                 </p>
-                <button type="button" className="tmd-restart" onClick={restartRecommendation}>重新开始推荐</button>
+                <button type="button" className="tmd-restart" disabled={busy} onClick={restartRecommendation}>{busy ? '正在启动…' : '重新开始推荐'}</button>
               </div>
             </div>
           )}

@@ -18,6 +18,23 @@ function output(prompt:string):unknown{
  return {fields:{premise:[{text:'修理工建立工坊',sourceKeys:['opening:opening:1']}],protagonists:[{text:'林舟',sourceKeys:['opening:opening:1']}],world:[],openingEnding:[],preferences:[],prohibitions:[]}};
 }
 describe('new time machine orchestration with real persistence and simulated model',()=>{
+ it('corrects one short-card claim without replacing the protagonist and direction',async()=>{
+  const {c,scope}=setup();let reviews=0;let correctionSeen=false;
+  const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
+   let value=output(request.prompt);
+   if(request.prompt.includes('核对短卡是否'))value=reviews++===0?{pass:false,issues:['世界限制遗漏']}:{pass:true,issues:[]};
+   if(request.prompt.includes('只提交确有依据的条目修正')){
+    correctionSeen=true;
+    value={edits:[{field:'world',action:'add',claim:{text:'机甲需要修理',sourceKeys:['opening:opening:1']}}]};
+   }
+   return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
+  }}));
+  const service=new TimeMachineDesignService(c.database,gateway,64000),id=service.start(scope,'recommend','','card-edit');await service.process(id);
+  expect(correctionSeen).toBe(true);expect(service.state(scope)[0]).toMatchObject({state:'succeeded'});
+  const saved=c.database.prepare('SELECT fields_json FROM tm2_context_cards WHERE owner=? AND book=?').get(scope.ownerId,scope.bookId)!;
+  const fields=JSON.parse(String(saved.fields_json));
+  expect(fields.premise[0].text).toBe('修理工建立工坊');expect(fields.protagonists[0].text).toBe('林舟');expect(fields.world[0].text).toBe('机甲需要修理');
+ });
  it('reviews a saved author revision without regenerating its design and keeps earlier evidence',async()=>{
   const {c,scope}=setup();const prompts:string[]=[];
   const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){prompts.push(request.prompt);return {provider,modelId,output:JSON.stringify(output(request.prompt)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};}}));
@@ -60,7 +77,7 @@ describe('new time machine orchestration with real persistence and simulated mod
  it('corrects source-card omissions once and restarts a known invalid run without erasing it',async()=>{
   const {c,scope}=setup();let audits=0,corrections=0;const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
    let value=output(request.prompt);if(request.prompt.includes('核对短卡是否'))value=++audits===1?{pass:false,issues:['缺少主角无灵根限制']}:{pass:true,issues:[]};
-   if(request.prompt.includes('根据原文修正本页'))corrections++;
+   if(request.prompt.includes('只提交确有依据的条目修正')){corrections++;value={edits:[{field:'protagonists',action:'replace',index:0,expectedText:'林舟',claim:{text:'无灵根的林舟',sourceKeys:['opening:opening:1']}}]};}
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
   }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'recommend','','source-review');await service.process(id);expect(corrections).toBe(1);expect(audits).toBe(2);expect(service.state(scope)[0]).toMatchObject({state:'succeeded'});
   c.database.prepare("UPDATE tm2_design_runs SET state='failed',error_code='needs_review' WHERE id=?").run(id);
