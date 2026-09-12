@@ -7,6 +7,7 @@ import type {V7EffectiveMember} from '@wenmi/v7-backend';
 import {timeMachineReviewChecks} from './time-machine-review.js';
 import {applyTimeMachineCardEdits} from './time-machine-card-edits.js';
 import {timeMachineCardContract as cardContract,planningMaterial} from './time-machine-card-template.js';
+import {packCardSources} from './time-machine-source-pages.js';
 interface Run {id:string;owner_id:string;book_id:string;kind:'recommend'|'design';snapshot_json:string;state:string;result_json:string|null;error_code:string|null}
 type ReviewAction={action:'read_source';key:string;offset:number}|{action:'verdict';issues:string[];suggestions:string[];pass:boolean};
 function json(text:string):unknown{return JSON.parse(text.trim().replace(/^```(?:json)?\s*/u,'').replace(/\s*```$/u,''));}
@@ -168,8 +169,7 @@ export class TimeMachineDesignService {
   const sourceKey=digest({sources:snapshot.manifest.sources.filter(s=>s.kind!=='intent'&&s.kind!=='asset'),template:snapshot.manifest.templateRevision,redaction:snapshot.manifest.redactionRevision});
   const cached=this.db.prepare('SELECT fields_json FROM tm2_context_cards WHERE owner=? AND book=? AND source_key=?').get(scope.ownerId,scope.bookId,sourceKey) as {fields_json:string}|undefined;
   if(cached)return parseCard({...scope,manifest:snapshot.manifest,fields:JSON.parse(cached.fields_json)});
-  const pages:{key:string;text:string}[][]=[];let page:{key:string;text:string}[]=[],size=0;
-  for(const document of snapshot.documents.filter(d=>!d.key.startsWith('intent:'))){for(let offset=0;offset<document.text.length;offset+=1800){const fragment={key:document.key,text:document.text.slice(offset,offset+1800)};const bytes=Buffer.byteLength(JSON.stringify(fragment));if(size+bytes>6500&&page.length){pages.push(page);page=[];size=0;}page.push(fragment);size+=bytes;}}if(page.length)pages.push(page);
+  const pages=packCardSources(snapshot.documents.filter(d=>!d.key.startsWith('intent:')));
   let cards:ContextCard[]=[];
   for(let i=0;i<pages.length;i++)cards.push(await this.structured(run,scope,snapshot,`card:${i}`,snapshot.members.researcher,`${cardContract}\n这可能是一部分资料，未知保持空，来源key不可创造。\n${JSON.stringify(pages[i])}`,v=>parseCard({...scope,manifest:snapshot.manifest,fields:record(v).fields},true)));
   let level=0;while(cards.length>1){const next:ContextCard[]=[];for(let i=0;i<cards.length;i+=2){if(!cards[i+1]){next.push(cards[i]!);continue;}next.push(await this.structured(run,scope,snapshot,`merge:${level}:${i}`,snapshot.members.researcher,`${cardContract}\n合并以下两份短卡，去重保留必要约束和原始sourceKeys，保留人物差异、能力条件、因果和例外。不要把建议当事实，不因另一页没有提及而删除已有资料。\n${JSON.stringify([cards[i]!.fields,cards[i+1]!.fields])}`,v=>parseCard({...scope,manifest:snapshot.manifest,fields:record(v).fields},true)));}cards=next;level++;}

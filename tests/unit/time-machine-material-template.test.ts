@@ -6,7 +6,9 @@ it('separates chosen future intent from confirmed material and optional method r
  const recommended=JSON.parse(planningMaterial(fields,chosen));
  const baseline=JSON.parse(planningMaterial(fields,chosen,{selected:[]}));
  expect(baseline.bookMaterial).toEqual(recommended.bookMaterial);
- expect(baseline.bookMaterial.fields).toEqual(fields);
+ expect(baseline.bookMaterial.fields.protagonists).toEqual([fields.protagonists[0].text]);
+ expect(JSON.stringify(baseline.bookMaterial)).not.toContain('sourceKeys');
+ expect(fields.protagonists[0].sourceKeys).toEqual(['opening:opening:1']);
  expect(baseline.storylineIntent.text).toBe(chosen);
  expect(baseline.storylineIntent.status).toContain('不是正文事实');
  expect(recommended).not.toHaveProperty('methodReference');
