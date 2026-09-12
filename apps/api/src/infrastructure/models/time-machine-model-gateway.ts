@@ -22,11 +22,25 @@ export class TimeMachineModelGateway {
   parseScope(request.scope);
   if(!request.id.trim()||!request.memberId.trim()||!request.prompt.trim()||!Number.isSafeInteger(request.windowTokens)||request.windowTokens<=0||!Number.isSafeInteger(request.maxOutputTokens)||request.maxOutputTokens<=0||!Number.isFinite(request.temperature)||request.temperature<0||request.temperature>2)throw new TimeMachineCallError('invalid','调用配置不完整');
   if(request.prompt.length>TIME_MACHINE_PROMPT_CHAR_LIMIT)throw new TimeMachineCallError('budget',`本次上下文${request.prompt.length}字符，超过1.5万字红线，需拆批或压缩后重试`);
+  const accessible=this.db.prepare("SELECT 1 FROM books WHERE owner_id=? AND book_id=? AND status<>'archived'").get(request.scope.ownerId,request.scope.bookId);
+  if(!accessible)throw new TimeMachineCallError('invalid','书籍不可访问');
+  const hash=digest(request);
+  const existing=this.db.prepare('SELECT owner_id,book_id,request_hash,state,output_text FROM tm2_model_calls WHERE id=?').get(request.id) as unknown as CallRow|undefined;
+  if(existing){
+   if(existing.owner_id!==request.scope.ownerId||existing.book_id!==request.scope.bookId||existing.request_hash!==hash)throw new TimeMachineCallError('invalid','调用编号已绑定其他请求');
+   if(existing.state==='succeeded')return existing.output_text!;
+   throw new TimeMachineCallError(existing.state==='failed'?'invalid':'unknown','调用已有记录，需要核对结果，未重复发送');
+  }
+  if(Buffer.byteLength(request.prompt,'utf8')+request.maxOutputTokens+2048>request.windowTokens)throw new TimeMachineCallError('budget','本次上下文超预算，尚未调用模型');
+  let adapter:ModelAdapter;
+  try{adapter=this.resolve(request.provider,request.modelId);}catch{throw new TimeMachineCallError('authentication','成员模型尚未准备好，未发送请求');}
+  // Production adapter supplies the actual system/messages envelope; local test adapters have one user message.
+  const input=adapter.inputContext?.({prompt:request.prompt})??JSON.stringify({messages:[{role:'user',content:request.prompt}]});
+  if(input.length>TIME_MACHINE_PROMPT_CHAR_LIMIT)throw new TimeMachineCallError('budget',`完整输入${input.length}字符，超过15000字符上限；已包含系统提示及消息包装，未发送模型`);
   // Conservative UTF-8 bound is explicitly not a tokenizer. Include transport/reasoning allowance.
   const reasoning=thinkingTokenAllowance(request.modelId,'structured_planning',request.maxOutputTokens,request.prompt.length);
-  const reserved=Buffer.byteLength(request.prompt,'utf8')+request.maxOutputTokens+reasoning+2048;
+  const reserved=Buffer.byteLength(input,'utf8')+request.maxOutputTokens+reasoning+2048;
   if(reserved>request.windowTokens)throw new TimeMachineCallError('budget','本次上下文超预算，尚未调用模型');
-  const hash=digest(request);
   this.db.exec('BEGIN IMMEDIATE');
   try{
    const old=this.db.prepare('SELECT owner_id,book_id,request_hash,state,output_text,error_class FROM tm2_model_calls WHERE id=?').get(request.id) as unknown as CallRow|undefined;
@@ -39,12 +53,11 @@ export class TimeMachineModelGateway {
    const book=this.db.prepare("SELECT 1 FROM books WHERE owner_id=? AND book_id=? AND status<>'archived'").get(request.scope.ownerId,request.scope.bookId);
    if(!book)throw new TimeMachineCallError('invalid','书籍不可访问');
    assertMembershipAllowsGeneration(this.db,request.scope.ownerId,new Date().toISOString(),reserved);
-   this.db.prepare("INSERT INTO tm2_model_calls(id,owner_id,book_id,member_id,provider,model_id,request_hash,state,reserved_tokens,prompt_chars,started_at) VALUES(?,?,?,?,?,?,?,'working',?,?,?)").run(request.id,request.scope.ownerId,request.scope.bookId,request.memberId,request.provider,request.modelId,hash,reserved,request.prompt.length,new Date().toISOString());
+   this.db.prepare("INSERT INTO tm2_model_calls(id,owner_id,book_id,member_id,provider,model_id,request_hash,state,reserved_tokens,prompt_chars,started_at) VALUES(?,?,?,?,?,?,?,'working',?,?,?)").run(request.id,request.scope.ownerId,request.scope.bookId,request.memberId,request.provider,request.modelId,hash,reserved,input.length,new Date().toISOString());
    this.db.exec('COMMIT');
   }catch(error){if(this.db.isTransaction)this.db.exec('ROLLBACK');throw error;}
   let dispatched=false;
   try{
-   const adapter=this.resolve(request.provider,request.modelId);
    dispatched=true;
    const result=await adapter.generate({requestId:request.id,taskId:request.id,ownerId:request.scope.ownerId,bookId:request.scope.bookId,agentId:request.memberId,prompt:request.prompt,maxOutputTokens:request.maxOutputTokens,temperature:request.temperature});
    if(![result.inputTokens,result.outputTokens].every(n=>Number.isSafeInteger(n)&&n>=0)||!Number.isFinite(result.cashCostCny)||result.cashCostCny<0)throw new TimeMachineCallError('unknown','供应商用量需要核对');

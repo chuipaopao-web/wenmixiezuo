@@ -20,6 +20,7 @@ describe('火山方舟严格套餐适配器', () => {
     const fetchImpl=vi.fn<typeof fetch>(async(url,init)=>{
       expect(String(url)).toBe(`https://ark.cn-beijing.volces.com/api/coding/${chat?'v3/chat/completions':'v1/messages'}`);
       const body=JSON.parse(String(init?.body));
+      expect(JSON.parse(adapter.inputContext({...request,...(executionKind?{executionKind}:{})}))).toEqual(chat?{messages:body.messages}:{system:body.system,messages:body.messages});
       if(chat)expect(body).toMatchObject({thinking:{type:'enabled'},reasoning_effort:'low',max_tokens:14000});
       else expect(body).not.toHaveProperty('reasoning_effort');
       return Response.json(chat?{choices:[{message:{content:'{}'}}],usage:{prompt_tokens:100,completion_tokens:500}}:{content:[{type:'text',text:'{}'}]});

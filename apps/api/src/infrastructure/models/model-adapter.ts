@@ -27,6 +27,8 @@ export interface ModelResult {
 export interface ModelAdapter {
   readonly provider: string;
   readonly modelId: string;
+  /** Exact serialized model-visible input, including adapter-added system text. */
+  inputContext?(request: Pick<ModelRequest, 'prompt' | 'supplementalInstructions' | 'executionKind'>): string;
   generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult>;
 }
 

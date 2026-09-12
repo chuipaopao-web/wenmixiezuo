@@ -56,6 +56,12 @@ export class ArkPlanModelAdapter implements ModelAdapter {
     if (options.apiKey.trim().length === 0) throw new Error(`${planDisplayName(options.plan)}凭证未配置`);
   }
 
+  public inputContext(request: Pick<ModelRequest, 'prompt' | 'supplementalInstructions' | 'executionKind'>): string {
+    const system = appendSupplement(this.options.systemPrompt ?? defaultSystemPromptForPurpose(this.options.purpose), request.supplementalInstructions);
+    const chat = this.#glmReviewChat || (this.options.plan === 'coding' && this.modelId === 'glm-5.3' && this.options.purpose === 'structured_planning' && request.executionKind === 'opening_design');
+    return JSON.stringify(chat ? {messages:[{role:'system',content:system},{role:'user',content:request.prompt}]} : {system,messages:[{role:'user',content:request.prompt}]});
+  }
+
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     const glmChat = this.#glmReviewChat || (this.options.plan === 'coding'
       && this.modelId === 'glm-5.3' && this.options.purpose === 'structured_planning'
@@ -102,19 +108,10 @@ export class ArkPlanModelAdapter implements ModelAdapter {
             // Z.ai GLM 5.3 requires thinking. Ark Coding Chat supports low effort;
             // omitting the field does not disable reasoning. R148 synthetic review.
             thinking: { type: 'enabled' }, reasoning_effort: 'low',
-            messages: [{ role: 'system', content: appendSupplement(
-              this.options.systemPrompt ?? defaultSystemPromptForPurpose(this.options.purpose), request.supplementalInstructions
-            ) }, { role: 'user', content: request.prompt }]
+            ...JSON.parse(this.inputContext(request))
           } : {
           ...thinkingField(this.options.plan, this.modelId, this.options.purpose, request.maxOutputTokens),
-          system: appendSupplement(
-            this.options.systemPrompt ?? defaultSystemPromptForPurpose(this.options.purpose),
-            request.supplementalInstructions
-          ),
-          messages: [{
-            role: 'user',
-            content: request.prompt
-          }]
+          ...JSON.parse(this.inputContext(request))
           })
         }),
         signal: controller.signal,

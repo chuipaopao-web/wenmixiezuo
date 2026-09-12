@@ -4,6 +4,7 @@ import {BookRepository} from '../../infrastructure/db/repositories/book-reposito
 import {V7SettingEditorialRepository} from '../../infrastructure/db/repositories/v7-setting-editorial-repository.js';
 import {V7AgentGovernanceRepository} from '../../infrastructure/db/repositories/v7-agent-governance-repository.js';
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
+import {TIME_MACHINE_CARD_TEMPLATE_REVISION} from './time-machine-card-template.js';
 export interface SourceDocument {key:string;text:string}
 export interface MethodCard {id:string;name:string;category:string;intro:string;usage:string}
 /** 字数口径：规划字数与作者正文统计使用同一以"字"为单位的字符计数口径；作者开书填写的总字数按软目标处理（第23.3节）。 */
@@ -19,7 +20,7 @@ export function snapshotTimeMachine(db:DatabaseSync,scope:Scope,intent:string,wi
  const openingData=JSON.parse(opening.blueprint_json) as {positioning?:{expectedTotalWords?:unknown};expectedTotalWords?:unknown};
  const words=openingData.positioning?.expectedTotalWords??openingData.expectedTotalWords;
  const targetWords=typeof words==='number'&&Number.isSafeInteger(words)&&words>0?words:null;
- const manifest:Manifest={sources:[{kind:'opening',id:'opening',revision:String(opening.version),hash:digest(JSON.parse(opening.blueprint_json))},{kind:'intent',id:'intent',revision:digest(intent),hash:digest(intent)}],templateRevision:'tm2-card-1',redactionRevision:'allowlist-1'};
+ const manifest:Manifest={sources:[{kind:'opening',id:'opening',revision:String(opening.version),hash:digest(JSON.parse(opening.blueprint_json))},{kind:'intent',id:'intent',revision:digest(intent),hash:digest(intent)}],templateRevision:TIME_MACHINE_CARD_TEMPLATE_REVISION,redactionRevision:'allowlist-1'};
  const documents:SourceDocument[]=[{key:`opening:opening:${opening.version}`,text:opening.blueprint_json},{key:`intent:intent:${digest(intent)}`,text:intent||'作者尚未追加故事线偏好'}];
  for(const setting of new V7SettingEditorialRepository(db).confirmedVersions(scope.ownerId,scope.bookId)){
   manifest.sources.push({kind:'setting',id:setting.item_key,revision:setting.version_id,hash:digest(JSON.parse(setting.content_json))});
