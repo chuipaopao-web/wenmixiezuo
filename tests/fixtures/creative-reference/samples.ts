@@ -1,7 +1,7 @@
 /** 合成样例：方法卡与参考卡payload（内容为编辑性合成，不代表已审核内容）。 */
 import type { CardPayload, LegacyRef } from '../../../apps/api/src/application/creative-reference/types.js';
 
-export function methodPayload(overrides: Partial<{ name: string; shortPhrase: string; summary: string; instruction: string; usageTree: string }> = {}): CardPayload {
+export function methodPayload(overrides: Partial<{ name: string; shortPhrase: string; summary: string; instruction: string; usageTree: string; layers: string[] }> = {}): CardPayload {
   return {
     assetKind: 'method',
     name: overrides.name ?? '起承转合',
@@ -13,13 +13,22 @@ export function methodPayload(overrides: Partial<{ name: string; shortPhrase: st
       instruction: overrides.instruction ?? '建立处境—展开发展—关键转向—收束回应。',
       boundary: '需要组织处境、发展、关键转向和阶段收束。',
       usageTree: overrides.usageTree ?? '结构与节奏',
-      applicableLayers: ['book_backbone', 'volume'],
+      applicableLayers: overrides.layers ?? ['book_backbone', 'volume'],
       aliases: []
     }
   };
 }
 
-export function referencePayload(overrides: Partial<{ name: string; shortPhrase: string; summary: string }> = {}): CardPayload {
+/** 描述里故意不含"volume"等层级词，验证过滤按结构化字段而非全文LIKE。 */
+export function methodPayloadTrickyText(): CardPayload {
+  return {
+    ...methodPayload(),
+    summary: '备注：本方法不适用于volume以外的层级（此文字只为验证过滤不靠全文匹配）。',
+    method: { ...methodPayload().method, applicableLayers: ['chapter_execution'] }
+  };
+}
+
+export function referencePayload(overrides: Partial<{ name: string; shortPhrase: string; summary: string; stages: string[] }> = {}): CardPayload {
   return {
     assetKind: 'reference',
     name: overrides.name ?? '三国·小人物进入大局',
@@ -29,7 +38,7 @@ export function referencePayload(overrides: Partial<{ name: string; shortPhrase:
     reference: {
       kind: 'genre',
       facets: { genres: ['历史脑洞'], mechanisms: ['职业跨界'], experiences: ['反差'], purposes: ['发展空间'] },
-      stages: ['opening'],
+      stages: overrides.stages ?? ['opening'],
       useWhen: ['原始身份有趣却容易重复营生'],
       questions: ['最初靠什么行动被看见？'],
       possibilities: ['技艺→人物接触→信任'],

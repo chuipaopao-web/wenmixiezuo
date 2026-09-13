@@ -1,6 +1,6 @@
 /** R209-B1 纯校验与Unicode计量。不截断、不静默丢内容。 */
 import { AmbiguityError, BudgetError, ValidationError } from './errors.js';
-import { ASSET_KINDS, CARD_STATUSES, displayCodePrefix, type CardPayload, type LegacyRef } from './types.js';
+import { ASSET_KINDS, CARD_AVAILABILITIES, REVISION_STATUSES, displayCodePrefix, type CardPayload, type LegacyRef, type RevisionStatus } from './types.js';
 
 /** 准确Unicode字符数（码点），非UTF16 code unit：emoji/生僻中文不被低估。 */
 export function countChars(text: string): number {
@@ -23,11 +23,13 @@ export function validateLegacyRef(legacy: LegacyRef): void {
   if (legacy.namespace.includes(':') || legacy.key.includes(':')) {
     throw new ValidationError('legacy命名空间与key不得包含冒号。');
   }
+  if (legacy.version !== undefined && (!Number.isSafeInteger(legacy.version) || legacy.version < 1)) {
+    throw new ValidationError('legacy版本必须为正整数。');
+  }
 }
 
 const SHORT_PHRASE_MAX = 30;
 
-/** B1不调用AI写短语：内容必须由调用方提供经审核的shortPhrase（建议4—12汉字，上限30字符）。 */
 export function validateShortPhrase(phrase: string): void {
   const n = countChars(phrase);
   if (n === 0) throw new ValidationError('shortPhrase不能为空；B1不自动生成短语。');
@@ -48,7 +50,7 @@ function validateStringArray(value: unknown, label: string, maxItems: number): s
   });
 }
 
-/** 校验整份payload。schema不裁内容分类学（kind自由字符串），但强制结构与边界。 */
+/** assetKind与卡类型一致性：reference卡的payload.reference存在且method.payload.method存在。 */
 export function validatePayload(payload: CardPayload): void {
   if (!ASSET_KINDS.includes(payload.assetKind)) throw new ValidationError('assetKind无效。');
   if (typeof payload.name !== 'string' || payload.name.trim().length === 0) throw new ValidationError('name不能为空。');
@@ -58,6 +60,9 @@ export function validatePayload(payload: CardPayload): void {
   if (payload.assetKind === 'reference') {
     const r = payload.reference;
     if (typeof r.kind !== 'string' || r.kind.trim().length === 0) throw new ValidationError('reference.kind不能为空。');
+    for (const key of ['genres', 'mechanisms', 'experiences', 'purposes'] as const) {
+      validateStringArray(r.facets[key], `facets.${key}`, 30);
+    }
     validateStringArray(r.stages, 'stages', 10);
     validateStringArray(r.useWhen, 'useWhen', 20);
     if (!Array.isArray(r.examples)) throw new ValidationError('examples必须是数组。');
@@ -70,14 +75,42 @@ export function validatePayload(payload: CardPayload): void {
     const m = payload.method;
     if (countChars(m.title) === 0) throw new ValidationError('method.title不能为空。');
     if (countChars(m.instruction) === 0) throw new ValidationError('method.instruction不能为空。');
+    if (countChars(m.usageTree) === 0) throw new ValidationError('method.usageTree不能为空。');
     validateStringArray(m.applicableLayers, 'method.applicableLayers', 10);
     validateStringArray(m.aliases, 'method.aliases', 20);
   }
 }
 
-export function validateStatusTransition(from: string, to: string): void {
-  if (!CARD_STATUSES.includes(to as never)) throw new ValidationError(`状态无效：${to}`);
-  if (from === 'retired') throw new ValidationError('已退役条目不能变更状态；退役不回收编号。');
+/** payload.assetKind与既有卡类型核对：不允许reference卡被method payload更新。 */
+export function assertAssetKindMatches(payload: CardPayload, expected: 'method' | 'reference'): void {
+  if (payload.assetKind !== expected) {
+    throw new ValidationError(`payload.assetKind(${payload.assetKind})与卡类型(${expected})不一致。`);
+  }
+}
+
+export function validateRevisionStatus(status: string): asserts status is RevisionStatus {
+  if (!REVISION_STATUSES.includes(status as never)) throw new ValidationError(`revision状态无效：${status}`);
+}
+
+export function validateAvailability(status: string): asserts status is import('./types.js').CardAvailability {
+  if (!CARD_AVAILABILITIES.includes(status as never)) throw new ValidationError(`可用状态无效：${status}`);
+}
+
+export function validateRevisionNumber(revision: number): void {
+  if (!Number.isSafeInteger(revision) || revision < 1) throw new ValidationError('revision必须为正整数。');
+}
+
+/**
+ * revision状态转换：draft→reviewed（需reviewActor）→published（发布批次打标，不可跳级）。
+ * published内容不可变；retired不是revision状态（落在卡可用状态）。
+ */
+export function validateRevisionTransition(from: RevisionStatus, to: RevisionStatus, reviewActor: string | null): void {
+  if (from === to) throw new ValidationError(`revision状态未变化：${from}。`);
+  if (from === 'published') throw new ValidationError('已发布revision不可覆盖；修改创建新revision。');
+  if (from === 'draft' && to === 'published') throw new ValidationError('draft必须先审核（reviewed）再发布，不能跳级。');
+  if (to === 'reviewed') {
+    if (reviewActor === null || reviewActor.trim().length === 0) throw new ValidationError('审核必须有reviewActor证据。');
+  }
 }
 
 /** 投影字符预算：超限抛BudgetError让上层缩请求，不截断关键约束。 */
@@ -89,7 +122,6 @@ export function enforceBudget(text: string, budget: number, label: string): stri
   return text;
 }
 
-/** 别名歧义检测：多个候选命中同一别名时返回ambiguity（由服务层转换）。 */
 export function assertSingleAliasHit<T extends { matchedAlias: string }>(hits: T[], alias: string): T {
   if (hits.length > 1) {
     throw new AmbiguityError(`别名“${alias}”命中${hits.length}个条目，不能近似替换；请改用displayCode或明确命名空间。`, hits);

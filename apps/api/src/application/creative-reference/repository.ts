@@ -1,7 +1,7 @@
 /** R209-B1 Repository接口：SQLite适配实现此接口；应用层只依赖本接口。 */
 import type {
-  AdminListFilter, AdminListPage, CardPayload, CardRecord, CardStatus, LegacyRef,
-  RelationRecord, RelationType, ReleaseSnapshot, RevisionRecord
+  AdminListFilter, AdminListPage, CardAvailability, CardPayload, CardRecord, LegacyRef,
+  RelationRecord, RelationType, ReleaseSnapshot, RevisionRecord, RevisionStatus
 } from './types.js';
 
 export interface CreateCardInput {
@@ -19,38 +19,53 @@ export interface UpdateCardInput {
   actor: string;
 }
 
+export interface ReviewInput {
+  internalId: string;
+  expectedRevision: number;
+  reviewActor: string;
+}
+
 export interface PublishReleaseInput {
-  /** 冻结清单：internalId+revision。 */
   entries: ReadonlyArray<{ internalId: string; revision: number }>;
   relations: ReadonlyArray<{ fromId: string; fromRevision: number; toId: string; toRevision: number; relationType: RelationType }>;
   publishedBy: string;
+  /** 乐观锁：期望当前active releaseId（无active时传null）；不一致拒绝发布。 */
+  expectedActiveReleaseId: string | null;
 }
 
 export interface LegacyMappingEntry {
+  /** canonical目标：确认同实体后所有别名挂到这一张卡。 */
+  canonicalInternalId?: string;
   legacy: LegacyRef;
   payload: CardPayload;
-  /** 明确映射来源视图（如audited-v4/complete-v3）；不同含义不因同名合并。 */
   sourceView: string;
 }
 
 export interface CreativeReferenceRepository {
   createCard(input: CreateCardInput, now: string): Promise<CardRecord>;
-  /** 幂等重放：同幂等键返回既有卡（内容一致时）。 */
   findByIdempotencyKey(kind: 'method' | 'reference', key: string): Promise<CardRecord | null>;
   findCardByInternalId(internalId: string): Promise<CardRecord | null>;
+  /** legacy查询：主legacy列+alias表联合；歧义候选由调用层判定。 */
   findCardsByLegacy(legacy: LegacyRef): Promise<CardRecord[]>;
   findCardsByDisplayCode(code: string): Promise<CardRecord[]>;
   getRevision(internalId: string, revision: number): Promise<RevisionRecord | null>;
   getCurrentRevision(internalId: string): Promise<RevisionRecord | null>;
+  /** 新内容必进draft：expectedRevision CAS+新revision状态draft。 */
   updateCard(input: UpdateCardInput, now: string): Promise<RevisionRecord>;
-  setStatus(internalId: string, status: CardStatus, actor: string, now: string): Promise<CardRecord>;
+  /** draft→reviewed：需reviewActor；published不可改。 */
+  reviewRevision(input: ReviewInput, now: string): Promise<RevisionRecord>;
+  /** 卡可用状态（含retired）；不改任何revision内容状态。 */
+  setAvailability(internalId: string, availability: CardAvailability, now: string): Promise<CardRecord>;
   listAdmin(filter: AdminListFilter): Promise<AdminListPage>;
   publishRelease(input: PublishReleaseInput, now: string): Promise<ReleaseSnapshot>;
   getActiveRelease(): Promise<ReleaseSnapshot | null>;
   getRelease(releaseId: string): Promise<ReleaseSnapshot | null>;
-  /** release内精确读取成员可见的已发布revision。 */
   getRevisionInRelease(releaseId: string, internalId: string): Promise<RevisionRecord | null>;
+  /** release内冻结图谱。 */
+  listRelationsInRelease(releaseId: string): Promise<RelationRecord[]>;
   listRelations(cardId: string): Promise<RelationRecord[]>;
-  /** legacy明确映射导入：仅导入给定映射，不自动合并全库。 */
+  /** 同实体多别名挂同一canonical卡；确认同实体一个编号。 */
+  attachAlias(internalId: string, legacy: LegacyRef, sourceView: string, now: string): Promise<void>;
+  listAliases(internalId: string): Promise<Array<{ legacy: LegacyRef; sourceView: string }>>;
   importLegacyMapping(entries: ReadonlyArray<LegacyMappingEntry>, idempotencyPrefix: string, actor: string, now: string): Promise<CardRecord[]>;
 }

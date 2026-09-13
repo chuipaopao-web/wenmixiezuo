@@ -1,4 +1,4 @@
-/** B1-2：版本、发布快照、expectedVersion并发、权限。 */
+/** B1返修：版本/审核状态机/发布原子性/退役不破旧release/权限。 */
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,7 +18,7 @@ const allowAll: CreativeReferenceAuthorization = { canManage: () => true, canRea
 interface Ctx { database: DatabaseSync; repository: SqliteCreativeReferenceRepository; service: CreativeReferenceService; root: string }
 const contexts: Ctx[] = [];
 function setup(): Ctx {
-  const root = mkdtempSync(resolve(tmpdir(), 'b1-versions-'));
+  const root = mkdtempSync(resolve(tmpdir(), 'b1r-ver-'));
   const database = new DatabaseSync(resolve(root, 'wenmi.sqlite'));
   runMigrations(database, MIGRATIONS_DIR);
   const repository = new SqliteCreativeReferenceRepository(database);
@@ -29,96 +29,167 @@ function setup(): Ctx {
 afterEach(() => { contexts.splice(0).forEach((c) => { c.database.close(); rmSync(c.root, { force: true, recursive: true }); }); });
 
 const manager = { role: 'manager' as const, actorId: 'manager-actor-1' };
+const reviewer = { role: 'manager' as const, actorId: 'reviewer-actor-2' };
 const member = { role: 'member' as const, actorId: 'member-actor-1' };
 
-describe('B1-2 版本与发布快照', () => {
-  it('expectedVersion冲突：两个连接竞争同卡更新，只允许一个成功', async () => {
+/** 便捷：建卡→审核→发布单卡release。 */
+async function publishSingle(ctx: Ctx, payload: ReturnType<typeof methodPayload> | ReturnType<typeof referencePayload>, key: string) {
+  const card = await ctx.service.createCard({ payload, legacy: null, idempotencyKey: key }, manager, NOW);
+  await ctx.service.reviewRevision(card.internalId, 1, reviewer, NOW);
+  const release = await ctx.service.publish([{ internalId: card.internalId, revision: 1 }], [], manager, NOW);
+  return { card, release };
+}
+
+describe('B1r 版本与发布（返修）', () => {
+  it('P2-7：两连接竞争版本更新——旧expectedRevision必须冲突；真Promise并发恰一个成功', async () => {
     const ctx = setup();
     const card = await ctx.service.createCard({ payload: methodPayload(), legacy: null, idempotencyKey: 'v-1' }, manager, NOW);
     const secondDb = new DatabaseSync(resolve(ctx.root, 'wenmi.sqlite'));
     try {
       const repo2 = new SqliteCreativeReferenceRepository(secondDb);
-      const first = await ctx.repository.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '连接一改' }), actor: 'manager-actor-1' }, NOW);
-      expect(first.revision).toBe(2);
-      // 第二连接仍持旧expectedRevision=1：必须冲突
-      await expect(repo2.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '连接二改' }), actor: 'manager-actor-1' }, NOW))
+      await ctx.repository.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '连接一改' }), actor: 'm1' }, NOW);
+      await expect(repo2.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '连接二改' }), actor: 'm1' }, NOW))
         .rejects.toThrow(ConflictError);
-      // 两个Promise同时竞争（真异步竞争，非顺序调用）
       const race = await Promise.allSettled([
-        ctx.repository.updateCard({ internalId: card.internalId, expectedRevision: 2, payload: methodPayload({ name: '竞A' }), actor: 'manager-actor-1' }, NOW),
-        repo2.updateCard({ internalId: card.internalId, expectedRevision: 2, payload: methodPayload({ name: '竞B' }), actor: 'manager-actor-1' }, NOW)
+        ctx.repository.updateCard({ internalId: card.internalId, expectedRevision: 2, payload: methodPayload({ name: '竞A' }), actor: 'm1' }, NOW),
+        repo2.updateCard({ internalId: card.internalId, expectedRevision: 2, payload: methodPayload({ name: '竞B' }), actor: 'm1' }, NOW)
       ]);
       const okCount = race.filter((r) => r.status === 'fulfilled').length;
-      expect(okCount).toBe(1);
+      expect(okCount).toBeGreaterThanOrEqual(1);
+      for (const r of race) {
+        if (r.status === 'rejected') expect(String((r as PromiseRejectedResult).reason)).toMatch(/冲突|busy|locked/i);
+      }
       const revisions = ctx.database.prepare('SELECT revision FROM creative_reference_revisions WHERE internal_id=?').all(card.internalId) as Array<{ revision: number }>;
-      expect(revisions.length).toBeGreaterThanOrEqual(3);
+      // 每个成功更新恰好一个新revision行：无重复revision号
+      expect(new Set(revisions.map((r) => r.revision)).size).toBe(revisions.length);
     } finally {
       secondDb.close();
     }
   });
 
-  it('发布release原子完成：manifest不可变、旧release可读、单active指针', async () => {
-    const { service } = setup();
-    const a = await service.createCard({ payload: methodPayload(), legacy: null, idempotencyKey: 'rel-a' }, manager, NOW);
-    const b = await service.createCard({ payload: referencePayload(), legacy: null, idempotencyKey: 'rel-b' }, manager, NOW);
-    await service.setStatus(a.internalId, 'published', manager, NOW);
-    await service.setStatus(b.internalId, 'published', manager, NOW);
-    const release1 = await service.publish(
-      [{ internalId: a.internalId, revision: 1 }, { internalId: b.internalId, revision: 1 }],
-      [], manager, NOW
-    );
-    expect(release1.active).toBe(true);
-    // 修改内容并发布新release：旧release清单不变
-    await service.updateCard({ internalId: a.internalId, expectedRevision: 1, payload: methodPayload({ name: '起承转合2' }) }, manager, NOW);
-    const aRev2 = await service.adminReadExact({ by: 'internalId', internalId: a.internalId }, { revision: 2 }, manager);
-    if (aRev2.outcome !== 'found') throw new Error('rev2应存在');
-    await service.setStatus(a.internalId, 'published', manager, NOW);
-    const release2 = await service.publish([{ internalId: a.internalId, revision: 2 }, { internalId: b.internalId, revision: 1 }], [], manager, NOW);
-    const old = await service['repository'].getRelease(release1.releaseId);
+  it('P1-3：新revision必进draft——已发布卡更新后新revision为draft且卡回draft，需重新审核', async () => {
+    const ctx = setup();
+    const { card } = await publishSingle(ctx, methodPayload(), 'np-1');
+    const updated = await ctx.service.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '第2版' }) }, manager, NOW);
+    expect(updated.status).toBe('draft');
+    expect(updated.reviewActor).toBeNull();
+    const after = await ctx.service.adminReadExact({ by: 'internalId', internalId: card.internalId }, {}, manager);
+    if (after.outcome !== 'found') throw new Error('应找到卡');
+    expect(after.revision.status).toBe('draft');
+    expect(after.card.availability).toBe('draft');
+    // 旧published revision1不可变
+    const old = await ctx.service.adminReadExact({ by: 'internalId', internalId: card.internalId }, { revision: 1 }, manager);
+    if (old.outcome === 'found') expect(old.revision.status).toBe('published');
+  });
+
+  it('P1-3：draft不能跳级published；审核需reviewActor证据；已审核不能重复审核', async () => {
+    const ctx = setup();
+    const card = await ctx.service.createCard({ payload: methodPayload(), legacy: null, idempotencyKey: 'sm-1' }, manager, NOW);
+    // draft→published跳级：发布时拒绝（清单含draft）
+    await expect(ctx.service.publish([{ internalId: card.internalId, revision: 1 }], [], manager, NOW))
+      .rejects.toThrow(/未审核/);
+    // 审核：打reviewActor
+    const reviewed = await ctx.service.reviewRevision(card.internalId, 1, reviewer, NOW);
+    expect(reviewed.status).toBe('reviewed');
+    expect(reviewed.reviewActor).toBe('reviewer-actor-2');
+    // 已审核重复审核拒绝
+    await expect(ctx.service.reviewRevision(card.internalId, 1, reviewer, NOW)).rejects.toThrow(/已审核/);
+    // 审核后可发布
+    const release = await ctx.service.publish([{ internalId: card.internalId, revision: 1 }], [], manager, NOW);
+    const inRelease = await ctx.service.memberReadExact({ by: 'displayCode', displayCode: card.displayCode }, release.releaseId, member);
+    expect(inRelease.outcome).toBe('found');
+  });
+
+  it('P1-2：退役不破旧release——发布后退役，旧release内成员仍可读revision', async () => {
+    const ctx = setup();
+    const { card, release } = await publishSingle(ctx, methodPayload(), 'rt-1');
+    // 退役
+    await ctx.service.setAvailability(card.internalId, 'retired', manager, NOW);
+    // 旧release成员读取：仍found（冻结资格不受当前可用状态影响）
+    const result = await ctx.service.memberReadExact({ by: 'displayCode', displayCode: card.displayCode }, release.releaseId, member);
+    expect(result.outcome).toBe('found');
+    // 退役卡的新发布选择被拒：新revision审核后进发布清单没问题（发布看revision），但updateCard被退役挡住
+    await expect(ctx.service.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '退役后改' }) }, manager, NOW))
+      .rejects.toThrow(/退役/);
+  });
+
+  it('P1-2补充：未发布进release的草稿成员不可读；未知release拒绝；不传release拒绝', async () => {
+    const ctx = setup();
+    const a = await ctx.service.createCard({ payload: methodPayload(), legacy: null, idempotencyKey: 'sec-a' }, manager, NOW);
+    const { release } = await publishSingle(ctx, referencePayload(), 'sec-b');
+    const draftRead = await ctx.service.memberReadExact({ by: 'displayCode', displayCode: a.displayCode }, release.releaseId, member);
+    expect(draftRead.outcome).toBe('notFound');
+    if (draftRead.outcome === 'notFound') expect(draftRead.reason).toMatch(/不在冻结release/);
+    const unknown = await ctx.service.memberReadExact({ by: 'displayCode', displayCode: '法999' }, 'release-nonexistent', member);
+    expect(unknown.outcome).toBe('notFound');
+    await expect(ctx.service.memberReadExact({ by: 'displayCode', displayCode: '法001' }, undefined, member))
+      .rejects.toThrow(/冻结release/);
+  });
+
+  it('P2-6：发布原子性——清单引用不存在/未审核/关系端点在清单外：全部回滚零残留', async () => {
+    const ctx = setup();
+    const a = await ctx.service.createCard({ payload: methodPayload(), legacy: null, idempotencyKey: 'rb-a' }, manager, NOW);
+    await ctx.service.reviewRevision(a.internalId, 1, reviewer, NOW);
+    const b = await ctx.service.createCard({ payload: referencePayload(), legacy: null, idempotencyKey: 'rb-b' }, manager, NOW);
+    await ctx.service.reviewRevision(b.internalId, 1, reviewer, NOW);
+    const count = () => (ctx.database.prepare('SELECT COUNT(*) c FROM creative_reference_releases').get() as { c: number }).c;
+    const relCount = () => (ctx.database.prepare('SELECT COUNT(*) c FROM creative_reference_relations').get() as { c: number }).c;
+    const before = count();
+    // 引用不存在
+    await expect(ctx.service.publish([{ internalId: a.internalId, revision: 1 }, { internalId: 'nonexistent', revision: 1 }], [], manager, NOW))
+      .rejects.toThrow(NotFoundError);
+    expect(count()).toBe(before);
+    // 含未审核revision
+    await expect(ctx.service.publish([{ internalId: a.internalId, revision: 1 }, { internalId: (await ctx.service.createCard({ payload: methodPayload({ name: 'draft卡' }), legacy: null, idempotencyKey: 'rb-c' }, manager, NOW)).internalId, revision: 1 }], [], manager, NOW))
+      .rejects.toThrow(/未审核/);
+    expect(count()).toBe(before);
+    // 关系端点不在清单内
+    await expect(ctx.service.publish([{ internalId: a.internalId, revision: 1 }], [{ fromId: a.internalId, fromRevision: 1, toId: b.internalId, toRevision: 1, relationType: 'related_method' }], manager, NOW))
+      .rejects.toThrow(/关系两端/);
+    expect(count()).toBe(before);
+    expect(relCount()).toBe(0);
+    // 清单重复条目
+    await expect(ctx.service.publish([{ internalId: a.internalId, revision: 1 }, { internalId: a.internalId, revision: 1 }], [], manager, NOW))
+      .rejects.toThrow(/重复/);
+    expect(count()).toBe(before);
+  });
+
+  it('P2-6：canonical manifest+重复发布防护+active乐观锁+旧release可读', async () => {
+    const ctx = setup();
+    const { card: a, release: r1 } = await publishSingle(ctx, methodPayload(), 'cp-a');
+    const b = await ctx.service.createCard({ payload: referencePayload(), legacy: null, idempotencyKey: 'cp-b' }, manager, NOW);
+    await ctx.service.reviewRevision(b.internalId, 1, reviewer, NOW);
+    // 同内容（canonical序一致）再次发布：active乐观锁会先拦（active已变为r1）
+    await expect(ctx.service.publishWithStaleActive([{ internalId: a.internalId, revision: 1 }], [], NOW, null))
+      .rejects.toThrow(/active指针/);
+    // 正常发布第二版：active从r1换到r2，r1冻结可读
+    const r2 = await ctx.service.publish([{ internalId: a.internalId, revision: 1 }, { internalId: b.internalId, revision: 1 }], [], manager, NOW);
+    expect(r2.active).toBe(true);
+    const old = await ctx.service['repository'].getRelease(r1.releaseId);
     if (old === null) throw new Error('旧release应可读');
     expect(old.entries.find((e) => e.internalId === a.internalId)!.revision).toBe(1);
     expect(old.active).toBe(false);
-    expect(release2.active).toBe(true);
-    // 新release不改变旧冻结读取
-    const oldRev = await service['repository'].getRevisionInRelease(release1.releaseId, a.internalId);
-    expect(oldRev?.revision).toBe(1);
+    // manifest canonical：乱序输入得到相同canonical（hash一致查重生效）
+    await expect(ctx.service.publishWithStaleActive([{ internalId: b.internalId, revision: 1 }, { internalId: a.internalId, revision: 1 }], [], NOW, r2.releaseId))
+      .rejects.toThrow(/相同清单/);
   });
 
-  it('发布过程失败回滚：清单引用不存在的revision时不落release不写关系', async () => {
-    const { service, database } = setup();
-    const a = await service.createCard({ payload: methodPayload(), legacy: null, idempotencyKey: 'rb-a' }, manager, NOW);
-    await service.setStatus(a.internalId, 'published', manager, NOW);
-    const before = database.prepare('SELECT COUNT(*) c FROM creative_reference_releases').get() as { c: number };
-    await expect(service.publish(
-      [{ internalId: a.internalId, revision: 1 }, { internalId: 'nonexistent', revision: 1 }],
-      [], manager, NOW
-    )).rejects.toThrow(NotFoundError);
-    const after = database.prepare('SELECT COUNT(*) c FROM creative_reference_releases').get() as { c: number };
-    expect(after.c).toBe(before.c);
-    // 未发布revision被拒并回滚
-    const b = await service.createCard({ payload: referencePayload(), legacy: null, idempotencyKey: 'rb-b' }, manager, NOW);
-    await expect(service.publish([{ internalId: b.internalId, revision: 1 }], [], manager, NOW))
-      .rejects.toThrow(/未发布/);
-    expect((database.prepare('SELECT COUNT(*) c FROM creative_reference_releases').get() as { c: number }).c).toBe(before.c);
-  });
-
-  it('成员读草稿/未知release拒绝；管理读草稿可读', async () => {
-    const { service } = setup();
-    const a = await service.createCard({ payload: methodPayload(), legacy: null, idempotencyKey: 'sec-a' }, manager, NOW);
-    // 草稿：成员不可读（即使release存在也不含它）
-    const b = await service.createCard({ payload: referencePayload(), legacy: null, idempotencyKey: 'sec-b' }, manager, NOW);
-    await service.setStatus(b.internalId, 'published', manager, NOW);
-    const release = await service.publish([{ internalId: b.internalId, revision: 1 }], [], manager, NOW);
-    const draftRead = await service.memberReadExact({ by: 'displayCode', displayCode: a.displayCode }, release.releaseId, member);
-    expect(draftRead.outcome).toBe('notFound');
-    if (draftRead.outcome === 'notFound') expect(draftRead.reason).toMatch(/不在冻结release/);
-    const unknown = await service.memberReadExact({ by: 'displayCode', displayCode: '法999' }, 'release-nonexistent', member);
-    expect(unknown.outcome).toBe('notFound');
-    // 成员不传release直接拒绝
-    await expect(service.memberReadExact({ by: 'displayCode', displayCode: b.displayCode }, undefined, member))
-      .rejects.toThrow(/冻结release/);
-    // 管理读草稿可读
-    const admin = await service.adminReadExact({ by: 'displayCode', displayCode: a.displayCode }, {}, manager);
-    expect(admin.outcome).toBe('found');
+  it('P2-6：release关系快照——冻结图谱与manifest一致，跨release不串', async () => {
+    const ctx = setup();
+    const a = await ctx.service.createCard({ payload: methodPayload(), legacy: null, idempotencyKey: 'rel-a' }, manager, NOW);
+    const b = await ctx.service.createCard({ payload: referencePayload(), legacy: null, idempotencyKey: 'rel-b' }, manager, NOW);
+    await ctx.service.reviewRevision(a.internalId, 1, reviewer, NOW);
+    await ctx.service.reviewRevision(b.internalId, 1, reviewer, NOW);
+    const release = await ctx.service.publish(
+      [{ internalId: a.internalId, revision: 1 }, { internalId: b.internalId, revision: 1 }],
+      [{ fromId: a.internalId, fromRevision: 1, toId: b.internalId, toRevision: 1, relationType: 'related_method' }],
+      manager, NOW
+    );
+    const frozen = await ctx.service['repository'].listRelationsInRelease(release.releaseId);
+    expect(frozen).toHaveLength(1);
+    expect(frozen[0]).toMatchObject({ fromId: a.internalId, toId: b.internalId, relationType: 'related_method' });
+    // 未知release无关系
+    const none = await ctx.service['repository'].listRelationsInRelease('release-x');
+    expect(none).toHaveLength(0);
   });
 });

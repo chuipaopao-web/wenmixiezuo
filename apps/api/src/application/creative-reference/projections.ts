@@ -31,6 +31,7 @@ export function toDigest(revision: RevisionRecord): Projection {
   return usageTree === undefined ? { ...base, applicableLayers: layers } : { ...base, usageTree, applicableLayers: layers };
 }
 
+/** 详情投影保留完整适用条件（useWhen/boundary等关键约束不删）。 */
 export function toDetail(revision: RevisionRecord): Projection {
   const text = JSON.stringify(revision.payload);
   enforceBudget(text, PROJECTION_BUDGETS.detail, '详情投影');

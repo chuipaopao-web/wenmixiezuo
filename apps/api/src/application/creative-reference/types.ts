@@ -9,18 +9,25 @@ export function displayCodePrefix(kind: AssetKind): string {
   return kind === 'method' ? '法' : '参';
 }
 
-export type CardStatus = 'draft' | 'reviewed' | 'published' | 'retired';
+/**
+ * revision内容状态机：draft→reviewed→published；retired只落在卡（当前可选状态）。
+ * 已发布revision内容不可变；退役不使旧release内的published revision失效。
+ */
+export type RevisionStatus = 'draft' | 'reviewed' | 'published';
 
-export const CARD_STATUSES: readonly CardStatus[] = ['draft', 'reviewed', 'published', 'retired'];
+export const REVISION_STATUSES: readonly RevisionStatus[] = ['draft', 'reviewed', 'published'];
 
-/** legacy引用：来源命名空间+旧key+旧版本，保证旧任务可按原语义回读。 */
+/** 卡的当前可选状态：retired禁止新选择，不影响历史release资格。 */
+export type CardAvailability = 'draft' | 'reviewed' | 'published' | 'retired';
+
+export const CARD_AVAILABILITIES: readonly CardAvailability[] = ['draft', 'reviewed', 'published', 'retired'];
+
 export interface LegacyRef {
   namespace: string;
   key: string;
   version?: number;
 }
 
-/** 参考卡内容沿总规格第8节合同（kind枚举放开为字符串：B1不裁定内容分类学）。 */
 export interface ReferenceContent {
   kind: string;
   facets: { genres: string[]; mechanisms: string[]; experiences: string[]; purposes: string[] };
@@ -35,7 +42,6 @@ export interface ReferenceContent {
   evidence: { kind: 'editorial_heuristic' | 'cited_research' | 'observed_evaluation'; refs: string[]; limitations: string };
 }
 
-/** 方法卡：保留现有含义字段（title/instruction/boundary等），不重命名旧key。 */
 export interface MethodContent {
   title: string;
   instruction: string;
@@ -55,7 +61,7 @@ export interface CardRecord {
   displayCode: string;
   legacy: LegacyRef | null;
   currentRevision: number | null;
-  status: CardStatus;
+  availability: CardAvailability;
   createdAt: string;
   updatedAt: string;
 }
@@ -70,7 +76,7 @@ export interface RevisionRecord {
   displayCode: string;
   shortPhrase: string;
   summary: string;
-  status: CardStatus;
+  status: RevisionStatus;
   authorActor: string;
   reviewActor: string | null;
   createdAt: string;
@@ -91,8 +97,9 @@ export interface RelationRecord {
 export interface ReleaseSnapshot {
   releaseId: string;
   manifestHash: string;
-  /** 冻结清单：条目为 internalId+revision；不可变。 */
+  /** 冻结清单：条目为 internalId+revision+关系边；不可变、canonical化。 */
   entries: ReadonlyArray<{ internalId: string; revision: number }>;
+  relations: ReadonlyArray<{ fromId: string; fromRevision: number; toId: string; toRevision: number; relationType: RelationType }>;
   active: boolean;
   createdAt: string;
   publishedBy: string;
@@ -127,7 +134,6 @@ export interface DetailProjection {
 
 export type Projection = CitationProjection | DigestProjection | DetailProjection;
 
-/** 写操作要求明确管理者上下文：服务层强制传入，禁止默认管理员。 */
 export interface ManagerContext {
   role: 'manager';
   actorId: string;
@@ -140,16 +146,13 @@ export interface MemberContext {
 
 export type ActorContext = ManagerContext | MemberContext;
 
-/** 精确读取键：真实id / displayCode / legacy。 */
 export type ExactKey =
   | { by: 'internalId'; internalId: string }
   | { by: 'displayCode'; displayCode: string }
   | { by: 'legacy'; legacy: LegacyRef };
 
 export interface ExactReadOptions {
-  /** 指定revision精确取该版；缺省取当前revision。 */
   revision?: number;
-  /** 成员读取必须传冻结release；管理读取可不传（读工作区当前态）。 */
   releaseId?: string;
 }
 
@@ -157,8 +160,7 @@ export interface AdminListFilter {
   assetKind?: AssetKind;
   usageTree?: string;
   layers?: string[];
-  statuses?: CardStatus[];
-  /** cursor绑定查询条件：条件不一致时返回cursorInvalid，让上层重新查询。 */
+  availabilities?: CardAvailability[];
   cursor?: { lastInternalId: string; filterFingerprint: string } | null;
   limit?: number;
 }
