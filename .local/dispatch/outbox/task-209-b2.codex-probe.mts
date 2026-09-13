@@ -1,0 +1,36 @@
+import { pathToFileURL } from 'node:url';
+import { resolve } from 'node:path';
+const root=process.cwd();
+const {createTestContext}=await import(pathToFileURL(resolve(root,'tests/helpers/test-context.ts')).href);
+const {createV7Server}=await import(pathToFileURL(resolve(root,'apps/api/src/http/v7-server.ts')).href);
+const c=createTestContext('codex-b2-');
+const app=await createV7Server(c.config,c.database);
+const prefix='/api/v1/admin/creative-reference';
+const headers:any={host:'127.0.0.1:43111',origin:c.config.webOrigin,'sec-fetch-site':'same-origin','content-type':'application/json'};
+const call=async(method:string,url:string,payload?:any)=>app.inject({method,url:prefix+url,headers,...(payload?{payload}:{})});
+try{
+ const login=await app.inject({method:'POST',url:'/api/v1/auth/register',headers,payload:{email:'codex-b2@example.com',displayName:'合成审计',password:'Strong-test-pass-123!'}});
+ if(login.statusCode!==200)throw new Error('register '+login.statusCode);
+ headers.cookie=String(login.headers['set-cookie']).split(';')[0];
+ const payload={assetKind:'method',name:'合成方法',shortPhrase:'目标推进',summary:'合成审计方法',aliases:[],method:{title:'合成方法',instruction:'目标与阻力',boundary:'测试边界',usageTree:'故事与因果',applicableLayers:['volume'],aliases:[]}};
+ const cr=await call('POST','/cards',{payload,idempotencyKey:'audit-card'});if(cr.statusCode!==200)throw new Error(cr.body);
+ const id=cr.json().data.card.internalId;
+ c.database.exec("CREATE TRIGGER codex_fail_review BEFORE INSERT ON creative_reference_admin_audit WHEN NEW.action='review' BEGIN SELECT RAISE(ABORT,'synthetic audit failure'); END");
+ const review=await call('POST',`/cards/${id}/review`,{expectedRevision:1,opinion:'必须同事务'});
+ const status=c.database.prepare('SELECT status FROM creative_reference_revisions WHERE internal_id=? AND revision=1').get(id);
+ console.log(JSON.stringify({case:'review_audit_failure',http:review.statusCode,revision:status}));
+ c.database.exec('DROP TRIGGER codex_fail_review');
+ c.database.exec("CREATE TRIGGER codex_fail_release_result BEFORE UPDATE OF release_id ON creative_reference_release_requests BEGIN SELECT RAISE(ABORT,'synthetic result failure'); END");
+ const publishBody={entries:[{internalId:id,revision:1}],relations:[],expectedActiveReleaseId:null,idempotencyKey:'publish-audit'};
+ const pub=await call('POST','/releases',publishBody);
+ const active=c.database.prepare('SELECT release_id FROM creative_reference_releases WHERE active=1').get();
+ const request=c.database.prepare('SELECT release_id FROM creative_reference_release_requests WHERE request_key=?').get('publish-audit');
+ c.database.exec('DROP TRIGGER codex_fail_release_result');
+ const retry=await call('POST','/releases',publishBody);
+ console.log(JSON.stringify({case:'publish_result_failure',http:pub.statusCode,active,request,retry:retry.statusCode}));
+ const ref={assetKind:'reference',name:'合成参考',shortPhrase:'人物欲望',summary:'人物动机的参考',aliases:[],reference:{kind:'genre',facets:{genres:['历史'],mechanisms:['目标'],experiences:['期待'],purposes:['人物与关系']},stages:['opening'],useWhen:['目标不清'],questions:['想得到什么'],possibilities:['主动争取'],imbalanceChecks:['避免同质'],examples:[],relatedCards:[],methodRefs:[],evidence:{kind:'editorial_heuristic',refs:[],limitations:'合成'}}};
+ const r=await call('POST','/cards',{payload:ref,idempotencyKey:'ref-audit'});if(r.statusCode!==200)throw new Error(r.body);
+ const all=await call('GET','/cards?assetKind=reference');
+ const filtered=await call('GET','/cards?assetKind=reference&usageTree='+encodeURIComponent('人物与关系'));
+ console.log(JSON.stringify({case:'reference_purpose_filter',all:all.json().data.items.length,filtered:filtered.json().data.items.length,http:filtered.statusCode}));
+}finally{await app.close();c.close();}
