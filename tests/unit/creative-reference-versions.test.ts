@@ -55,16 +55,23 @@ describe('B1r 版本与发布（返修）', () => {
     try {
       const repo2 = new SqliteCreativeReferenceRepository(secondDb);
       await ctx.repository.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '连接一改' }), actor: 'm1' }, NOW);
-      await expect(repo2.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '连接二改' }), actor: 'm1' }, NOW))
-        .rejects.toThrow(ConflictError);
-      const race = await Promise.allSettled([
-        ctx.repository.updateCard({ internalId: card.internalId, expectedRevision: 2, payload: methodPayload({ name: '竞A' }), actor: 'm1' }, NOW),
-        repo2.updateCard({ internalId: card.internalId, expectedRevision: 2, payload: methodPayload({ name: '竞B' }), actor: 'm1' }, NOW)
-      ]);
+      // 仓储同步签名：旧expectedRevision同步抛冲突（同一条CAS规则）
+      expect(() => repo2.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '连接二改' }), actor: 'm1' }, NOW))
+        .toThrow(ConflictError);
+      // 仓储同步签名：两连接同时尝试同一expectedRevision（同步语义下按到达顺序串行化）
+      const attempt = (repo: SqliteCreativeReferenceRepository, name: string) => {
+        try {
+          repo.updateCard({ internalId: card.internalId, expectedRevision: 2, payload: methodPayload({ name }), actor: 'm1' }, NOW);
+          return { status: 'fulfilled' as const };
+        } catch (reason) {
+          return { status: 'rejected' as const, reason };
+        }
+      };
+      const race = [attempt(ctx.repository, '竞A'), attempt(repo2, '竞B')];
       const okCount = race.filter((r) => r.status === 'fulfilled').length;
       expect(okCount).toBeGreaterThanOrEqual(1);
       for (const r of race) {
-        if (r.status === 'rejected') expect(String((r as PromiseRejectedResult).reason)).toMatch(/冲突|busy|locked/i);
+        if (r.status === 'rejected') expect(String((r as { reason: unknown }).reason)).toMatch(/冲突|busy|locked/i);
       }
       const revisions = ctx.database.prepare('SELECT revision FROM creative_reference_revisions WHERE internal_id=?').all(card.internalId) as Array<{ revision: number }>;
       // 每个成功更新恰好一个新revision行：无重复revision号

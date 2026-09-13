@@ -1,4 +1,5 @@
-/** R209-B2 管理闭环HTTP集成：鉴权、完整链、45卡跨页、发布幂等、迁移重入、退役历史。 */
+/** R209-B2 管理闭环HTTP集成：鉴权、完整链、45卡跨页、发布幂等、迁移重入、退役历史、
+ * 二次返修：同步事务单元隔离/锁恢复/应用层授权。 */
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync, rmSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,6 +8,13 @@ import { DatabaseSync } from 'node:sqlite';
 import { createTestContext } from '../../helpers/test-context.js';
 import { createV7Server } from '../../../apps/api/src/http/v7-server.js';
 import { runMigrations } from '../../../apps/api/src/infrastructure/db/migrations.js';
+import { SqliteCreativeReferenceRepository } from '../../../apps/api/src/infrastructure/db/repositories/creative-reference-repository.js';
+import { CreativeReferenceAdminRepository } from '../../../apps/api/src/infrastructure/db/repositories/creative-reference-admin-repository.js';
+import { CreativeReferenceAdminService } from '../../../apps/api/src/application/creative-reference/admin-service.js';
+import type { CardPayload } from '../../../apps/api/src/application/creative-reference/types.js';
+
+const NOW = '2026-09-13T00:00:00.000Z';
+const typedPayload = (payload: Record<string, unknown>): CardPayload => payload as unknown as CardPayload;
 
 const MIGRATIONS_DIR = resolve(process.cwd(), 'apps/api/src/infrastructure/db/migrations');
 
@@ -434,4 +442,168 @@ describe('creative-reference admin routes', () => {
       c.close();
     }
   }, 180_000);
+
+  it('sync transaction unit: async operation rejected; concurrent requests isolated (failure does not roll back the other side)', async () => {
+    const c = createTestContext();
+    const app = await createV7Server(c.config, c.database);
+    try {
+      const headers = { host: '127.0.0.1:43111', origin: c.config.webOrigin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' };
+      const register = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers, payload: { email: 'b2-iso@example.com', displayName: '管理员', password: 'Strong-test-pass-123!' } });
+      const adminHeaders = { ...headers, cookie: String(register.headers['set-cookie']).split(';')[0]! };
+
+      // 反例：含await的事务工作单元必须被拒绝并回滚，且实例状态可继续使用
+      const repo = new SqliteCreativeReferenceRepository(c.database);
+      const adminRepo = new CreativeReferenceAdminRepository(c.database);
+      let asyncRejected = false;
+      try {
+        repo.runInTransaction(async () => {
+          adminRepo.recordAudit({ action: 'retire', targetId: 'async-op', targetRevision: null, actorId: 'iso' }, new Date().toISOString());
+          await Promise.resolve();
+          return 'should-not-commit';
+        });
+      } catch (error) {
+        asyncRejected = error instanceof Error && error.message.includes('同步完成');
+      }
+      expect(asyncRejected).toBe(true);
+      expect((c.database.prepare("SELECT COUNT(*) n FROM creative_reference_admin_audit WHERE target_id='async-op'").get() as { n: number }).n).toBe(0);
+      // 拒绝后同实例正常工作（状态未被污染）
+      const afterReject = repo.runInTransaction(() => {
+        adminRepo.recordAudit({ action: 'retire', targetId: 'sync-op', targetRevision: null, actorId: 'iso' }, new Date().toISOString());
+        return 'ok';
+      });
+      expect(afterReject).toBe('ok');
+      expect((c.database.prepare("SELECT COUNT(*) n FROM creative_reference_admin_audit WHERE target_id='sync-op'").get() as { n: number }).n).toBe(1);
+
+      // 真并发（两个inject同时挂起，不相互await）：A校验失败(400) 与 B成功建卡 —— B持久化、A零副作用
+      const [failA, okB] = await Promise.all([
+        app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: { assetKind: 'method' }, idempotencyKey: 'iso-fail-a' } }),
+        app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: methodPayload('并发成功卡B', 1), legacy: null, idempotencyKey: 'iso-ok-b' } })
+      ]);
+      expect(failA.statusCode).toBe(400);
+      expect(okB.statusCode).toBe(200);
+      const cardB = (okB.json().data as { card: { internalId: string } }).card.internalId;
+      expect(c.database.prepare('SELECT 1 FROM creative_reference_cards WHERE internal_id=?').get(cardB)).toBeDefined();
+      expect(c.database.prepare("SELECT COUNT(*) n FROM creative_reference_cards WHERE idempotency_key='iso-fail-a'").get()).toMatchObject({ n: 0 });
+
+      // 审核B并真并发：A发布陈旧active(409失败) 与 B2建卡成功 —— B2不得被A的回滚撤销
+      await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${cardB}/review`, headers: adminHeaders, payload: { expectedRevision: 1, opinion: '审核' } });
+      const [staleA, okB2] = await Promise.all([
+        app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: { entries: [{ internalId: cardB, revision: 1 }], relations: [], expectedActiveReleaseId: 'stale-active-id', idempotencyKey: 'iso-stale-a' } }),
+        app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: methodPayload('并发成功卡B2', 2), legacy: null, idempotencyKey: 'iso-ok-b2' } })
+      ]);
+      expect(staleA.statusCode).toBe(409);
+      expect(okB2.statusCode).toBe(200);
+      const cardB2 = (okB2.json().data as { card: { internalId: string } }).card.internalId;
+      expect(c.database.prepare('SELECT 1 FROM creative_reference_cards WHERE internal_id=?').get(cardB2)).toBeDefined();
+
+      // 双成功并发：各自持久化、编号无重号
+      const [s1, s2, s3] = await Promise.all([
+        app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: methodPayload('并发一', 3), legacy: null, idempotencyKey: 'iso-s1' } }),
+        app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: methodPayload('并发二', 4), legacy: null, idempotencyKey: 'iso-s2' } }),
+        app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: methodPayload('并发三', 5), legacy: null, idempotencyKey: 'iso-s3' } })
+      ]);
+      for (const r of [s1, s2, s3]) expect(r.statusCode).toBe(200);
+      const codes = [s1, s2, s3].map((r) => (r.json().data as { card: { displayCode: string } }).card.displayCode);
+      expect(new Set(codes).size).toBe(3);
+
+      // 跨连接未提交不可见：连接2开启事务写入未提交行，服务连接读不到
+      const conn2 = new DatabaseSync(c.config.databasePath);
+      try {
+        conn2.exec('BEGIN IMMEDIATE');
+        conn2.prepare("INSERT INTO creative_reference_admin_audit(audit_id, action, target_id, target_revision, actor_id, opinion, result_ref, idempotency_key, request_digest, created_at) VALUES ('iso-uncommitted','retire','uncommitted',NULL,'iso',NULL,NULL,NULL,NULL,'2026-09-13T00:00:00Z')").run();
+        expect((c.database.prepare("SELECT COUNT(*) n FROM creative_reference_admin_audit WHERE target_id='uncommitted'").get() as { n: number }).n).toBe(0);
+        conn2.exec('ROLLBACK');
+      } finally {
+        conn2.close();
+      }
+    } finally {
+      await app.close();
+      c.close();
+    }
+  }, 120_000);
+
+  it('BEGIN failure under external write lock: state recovers, retry commits, later failures still roll back', async () => {
+    const c = createTestContext();
+    const app = await createV7Server(c.config, c.database);
+    try {
+      const headers = { host: '127.0.0.1:43111', origin: c.config.webOrigin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' };
+      const register = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers, payload: { email: 'b2-lock@example.com', displayName: '管理员', password: 'Strong-test-pass-123!' } });
+      const adminHeaders = { ...headers, cookie: String(register.headers['set-cookie']).split(';')[0]! };
+      const create = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: methodPayload('锁恢复卡', 1), legacy: null, idempotencyKey: 'lock-1' } });
+      const internalId = (create.json().data as { card: { internalId: string } }).card.internalId;
+      await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${internalId}/review`, headers: adminHeaders, payload: { expectedRevision: 1, opinion: '审核' } });
+
+      // 第二连接持写锁 → 同实例发布：BEGIN失败（锁忙）→ 503，状态未污染
+      const lockConn = new DatabaseSync(c.config.databasePath);
+      lockConn.exec('BEGIN IMMEDIATE');
+      const busyBody = { entries: [{ internalId, revision: 1 }], relations: [], expectedActiveReleaseId: null, idempotencyKey: 'lock-release-1' };
+      const busy = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: busyBody });
+      expect(busy.statusCode).toBe(503);
+      expect(c.database.prepare('SELECT release_id FROM creative_reference_releases WHERE active=1').get()).toBeUndefined();
+      expect(c.database.prepare('SELECT release_id FROM creative_reference_release_requests WHERE request_key=?').get('lock-release-1')).toBeUndefined();
+
+      // 释放锁 → 同一实例同键重试成功并持久化
+      lockConn.exec('COMMIT');
+      lockConn.close();
+      const retry = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: busyBody });
+      expect(retry.statusCode).toBe(200);
+      const retried = retry.json().data as { release: { releaseId: string }; replayed: boolean };
+      expect(retried.replayed).toBe(false);
+      expect(c.database.prepare('SELECT release_id FROM creative_reference_releases WHERE active=1').get()).toMatchObject({ release_id: retried.release.releaseId });
+
+      // 后续故障仍整体回滚（陈旧active 409）且不影响再下一次成功（新卡改变清单内容，避免canonical重复）
+      const stale = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: { entries: [{ internalId, revision: 1 }], relations: [], expectedActiveReleaseId: null, idempotencyKey: 'lock-release-2' } });
+      expect(stale.statusCode).toBe(409);
+      expect(c.database.prepare("SELECT COUNT(*) n FROM creative_reference_release_requests WHERE request_key='lock-release-2'").get()).toMatchObject({ n: 0 });
+      const create2 = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: methodPayload('锁恢复第二卡', 2), legacy: null, idempotencyKey: 'lock-2' } });
+      const internalId2 = (create2.json().data as { card: { internalId: string } }).card.internalId;
+      await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${internalId2}/review`, headers: adminHeaders, payload: { expectedRevision: 1, opinion: '审核' } });
+      const again = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: { entries: [{ internalId, revision: 1 }, { internalId: internalId2, revision: 1 }], relations: [], expectedActiveReleaseId: retried.release.releaseId, idempotencyKey: 'lock-release-3' } });
+      expect(again.statusCode).toBe(200);
+    } finally {
+      await app.close();
+      c.close();
+    }
+  }, 120_000);
+
+  it('admin service authorization: unauthorized/empty-actor rejected with zero side effects', async () => {
+    const c = createTestContext();
+    try {
+      const repo = new SqliteCreativeReferenceRepository(c.database);
+      const adminRepo = new CreativeReferenceAdminRepository(c.database);
+      const service = new CreativeReferenceAdminService(repo, adminRepo, { canManage: () => false });
+      const manager = { role: 'manager' as const, actorId: 'direct-admin' };
+      const before = (c.database.prepare('SELECT COUNT(*) n FROM creative_reference_cards').get() as { n: number }).n;
+      const auditBefore = (c.database.prepare('SELECT COUNT(*) n FROM creative_reference_admin_audit').get() as { n: number }).n;
+
+      // 授权端口拒绝：全部写入口
+      expect(() => service.createCardWithAudit({ payload: typedPayload(methodPayload('授权卡', 1)), legacy: null, idempotencyKey: 'auth-1' }, manager, NOW))
+        .toThrow(/无创作参考库管理权限/);
+      expect(() => service.updateCardWithAudit({ internalId: 'x', expectedRevision: 1, payload: typedPayload(methodPayload('授权卡', 1)) }, manager, NOW))
+        .toThrow(/无创作参考库管理权限/);
+      expect(() => service.reviewWithOpinion('x', 1, null, manager, NOW)).toThrow(/无创作参考库管理权限/);
+      expect(() => service.setAvailabilityWithAudit({ internalId: 'x', action: 'retire', seenAvailability: 'draft', seenRevision: 1, reason: null }, manager, NOW))
+        .toThrow(/无创作参考库管理权限/);
+      expect(() => service.publishWithRequestAndAudit({ entries: [{ internalId: 'x', revision: 1 }], relations: [], expectedActiveReleaseId: null, idempotencyKey: 'auth-rel' }, manager, NOW))
+        .toThrow(/无创作参考库管理权限/);
+
+      // 角色与actor校验（canManage放行也不能绕过）
+      const permissive = new CreativeReferenceAdminService(repo, adminRepo, { canManage: () => true });
+      expect(() => permissive.createCardWithAudit({ payload: typedPayload(methodPayload('授权卡', 1)), legacy: null, idempotencyKey: 'auth-2' }, { role: 'member' as never, actorId: 'someone' }, NOW))
+        .toThrow(/管理者角色/);
+      expect(() => permissive.createCardWithAudit({ payload: typedPayload(methodPayload('授权卡', 1)), legacy: null, idempotencyKey: 'auth-3' }, { role: 'manager', actorId: '   ' }, NOW))
+        .toThrow(/非空actor/);
+
+      // 零副作用：卡数与审计数不变
+      expect((c.database.prepare('SELECT COUNT(*) n FROM creative_reference_cards').get() as { n: number }).n).toBe(before);
+      expect((c.database.prepare('SELECT COUNT(*) n FROM creative_reference_admin_audit').get() as { n: number }).n).toBe(auditBefore);
+
+      // 授权齐备后正常写入（sanity）
+      const ok = permissive.createCardWithAudit({ payload: typedPayload(methodPayload('授权成功卡', 1)), legacy: null, idempotencyKey: 'auth-ok' }, { role: 'manager', actorId: 'direct-admin' }, NOW);
+      expect(ok.card.displayCode).toBe('法001');
+      expect((c.database.prepare('SELECT COUNT(*) n FROM creative_reference_admin_audit').get() as { n: number }).n).toBe(auditBefore + 1);
+    } finally {
+      c.close();
+    }
+  }, 60_000);
 });

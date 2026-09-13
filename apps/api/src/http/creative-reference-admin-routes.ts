@@ -135,13 +135,14 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
     canManage: () => true,
     canReadAsMember: () => false
   };
-  // 读走B1领域服务；写走管理应用服务（同事务+审计）。
+  // 读走B1领域服务；写走管理应用服务（同步事务单元+审计+应用层授权）。
   const domainService = new CreativeReferenceService(repository, authorization);
-  const service = new CreativeReferenceAdminService(repository, admin);
+  // 组合根授权策略：HTTP层已requireAdministrator的上下文即管理本库；服务层仍校验角色与actor。
+  const service = new CreativeReferenceAdminService(repository, admin, { canManage: () => true });
 
-  const actorOf = (request: Parameters<typeof requireAdministrator>[0]): { actorId: string } => {
+  const actorOf = (request: Parameters<typeof requireAdministrator>[0]): { role: 'manager'; actorId: string } => {
     const account = requireAdministrator(request);
-    return { actorId: account.userId };
+    return { role: 'manager', actorId: account.userId };
   };
   const noStore = (reply: { header: (k: string, v: string) => unknown }) => { reply.header('Cache-Control', 'no-store'); };
 
@@ -220,7 +221,7 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
       const payload = parsePayload(body.payload);
       const legacy = parseLegacy(body.legacy);
       const idempotencyKey = requireString(body.idempotencyKey, '创建幂等键', 200);
-      const outcome = await service.createCardWithAudit({ payload, legacy, idempotencyKey }, actor, new Date().toISOString());
+      const outcome = service.createCardWithAudit({ payload, legacy, idempotencyKey }, actor, new Date().toISOString());
       return success({ card: outcome.card }, request.id);
     });
   });
@@ -235,7 +236,7 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
       if (!Number.isSafeInteger(expectedRevisionRaw) || (expectedRevisionRaw as number) < 1) {
         throw new DomainError(errorCodes.validation, 'expectedRevision必须为正整数。', {}, false, 400);
       }
-      const revision = await service.updateCardWithAudit(
+      const revision = service.updateCardWithAudit(
         { internalId: request.params.id, expectedRevision: expectedRevisionRaw as number, payload },
         actor, new Date().toISOString()
       );
@@ -279,7 +280,7 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
         throw new DomainError(errorCodes.validation, 'expectedRevision必须为正整数。', {}, false, 400);
       }
       const opinion = body.opinion === undefined || body.opinion === null || body.opinion === '' ? null : requireString(body.opinion, '审核意见', 500);
-      const outcome = await service.reviewWithOpinion(request.params.id, expectedRevisionRaw as number, opinion, actor, new Date().toISOString());
+      const outcome = service.reviewWithOpinion(request.params.id, expectedRevisionRaw as number, opinion, actor, new Date().toISOString());
       return success({ revision: { revision: outcome.revision.revision, status: outcome.revision.status }, reviewOpinion: outcome.reviewOpinion }, request.id);
     });
   });
@@ -300,7 +301,7 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
         throw new DomainError(errorCodes.validation, 'seenRevision必传（当前所见版本，正整数）。', {}, false, 400);
       }
       const reason = body.reason === undefined || body.reason === null || body.reason === '' ? null : requireString(body.reason, '原因', 500);
-      const card = await service.setAvailabilityWithAudit({
+      const card = service.setAvailabilityWithAudit({
         internalId: request.params.id, action: action as 'retire' | 'restore',
         seenAvailability, seenRevision: body.seenRevision as number, reason
       }, actor, new Date().toISOString());
@@ -380,7 +381,7 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
         throw new DomainError(errorCodes.validation, 'expectedActiveReleaseId必须是字符串或null。', {}, false, 400);
       }
       const requestKey = requireString(body.idempotencyKey, '发布幂等键', 200);
-      const outcome = await service.publishWithRequestAndAudit({
+      const outcome = service.publishWithRequestAndAudit({
         entries, relations,
         expectedActiveReleaseId: expectedActive === undefined ? null : expectedActive as string | null,
         idempotencyKey: requestKey

@@ -114,8 +114,9 @@ describe('B1第二次返修：审查五项', () => {
     // 退役卡review拒绝（repository直测——退役拦截在数据层规则）
     const fresh = await ctx.service.createCard({ payload: methodPayload({ name: '新卡' }), legacy: null, idempotencyKey: 't-b' }, manager, NOW);
     await ctx.service.setAvailability(fresh.internalId, 'retired', manager, NOW);
-    await expect(ctx.repository.reviewRevision({ internalId: fresh.internalId, expectedRevision: 1, reviewActor: reviewer.actorId }, NOW))
-      .rejects.toThrow(/退役/);
+    // 仓储为同步签名（R209-B2二次返修）：同步断言同一条退役拦截规则
+    expect(() => ctx.repository.reviewRevision({ internalId: fresh.internalId, expectedRevision: 1, reviewActor: reviewer.actorId }, NOW))
+      .toThrow(/退役/);
     // publish退役卡：正确的active预期下仍被退役拦截
     const active = await ctx.repository.getActiveRelease();
     await expect(ctx.service.publish([en(a)], [], manager, active === null ? null : active.releaseId, NOW)).rejects.toThrow(/退役/);
