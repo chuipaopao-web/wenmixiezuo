@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
 
 const BROWSER_HEADERS = {
@@ -20,7 +20,7 @@ function cookieFrom(response: { headers: Record<string, string | string[] | numb
 describe('统一用户账号与登录会话', () => {
   it('首位注册用户成为管理员并取得安全Cookie', async () => {
     context = createTestContext('wenmi-account-register-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const wrongHost = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: { ...BROWSER_HEADERS, host: 'localhost:43111' }, payload: { email: 'boss@example.com', password: 'strong-pass-123', displayName: '老板' } });
       expect(wrongHost.statusCode).toBe(403);
@@ -49,7 +49,7 @@ describe('统一用户账号与登录会话', () => {
 
   it('拒绝不完整注册、弱密码、重复邮箱和错误密码，并返回可读提示', async () => {
     context = createTestContext('wenmi-account-validation-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const missingPayload = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: {} });
       expect(missingPayload.statusCode).toBe(400);
@@ -69,13 +69,13 @@ describe('统一用户账号与登录会话', () => {
   });
   it('登录跨API重启保持有效，退出后立即撤销且URL令牌无效', async () => {
     context = createTestContext('wenmi-account-restart-');
-    const first = await createServer(context.config, context.database);
+    const first = await createAppServer(context.config, context.database);
     const registration = await first.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: { email: 'writer@example.com', password: 'strong-pass-456', displayName: '作者' } });
     const cookie = cookieFrom(registration);
     expect((await first.inject({ method: 'GET', url: '/api/v1/v7/books', headers: { host: BROWSER_HEADERS.host, cookie } })).statusCode).toBe(200);
     await first.close();
 
-    const restarted = await createServer(context.config, context.database);
+    const restarted = await createAppServer(context.config, context.database);
     try {
       expect((await restarted.inject({ method: 'GET', url: '/api/v1/v7/books', headers: { host: BROWSER_HEADERS.host, cookie } })).statusCode).toBe(200);
       expect((await restarted.inject({ method: 'GET', url: `/api/v1/v7/books?token=${encodeURIComponent(cookie)}`, headers: { host: BROWSER_HEADERS.host } })).statusCode).toBe(401);
@@ -92,7 +92,7 @@ describe('统一用户账号与登录会话', () => {
 
   it('不同用户书籍严格隔离，管理员可以暂停和恢复普通用户', async () => {
     context = createTestContext('wenmi-account-isolation-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const first = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: { email: 'admin@example.com', password: 'strong-pass-789', displayName: '管理员' } });
       const second = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: { email: 'reader@example.com', password: 'strong-pass-987', displayName: '读者' } });

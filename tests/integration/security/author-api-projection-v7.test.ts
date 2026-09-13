@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
 
 const HEADERS = {
@@ -15,7 +15,7 @@ afterEach(() => { context?.close(); context = undefined; });
 describe('V7 作者响应与后台错误物理分离', () => {
   it('作者投影隐藏内部错误字段，后台路由仍保留审计错误码', async () => {
     context = createTestContext('wenmi-v7-author-projection-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       await app.inject({
         method: 'POST',

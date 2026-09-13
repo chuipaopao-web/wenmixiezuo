@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
 
 const HOST = '127.0.0.1:43111';
@@ -8,7 +8,7 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 let accountCounter = 0;
-async function sessionCookie(app: Awaited<ReturnType<typeof createServer>>, email?: string): Promise<string> {
+async function sessionCookie(app: Awaited<ReturnType<typeof createAppServer>>, email?: string): Promise<string> {
   accountCounter += 1;
   const accountEmail = email ?? `policy-${accountCounter}@example.com`;
   const response = await app.inject({
@@ -20,7 +20,7 @@ async function sessionCookie(app: Awaited<ReturnType<typeof createServer>>, emai
   return (Array.isArray(rawCookie) ? rawCookie[0] : rawCookie)!.split(';', 1)[0]!;
 }
 
-async function loginCookie(app: Awaited<ReturnType<typeof createServer>>, email: string): Promise<string> {
+async function loginCookie(app: Awaited<ReturnType<typeof createAppServer>>, email: string): Promise<string> {
   const response = await app.inject({
     method: 'POST', url: '/api/v1/auth/login',
     payload: { email, password: 'policy-pass-123' },
@@ -33,7 +33,7 @@ async function loginCookie(app: Awaited<ReturnType<typeof createServer>>, email:
 describe('统一账号HTTP请求策略', () => {
   it('health最小化且所有响应带安全头', async () => {
     context = createTestContext('wenmi-policy-health-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const response = await app.inject({ method: 'GET', url: '/health', headers: { host: HOST } });
       expect(response.statusCode).toBe(200);
@@ -51,7 +51,7 @@ describe('统一账号HTTP请求策略', () => {
 
   it('数据读取要会话，写入还要精确Origin、Fetch Metadata和JSON', async () => {
     context = createTestContext('wenmi-policy-write-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       expect((await app.inject({ method: 'GET', url: '/api/v1/v7/books', headers: { host: HOST } })).statusCode).toBe(401);
       const cookie = await sessionCookie(app);
@@ -70,7 +70,7 @@ describe('统一账号HTTP请求策略', () => {
   it('独立后台子域通过Host、CORS和写入Origin校验，仿冒子域仍被拒绝', async () => {
     context = createTestContext('wenmi-policy-admin-origin-');
     context.config.adminOrigin = 'https://admin.wenmixiezuo.com';
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const register = await app.inject({
         method: 'POST', url: '/api/v1/auth/register',
@@ -104,7 +104,7 @@ describe('统一账号HTTP请求策略', () => {
   });
   it('浏览器可以预检设定工作台使用的PUT写入', async () => {
     context = createTestContext('wenmi-policy-put-cors-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const response = await app.inject({
         method: 'OPTIONS',
@@ -125,7 +125,7 @@ describe('统一账号HTTP请求策略', () => {
 
   it('Worker令牌不能复活旧入口，也不能替代作者会话', async () => {
     context = createTestContext('wenmi-policy-worker-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const url = '/api/v1/internal/worker/tasks/missing/execute';
       const body = { ownerId: context.config.ownerId, bookId: 'missing' };
@@ -145,7 +145,7 @@ describe('统一账号HTTP请求策略', () => {
     context = createTestContext('wenmi-policy-ratelimit-');
     // 公网部署才启用限流；Caddy 反代默认带 X-Forwarded-For，服务只监听 127.0.0.1。
     context.config.publicOrigin = 'https://wenmixiezuo.com';
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     const register = (ip: string, email: string) => app.inject({
       method: 'POST', url: '/api/v1/auth/register',
       payload: { email, password: 'policy-pass-123', displayName: '访客' },
@@ -172,7 +172,7 @@ describe('统一账号HTTP请求策略', () => {
   it('已认证业务读取按用户分桶，正常切页不会被100次IP桶拦住，直到600次才限流', async () => {
     context = createTestContext('wenmi-policy-auth-read-');
     context.config.publicOrigin = 'https://wenmixiezuo.com';
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const cookie = await sessionCookie(app, 'read-limit@example.com');
       let response;
@@ -200,7 +200,7 @@ describe('统一账号HTTP请求策略', () => {
   it('相同IP下不同已认证账户读取限流互相隔离', async () => {
     context = createTestContext('wenmi-policy-auth-users-');
     context.config.publicOrigin = 'https://wenmixiezuo.com';
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const firstCookie = await sessionCookie(app, 'read-user-a@example.com');
       const secondCookie = await sessionCookie(app, 'read-user-b@example.com');
@@ -230,7 +230,7 @@ describe('统一账号HTTP请求策略', () => {
   it('同一账户不同会话共享读取桶，读取耗尽不吞写入和health额度', async () => {
     context = createTestContext('wenmi-policy-auth-sessions-');
     context.config.publicOrigin = 'https://wenmixiezuo.com';
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const email = 'read-session@example.com';
       const firstCookie = await sessionCookie(app, email);
@@ -279,7 +279,7 @@ describe('统一账号HTTP请求策略', () => {
   it('注册和登录保持IP严格限额，不能被有效cookie绕过', async () => {
     context = createTestContext('wenmi-policy-public-auth-');
     context.config.publicOrigin = 'https://wenmixiezuo.com';
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     const register = (index: number, cookie?: string) => app.inject({
       method: 'POST',
       url: '/api/v1/auth/register',

@@ -1,12 +1,12 @@
 import {describe,it,expect,vi} from 'vitest';
 import {V7SettingEditorialService} from '../../../apps/api/src/application/books/v7-setting-editorial-service.js';
 import {createTestContext} from '../../helpers/test-context.js';
-import {createV7Server} from '../../../apps/api/src/http/v7-server.js';
+import {createAppServer} from '../../../apps/api/src/http/app-server.js';
 import {BookRepository} from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import {SqlPlanRepository,digest} from '@wenmi/time-machine-core';
 describe('new time machine session boundary',()=>{
  it('authenticates new prefix, isolates books and enforces browser write origin',async()=>{
-  const c=createTestContext();const app=await createV7Server(c.config,c.database);
+  const c=createTestContext();const app=await createAppServer(c.config,c.database);
   try{
    const headers={host:'127.0.0.1:43111',origin:c.config.webOrigin,'sec-fetch-site':'same-origin','content-type':'application/json'};
    const register=async(email:string)=>{const response=await app.inject({method:'POST',url:'/api/v1/auth/register',headers,payload:{email,displayName:'测试',password:'Strong-test-pass-123!'}});expect(response.statusCode).toBe(200);return String(response.headers['set-cookie']).split(';')[0]!;};
@@ -19,7 +19,7 @@ describe('new time machine session boundary',()=>{
   }finally{await app.close();c.close();}
  });
  it('saves manual candidate revisions with expectedRevision and keeps old ones',async()=>{
-  const c=createTestContext();const app=await createV7Server(c.config,c.database);
+  const c=createTestContext();const app=await createAppServer(c.config,c.database);
   try{
    const headers={host:'127.0.0.1:43111',origin:c.config.webOrigin,'sec-fetch-site':'same-origin','content-type':'application/json'};
    const register=async(email:string)=>{const response=await app.inject({method:'POST',url:'/api/v1/auth/register',headers,payload:{email,displayName:'测试',password:'Strong-test-pass-123!'}});expect(response.statusCode).toBe(200);return String(response.headers['set-cookie']).split(';')[0]!;};

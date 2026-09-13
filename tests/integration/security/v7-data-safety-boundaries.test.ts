@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createV7Server } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import { initializeV7Book } from '../../helpers/v7-book-fixture.js';
 
@@ -19,7 +19,7 @@ function cookieFrom(response: { headers: Record<string, string | string[] | numb
 describe('V7 作者与书籍数据隔离', () => {
   it('列表和书籍详情都不会跨作者泄露', async () => {
     context = createTestContext('wenmi-v7-data-boundary-');
-    const app = await createV7Server(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: HEADERS,
         payload: { email: 'admin@example.com', password: 'strong-pass-123', displayName: '管理员' } });

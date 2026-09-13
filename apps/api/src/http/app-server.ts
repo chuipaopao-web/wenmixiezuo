@@ -1,3 +1,9 @@
+/**
+ * AUTH-TAKEOVER-01：产品API唯一运行入口（接管后）。
+ * 独立装配：请求策略（Host/来源/会话/限流/安全头）→ 唯一身份权威 AccountAuthService →
+ * 各业务路由模块（作者/后台/开书/设定/创作库/时光机）→ 健康端点与统一错误封装。
+ * 不引用、不转调被替代的旧装配；业务路由模块只经 auth-context 获取身份，行为保持不变。
+ */
 import cors from '@fastify/cors';
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
@@ -12,18 +18,24 @@ import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
 import { AccountAuthService } from '../infrastructure/security/account-auth-service.js';
 import { MembershipService } from '../infrastructure/security/membership-service.js';
 import { registerRequestPolicy, type RequestPolicyOptions } from '../infrastructure/security/request-policy.js';
+import { projectSerializedAuthorResponse, shouldProjectAuthorResponse } from './author-api-projection.js';
 import { registerAccountRoutes } from './account-routes.js';
 import { registerCreativeReferenceAdminRoutes } from './creative-reference-admin-routes.js';
+import { registerTimeMachineRoutes } from './time-machine-routes.js';
 import { registerV7AdminConsoleRoutes } from './v7-admin-console-routes.js';
 import { registerV7AdminPlatformRoutes } from './v7-admin-platform-routes.js';
-import { projectSerializedAuthorResponse, shouldProjectAuthorResponse } from './author-api-projection.js';
 import { registerV7CharacterMemoryRoutes } from './v7-character-memory-routes.js';
 import { registerV7CreationRoutes } from './v7-creation-routes.js';
 import { registerV7OpeningAgentRoutes } from './v7-opening-agent-routes.js';
 import { registerV7PlanningTreeRoutes } from './v7-planning-tree-routes.js';
 import { registerV7PromptGovernanceRoutes } from './v7-prompt-governance-routes.js';
 import { registerV7SettingEditorialRoutes } from './v7-setting-editorial-routes.js';
-import { registerTimeMachineRoutes } from './time-machine-routes.js';
+
+export interface AppServerOptions extends RequestPolicyOptions {
+  timeMachineWindowTokens?: number;
+  v7OpeningModelAdapters?: V7OpeningModelAdapterResolver;
+  v7CoverImageGateway?: V7CoverImageGateway;
+}
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -35,17 +47,11 @@ interface WorkerHealthRow {
   current_task_id: string | null;
 }
 
-export interface V7ServerOptions extends RequestPolicyOptions {
-  timeMachineWindowTokens?: number;
-  v7OpeningModelAdapters?: V7OpeningModelAdapterResolver;
-  v7CoverImageGateway?: V7CoverImageGateway;
-}
-
-/** V7 唯一公开 API 入口；旧产品路由、旧任务执行器和旧 SSE 不在此运行时装配。 */
-export async function createV7Server(
+/** 组装产品API。身份权威=AccountAuthService（SQLite user_accounts/auth_sessions，含owner映射与admin角色）。 */
+export async function createAppServer(
   config: RuntimeConfig,
   database: DatabaseSync,
-  options: V7ServerOptions = {}
+  options: AppServerOptions = {}
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: process.env.WENMI_LOG_LEVEL ?? 'info' },
@@ -53,36 +59,48 @@ export async function createV7Server(
     bodyLimit: 24 * 1024 * 1024,
     trustProxy: true
   });
+
+  // 1. 传输策略：CORS、Host/来源/Cookie/写方法校验、限流、安全响应头（request-policy统一实现）。
   const corsOrigins = config.adminOrigin === null ? config.webOrigin : [config.webOrigin, config.adminOrigin];
   await app.register(cors, { origin: corsOrigins, credentials: true, methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] });
+
+  // 2. 身份权威与请求策略。
   const accounts = new AccountAuthService(database, config.webOrigin.startsWith('https://'), config.ownerId);
   await registerRequestPolicy(app, config, accounts, options);
+
+  // 3. 作者响应脱敏。
   app.addHook('onSend', async (request, reply, payload) => shouldProjectAuthorResponse(request.url, reply.statusCode, request.headers)
     ? projectSerializedAuthorResponse(payload)
     : payload);
 
+  // 4. 业务路由（模块各自经 requireAuthenticated*/requireAdministrator 消费身份）。
   const modelAdapters = new ModelAdapterFactory(config.modelRuntime);
+  const modelResolver: V7OpeningModelAdapterResolver = options.v7OpeningModelAdapters ?? modelAdapters;
+  const modelPlanFlags = {
+    codingPlan: config.modelRuntime.endpoints.coding.apiKey !== undefined,
+    agentPlan: config.modelRuntime.endpoints.agent.apiKey !== undefined
+  };
   await registerAccountRoutes(app, accounts, new MembershipService(database, new SystemClock()));
   await registerV7AdminPlatformRoutes(app, database);
   await registerV7AdminConsoleRoutes(app, database, config);
   await registerCreativeReferenceAdminRoutes(app, database);
-  await registerV7OpeningAgentRoutes(app, database, options.v7OpeningModelAdapters ?? modelAdapters, {
-    codingPlan: config.modelRuntime.endpoints.coding.apiKey !== undefined,
-    agentPlan: config.modelRuntime.endpoints.agent.apiKey !== undefined
-  }, {
+  await registerV7OpeningAgentRoutes(app, database, modelResolver, modelPlanFlags, {
     dataDir: config.dataDir,
     imageGateway: options.v7CoverImageGateway ?? new VolcengineArkImageGateway()
   });
-  await registerV7SettingEditorialRoutes(app, database, options.v7OpeningModelAdapters ?? modelAdapters, {
-    codingPlan: config.modelRuntime.endpoints.coding.apiKey !== undefined,
-    agentPlan: config.modelRuntime.endpoints.agent.apiKey !== undefined
-  });
-  await registerV7PlanningTreeRoutes(app, database, options.v7OpeningModelAdapters ?? modelAdapters);
-  await registerV7CharacterMemoryRoutes(app, database, options.v7OpeningModelAdapters ?? modelAdapters);
-  await registerV7CreationRoutes(app, database, options.v7OpeningModelAdapters ?? modelAdapters);
+  await registerV7SettingEditorialRoutes(app, database, modelResolver, modelPlanFlags);
+  await registerV7PlanningTreeRoutes(app, database, modelResolver);
+  await registerV7CharacterMemoryRoutes(app, database, modelResolver);
+  await registerV7CreationRoutes(app, database, modelResolver);
   await registerV7PromptGovernanceRoutes(app, database);
-  await registerTimeMachineRoutes(app,database,(provider,model)=> (options.v7OpeningModelAdapters??modelAdapters).resolve(provider,model,'structured_planning'),options.timeMachineWindowTokens??Number(process.env.WENMI_TIME_MACHINE_CONTEXT_WINDOW??0));
+  await registerTimeMachineRoutes(
+    app,
+    database,
+    (provider, model) => modelResolver.resolve(provider, model, 'structured_planning'),
+    options.timeMachineWindowTokens ?? Number(process.env.WENMI_TIME_MACHINE_CONTEXT_WINDOW ?? 0)
+  );
 
+  // 5. 健康与运行状态。
   app.get('/health', async (request) => {
     const databaseProbe = database.prepare('SELECT 1 AS ok').get() as { ok: number };
     const heartbeat = database.prepare('SELECT heartbeat_at FROM worker_health ORDER BY heartbeat_at DESC LIMIT 1')
@@ -123,6 +141,7 @@ export async function createV7Server(
     return success({ api: 'ready', worker: workerReady ? 'ready' : 'possibly_offline', canStartModelTasks: workerReady }, request.id);
   });
 
+  // 6. 统一错误封装。
   app.setErrorHandler((error, request, reply) => {
     const requestId = request.id || randomUUID();
     if (error instanceof DomainError) {
@@ -151,5 +170,3 @@ export async function createV7Server(
 
   return app;
 }
-
-export const createServer = createV7Server;

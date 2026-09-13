@@ -18,7 +18,7 @@ import { V7CreationContextCompiler } from '../../../apps/api/src/application/cre
 import { creationWorkflowBindingsAreCurrent } from '../../../apps/api/src/application/creation/v7-creation-workflow-service.js';
 import { V7CreationRuntimeRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-creation-runtime-repository.js';
 import { V7PlanningTreeService } from '../../../apps/api/src/application/planning/v7-planning-tree-service.js';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { FixedClock, SequenceIds, createTestContext as createBaseTestContext, type TestContext } from '../../helpers/test-context.js';
 import { v7GenreProfileFixtureResult } from '../../helpers/v7-genre-profile-model-fixture.js';
 import {renderRhythmFragment} from '@wenmi/v7-backend';
@@ -26,10 +26,10 @@ import {V7RhythmPolicyStore} from '../../../apps/api/src/application/planning/v7
 
 it('方法工具通过真实创作网关执行，最终请求可追溯且重放不再次下单',async()=>{
  const local=createTestContext('wenmi-method-gateway-');
- // createServer注册治理路由时会以真实当前时间seed策略v1（INSERT OR IGNORE）；
+ // createAppServer注册治理路由时会以真实当前时间seed策略v1（INSERT OR IGNORE）；
  // 必须先以固定日期seed，否则真实日期越过任务时间2026-09-10后快照按旧任务返回null（2026-09-12实测时间炸弹）。
  new V7RhythmPolicyStore(local.database).initialize('2026-09-09');
- const app=await createServer(local.config,local.database);
+ const app=await createAppServer(local.config,local.database);
  try{
   const cookie=await register(app,'method-loop@example.com','方法测试作者');const bookId=await createBook(app,cookie,'合成方法测试','method-book-0001');
   const ownerId=String(local.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId)!.owner_id),workflowId='method-workflow';
@@ -75,7 +75,7 @@ describe('V7全链路创作总线', () => {
         ? { provider, modelId, output: '{}', inputTokens: 10, outputTokens: 2, cashCostCny: 0, state: 'succeeded' as const }
         : adapter.generate(input, signal) };
     } };
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'handoff-r104@example.com', '交接测试');
       const bookId = await createBook(app, cookie, '交接测试书', 'handoff-r104-book');
@@ -104,7 +104,7 @@ describe('V7全链路创作总线', () => {
   it('资料整理明确失败可在原任务恢复，未知结果不能重复下单', async () => {
     context = createTestContext('wenmi-context-resume-');
     const resolver = new ContextRepairResolver('repair-failed');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'context-resume@example.com', '恢复作者');
       const bookId = await createBook(app, cookie, '恢复测试书', 'context-resume-book-0001');
@@ -144,7 +144,7 @@ describe('V7全链路创作总线', () => {
     async (mode) => {
       context = createTestContext('wenmi-v7-context-repair-');
       const resolver = new ContextRepairResolver(mode);
-      const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+      const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
       try {
         const cookie = await register(app, 'context-repair@example.com', '资料恢复作者');
         const bookId = await createBook(app, cookie, '资料恢复书', 'context-repair-book-0001');
@@ -221,7 +221,7 @@ describe('V7全链路创作总线', () => {
   it('从确认全书树完成卷、链、章纲、正文定稿和四类写后维护，重复请求不重复生成', async () => {
     context = createTestContext('wenmi-v7-creation-pipeline-');
     const resolver = new CreationResolver(null, 3, true, 1);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'creation-owner@example.com', '创作作者');
       const otherCookie = await register(app, 'creation-other@example.com', '另一作者');
@@ -745,7 +745,7 @@ describe('V7全链路创作总线', () => {
   it('一名编剧请假时保留另外两套方案，恢复后只补失败席再交由主编比较', async () => {
     context = createTestContext('wenmi-v7-creation-partial-options-');
     const resolver = new CreationResolver('本方案必须提供只适合本书');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'creation-partial@example.com', '部分方案作者');
       const bookId = await createBook(app, cookie, '张三北宋行', 'creation-book-partial-0001');
@@ -791,7 +791,7 @@ describe('V7全链路创作总线', () => {
   it('方案树结构不合同时只由原编剧低温修复，不让另一名成员重写同一席', async () => {
     context = createTestContext('wenmi-v7-creation-option-repair-');
     const resolver = new CreationResolver(null, 0, false, 0, 1);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'creation-option-repair@example.com', '方案修复作者');
       const bookId = await createBook(app, cookie, '方案结构修复书', 'creation-book-option-repair-0001');
@@ -828,7 +828,7 @@ describe('V7全链路创作总线', () => {
   it('主编点评使用其他审查格式时只由原主编转换合同', async () => {
     context = createTestContext('wenmi-v7-creation-review-repair-');
     const resolver = new CreationResolver(null, 0, false, 0, 0, 1);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'creation-review-repair@example.com', '点评修复作者');
       const bookId = await createBook(app, cookie, '点评格式修复书', 'creation-book-review-repair-0001');
@@ -856,7 +856,7 @@ describe('V7全链路创作总线', () => {
 
   it('三套方案已齐但主编点评失败时可以原地续跑点评', async () => {
     context = createTestContext('wenmi-v7-creation-review-resume-');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new CreationResolver() });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new CreationResolver() });
     try {
       const cookie = await register(app, 'creation-review-resume@example.com', '点评续跑作者');
       const bookId = await createBook(app, cookie, '点评续跑书', 'creation-book-review-resume-0001');
@@ -889,7 +889,7 @@ describe('V7全链路创作总线', () => {
 
   it('主编点评格式不合同时只修复点评并保留三套方案', async () => {
     context = createTestContext('wenmi-v7-creation-option-redesign-');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new RewriteOnceReviewResolver() });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new RewriteOnceReviewResolver() });
     try {
       const cookie = await register(app, 'creation-option-redesign@example.com', '方案重做作者');
       const bookId = await createBook(app, cookie, '方案重做书', 'creation-book-option-redesign-0001');
@@ -916,7 +916,7 @@ describe('V7全链路创作总线', () => {
 
   it('三套方案可由三位准入编剧独立完成，作者也可重复选同一编剧', async () => {
     context = createTestContext('wenmi-v7-creation-distinct-writers-');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new CreationResolver() });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new CreationResolver() });
     try {
       const cookie = await register(app, 'creation-distinct@example.com', '不同编剧作者');
       const bookId = await createBook(app, cookie, '张三北宋行', 'creation-book-distinct-0001');
@@ -961,7 +961,7 @@ describe('V7全链路创作总线', () => {
   it('GLM明确失败后由准入成员接手，三套分别保存且如实显示实际成员', async () => {
     context = createTestContext('wenmi-v7-creation-option-technical-cover-');
     const resolver = new GlmPlanningFailureResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'creation-cover@example.com', '补位测试作者');
       const bookId = await createBook(app, cookie, '强模型补位书', 'creation-book-cover-0001');
@@ -993,7 +993,7 @@ describe('V7全链路创作总线', () => {
 
   it('模型结果未知时保存检查点并阻止相同任务重复下单', async () => {
     context = createTestContext('wenmi-v7-creation-unknown-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const cookie = await register(app, 'creation-unknown@example.com', '未知结果作者');
       const bookId = await createBook(app, cookie, '未知结果测试书', 'creation-book-unknown-0001');
@@ -1064,7 +1064,7 @@ describe('V7全链路创作总线', () => {
 
   it('资料任务保留有限思考补偿，快速方案不再加预算重跑', async () => {
     context = createTestContext('wenmi-v7-creation-thinking-burn-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const cookie = await register(app, 'creation-burn@example.com', '思考烧穿作者');
       const bookId = await createBook(app, cookie, '思考烧穿测试书', 'creation-book-burn-0001');
@@ -1111,7 +1111,7 @@ describe('V7全链路创作总线', () => {
 
   it('节点名称不能改写显式操作模式或工位，修复血缘只接受真实模型任务', async () => {
     context = createTestContext('wenmi-v7-creation-explicit-lineage-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const cookie = await register(app, 'creation-lineage@example.com', '血缘测试作者');
       const bookId = await createBook(app, cookie, '显式创作血缘', 'creation-book-lineage-0001');
@@ -1177,7 +1177,7 @@ describe('V7全链路创作总线', () => {
   it('旧章纲岗位和旧成员绑定只读保留，不再重绑当前模型执行', async () => {
     context = createTestContext('wenmi-v7-creation-retired-role-');
     const resolver = new CreationResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'creation-outline-alias@example.com', '章纲岗位作者');
       const bookId = await createBook(app, cookie, '章纲岗位测试书', 'creation-book-outline-alias-0001');
@@ -1295,7 +1295,7 @@ describe('V7全链路创作总线', () => {
 
   it('作者停止托管任务时生成幂等收据并保留已完成记录', async () => {
     context = createTestContext('wenmi-v7-creation-cancel-');
-    const app = await createServer(context.config, context.database, {
+    const app = await createAppServer(context.config, context.database, {
       v7OpeningModelAdapters: new CreationResolver()
     });
     try {
@@ -1351,7 +1351,7 @@ describe('V7全链路创作总线', () => {
 
   it('停止未完成子链后可以从已完成父链重新开始该链', async () => {
     context = createTestContext('wenmi-v7-creation-resume-cancelled-chain-');
-    const app = await createServer(context.config, context.database, {
+    const app = await createAppServer(context.config, context.database, {
       v7OpeningModelAdapters: new CreationResolver()
     });
     try {
@@ -1413,7 +1413,7 @@ describe('V7全链路创作总线', () => {
 
   it('正文结果未知时只允许作者明确换一名主笔后恢复，不自动重复原成员', async () => {
     context = createTestContext('wenmi-v7-creation-unknown-writer-recovery-');
-    const app = await createServer(context.config, context.database, {
+    const app = await createAppServer(context.config, context.database, {
       v7OpeningModelAdapters: new CreationResolver()
     });
     try {
@@ -1469,7 +1469,7 @@ describe('V7全链路创作总线', () => {
   it('作者停止任务后晚到的成员结果不能把取消状态覆盖成失败', async () => {
     context = createTestContext('wenmi-v7-creation-late-cancel-');
     const resolver = new BlockingCreationResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'creation-late-cancel@example.com', '晚到结果作者');
       const bookId = await createBook(app, cookie, '晚到结果测试书', 'creation-book-late-cancel-0001');
@@ -1974,7 +1974,7 @@ function planningNode(
   };
 }
 
-async function register(app: Awaited<ReturnType<typeof createServer>>, email: string, displayName: string): Promise<string> {
+async function register(app: Awaited<ReturnType<typeof createAppServer>>, email: string, displayName: string): Promise<string> {
   const response = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: HEADERS,
     payload: { email, password: 'strong-pass-123', displayName } });
   expect(response.statusCode).toBe(200);
@@ -1983,7 +1983,7 @@ async function register(app: Awaited<ReturnType<typeof createServer>>, email: st
 }
 
 async function createBook(
-  app: Awaited<ReturnType<typeof createServer>>, cookie: string, title: string, idempotencyKey: string
+  app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, title: string, idempotencyKey: string
 ): Promise<string> {
   const response = await app.inject({ method: 'POST', url: '/api/v1/v7/opening-books', headers: { ...HEADERS, cookie }, payload: {
     idempotencyKey,
@@ -2040,7 +2040,7 @@ function currentCreationRuntimeCheckpoint(extra: Record<string, unknown> = {}): 
 }
 
 async function request(
-  app: Awaited<ReturnType<typeof createServer>>, cookie: string, method: 'GET' | 'POST', url: string, payload?: unknown
+  app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, method: 'GET' | 'POST', url: string, payload?: unknown
 ) {
   const headers = { ...HEADERS, cookie };
   return payload === undefined
@@ -2049,7 +2049,7 @@ async function request(
 }
 
 async function authorRequest(
-  app: Awaited<ReturnType<typeof createServer>>, cookie: string, method: 'GET' | 'POST', url: string, payload?: unknown
+  app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, method: 'GET' | 'POST', url: string, payload?: unknown
 ) {
   const headers = { ...HEADERS, cookie, 'x-wenmi-author-projection': 'clean-v1' };
   return payload === undefined
@@ -2058,7 +2058,7 @@ async function authorRequest(
 }
 
 async function pollWorkflow(
-  app: Awaited<ReturnType<typeof createServer>>, cookie: string, bookId: string, workflowId: string, stage: string
+  app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, bookId: string, workflowId: string, stage: string
 ): Promise<any> {
   for (let index = 0; index < 300; index += 1) {
     const response = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/creation-workflows/${workflowId}`);
@@ -2072,7 +2072,7 @@ async function pollWorkflow(
 }
 
 async function pollWorkflowStatus(
-  app: Awaited<ReturnType<typeof createServer>>, cookie: string, bookId: string, workflowId: string, status: string
+  app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, bookId: string, workflowId: string, status: string
 ): Promise<any> {
   for (let index = 0; index < 300; index += 1) {
     const response = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/creation-workflows/${workflowId}`);
@@ -2085,7 +2085,7 @@ async function pollWorkflowStatus(
 }
 
 async function pollIncompleteOptions(
-  app: Awaited<ReturnType<typeof createServer>>, cookie: string, bookId: string, workflowId: string,
+  app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, bookId: string, workflowId: string,
   expectedCompleted: number
 ): Promise<any> {
   for (let index = 0; index < 300; index += 1) {
@@ -2099,7 +2099,7 @@ async function pollIncompleteOptions(
 }
 
 async function pollWriteBack(
-  app: Awaited<ReturnType<typeof createServer>>, cookie: string, bookId: string, workflowId: string,
+  app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, bookId: string, workflowId: string,
   expectedTotal: number
 ): Promise<any> {
   for (let index = 0; index < 600; index += 1) {
@@ -2116,7 +2116,7 @@ async function pollWriteBack(
 }
 
 async function pollVolumeCompletion(
-  app: Awaited<ReturnType<typeof createServer>>, cookie: string, bookId: string, workflowId: string
+  app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, bookId: string, workflowId: string
 ): Promise<any> {
   let lastView: any = null;
   for (let index = 0; index < 600; index += 1) {

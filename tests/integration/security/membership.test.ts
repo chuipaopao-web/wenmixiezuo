@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
 import {
   assertMembershipAllowsGeneration,
@@ -64,7 +64,7 @@ function seedBookAndUsage(database: TestContext['database'], ownerId: string, to
 describe('会员系统：管理端开通、算力值与生成门禁', () => {
   it('管理员可开通、续费和撤销会员，普通用户无权操作', async () => {
     context = createTestContext('wenmi-membership-admin-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const adminRegister = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: { email: 'admin@example.com', password: 'strong-pass-123', displayName: '管理员' } });
       const userRegister = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: { email: 'writer@example.com', password: 'strong-pass-456', displayName: '作者' } });
@@ -212,7 +212,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       ] }),
       inputTokens: 30, outputTokens: 20, cashCostCny: 0, state: 'succeeded' as const
     }));
-    const app = await createServer(context.config, context.database, {
+    const app = await createAppServer(context.config, context.database, {
       v7OpeningModelAdapters: { resolve: () => ({ provider: 'test-provider', modelId: 'deepseek-v4-pro', generate }) }
     });
     try {

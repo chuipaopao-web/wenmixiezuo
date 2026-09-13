@@ -3,7 +3,7 @@ import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResu
 import {seedCreativeLibrary} from '../../helpers/creative-library.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { V7PlanningSourceCompiler } from '../../../apps/api/src/application/planning/v7-planning-source-compiler.js';
 import { settingChangeImpact } from '../../../apps/api/src/infrastructure/db/repositories/setting-change-impact.js';
 import {continuitySources,continuitySourceHash,continuityHash} from '../../../apps/api/src/application/books/setting-continuity.js';
@@ -28,7 +28,7 @@ describe('V7设定编辑部', () => {
   it('设定设计使用已发布方法，审查保留正式来源边界',async()=>{
     context=createTestContext('creative-setting-');const {id}=seedCreativeLibrary(context.database);const base=new SettingResolver(false);let tools=0;const prompts:string[]=[];
     const resolver:V7OpeningModelAdapterResolver={resolve(provider,modelId,purpose){const original=base.resolve(provider,modelId,purpose);return {...original,async generate(request){prompts.push(request.prompt);if(request.prompt.includes('当前仅选取创作参考'))return successfulModelResult(provider,modelId,JSON.stringify([{action:'search',purpose:'阶段回报',query:'',conditional:false,cursor:0},{action:'read',ids:[id]},{action:'ready',selected:[{id,application:'用驿站规则体现百姓得到的便利'}]}][tools++]));return original.generate(request);}};}};
-    const app=await createServer(context.config,context.database,{v7OpeningModelAdapters:resolver});try{const cookie=await register(app,'creative-setting@example.com','方法测试','strong-pass-123');const bookId=await createBook(app,cookie,'方法测试','creative-setting-book','历史脑洞');const started=await app.inject({method:'POST',url:`/api/v1/v7/books/${bookId}/setting-batches`,headers:{...HEADERS,cookie},payload:{selectedItemKeys:['world-stage'],designMemberKey:'planner-deepseek-v4-pro',idempotencyKey:'creative-setting-batch'}});expect(started.statusCode).toBe(200);const result=await pollBatch(app,cookie,bookId,started.json().data.batchId);expect(result.status).toBe('awaiting_author');expect(tools).toBe(3);expect(prompts.some(p=>p.includes('creativeReference')&&p.includes('用驿站规则体现百姓得到的便利')&&p.includes('不反复复述结果')),JSON.stringify(context.database.prepare('SELECT result_json FROM creative_reference_sessions').all())).toBe(true);expect(prompts.every(p=>JSON.stringify({messages:[{role:'user',content:p}]}).length<=15000)).toBe(true);}finally{await app.close();}
+    const app=await createAppServer(context.config,context.database,{v7OpeningModelAdapters:resolver});try{const cookie=await register(app,'creative-setting@example.com','方法测试','strong-pass-123');const bookId=await createBook(app,cookie,'方法测试','creative-setting-book','历史脑洞');const started=await app.inject({method:'POST',url:`/api/v1/v7/books/${bookId}/setting-batches`,headers:{...HEADERS,cookie},payload:{selectedItemKeys:['world-stage'],designMemberKey:'planner-deepseek-v4-pro',idempotencyKey:'creative-setting-batch'}});expect(started.statusCode).toBe(200);const result=await pollBatch(app,cookie,bookId,started.json().data.batchId);expect(result.status).toBe('awaiting_author');expect(tools).toBe(3);expect(prompts.some(p=>p.includes('creativeReference')&&p.includes('用驿站规则体现百姓得到的便利')&&p.includes('不反复复述结果')),JSON.stringify(context.database.prepare('SELECT result_json FROM creative_reference_sessions').all())).toBe(true);expect(prompts.every(p=>JSON.stringify({messages:[{role:'user',content:p}]}).length<=15000)).toBe(true);}finally{await app.close();}
   });
   it('无冲突的旧辅助字段仍交现有主编合并，完整来源保留且不凭索引改写', async () => {
     context = createTestContext('r173-integrated-');
@@ -61,7 +61,7 @@ describe('V7设定编辑部', () => {
           : { provider, modelId, output, inputTokens: 80, outputTokens: 160, cashCostCny: 0, state: 'succeeded' };
       } };
     } };
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'r173@example.com', '合并作者', 'strong-pass-173');
       const bookId = await createBook(app, cookie, '驿路规则', 'r173-book', '历史脑洞');
@@ -82,7 +82,7 @@ describe('V7设定编辑部', () => {
   });
   it('采用变更须核对当前来源，作者规则取舍不能绕过正文冲突，历史版本不变',async()=>{
     context=createTestContext('r164-confirm-');
-    const app=await createServer(context.config,context.database,{v7OpeningModelAdapters:new SettingResolver(false)});
+    const app=await createAppServer(context.config,context.database,{v7OpeningModelAdapters:new SettingResolver(false)});
     try {
       const cookie=await register(app,'rule-change@example.test','变更测试','rule-change-password');
       const bookId=await createBook(app,cookie,'规则变更','r164-confirm-book','历史脑洞');
@@ -114,7 +114,7 @@ describe('V7设定编辑部', () => {
   });
   it('必要设定已被开书资料覆盖时可继续，缺失、跨用户或过期分类不能绕过准备', async () => {
     context = createTestContext('r164-covered-');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
     try {
       const cookie = await register(app, 'covered@example.test', '覆盖测试', 'covered-test-password');
       const bookId = await createBook(app, cookie, '已有完整资料', 'r164-covered-book', '历史脑洞');
@@ -160,7 +160,7 @@ describe('V7设定编辑部', () => {
         return successfulModelResult(provider, modelId, JSON.stringify(output));
       }};
     }};
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'canonical-rules@example.test', '规则作者', 'rules-test-password');
       const bookId = await createBook(app, cookie, '规则验证', 'r164-rule-book', '历史脑洞');
@@ -205,7 +205,7 @@ describe('V7设定编辑部', () => {
         }]}));
       }};
     }};
-    const app=await createServer(context.config,context.database,{v7OpeningModelAdapters:resolver});
+    const app=await createAppServer(context.config,context.database,{v7OpeningModelAdapters:resolver});
     try{
       const cookie=await register(app,'r154-'+mode+'@example.test','审查验收','fixture-pass-154');
       const bookId=await createBook(app,cookie,'审查验收','r154-book-'+mode,'历史脑洞');const url=`/api/v1/v7/books/${bookId}`;
@@ -251,7 +251,7 @@ describe('V7设定编辑部', () => {
         return adapter.generate(request,signal);
       }};
     }};
-    const app=await createServer(context.config,context.database,{v7OpeningModelAdapters:resolver});
+    const app=await createAppServer(context.config,context.database,{v7OpeningModelAdapters:resolver});
     try{
       const cookie=await register(app,'r147-recovery@example.test','恢复验收','fixture-pass-147');
       const bookId=await createBook(app,cookie,'恢复验收','r147-recovery-book','历史脑洞');
@@ -305,7 +305,7 @@ describe('V7设定编辑部', () => {
         return adapter.generate(request, signal);
       }};
     }};
-    const app = await createServer(context.config, context.database, {v7OpeningModelAdapters: resolver});
+    const app = await createAppServer(context.config, context.database, {v7OpeningModelAdapters: resolver});
     try {
       const cookie = await register(app, 'r139-' + mode + '@example.test', '设定验收作者', 'strong-pass-r139');
       const bookId = await createBook(app, cookie, '江城渡船', 'r139-book-' + mode, '历史脑洞');
@@ -379,7 +379,7 @@ describe('V7设定编辑部', () => {
         return adapter.generate(request, signal);
       }};
     }};
-    const app = await createServer(context.config, context.database, {v7OpeningModelAdapters:resolver});
+    const app = await createAppServer(context.config, context.database, {v7OpeningModelAdapters:resolver});
     try {
       const cookie = await register(app, 'r139-context@example.test', '上下文作者', 'strong-pass-139');
       const bookId = await createBook(app,cookie,'草案接续','r139-context-book','历史脑洞');
@@ -416,7 +416,7 @@ describe('V7设定编辑部', () => {
   it('资料保存后新设定任务读取新版本，确认设定与旧任务冻结版本保持可追溯', async () => {
     context = createTestContext('wenmi-r138-information-setting-');
     const resolver = new SettingResolver(false);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'r138@example.test', '资料设定作者', 'strong-pass-r138');
       const bookId = await createBook(app, cookie, '资料设定接入', 'r138-book-0001', '历史脑洞');
@@ -464,7 +464,7 @@ describe('V7设定编辑部', () => {
   it('三国书由主编完整理解后推荐，读取页面不暗中调用，同一开书版本只调用一次', async () => {
     context = createTestContext('wenmi-v7-setting-recommendation-');
     context.config.modelRuntime.endpoints.coding.apiKey = 'test-coding-plan-key';
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
     try {
       const cookie = await register(app, 'setting-recommendation@example.com', '推荐测试作者', 'strong-pass-123');
       const bookId = await createBook(app, cookie, '三国设定测试', 'recommendation-book-0001', '历史脑洞', {
@@ -529,7 +529,7 @@ describe('V7设定编辑部', () => {
   it('融合题材不会由系统直接定性，而由副编一次语义整理并形成书级档案', async () => {
     context = createTestContext('wenmi-v7-setting-genre-semantic-');
     context.config.modelRuntime.endpoints.coding.apiKey = 'test-coding-plan-key';
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
     try {
       const cookie = await register(app, 'setting-genre-semantic@example.com', '题材语义作者', 'strong-pass-123');
       const bookId = await createBook(app, cookie, '古代职场探案', 'genre-semantic-book-0001', '历史脑洞', {
@@ -554,7 +554,7 @@ describe('V7设定编辑部', () => {
     context = createTestContext('wenmi-v7-setting-recommendation-failed-');
     context.config.modelRuntime.endpoints.coding.apiKey = 'test-coding-plan-key';
     const resolver = new SettingResolver(false, true);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-recommendation-failed@example.com', '失败测试作者', 'strong-pass-123');
       const bookId = await createBook(app, cookie, '三国失败测试', 'recommendation-failed-book-0001', '历史脑洞');
@@ -600,7 +600,7 @@ describe('V7设定编辑部', () => {
     context.config.modelRuntime.endpoints.coding.apiKey = 'test-coding-plan-key';
     const resolver = new StructureRecoveryResolver();
     resolver.invalidRecommendationMain = true;
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-recommendation-repair@example.com', '清单修复作者', 'strong-pass-123');
       const bookId = await createBook(app, cookie, '设定清单结构修复', 'recommendation-repair-book-0001', '历史脑洞');
@@ -630,7 +630,7 @@ describe('V7设定编辑部', () => {
     const resolver = new StructureRecoveryResolver();
     resolver.invalidRecommendationMain = true;
     resolver.failRecommendationRepair = true;
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-recommendation-repair-retry@example.com', '清单续修作者', 'strong-pass-123');
       const bookId = await createBook(app, cookie, '设定清单续修', 'recommendation-repair-retry-book-0001', '历史脑洞');
@@ -670,7 +670,7 @@ describe('V7设定编辑部', () => {
     context = createTestContext('wenmi-v7-setting-recommendation-quota-');
     context.config.modelRuntime.endpoints.coding.apiKey = 'test-coding-plan-key';
     const resolver = new SettingResolver(false);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       await register(app, 'setting-recommendation-quota-admin@example.com', '清单额度管理员', 'strong-pass-926');
       const cookie = await register(app, 'setting-recommendation-quota@example.com', '清单额度作者', 'strong-pass-927');
@@ -716,7 +716,7 @@ describe('V7设定编辑部', () => {
     context = createTestContext('wenmi-v7-setting-recommendation-unknown-');
     context.config.modelRuntime.endpoints.coding.apiKey = 'test-coding-plan-key';
     const resolver = new SettingResolver(false, true, true);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-recommendation-unknown@example.com', '未知清单作者', 'strong-pass-123');
       const bookId = await createBook(app, cookie, '未知清单测试', 'recommendation-unknown-book-0001', '历史脑洞');
@@ -740,7 +740,7 @@ describe('V7设定编辑部', () => {
   it('按书隔离、失败请假交接、幂等恢复、主编审核和作者确认形成不可变版本', async () => {
     context = createTestContext('wenmi-v7-setting-');
     const resolver = new SettingResolver(true);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-author@example.com', '设定作者', 'strong-pass-123');
       const other = await register(app, 'setting-other@example.com', '另一作者', 'strong-pass-456');
@@ -891,7 +891,7 @@ describe('V7设定编辑部', () => {
   it('重新设计全部已知失败时持久化终态，且可轮询并安全续跑', async () => {
     context = createTestContext('wenmi-v7-setting-redesign-terminal-');
     const resolver = new SettingResolver(false);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-redesign-terminal@example.com', '重设计恢复作者', 'strong-pass-909');
       const bookId = await createBook(app, cookie, '重设计终态测试', 'setting-redesign-terminal-book', '历史脑洞');
@@ -954,7 +954,7 @@ describe('V7设定编辑部', () => {
   it('重新设计部分失败时保留成功方案，单选复审和多选融合都能消费原任务', async () => {
     context = createTestContext('wenmi-v7-setting-redesign-partial-');
     const resolver = new SettingResolver(false);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-redesign-partial@example.com', '部分方案作者', 'strong-pass-919');
       const bookId = await createBook(app, cookie, '部分方案恢复测试', 'setting-redesign-partial-book', '历史脑洞');
@@ -1041,7 +1041,7 @@ describe('V7设定编辑部', () => {
   it('五项同类设定拆为4加1，尾项不并回前批且接续前批草案', async () => {
     context = createTestContext('wenmi-v7-setting-grouped-');
     const resolver = new SettingResolver(false);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-grouped@example.com', '分组设定作者', 'strong-pass-907');
       const bookId = await createBook(app, cookie, '分组设定测试', 'grouped-setting-book-0001', '历史脑洞');
@@ -1079,7 +1079,7 @@ describe('V7设定编辑部', () => {
 
   it('管理员可以让设定成员请假和返岗，但每个岗位至少保留一名在岗成员', async () => {
     context = createTestContext('wenmi-v7-setting-admin-');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
     try {
       const admin = await register(app, 'setting-admin@example.com', '管理员', 'strong-pass-789');
       context.database.prepare(`UPDATE user_accounts SET role='admin' WHERE email_normalized='setting-admin@example.com'`).run();
@@ -1098,7 +1098,7 @@ describe('V7设定编辑部', () => {
 
   it('全部条目完成后由主编执行一次可恢复的跨条目统一整理，而不是前端拼接提醒', async () => {
     context = createTestContext('wenmi-v7-setting-final-review-');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
     try {
       const cookie = await register(app, 'setting-final-review@example.com', '统一设定作者', 'strong-pass-901');
       const bookId = await createBook(app, cookie, '设定统一整理测试', 'final-review-book-0001', '历史脑洞');
@@ -1170,7 +1170,7 @@ describe('V7设定编辑部', () => {
     let notifyStarted!: () => void;
     const reviewStarted = new Promise<void>((resolve) => { notifyStarted = resolve; });
     resolver.finalReviewStarted = notifyStarted;
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-final-review-cas@example.com', '并发确认作者', 'strong-pass-920');
       const bookId = await createBook(app, cookie, '统一整理并发测试', 'final-review-cas-book', '历史脑洞');
@@ -1217,7 +1217,7 @@ describe('V7设定编辑部', () => {
         { itemKey: 'history', finalContent: '统一后的历史基线。', summary: '历史基线已统一。', issues: [], suggestions: [] }
       ]
     });
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-final-review-atomic@example.com', '原子提交作者', 'strong-pass-921');
       const bookId = await createBook(app, cookie, '统一整理原子测试', 'final-review-atomic-book', '历史脑洞');
@@ -1271,7 +1271,7 @@ describe('V7设定编辑部', () => {
   it('统一整理主输出结构损坏时只调用一次repair并完成原任务', async () => {
     context = createTestContext('wenmi-v7-setting-final-review-repair-');
     const resolver = new StructureRecoveryResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-final-review-repair@example.com', '总审修复作者', 'strong-pass-925');
       const bookId = await createBook(app, cookie, '统一整理结构修复', 'final-review-repair-book', '历史脑洞');
@@ -1305,7 +1305,7 @@ describe('V7设定编辑部', () => {
   it('统一整理repair已知失败后沿用原任务续跑，且不重新调用已成功主输出', async () => {
     context = createTestContext('wenmi-v7-setting-final-review-repair-retry-');
     const resolver = new StructureRecoveryResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-final-review-repair-retry@example.com', '总审续修作者', 'strong-pass-926');
       const bookId = await createBook(app, cookie, '统一整理续修', 'final-review-repair-retry-book', '历史脑洞');
@@ -1350,7 +1350,7 @@ describe('V7设定编辑部', () => {
   it('统一整理会员额度前置失败不伪造成主编请假，补额度后沿用原任务完成', async () => {
     context = createTestContext('wenmi-v7-setting-final-review-quota-');
     const resolver = new SettingResolver(false);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const administratorCookie = await register(app, 'setting-final-review-quota-admin@example.com', '总审额度管理员', 'strong-pass-927');
       const cookie = await register(app, 'setting-final-review-quota@example.com', '总审额度作者', 'strong-pass-928');
@@ -1436,7 +1436,7 @@ describe('V7设定编辑部', () => {
   it('25项长设定的全书总审只读取分层语义索引，不把全部原文重新塞给主编', async () => {
     context = createTestContext('wenmi-v7-setting-final-review-layered-');
     const resolver = new SettingResolver(false);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-layered-review@example.com', '分层总审作者', 'strong-pass-908');
       const bookId = await createBook(app, cookie, '大量设定总审测试', 'layered-final-review-book-0001', '历史脑洞');
@@ -1486,7 +1486,7 @@ describe('V7设定编辑部', () => {
   it('语义索引仍超限时总审自动降到限长一句话索引，全部条目仍被逐一核对', async () => {
     context = createTestContext('wenmi-v7-setting-final-review-minimal-');
     const resolver = new SettingResolver(false);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-minimal-review@example.com', '最小索引作者', 'strong-pass-910');
       const bookId = await createBook(app, cookie, '超大设定总审测试', 'minimal-final-review-book-0001', '历史脑洞');
@@ -1537,7 +1537,7 @@ describe('V7设定编辑部', () => {
   it('轻量总审发现跨条目冲突后分小包真正改回正文，而不是只在页面口头宣布统一', async () => {
     context = createTestContext('wenmi-v7-setting-final-review-patches-');
     const resolver = new SettingResolver(false);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-patch-review@example.com', '冲突修订作者', 'strong-pass-909');
       const bookId = await createBook(app, cookie, '冲突设定总审测试', 'patch-final-review-book-0001', '历史脑洞');
@@ -1597,7 +1597,7 @@ describe('V7设定编辑部', () => {
 
   it('补充设计只为新增条目建工单，已有结果只作为资料且不会重做', async () => {
     context = createTestContext('wenmi-v7-setting-incremental-');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
     try {
       const cookie = await register(app, 'setting-incremental@example.com', '补充设定作者', 'strong-pass-902');
       const bookId = await createBook(app, cookie, '增量设定测试', 'incremental-book-0001', '历史脑洞');
@@ -1632,7 +1632,7 @@ describe('V7设定编辑部', () => {
   it('不同操作编号不能为同一本书的同一设定同时创建在途工单', async () => {
     context = createTestContext('wenmi-v7-setting-active-item-guard-');
     const resolver = new BlockingSettingResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-active-item@example.com', '并发工单作者', 'strong-pass-910');
       const bookId = await createBook(app, cookie, '同条目并发测试', 'setting-active-item-book', '历史脑洞');
@@ -1666,7 +1666,7 @@ describe('V7设定编辑部', () => {
   it('旧执行器失去租约后只保留模型审计，不得覆盖新执行器已经确认的终态', async () => {
     context = createTestContext('wenmi-v7-setting-lease-fence-');
     const resolver = new BlockingSettingResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-lease-fence@example.com', '租约保护作者', 'strong-pass-925');
       const bookId = await createBook(app, cookie, '设定租约保护测试', 'setting-lease-fence-book', '历史脑洞');
@@ -1738,7 +1738,7 @@ describe('V7设定编辑部', () => {
   it('普通设定任务冻结创建时的不存在状态，执行期间形成的作者版本不会被晚到结果覆盖', async () => {
     context = createTestContext('wenmi-v7-setting-source-cas-');
     const resolver = new BlockingSettingResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-source-cas@example.com', '版本保护作者', 'strong-pass-911');
       const bookId = await createBook(app, cookie, '设定版本保护测试', 'setting-source-cas-book', '历史脑洞');
@@ -1807,7 +1807,7 @@ describe('V7设定编辑部', () => {
   it('主编提醒和作者修改会创建可恢复的单条复审任务，不沿用旧审查', async () => {
     context = createTestContext('wenmi-v7-setting-review-task-');
     const resolver = new SettingResolver(false);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-review-task@example.com', '复审任务作者', 'strong-pass-903');
       const bookId = await createBook(app, cookie, '设定复审任务测试', 'review-task-book-0001', '历史脑洞');
@@ -1895,7 +1895,7 @@ describe('V7设定编辑部', () => {
   it('设定技术重试沿用首次冻结任务，只重跑失败主编并保留副编和编剧成果', async () => {
     context = createTestContext('wenmi-v7-setting-technical-retry-');
     const resolver = new RetrySettingResolver('known');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-retry@example.com', '重试作者', 'strong-pass-905');
       const bookId = await createBook(app, cookie, '设定重试测试', 'setting-retry-book-0001', '历史脑洞');
@@ -1944,7 +1944,7 @@ describe('V7设定编辑部', () => {
     context = createTestContext('wenmi-v7-setting-structural-restart-');
     const resolver = new StructureRecoveryResolver();
     resolver.invalidOrdinaryStructure = true;
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-structural-restart@example.com', '结构重开作者', 'strong-pass-924');
       const bookId = await createBook(app, cookie, '普通设定结构重开', 'setting-structural-restart-book', '历史脑洞');
@@ -2007,7 +2007,7 @@ describe('V7设定编辑部', () => {
         return result;
       }};
     }};
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       await register(app, 'setting-membership-admin@example.com', '额度测试管理员', 'strong-pass-907');
       const cookie = await register(app, 'setting-membership-recovery@example.com', '额度恢复作者', 'strong-pass-908');
@@ -2129,7 +2129,7 @@ describe('V7设定编辑部', () => {
   it('结果未知的设定调用禁止盲目技术重试', async () => {
     context = createTestContext('wenmi-v7-setting-unknown-retry-');
     const resolver = new RetrySettingResolver('unknown');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-unknown@example.com', '未知结果作者', 'strong-pass-906');
       const bookId = await createBook(app, cookie, '未知结果测试', 'setting-unknown-book-0001', '历史脑洞');
@@ -2152,7 +2152,7 @@ describe('V7设定编辑部', () => {
   it('旧模型或损坏名册的设定任务只保留结果，不回退当前名册继续调用', async () => {
     context = createTestContext('wenmi-v7-setting-retired-roster-');
     const resolver = new SettingResolver(false);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'setting-retired-roster@example.com', '旧任务作者', 'strong-pass-907');
       const bookId = await createBook(app, cookie, '旧设定任务测试', 'setting-retired-roster-book-0001', '历史脑洞');
@@ -2197,7 +2197,7 @@ describe('V7设定编辑部', () => {
 
   it('长批次续约后，旧租约时点不能被页面轮询重复接管', async () => {
     context = createTestContext('wenmi-v7-setting-lease-');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
     try {
       const cookie = await register(app, 'setting-lease@example.com', '租约作者', 'strong-pass-901');
       const bookId = await createBook(app, cookie, '长批次设定测试', 'lease-book-0001', '历史脑洞');
@@ -2548,14 +2548,14 @@ function recommendationOutput(): string {
   });
 }
 
-async function register(app: Awaited<ReturnType<typeof createServer>>, email: string, displayName: string, password: string): Promise<string> {
+async function register(app: Awaited<ReturnType<typeof createAppServer>>, email: string, displayName: string, password: string): Promise<string> {
   const response = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: HEADERS, payload: { email, password, displayName } });
   expect(response.statusCode).toBe(200);
   const raw = response.headers['set-cookie']; return String(Array.isArray(raw) ? raw[0] : raw).split(';', 1)[0]!;
 }
 
 async function createBook(
-  app: Awaited<ReturnType<typeof createServer>>,
+  app: Awaited<ReturnType<typeof createAppServer>>,
   cookie: string,
   title: string,
   key: string,
@@ -2579,7 +2579,7 @@ async function createBook(
   expect(response.statusCode).toBe(200); return response.json().data.bookId as string;
 }
 
-async function pollBatch(app: Awaited<ReturnType<typeof createServer>>, cookie: string, bookId: string, batchId: string): Promise<any> {
+async function pollBatch(app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, bookId: string, batchId: string): Promise<any> {
   for (let index = 0; index < 120; index += 1) {
     const response = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-batches/${batchId}`, headers: { host: HEADERS.host, cookie } });
     expect(response.statusCode).toBe(200); const view = response.json().data;
@@ -2603,7 +2603,7 @@ async function waitForStoredBatchStatus(
 }
 
 async function pollRedesign(
-  app: Awaited<ReturnType<typeof createServer>>,
+  app: Awaited<ReturnType<typeof createAppServer>>,
   cookie: string,
   bookId: string,
   itemKey: string,
@@ -2623,7 +2623,7 @@ async function pollRedesign(
   throw new Error('重新设计任务未在预期时间完成');
 }
 
-async function pollRecommendation(app: Awaited<ReturnType<typeof createServer>>, cookie: string, bookId: string, taskId: string): Promise<any> {
+async function pollRecommendation(app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, bookId: string, taskId: string): Promise<any> {
   for (let index = 0; index < 120; index += 1) {
     const response = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-recommendations/${taskId}`, headers: { host: HEADERS.host, cookie } });
     expect(response.statusCode).toBe(200); const view = response.json().data;
@@ -2633,7 +2633,7 @@ async function pollRecommendation(app: Awaited<ReturnType<typeof createServer>>,
   throw new Error('主编设定清单未在预期时间完成');
 }
 
-async function pollFinalReview(app: Awaited<ReturnType<typeof createServer>>, cookie: string, bookId: string): Promise<any> {
+async function pollFinalReview(app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, bookId: string): Promise<any> {
   for (let index = 0; index < 120; index += 1) {
     const response = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-final-reviews/current`, headers: { host: HEADERS.host, cookie } });
     expect(response.statusCode).toBe(200); const view = response.json().data;

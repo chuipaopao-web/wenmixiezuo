@@ -1,5 +1,7 @@
 # 文秘写作当前交接
 
+2026-09-14 AUTH-TAKEOVER-01已在隔离分支`codex/auth-takeover-01`开发完成，待Codex验收，未合入未部署：新运行入口`apps/api/src/http/app-server.ts`（createAppServer，11个业务路由模块+请求策略+脱敏+错误封装，零引用已删除的旧v7-server装配）接管main.ts；密码体制收敛rebuild规范（0125迁移：v1兼容验证+登录透明升级scrypt-v2，rebuild域可直接验证）；会话停用/登出/过期即时失效、跨用户隔离、后台登录/登出经真实服务与浏览器验证。身份权威本批仍为SQLite AccountAuthService——PG切换阻断（本地PG 54329不可达、rebuild账号服务缺公开注册/admin/停用能力、无身份迁移证据），rebuild栈保留为生产切换目标。结果与删除清单：`.local/dispatch/outbox/task-auth-takeover-01.result.md`。
+
 2026-09-14 AUTH-TAKEOVER-01执行任务书已备，待老板手动交GLM5.3：`.local/dispatch/inbox/task-auth-takeover-01.md`。目标为新身份/权限/运行入口实际接管及本地已替代死代码清理；GLM连续完成开发与验证，不仅审计。隔离分支交付Codex验收，本批不部署。不能把当前使用中的开书/设定、@wenmi/v7-backend或rebuild/legacy-opening按名称删除；不能把C6准备代码回退到生产C5。结果入口`.local/dispatch/outbox/task-auth-takeover-01.result.md`。
 
 2026-09-14 R209-C6创作库与后台已上线，运行层待常规安全窗口：恢复33张原卡，新增32张独立“节奏＋余韵”卡法372—法403，只用于链页面·链分章，余韵0—3章、可不写。正式库6e8fdb4e-85a4-4bcd-b529-61caad6294e2共594项（398方法＋196参考），后台静态fbbb1a6993a21c1aab07；公网14资源hash、生产防重/数据完整性、现有API兼容通过。API/Worker未重启，仍wm-v7-20260914-024500-2922953d且ok/ready；C6运行层代码b426e0c6准备完毕，未生效。自动审批拒绝忽略活动任务的重启后，采用不重启的内容/静态发布，未修改任务数据。链页面及分章结果硬校验待开发；当前交付和后续发布见R209工作清单C6。

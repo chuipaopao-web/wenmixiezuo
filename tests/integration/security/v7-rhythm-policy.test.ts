@@ -1,9 +1,9 @@
 import { expect, it } from 'vitest';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { createTestContext } from '../../helpers/test-context.js';
 import { DEFAULT_RHYTHM_POLICY } from '@wenmi/v7-backend';
 it('共用节奏配置只允许管理员查看、预览和发布，重启后保留版本', async()=>{
- const context=createTestContext('wenmi-rhythm-140-'); const app=await createServer(context.config,context.database);
+ const context=createTestContext('wenmi-rhythm-140-'); const app=await createAppServer(context.config,context.database);
  const headers={host:'127.0.0.1:43111',origin:'http://127.0.0.1:43110','sec-fetch-site':'same-site'};
  try{
   expect((await app.inject({method:'GET',url:'/api/v1/admin/v7/rhythm-policy',headers})).statusCode).toBe(401);

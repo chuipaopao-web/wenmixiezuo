@@ -6,7 +6,7 @@ import {
   planningSnapshotSourceTraces
 } from '../../../apps/api/src/application/planning/v7-planning-source-compiler.js';
 import { V7SettingLedgerReader } from '../../../apps/api/src/application/books/v7-setting-ledger-reader.js';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import type { ModelAdapter, ModelRequest, ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import { V7PlanningModelGateway } from '../../../apps/api/src/infrastructure/models/v7-planning-model-gateway.js';
@@ -23,7 +23,7 @@ afterEach(() => { context?.close(); context = undefined; });
 describe('V7规划正式资料快照', () => {
   it('全书路线缺少预计总字数时在调用成员前明确拦截', async () => {
     context = createTestContext('wenmi-v7-planning-profile-gate-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const cookie = await register(app, 'snapshot-gate@example.com', '资料门槛作者');
       const bookId = await createBook(app, cookie, '缺项测试书');
@@ -55,7 +55,7 @@ describe('V7规划正式资料快照', () => {
   it('规划网关在题材档案缺失时只懒生成一次并让后续任务复用', async () => {
     context = createTestContext('wenmi-v7-planning-genre-profile-');
     const resolver = new SuccessfulPlanningResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'snapshot-genre@example.com', '题材档案作者');
       const bookId = await createBook(app, cookie, '北宋题材档案');
@@ -104,7 +104,7 @@ describe('V7规划正式资料快照', () => {
 
   it('由服务端冻结开书、确认设定和作者目标，并对相同来源幂等复用', async () => {
     context = createTestContext('wenmi-v7-planning-snapshot-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const cookie = await register(app, 'snapshot-owner@example.com', '快照作者');
       const bookId = await createBook(app, cookie, '北宋小卒');
@@ -281,7 +281,7 @@ describe('V7规划正式资料快照', () => {
 
   it('小规模已确认设定不被失败或覆盖不完整的总审永久锁死', async () => {
     context = createTestContext('wenmi-v7-planning-ledger-recovery-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const cookie = await register(app, 'snapshot-ledger-recovery@example.com', '总审恢复作者');
       const bookId = await createBook(app, cookie, '已确认设定恢复书');
@@ -359,7 +359,7 @@ describe('V7规划正式资料快照', () => {
 
   it('大量设定只向全书规划发送当前主编总账，设定变化后拒绝复用旧总账', async () => {
     context = createTestContext('wenmi-v7-planning-compact-ledger-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const cookie = await register(app, 'snapshot-ledger@example.com', '总账作者');
       const bookId = await createBook(app, cookie, '三百万字历史长篇');
@@ -454,7 +454,7 @@ describe('V7规划正式资料快照', () => {
 
   it('逐项设定超过调用预算仍完整冻结，资料Agent读取前不截断事实或阻断规划', async () => {
     context = createTestContext('wenmi-v7-planning-light-index-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const cookie = await register(app, 'snapshot-light-index@example.com', '轻量索引作者');
       const bookId = await createBook(app, cookie, '两百条设定长篇');

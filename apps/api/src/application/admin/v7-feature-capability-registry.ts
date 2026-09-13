@@ -215,7 +215,7 @@ export const FEATURE_CAPABILITIES: FeatureCapabilityDefinition[] = [
     ['capability-release-guard', '运行闭包门禁', '证据丢失或重新混入旧功能时阻止验收。']
   ]),
   ...currentModule('runtime-safety', '运行、安全与恢复', 'system', 'API / Worker / 部署', [
-    'apps/api/src/http/v7-server.ts',
+    'apps/api/src/http/app-server.ts',
     'apps/worker/src/main.ts',
     'scripts/evaluation/production-backup-verify.ts',
     'docs/DEPLOY.md'

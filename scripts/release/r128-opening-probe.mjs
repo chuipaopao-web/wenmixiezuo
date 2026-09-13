@@ -5,7 +5,7 @@ import {mkdirSync,writeFileSync} from 'node:fs';
 import {loadRuntimeConfig} from '../../apps/api/dist/infrastructure/runtime-config.js';
 import {openDatabase} from '../../apps/api/dist/infrastructure/db/database.js';
 import {bootstrapDatabase} from '../../apps/api/dist/infrastructure/db/bootstrap.js';
-import {createV7Server} from '../../apps/api/dist/http/v7-server.js';
+import {createAppServer} from '../../apps/api/dist/http/app-server.js';
 import {ModelAdapterFactory} from '../../apps/api/dist/infrastructure/models/model-adapter-factory.js';
 import {OPENING_RUNTIME_RELEASE,OpeningAgentEngine,OpeningAgentStoppedError} from '@wenmi/opening-runtime';
 import * as adapterCore from '@wenmi/v7-backend';
@@ -70,7 +70,7 @@ const adapters={resolve(provider,modelId,purpose){return {provider,modelId,async
     return {provider,modelId,output:JSON.stringify(result),inputTokens:120,outputTokens:240,cashCostCny:0,state:'succeeded'};
   }finally{call.milliseconds=Date.now()-start;console.log(JSON.stringify({step:'model-finished',...call}));}
 }}}};
-const app=await createV7Server(config,db,{v7OpeningModelAdapters:adapters});
+const app=await createAppServer(config,db,{v7OpeningModelAdapters:adapters});
 const headers={host:'127.0.0.1:43112',origin:'http://127.0.0.1:43112','sec-fetch-site':'same-origin','content-type':'application/json'};
 async function register(label){const response=await app.inject({method:'POST',url:'/api/v1/auth/register',headers,payload:{email:label+'-'+randomUUID()+'@example.test',password:'Probe-'+randomUUID(),displayName:'隔离发布验收'}});
 assert.equal(response.statusCode,200);return String(response.headers['set-cookie']).split(';')[0];}

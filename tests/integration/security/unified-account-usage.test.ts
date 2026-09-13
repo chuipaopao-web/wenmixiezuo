@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import {
   accountUsageTotals,
   SupplementalAccountUsageRepository
@@ -204,7 +204,7 @@ describe('统一账号级用量投影', () => {
 
   it('会员门禁、会员汇总、管理员用量和仪表盘都读取同一权威口径', async () => {
     context = createTestContext('wenmi-unified-usage-consumers-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const adminRegistration = await app.inject({
         method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS,

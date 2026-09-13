@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createTestContext } from '../../helpers/test-context.js';
-import { createV7Server } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { runMigrations } from '../../../apps/api/src/infrastructure/db/migrations.js';
 import { SqliteCreativeReferenceRepository } from '../../../apps/api/src/infrastructure/db/repositories/creative-reference-repository.js';
 import { CreativeReferenceAdminRepository } from '../../../apps/api/src/infrastructure/db/repositories/creative-reference-admin-repository.js';
@@ -40,7 +40,7 @@ function referencePayload(name: string, index: number): Record<string, unknown> 
 describe('creative-reference admin routes', () => {
   it('requires admin session: 401 anonymous / 403 regular user / full lifecycle for admin', async () => {
     const c = createTestContext();
-    const app = await createV7Server(c.config, c.database);
+    const app = await createAppServer(c.config, c.database);
     try {
       const headers = { host: '127.0.0.1:43111', origin: c.config.webOrigin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' };
       const register = async (email: string) => {
@@ -188,7 +188,7 @@ describe('creative-reference admin routes', () => {
 
   it('45-card cross-page filtering with cursor condition rejection; full-release preservation of untouched 44', async () => {
     const c = createTestContext();
-    const app = await createV7Server(c.config, c.database);
+    const app = await createAppServer(c.config, c.database);
     try {
       const headers = { host: '127.0.0.1:43111', origin: c.config.webOrigin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' };
       const register = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers, payload: { email: 'b2-admin-45@example.com', displayName: '管理员', password: 'Strong-test-pass-123!' } });
@@ -283,7 +283,7 @@ describe('creative-reference admin routes', () => {
 
   it('fault injection: audit/result-write failure rolls back state+audit+request; same-key retry succeeds after rollback', async () => {
     const c = createTestContext();
-    const app = await createV7Server(c.config, c.database);
+    const app = await createAppServer(c.config, c.database);
     try {
       const headers = { host: '127.0.0.1:43111', origin: c.config.webOrigin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' };
       const register = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers, payload: { email: 'b2-atomic@example.com', displayName: '管理员', password: 'Strong-test-pass-123!' } });
@@ -333,7 +333,7 @@ describe('creative-reference admin routes', () => {
 
   it('usage tree filter: method usageTree and reference purposes match main class and children', async () => {
     const c = createTestContext();
-    const app = await createV7Server(c.config, c.database);
+    const app = await createAppServer(c.config, c.database);
     try {
       const headers = { host: '127.0.0.1:43111', origin: c.config.webOrigin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' };
       const register = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers, payload: { email: 'b2-usage@example.com', displayName: '管理员', password: 'Strong-test-pass-123!' } });
@@ -390,7 +390,7 @@ describe('creative-reference admin routes', () => {
 
   it('release entries pagination with cursor validation; relations across two releases; per-release freeze', async () => {
     const c = createTestContext();
-    const app = await createV7Server(c.config, c.database);
+    const app = await createAppServer(c.config, c.database);
     try {
       const headers = { host: '127.0.0.1:43111', origin: c.config.webOrigin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' };
       const register = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers, payload: { email: 'b2-relpage@example.com', displayName: '管理员', password: 'Strong-test-pass-123!' } });
@@ -445,7 +445,7 @@ describe('creative-reference admin routes', () => {
 
   it('sync transaction unit: async operation rejected; concurrent requests isolated (failure does not roll back the other side)', async () => {
     const c = createTestContext();
-    const app = await createV7Server(c.config, c.database);
+    const app = await createAppServer(c.config, c.database);
     try {
       const headers = { host: '127.0.0.1:43111', origin: c.config.webOrigin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' };
       const register = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers, payload: { email: 'b2-iso@example.com', displayName: '管理员', password: 'Strong-test-pass-123!' } });
@@ -524,7 +524,7 @@ describe('creative-reference admin routes', () => {
 
   it('BEGIN failure under external write lock: state recovers, retry commits, later failures still roll back', async () => {
     const c = createTestContext();
-    const app = await createV7Server(c.config, c.database);
+    const app = await createAppServer(c.config, c.database);
     try {
       const headers = { host: '127.0.0.1:43111', origin: c.config.webOrigin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' };
       const register = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers, payload: { email: 'b2-lock@example.com', displayName: '管理员', password: 'Strong-test-pass-123!' } });

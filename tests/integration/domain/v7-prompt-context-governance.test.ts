@@ -10,7 +10,7 @@ import {
   type V7TaskContract
 } from '@wenmi/v7-backend';
 import { V7PromptGovernanceService } from '../../../apps/api/src/application/agents/v7-prompt-governance-service.js';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { V7PromptGovernanceRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-prompt-governance-repository.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
 
@@ -222,7 +222,7 @@ describe('V7提示词与上下文治理持久化', () => {
 
   it('管理员API提供摘要、资产版本、草稿预览发布、历史恢复与清单只读入口', async () => {
     context = createTestContext('wenmi-v7-prompt-routes-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const cookie = await register(app, 'prompt-admin@example.com', '提示资产管理员', 'strong-pass-901');
       const summary = await app.inject({
@@ -418,7 +418,7 @@ describe('V7提示词与上下文治理持久化', () => {
 const NOW = '2026-08-28T00:00:00.000Z';
 
 async function register(
-  app: Awaited<ReturnType<typeof createServer>>,
+  app: Awaited<ReturnType<typeof createAppServer>>,
   email: string,
   displayName: string,
   password: string

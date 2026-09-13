@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { bootstrapDatabase } from '../../apps/api/src/infrastructure/db/bootstrap.js';
 import { openDatabase } from '../../apps/api/src/infrastructure/db/database.js';
 import type { RuntimeConfig } from '../../apps/api/src/infrastructure/runtime-config.js';
-import { createServer } from '../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../apps/api/src/http/app-server.js';
 import { loadModelRuntimeConfig } from '../../apps/api/src/infrastructure/models/model-runtime-config.js';
 
 const tempDirectories: string[] = [];
@@ -34,7 +34,7 @@ describe('API健康检查', () => {
     };
     const database = openDatabase(config.databasePath);
     bootstrapDatabase(database, config);
-    const app = await createServer(config, database);
+    const app = await createAppServer(config, database);
     try {
       app.get('/__test/unhandled-error', async () => {
         throw new Error('SQL failure at C:\\private\\secret.sqlite');

@@ -8,7 +8,7 @@ import {
 } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 const HEADERS = {
@@ -28,7 +28,7 @@ describe('V7书级题材档案共享Ensurer', () => {
   it('同书并发和重复调用只执行一次副编模型，并用隐藏内部批次保存完成证据', async () => {
     context = createTestContext('wenmi-v7-genre-profile-ensure-');
     const resolver = new GenreProfileResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'genre-profile@example.com', '题材档案作者', 'strong-pass-123');
       const bookId = await createBook(app, cookie, '汉末求生录', 'genre-profile-book-0001');
@@ -77,7 +77,7 @@ describe('V7书级题材档案共享Ensurer', () => {
   it('模型结果未知时保存未知证据并阻止后续调用盲目重发', async () => {
     context = createTestContext('wenmi-v7-genre-profile-unknown-');
     const resolver = new GenreProfileResolver('unknown');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'genre-profile-unknown@example.com', '未知档案作者', 'strong-pass-123');
       const bookId = await createBook(app, cookie, '汉末未知录', 'genre-profile-book-unknown');
@@ -110,7 +110,7 @@ describe('V7书级题材档案共享Ensurer', () => {
   it('单题材书籍允许模型交回空的融合题材辅助功能', async () => {
     context = createTestContext('wenmi-v7-genre-profile-single-genre-');
     const resolver = new GenreProfileResolver('none', true);
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'genre-profile-single@example.com', '单题材作者', 'strong-pass-123');
       const bookId = await createBook(app, cookie, '汉末单题材录', 'genre-profile-book-single');
@@ -135,7 +135,7 @@ describe('V7书级题材档案共享Ensurer', () => {
   it('模型明确失败后只按原冻结资料技术重试，并保留两次独立调用证据', async () => {
     context = createTestContext('wenmi-v7-genre-profile-retry-');
     const resolver = new GenreProfileResolver('known');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'genre-profile-retry@example.com', '档案重试作者', 'strong-pass-123');
       const bookId = await createBook(app, cookie, '汉末重试录', 'genre-profile-book-retry');
@@ -219,7 +219,7 @@ function bookOwner(database: TestContext['database'], bookId: string): string {
 }
 
 async function register(
-  app: Awaited<ReturnType<typeof createServer>>,
+  app: Awaited<ReturnType<typeof createAppServer>>,
   email: string,
   displayName: string,
   password: string
@@ -236,7 +236,7 @@ async function register(
 }
 
 async function createBook(
-  app: Awaited<ReturnType<typeof createServer>>,
+  app: Awaited<ReturnType<typeof createAppServer>>,
   cookie: string,
   title: string,
   key: string

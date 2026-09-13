@@ -7,7 +7,7 @@ import {
   type PlanningTreeNode
 } from '@wenmi/v7-backend';
 import { V7PlanningTreeService } from '../../../apps/api/src/application/planning/v7-planning-tree-service.js';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
 import { sampleBlueprint } from '../../helpers/book-blueprint-fixture.js';
 
@@ -21,7 +21,7 @@ afterEach(() => { context?.close(); context = undefined; });
 describe('V7三棵竖向综合规划树后端', () => {
   it('保存全书、卷、链三棵树，并支持修改、确认、隔离和实际结算投影', async () => {
     context = createTestContext('wenmi-v7-planning-trees-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const cookie = await register(app, 'planning-owner@example.com', '规划作者', 'strong-pass-123');
       const other = await register(app, 'planning-other@example.com', '另一作者', 'strong-pass-456');
@@ -166,7 +166,7 @@ describe('V7三棵竖向综合规划树后端', () => {
 
   it('拒绝层级错放、操作号复用和无正文证据的实际更新', async () => {
     context = createTestContext('wenmi-v7-planning-tree-guards-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const cookie = await register(app, 'planning-guard@example.com', '边界作者', 'strong-pass-123');
       const bookId = await createBook(app, cookie, '规划边界测试', 'planning-guard-book-0001');

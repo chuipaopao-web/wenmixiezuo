@@ -3,7 +3,7 @@ import { sampleBlueprint } from '../../helpers/book-blueprint-fixture.js';
 import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { V7PlanningMaintenanceService } from '../../../apps/api/src/application/planning/v7-planning-maintenance-service.js';
 import {
   V7BookGenreProfileEnsureInProgressError,
@@ -31,7 +31,7 @@ describe('V7规划编辑部三席协作', () => {
   it('路线调整立即返回、换请求键与跨实例仍复用同一任务，停止后晚到结果不能确认', async () => {
     context = createTestContext('wenmi-route-decision-async-');
     const resolver = new DecisionGateResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const { cookie, ownerId, bookId, runId, input } = await prepareDecisionCase(app);
       const url = `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}/decision`;
@@ -62,7 +62,7 @@ describe('V7规划编辑部三席协作', () => {
   it('路线调整租约丢失时等待原调用，重新接续复用返回而不重复计量', async () => {
     context = createTestContext('wenmi-route-decision-resume-');
     const resolver = new DecisionGateResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const { cookie, ownerId, bookId, runId, input } = await prepareDecisionCase(app);
       const response = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}/decision`, input);
@@ -87,7 +87,7 @@ describe('V7规划编辑部三席协作', () => {
   it.each(['failed', 'unknown', 'invalid'] as const)('路线调整%s能如实显示，刷新不重发，未知禁止重试', async (failure) => {
     context = createTestContext(`wenmi-route-decision-${failure}-`);
     const resolver = new DecisionGateResolver(); resolver.failure = failure; resolver.release();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const { cookie, ownerId, bookId, runId, input } = await prepareDecisionCase(app);
       await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}/decision`, input);
@@ -113,7 +113,7 @@ describe('V7规划编辑部三席协作', () => {
   it('规划维护技术重试沿用首次冻结快照，只更换执行尝试编号', async () => {
     context = createTestContext('wenmi-v7-planning-maintenance-retry-');
     const resolver = new RetryPlanningMaintenanceResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-maintenance-retry@example.com', '规划作者');
       const bookId = await createBook(app, cookie, '规划维护重试书');
@@ -177,7 +177,7 @@ describe('V7规划编辑部三席协作', () => {
   it('规划正式树版本变化后拒绝用旧维护任务重试', async () => {
     context = createTestContext('wenmi-v7-planning-maintenance-source-change-');
     const resolver = new RetryPlanningMaintenanceResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-maintenance-source@example.com', '规划作者');
       const bookId = await createBook(app, cookie, '规划版本变化书');
@@ -206,7 +206,7 @@ describe('V7规划编辑部三席协作', () => {
   it('冻结成员全部失败后如实道歉，刷新页面不会伪装工作中或重复调用', async () => {
     context = createTestContext('wenmi-v7-planning-failed-');
     const resolver = new AlwaysFailingPlanningResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-failed@example.com', '失败恢复作者');
       const bookId = await createBook(app, cookie, '失败恢复测试书');
@@ -238,7 +238,7 @@ describe('V7规划编辑部三席协作', () => {
   it('规划树明确失败后在同一任务续跑，复用资料策划并拒绝重发未知结果', async () => {
     context = createTestContext('wenmi-v7-planning-tree-retry-');
     const resolver = new PlanningTreeRetryResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-tree-retry@example.com', '规划树恢复作者');
       const bookId = await createBook(app, cookie, '规划树恢复测试书');
@@ -386,7 +386,7 @@ describe('V7规划编辑部三席协作', () => {
   it('同一正式路线的旧名册失败任务可由重试或续接幂等创建当前形状新任务', async () => {
     context = createTestContext('wenmi-v7-planning-tree-legacy-recovery-');
     const resolver = new PlanningTreeRetryResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-tree-legacy-recovery@example.com', '旧树恢复作者');
       const bookId = await createBook(app, cookie, '旧树恢复测试书');
@@ -495,7 +495,7 @@ describe('V7规划编辑部三席协作', () => {
   it('全书路线只补明确失败的席位，不重做已保存路线且使用新尝试编号', async () => {
     context = createTestContext('wenmi-v7-planning-route-retry-');
     const resolver = new PlanningRouteRetryResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-route-retry@example.com', '路线恢复作者');
       const bookId = await createBook(app, cookie, '路线恢复测试书');
@@ -548,7 +548,7 @@ describe('V7规划编辑部三席协作', () => {
   it('历史、缺失或损坏的路线名册只读保留结果，刷新和补做不再调用模型', async () => {
     context = createTestContext('wenmi-v7-planning-route-read-only-');
     const resolver = new PlanningResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-route-read-only@example.com', '路线历史作者');
       const bookId = await createBook(app, cookie, '路线历史结果测试书');
@@ -646,7 +646,7 @@ describe('V7规划编辑部三席协作', () => {
   it('主编发现正式资料冲突后等待作者处理，不把语义决定误当成员失败反复交接', async () => {
     context = createTestContext('wenmi-v7-planning-source-issues-');
     const resolver = new SourceIssuePlanningResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-source-issues@example.com', '资料校对作者');
       const bookId = await createBook(app, cookie, '资料口径测试书');
@@ -688,7 +688,7 @@ describe('V7规划编辑部三席协作', () => {
   it('长任务可停止，停止后后台返回也不能覆盖已停止状态', async () => {
     context = createTestContext('wenmi-v7-planning-cancel-');
     const resolver = new BlockingPlanningResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-cancel@example.com', '暂停测试作者');
       const bookId = await createBook(app, cookie, '暂停测试书');
@@ -730,7 +730,7 @@ describe('V7规划编辑部三席协作', () => {
   it('全案输出被截断时只让原主编低温修复一次，不把整案交给下一名主编重做', async () => {
     context = createTestContext('wenmi-v7-planning-direct-repair-');
     const resolver = new RepairingDirectPlanningResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-direct-repair@example.com', '结构修复作者');
       const bookId = await createBook(app, cookie, '结构修复测试书');
@@ -758,7 +758,7 @@ describe('V7规划编辑部三席协作', () => {
   it('资料策划JSON输出不完整时只让同一成员低温修复，并继续完成全书框架', async () => {
     context = createTestContext('wenmi-v7-planning-context-repair-');
     const resolver = new PlanningResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-context-repair@example.com', '资料策划修复作者');
       const bookId = await createBook(app, cookie, '资料策划修复测试书');
@@ -803,7 +803,7 @@ describe('V7规划编辑部三席协作', () => {
   it('规划树失败时不把资料策划的JSON解析细节透露给作者', async () => {
     context = createTestContext('wenmi-v7-planning-context-public-error-');
     const resolver = new PlanningResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-context-public-error@example.com', '规划树错误作者');
       const bookId = await createBook(app, cookie, '规划树错误测试书');
@@ -837,7 +837,7 @@ describe('V7规划编辑部三席协作', () => {
   it('三套路线独立出案，作者确认后形成不可变路线与规划方法版本', async () => {
     context = createTestContext('wenmi-v7-planning-editorial-');
     const resolver = new PlanningResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-editorial@example.com', '规划作者');
       const bookId = await createBook(app, cookie, '张三北宋录');
@@ -1270,7 +1270,7 @@ describe('V7规划编辑部三席协作', () => {
   it('路线决定成功后可幂等续接全书树，重复请求不重复调用且旧路线不可续', async () => {
     context = createTestContext('wenmi-v7-planning-route-continue-');
     const resolver = new PlanningTreeRetryResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-route-continue@example.com', '路线续接作者');
       const bookId = await createBook(app, cookie, '路线续接测试书');
@@ -1375,7 +1375,7 @@ describe('V7规划编辑部三席协作', () => {
   it('结果未知的规划树任务可由作者停止，再续接成全新替代任务', async () => {
     context = createTestContext('wenmi-v7-planning-unknown-stop-');
     const resolver = new PlanningTreeRetryResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'planning-unknown-stop@example.com', '未知停止作者');
       const bookId = await createBook(app, cookie, '未知停止测试书');
@@ -1434,7 +1434,7 @@ describe('V7规划编辑部三席协作', () => {
   it('两个数据库连接都先读到请求不存在时仍只有一个原子claim赢家', async () => {
     context = createTestContext('wenmi-v7-planning-model-call-claim-');
     const resolver = new CrossInstancePlanningResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     let secondDatabase: ReturnType<typeof openDatabase> | undefined;
     try {
       const cookie = await register(app, 'planning-model-call-claim@example.com', '原子认领作者');
@@ -1477,7 +1477,7 @@ describe('V7规划编辑部三席协作', () => {
   it('两个独立规划树服务并发续接时只由一个实例执行模型调用', async () => {
     context = createTestContext('wenmi-v7-planning-route-cross-instance-');
     const resolver = new CrossInstancePlanningResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     let secondDatabase: ReturnType<typeof openDatabase> | undefined;
     let quotaOwnerId: string | undefined;
     let originalQuota: number | undefined;
@@ -1581,7 +1581,7 @@ describe('V7规划编辑部三席协作', () => {
   it('首次题材档案被另一连接持有有效租约时静默等待且不污染共享规划任务', async () => {
     context = createTestContext('wenmi-v7-planning-genre-profile-cross-instance-');
     const resolver = new CrossInstancePlanningResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     let secondDatabase: ReturnType<typeof openDatabase> | undefined;
     try {
       const cookie = await register(app, 'planning-genre-profile-cross-instance@example.com', '题材并发作者');
@@ -1668,7 +1668,7 @@ describe('V7规划编辑部三席协作', () => {
   it('过期观察者标记unknown后原唯一执行者迟到成功仍完成且不触发fallback', async () => {
     context = createTestContext('wenmi-v7-planning-late-success-');
     const resolver = new CrossInstancePlanningResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     let secondDatabase: ReturnType<typeof openDatabase> | undefined;
     try {
       const cookie = await register(app, 'planning-late-success@example.com', '迟到成功作者');
@@ -2366,14 +2366,14 @@ function recipe(recipeId: string, title: string) {
   };
 }
 
-async function register(app: Awaited<ReturnType<typeof createServer>>, email: string, displayName: string): Promise<string> {
+async function register(app: Awaited<ReturnType<typeof createAppServer>>, email: string, displayName: string): Promise<string> {
   const response = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: HEADERS,
     payload: { email, password: 'strong-pass-123', displayName } });
   expect(response.statusCode).toBe(200);
   const raw = response.headers['set-cookie']; return String(Array.isArray(raw) ? raw[0] : raw).split(';', 1)[0]!;
 }
 
-async function prepareDecisionCase(app: Awaited<ReturnType<typeof createServer>>) {
+async function prepareDecisionCase(app: Awaited<ReturnType<typeof createAppServer>>) {
   const cookie = await register(app, 'async-decision@example.com', '路线调整作者');
   const bookId = await createBook(app, cookie, '路线异步测试');
   const ownerId = String((context!.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string }).owner_id);
@@ -2389,7 +2389,7 @@ async function prepareDecisionCase(app: Awaited<ReturnType<typeof createServer>>
     authorNote: '保留原有目标，让首卷人物选择更清晰。', idempotencyKey: 'async-route-case-decision-1' } };
 }
 
-async function createBook(app: Awaited<ReturnType<typeof createServer>>, cookie: string, title: string): Promise<string> {
+async function createBook(app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, title: string): Promise<string> {
   const response = await app.inject({ method: 'POST', url: '/api/v1/v7/opening-books', headers: { ...HEADERS, cookie }, payload: {
     idempotencyKey: 'planning-editorial-book-0001',
     openingPackage: {
@@ -2532,13 +2532,13 @@ function insertSettlement(ownerId: string, bookId: string): void {
   );
 }
 
-async function request(app: Awaited<ReturnType<typeof createServer>>, cookie: string, method: 'GET'|'POST', url: string, payload?: unknown) {
+async function request(app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, method: 'GET'|'POST', url: string, payload?: unknown) {
   const headers = { ...HEADERS, cookie };
   return payload === undefined ? await app.inject({ method, url, headers }) : await app.inject({ method, url, headers, payload: payload as object });
 }
 
 async function pollRouteRun(
-  app: Awaited<ReturnType<typeof createServer>>,
+  app: Awaited<ReturnType<typeof createAppServer>>,
   cookie: string,
   bookId: string,
   runId: string
@@ -2554,7 +2554,7 @@ async function pollRouteRun(
 }
 
 async function generateTree(
-  app: Awaited<ReturnType<typeof createServer>>,
+  app: Awaited<ReturnType<typeof createAppServer>>,
   cookie: string,
   bookId: string,
   treeKind: 'book'|'volume'|'chain',
@@ -2576,7 +2576,7 @@ async function generateTree(
 }
 
 async function pollTreeRun(
-  app: Awaited<ReturnType<typeof createServer>>,
+  app: Awaited<ReturnType<typeof createAppServer>>,
   cookie: string,
   bookId: string,
   runId: string
@@ -2593,7 +2593,7 @@ async function pollTreeRun(
 }
 
 async function confirmTree(
-  app: Awaited<ReturnType<typeof createServer>>,
+  app: Awaited<ReturnType<typeof createAppServer>>,
   cookie: string,
   bookId: string,
   treeKind: 'book'|'volume'|'chain',

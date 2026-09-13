@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createV7Server } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
 import { BookRepository } from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import { V7TaskAuditRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-task-audit-repository.js';
@@ -20,7 +20,7 @@ function cookieFrom(response: { headers: Record<string, string | string[] | numb
 describe('V7 独立后台当前接口白名单', () => {
   it('当前后台接口保持管理员门禁，已退役后台接口不再注册', async () => {
     context = createTestContext('wenmi-v7-admin-console-');
-    const app = await createV7Server(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const admin = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: HEADERS,
         payload: { email: 'admin@example.com', password: 'strong-pass-123', displayName: '管理员' } });
@@ -54,7 +54,7 @@ describe('V7 独立后台当前接口白名单', () => {
 
   it('仪表盘和用户操作只读投影统计 V7 失败任务，不依赖旧团队任务表', async () => {
     context = createTestContext('wenmi-v7-admin-task-audit-');
-    const app = await createV7Server(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const admin = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: HEADERS,
         payload: { email: 'admin-audit@example.com', password: 'strong-pass-123', displayName: '管理员' } });
@@ -135,7 +135,7 @@ describe('V7 独立后台当前接口白名单', () => {
 
   it('设定审计覆盖普通条目和没有 job 的推荐、总审、重设计、融合与作者修订任务', async () => {
     context = createTestContext('wenmi-v7-admin-setting-audit-');
-    const app = await createV7Server(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const admin = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: HEADERS,
         payload: { email: 'admin-setting-audit@example.com', password: 'strong-pass-123', displayName: '管理员' } });
@@ -274,7 +274,7 @@ describe('V7 独立后台当前接口白名单', () => {
 
   it('问题筛选在完整数据集上统计和分页，不会丢掉五百条之后的待处理记录', async () => {
     context = createTestContext('wenmi-v7-admin-issue-page-');
-    const app = await createV7Server(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const admin = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: HEADERS,
         payload: { email: 'admin-issue-page@example.com', password: 'strong-pass-123', displayName: '管理员' } });

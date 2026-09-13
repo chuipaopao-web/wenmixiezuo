@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createV7Server } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
 
 const HEADERS = {
@@ -18,7 +18,7 @@ function cookieFrom(response: { headers: Record<string, string | string[] | numb
 describe('V7 平台权限与公开信息边界', () => {
   it('普通作者不能读取后台，管理员可以读取当前统一用量与经营数据', async () => {
     context = createTestContext('wenmi-v7-platform-boundary-');
-    const app = await createV7Server(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const admin = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: HEADERS,
         payload: { email: 'admin@example.com', password: 'strong-pass-123', displayName: '管理员' } });
@@ -43,7 +43,7 @@ describe('V7 平台权限与公开信息边界', () => {
 
   it('作者团队视图不泄露供应商、模型标识、密钥或内部提示词', async () => {
     context = createTestContext('wenmi-v7-public-agent-view-');
-    const app = await createV7Server(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: HEADERS,
         payload: { email: 'admin@example.com', password: 'strong-pass-123', displayName: '管理员' } });

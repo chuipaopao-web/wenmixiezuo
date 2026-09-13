@@ -12,7 +12,6 @@ import { grantDefaultBronze } from './membership-service.js';
 import { accountUsageTotals } from './account-usage-service.js';
 
 const SESSION_COOKIE = 'wenmi_session';
-const PASSWORD_BYTES = 64;
 const MIN_PASSWORD_LENGTH = 10;
 const MAX_PASSWORD_LENGTH = 128;
 const SESSION_TTL_SECONDS = 14 * 24 * 60 * 60;
@@ -24,10 +23,66 @@ interface AccountRow {
   display_name: string;
   password_salt: string;
   password_hash: string;
+  password_format: string | null;
+  password_n: number | null;
+  password_r: number | null;
+  password_p: number | null;
   role: AccountRole;
   status: 'active' | 'suspended';
   created_at: string;
   last_login_at: string | null;
+}
+
+/**
+ * 密码哈希参数与格式（AUTH-TAKEOVER-01 D2）：与 rebuild backend domain/accounts/passwords.ts 对齐。
+ * v1（NULL参数列）=rebuild "scrypt-v1-legacy"，派生式逐字节一致；登录成功透明升级v2，
+ * rebuild verifyPassword 可直接验证v2记录，未来PG身份迁移免重哈希。长度政策维持现行10–128。
+ */
+const PASSWORD_V2 = { format: 'scrypt-v2', n: 32_768, r: 8, p: 3 } as const;
+const PASSWORD_V1 = { format: 'scrypt-v1-legacy', n: 16_384, r: 8, p: 1 } as const;
+const PASSWORD_KEY_LENGTH = 64;
+const MAX_ACTIVE_HASHES = 2;
+const waitingHashes: Array<() => void> = [];
+let activeHashes = 0;
+
+interface PasswordParams { format: string; n: number; r: number; p: number }
+
+function passwordParams(row: Pick<AccountRow, 'password_format' | 'password_n' | 'password_r' | 'password_p'>): PasswordParams {
+  if (row.password_format === PASSWORD_V2.format && row.password_n !== null && row.password_r !== null && row.password_p !== null) {
+    return { format: PASSWORD_V2.format, n: row.password_n, r: row.password_r, p: row.password_p };
+  }
+  return { ...PASSWORD_V1 };
+}
+
+async function derivePasswordHash(password: string, salt: string, params: PasswordParams): Promise<string> {
+  await acquireHashSlot();
+  try {
+    return await new Promise((resolve, reject) => {
+      scrypt(password, salt, PASSWORD_KEY_LENGTH, { N: params.n, r: params.r, p: params.p, maxmem: 64 * 1024 * 1024 }, (error, derived) => {
+        if (error !== null) reject(error);
+        else resolve(Buffer.from(derived).toString('hex'));
+      });
+    });
+  } finally {
+    releaseHashSlot();
+  }
+}
+
+async function acquireHashSlot(): Promise<void> {
+  if (activeHashes < MAX_ACTIVE_HASHES) {
+    activeHashes += 1;
+    return;
+  }
+  if (waitingHashes.length >= 16) {
+    throw new DomainError('ACCOUNT_PASSWORD_HASH_BUSY', '密码校验暂时繁忙，请稍后重试', {}, true, 503);
+  }
+  await new Promise<void>((resolve) => { waitingHashes.push(() => { activeHashes += 1; resolve(); }); });
+}
+
+function releaseHashSlot(): void {
+  activeHashes -= 1;
+  const next = waitingHashes.shift();
+  if (next !== undefined) next();
 }
 
 interface SessionRow extends AccountRow {
@@ -65,7 +120,7 @@ export class AccountAuthService {
     const password = validatePassword(input.password);
     const displayName = normalizeDisplayName(input.displayName, email);
     const salt = randomBytes(16).toString('hex');
-    const passwordHash = await derivePasswordHash(password, salt);
+    const passwordHash = await derivePasswordHash(password, salt, { ...PASSWORD_V2 });
     const now = new Date().toISOString();
     const userId = randomUUID();
     const generatedOwnerId = randomUUID();
@@ -106,9 +161,10 @@ export class AccountAuthService {
       this.database.prepare(`
         INSERT INTO user_accounts (
           user_id, owner_id, email_normalized, display_name, password_salt, password_hash,
+          password_format, password_n, password_r, password_p,
           role, status, created_at, updated_at, last_login_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
-      `).run(userId, ownerId, email, displayName, salt, passwordHash, role, now, now, now);
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+      `).run(userId, ownerId, email, displayName, salt, passwordHash, PASSWORD_V2.format, PASSWORD_V2.n, PASSWORD_V2.r, PASSWORD_V2.p, role, now, now, now);
       // 普通账号注册即发放青铜体验（20万算力值）；首位管理员不受会员门禁限制，无需发放。
       if (role === 'user') grantDefaultBronze(this.database, userId, ownerId, now);
       this.recordAudit('register', userId, email, userId, now, {
@@ -127,12 +183,15 @@ export class AccountAuthService {
     const email = normalizeEmail(input.email);
     const password = typeof input.password === 'string' ? input.password : '';
     const account = this.database.prepare('SELECT * FROM user_accounts WHERE email_normalized = ?').get(email) as AccountRow | undefined;
-    const salt = account?.password_salt ?? '00000000000000000000000000000000';
-    const supplied = await derivePasswordHash(password.slice(0, MAX_PASSWORD_LENGTH), salt);
+    const now = new Date().toISOString();
+    // 未知账号同样执行一次派生（常数时间卫生，规范与rebuild verifyUnknownAccountPassword一致）。
+    const verifyRecord = account === undefined
+      ? { ...PASSWORD_V1, salt: '00000000000000000000000000000000' }
+      : { ...passwordParams(account), salt: account.password_salt };
+    const supplied = await derivePasswordHash(password.slice(0, MAX_PASSWORD_LENGTH), verifyRecord.salt, verifyRecord);
     const valid = password.length <= MAX_PASSWORD_LENGTH
       && account !== undefined
       && constantTimeHexMatches(supplied, account.password_hash);
-    const now = new Date().toISOString();
     if (!valid || account === undefined) {
       this.recordAudit('login_failed', account?.user_id ?? null, email, null, now, {});
       throw new DomainError('INVALID_CREDENTIALS', '邮箱或密码不正确', {}, false, 401);
@@ -140,9 +199,21 @@ export class AccountAuthService {
     if (account.status !== 'active') {
       throw new DomainError('ACCOUNT_SUSPENDED', '这个账号已暂停使用，请联系管理员', {}, false, 403);
     }
-    this.database.prepare('UPDATE user_accounts SET last_login_at = ?, updated_at = ? WHERE user_id = ?').run(now, now, account.user_id);
+    // 透明升级：v1（或参数过期）记录在验证成功后重哈希为v2并落参数列。
+    let settled = { ...account, last_login_at: now };
+    if (verifyRecord.format !== PASSWORD_V2.format || verifyRecord.n !== PASSWORD_V2.n || verifyRecord.r !== PASSWORD_V2.r || verifyRecord.p !== PASSWORD_V2.p) {
+      const upgradedSalt = randomBytes(16).toString('hex');
+      const upgradedHash = await derivePasswordHash(password, upgradedSalt, { ...PASSWORD_V2 });
+      this.database.prepare(`
+        UPDATE user_accounts
+        SET password_salt = ?, password_hash = ?, password_format = ?, password_n = ?, password_r = ?, password_p = ?, updated_at = ?
+        WHERE user_id = ?
+      `).run(upgradedSalt, upgradedHash, PASSWORD_V2.format, PASSWORD_V2.n, PASSWORD_V2.r, PASSWORD_V2.p, now, account.user_id);
+    } else {
+      this.database.prepare('UPDATE user_accounts SET last_login_at = ?, updated_at = ? WHERE user_id = ?').run(now, now, account.user_id);
+    }
     this.recordAudit('login_success', account.user_id, email, account.user_id, now, {});
-    return this.issueSession({ ...account, last_login_at: now }, now);
+    return this.issueSession(settled, now);
   }
 
   public authenticate(cookieHeader: string | undefined, now = new Date()): AuthContext | null {
@@ -316,15 +387,6 @@ function normalizeDisplayName(raw: string | undefined, email: string): string {
     throw new DomainError('INVALID_DISPLAY_NAME', '昵称需要1至30个字符', {}, false, 400);
   }
   return value;
-}
-
-function derivePasswordHash(password: string, salt: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    scrypt(password, salt, PASSWORD_BYTES, { N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }, (error, derived) => {
-      if (error !== null) reject(error);
-      else resolve(Buffer.from(derived).toString('hex'));
-    });
-  });
 }
 
 function constantTimeHexMatches(actual: string, expected: string): boolean {

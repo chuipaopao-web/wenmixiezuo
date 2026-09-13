@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {createTestContext} from '../../helpers/test-context.js';
-import {createV7Server} from '../../../apps/api/src/http/v7-server.js';
+import {createAppServer} from '../../../apps/api/src/http/app-server.js';
 import {BookRepository} from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 
 describe('admin time machine runs endpoint',()=>{
@@ -26,7 +26,7 @@ describe('admin time machine runs endpoint',()=>{
   return scope;
  }
  it('requires an administrator and returns redacted run status with usage aggregation',async()=>{
-  const c=createTestContext();const app=await createV7Server(c.config,c.database);
+  const c=createTestContext();const app=await createAppServer(c.config,c.database);
   try{
    const headers={host:'127.0.0.1:43111',origin:c.config.webOrigin,'sec-fetch-site':'same-origin','content-type':'application/json'};
    const register=async(email:string)=>{const response=await app.inject({method:'POST',url:'/api/v1/auth/register',headers,payload:{email,displayName:'测试',password:'Strong-test-pass-123!'}});expect(response.statusCode).toBe(200);return String(response.headers['set-cookie']).split(';')[0]!;};

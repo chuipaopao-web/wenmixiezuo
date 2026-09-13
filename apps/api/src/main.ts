@@ -1,7 +1,7 @@
 import { bootstrapDatabase } from './infrastructure/db/bootstrap.js';
 import { openDatabase } from './infrastructure/db/database.js';
 import { loadRuntimeConfig } from './infrastructure/runtime-config.js';
-import { createV7Server } from './http/v7-server.js';
+import { createAppServer } from './http/app-server.js';
 
 const config = loadRuntimeConfig();
 const database = openDatabase(config.databasePath);
@@ -26,7 +26,7 @@ if (config.publicOrigin !== null && config.adminOrigin === null) {
     hint: '独立管理后台需设置 WENMI_ADMIN_ORIGIN=https://admin.wenmixiezuo.com'
   }));
 }
-const app = await createV7Server(config, database);
+const app = await createAppServer(config, database);
 
 const shutdown = async (): Promise<void> => {
   await app.close();

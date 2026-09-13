@@ -6,7 +6,7 @@ import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/m
 import type { V7CharacterMemoryModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-character-memory-model-gateway.js';
 import { V7CharacterMemoryService } from '../../../apps/api/src/application/characters/v7-character-memory-service.js';
 import { SystemClock, UuidGenerator } from '../../../apps/api/src/domain/ids.js';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
 import { v7GenreProfileFixtureResult } from '../../helpers/v7-genre-profile-model-fixture.js';
 
@@ -21,7 +21,7 @@ describe('V7人物角色管理后端', () => {
   it('隔离人物档案版本，用成员裁剪最小资料，并只把结算结果写成待审候选', async () => {
     context = createTestContext('wenmi-v7-character-memory-');
     const resolver = new CharacterResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'character-owner@example.com', '人物作者');
       const bookId = await createBook(app, cookie, '张三北宋行', 'character-book-0001', '张三');
@@ -203,7 +203,7 @@ describe('V7人物角色管理后端', () => {
   it('模型结果未知时停止交接和重复调用，并向作者返回真实道歉状态', async () => {
     context = createTestContext('wenmi-v7-character-unknown-');
     const resolver = new UnknownCharacterResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'character-unknown@example.com', '人物作者');
       const bookId = await createBook(app, cookie, '未知结果测试书', 'character-book-unknown-0001', '张三');
@@ -230,7 +230,7 @@ describe('V7人物角色管理后端', () => {
   it('明确失败后可以用新尝试编号重新交接，成功结果不会被旧失败覆盖', async () => {
     context = createTestContext('wenmi-v7-character-retry-');
     const resolver = new RetryCharacterResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'character-retry@example.com', '人物作者');
       const bookId = await createBook(app, cookie, '失败恢复测试书', 'character-book-retry-0001', '张三');
@@ -283,7 +283,7 @@ describe('V7人物角色管理后端', () => {
   it('人物资料任务冻结了旧模型后拒绝重试，不回退当前名册也不增加调用', async () => {
     context = createTestContext('wenmi-v7-character-retired-context-binding-');
     const resolver = new RetryCharacterResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'character-retired-context@example.com', '人物作者');
       const bookId = await createBook(app, cookie, '人物旧模型测试书', 'character-retired-context-book-0001', '张三');
@@ -324,7 +324,7 @@ describe('V7人物角色管理后端', () => {
   it('人物资料上游正式版本变化后拒绝沿用旧任务快照', async () => {
     context = createTestContext('wenmi-v7-character-retry-source-change-');
     const resolver = new RetryCharacterResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'character-retry-source@example.com', '人物作者');
       const bookId = await createBook(app, cookie, '人物版本变化测试书', 'character-book-source-change-0001', '张三');
@@ -353,7 +353,7 @@ describe('V7人物角色管理后端', () => {
   it('人物维护技术重试复用首次冻结的任务资料和提示清单', async () => {
     context = createTestContext('wenmi-v7-character-maintenance-retry-');
     const resolver = new RetryCharacterMaintenanceResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'character-maintenance-retry@example.com', '人物作者');
       const bookId = await createBook(app, cookie, '人物维护重试书', 'character-maintenance-retry-book-0001', '张三');
@@ -401,7 +401,7 @@ describe('V7人物角色管理后端', () => {
   it('人物维护拒绝恢复旧模型的已存结果，并在重置前保留失败任务和候选数据', async () => {
     context = createTestContext('wenmi-v7-character-retired-maintenance-call-');
     const resolver = new RetryCharacterMaintenanceResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'character-retired-maintenance@example.com', '人物作者');
       const bookId = await createBook(app, cookie, '人物旧维护调用测试书', 'character-retired-maintenance-book-0001', '张三');
@@ -576,7 +576,7 @@ function profile(displayName: string, dramaticFunction: string, coreDesire: stri
   };
 }
 
-async function register(app: Awaited<ReturnType<typeof createServer>>, email: string, displayName: string): Promise<string> {
+async function register(app: Awaited<ReturnType<typeof createAppServer>>, email: string, displayName: string): Promise<string> {
   const response = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: HEADERS,
     payload: { email, password: 'strong-pass-123', displayName } });
   expect(response.statusCode).toBe(200);
@@ -585,7 +585,7 @@ async function register(app: Awaited<ReturnType<typeof createServer>>, email: st
 }
 
 async function createBook(
-  app: Awaited<ReturnType<typeof createServer>>, cookie: string, title: string, key: string, protagonist: string
+  app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, title: string, key: string, protagonist: string
 ): Promise<string> {
   const response = await app.inject({ method: 'POST', url: '/api/v1/v7/opening-books', headers: { ...HEADERS, cookie }, payload: {
     idempotencyKey: key,
@@ -639,13 +639,13 @@ function insertKnowledgeFacts(ownerId: string, bookId: string, protagonistEntity
 }
 
 async function request(
-  app: Awaited<ReturnType<typeof createServer>>, cookie: string, method: 'GET'|'POST'|'PATCH', url: string, payload?: unknown
+  app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, method: 'GET'|'POST'|'PATCH', url: string, payload?: unknown
 ) {
   const headers = { ...HEADERS, cookie };
   return payload === undefined ? await app.inject({ method, url, headers }) : await app.inject({ method, url, headers, payload: payload as object });
 }
 
-async function pollPack(app: Awaited<ReturnType<typeof createServer>>, cookie: string, bookId: string, packId: string): Promise<any> {
+async function pollPack(app: Awaited<ReturnType<typeof createAppServer>>, cookie: string, bookId: string, packId: string): Promise<any> {
   for (let index = 0; index < 100; index += 1) {
     const response = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/character-context-packs/${packId}`);
     expect(response.statusCode).toBe(200);

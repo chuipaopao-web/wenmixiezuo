@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseRebuildPlan, REBUILD_PLAN_PATH, summarizeTaskSignals } from '../../../apps/api/src/application/admin/rebuild-control-service.js';
 import {BookRepository} from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
-import { createV7Server } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { createTestContext } from '../../helpers/test-context.js';
 import type { V7TaskAuditRow } from '../../../apps/api/src/infrastructure/db/repositories/v7-task-audit-repository.js';
 
@@ -70,7 +70,7 @@ describe('重构管理后台文档与运行证据', () => {
 
   it('沿用服务端管理员门禁；空任务/无心跳保持未知，文档缺失返回503且不暴露路径', async () => {
     const context = createTestContext('wenmi-rebuild-control-');
-    const app = await createV7Server(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     const headers = { host: '127.0.0.1:43111', origin: 'http://127.0.0.1:43110', 'sec-fetch-site': 'same-site', 'content-type': 'application/json' };
     const url = '/api/v1/admin/rebuild-control';
     try {

@@ -16,7 +16,7 @@ import { V7PromptGovernanceRepository } from '../../../apps/api/src/infrastructu
 import { parseMemberRoster } from '../../../apps/api/src/application/books/v7-opening-agent-service.js';
 import { validateV7OpeningPackage } from '../../../apps/api/src/application/books/v7-opening-package-contract.js';
 import { V7_OPENING_MEMBERS, openingRosterFromGlobal, type OpeningModelRequest } from '@wenmi/v7-backend';
-import { createServer } from '../../../apps/api/src/http/v7-server.js';
+import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { createTestContext as createBaseContext, FixedClock, type TestContext } from '../../helpers/test-context.js';
 
 // Model calls are scripted here; keep admission evidence deterministic rather than
@@ -177,7 +177,7 @@ describe('V7开书Agent平台接入', () => {
   it('候选事务中断后自动复用已结算结果，恢复时不重复调用模型或扣量', async () => {
     context = createTestContext('wenmi-v7-opening-commit-recovery-');
     const resolver = new ScriptedResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     const database = context.database;
     const commit = V7OpeningAgentRepository.prototype.commitCandidate;
     let intercepted = false;
@@ -213,7 +213,7 @@ describe('V7开书Agent平台接入', () => {
   it('读取历史任务书流程只返回保留结果，绝不恢复模型调用', async () => {
     context = createTestContext('wenmi-v7-opening-retired-work-order-');
     const resolver = new ScriptedResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'v7-retired-opening@example.com', '历史任务作者', 'strong-pass-100');
       const owner = context.database.prepare(`SELECT owner_id FROM user_accounts WHERE email_normalized=?`)
@@ -284,7 +284,7 @@ describe('V7开书Agent平台接入', () => {
   it('模型请求复用、对账和返修严格绑定真实账号、开书任务与节点', async () => {
     context = createTestContext('wenmi-v7-opening-request-scope-');
     const resolver = new ScriptedResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       await register(app, 'v7-scope-a@example.com', '范围作者甲', 'strong-pass-101');
       await register(app, 'v7-scope-b@example.com', '范围作者乙', 'strong-pass-102');
@@ -428,13 +428,13 @@ describe('V7开书Agent平台接入', () => {
   it('开书真正读取已发布方法并将详情送入生成上下文',async()=>{
     context=createTestContext('creative-opening-');const {id}=seedCreativeLibrary(context.database);const base=new ScriptedResolver();let tools=0;const prompts:string[]=[];
     const resolver:V7OpeningModelAdapterResolver={resolve(provider,modelId,purpose){const original=base.resolve(provider,modelId,purpose);return {...original,async generate(request){prompts.push(request.prompt);if(request.prompt.includes('当前仅选取创作参考'))return {provider,modelId,state:'succeeded',cashCostCny:0,inputTokens:20,outputTokens:20,output:JSON.stringify([{action:'search',purpose:'阶段回报',query:'',conditional:false,cursor:0},{action:'read',ids:[id]},{action:'ready',selected:[{id,application:'让主角的修理成果改善身边人的生活'}]}][tools++])};return original.generate(request);}};}};
-    const app=await createServer(context.config,context.database,{v7OpeningModelAdapters:resolver});try{const cookie=await register(app,'creative-opening@example.com','方法测试','strong-pass-123');const started=await app.inject({method:'POST',url:'/api/v1/v7/opening-agent/tasks',headers:{...BROWSER_HEADERS,cookie},payload:{idea:'张三穿越三国成为修理工，希望逐渐改变身边人的生活。',idempotencyKey:'creative-opening-one'}});expect(started.statusCode).toBe(200);const taskId=started.json().data.taskId;await poll(app,cookie,taskId,['awaiting_author_confirmation']);expect(tools).toBe(3);const final=prompts.find(p=>p.includes('creativeReference')&&p.includes('用实际变化表现回报'));expect(final).toContain('不反复复述结果');expect(final).toContain('修理成果改善');expect(prompts.every(p=>JSON.stringify({messages:[{role:'user',content:p}]}).length<=15000)).toBe(true);}finally{await app.close();}
+    const app=await createAppServer(context.config,context.database,{v7OpeningModelAdapters:resolver});try{const cookie=await register(app,'creative-opening@example.com','方法测试','strong-pass-123');const started=await app.inject({method:'POST',url:'/api/v1/v7/opening-agent/tasks',headers:{...BROWSER_HEADERS,cookie},payload:{idea:'张三穿越三国成为修理工，希望逐渐改变身边人的生活。',idempotencyKey:'creative-opening-one'}});expect(started.statusCode).toBe(200);const taskId=started.json().data.taskId;await poll(app,cookie,taskId,['awaiting_author_confirmation']);expect(tools).toBe(3);const final=prompts.find(p=>p.includes('creativeReference')&&p.includes('用实际变化表现回报'));expect(final).toContain('不反复复述结果');expect(final).toContain('修理成果改善');expect(prompts.every(p=>JSON.stringify({messages:[{role:'user',content:p}]}).length<=15000)).toBe(true);}finally{await app.close();}
   });
 
   it('账号隔离、幂等执行、追加候选，并严格按成员使用Coding Plan和Agent Plan', async () => {
     context = createTestContext('wenmi-v7-opening-platform-');
     const resolver = new ScriptedResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       await register(app, 'v7-admin@example.com', '管理员', 'strong-pass-000');
       const first = await register(app, 'v7-first@example.com', '作者甲', 'strong-pass-123');
@@ -695,7 +695,7 @@ describe('V7开书Agent平台接入', () => {
 
   it('运行租约只能由当前令牌续期，旧到期点不能接管，续期后到期才能恢复', async () => {
     context = createTestContext('wenmi-v7-opening-lease-');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new ScriptedResolver() });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new ScriptedResolver() });
     try {
       await register(app, 'v7-lease@example.com', '租约作者', 'strong-pass-654');
       const owner = context.database.prepare(`
@@ -739,7 +739,7 @@ describe('V7开书Agent平台接入', () => {
   it('管理员能治理成员且新任务冻结创建时团队，普通用户、旧版本和最后一名下岗被拒绝', async () => {
     context = createTestContext('wenmi-v7-opening-governance-');
     const resolver = new ScriptedResolver();
-    const app = await createServer(context.config, context.database, {
+    const app = await createAppServer(context.config, context.database, {
       v7OpeningModelAdapters: resolver,
       v7CoverImageGateway: {
         configured: true,
@@ -891,7 +891,7 @@ describe('V7开书Agent平台接入', () => {
   it('供应商结果未知时只对账，不重复发送同一个模型请求', async () => {
     context = createTestContext('wenmi-v7-opening-unknown-');
     const resolver = new ScriptedResolver('unknown');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       await register(app, 'v7-unknown-admin@example.com', '管理员', 'strong-pass-000');
       const cookie = await register(app, 'v7-unknown@example.com', '作者丙', 'strong-pass-789');
@@ -938,7 +938,7 @@ describe('V7开书Agent平台接入', () => {
 
   it('恢复执行遇到非预期错误时，interrupted 任务也落到明确失败而不是永远悬挂', async () => {
     context = createTestContext('wenmi-v7-opening-unexpected-interrupted-');
-    const app = await createServer(context.config, context.database);
+    const app = await createAppServer(context.config, context.database);
     try {
       const cookie = await register(app, 'v7-unexpected-interrupted@example.com', '意外失败作者', 'strong-pass-321');
       const owner = context.database.prepare(`
@@ -1002,7 +1002,7 @@ describe('V7开书Agent平台接入', () => {
   }) => {
     context = createTestContext(`wenmi-v7-opening-membership-gate-${errorCode.toLowerCase()}-`);
     const resolver = new ScriptedResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       await register(app, 'v7-membership-admin@example.com', '管理员', 'strong-pass-000');
       const cookie = await register(app, 'v7-membership-author@example.com', '额度不足作者', 'strong-pass-789');
@@ -1065,7 +1065,7 @@ describe('V7开书Agent平台接入', () => {
   it('作者修改追加版本、主编复审并幂等转成一本没有旧团队的正式书', async () => {
     context = createTestContext('wenmi-v7-opening-author-loop-');
     const resolver = new ScriptedResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'v7-loop@example.com', '闭环作者', 'strong-pass-555');
       const other = await register(app, 'v7-loop-other@example.com', '其他作者', 'strong-pass-556');
@@ -1219,7 +1219,7 @@ describe('V7开书Agent平台接入', () => {
 
   it('同时处理八条决定时，作者自由输入的调整意见仍进入修订与审查', async () => {
     context = createTestContext('wenmi-v7-opening-note-priority-');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new ScriptedResolver('decision') });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new ScriptedResolver('decision') });
     try {
       const cookie = await register(app, 'note-priority@example.com', '调整作者', 'strong-pass-881');
       const started = await app.inject({ method: 'POST', url: '/api/v1/v7/opening-agent/tasks', headers: { ...BROWSER_HEADERS, cookie },
@@ -1246,7 +1246,7 @@ describe('V7开书Agent平台接入', () => {
   it('候选把空作者说明存为数组时，原样确认不会被误判为未复审修改', async () => {
     context = createTestContext('wenmi-v7-opening-empty-instructions-confirm-');
     const resolver = new ScriptedResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'v7-empty-instructions@example.com', '开书确认作者', 'strong-pass-559');
       const started = await app.inject({
@@ -1282,7 +1282,7 @@ describe('V7开书Agent平台接入', () => {
   it('作者决定卡只更新白名单开书候选，并在复审通过后恢复创建资格', async () => {
     context = createTestContext('wenmi-v7-opening-decisions-');
     const resolver = new ScriptedResolver('decision');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'v7-decisions@example.com', '决定卡作者', 'strong-pass-777');
       const started = await app.inject({
@@ -1373,7 +1373,7 @@ describe('V7开书Agent平台接入', () => {
 
   it('开书Agent在801至2000字范围内创建任务，超过2000字才拒绝', async () => {
     context = createTestContext('wenmi-v7-opening-idea-capacity-');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new ScriptedResolver() });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new ScriptedResolver() });
     try {
       const cookie = await register(app, 'v7-opening-capacity@example.com', '长想法作者', 'strong-pass-778');
       for (const length of [801, 2_000]) {
@@ -1399,7 +1399,7 @@ describe('V7开书Agent平台接入', () => {
 
   it('自己设计补齐商业规划资料后建书，未填写的后续剧情仍保持为空', async () => {
     context = createTestContext('wenmi-v7-opening-manual-minimal-');
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new ScriptedResolver() });
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new ScriptedResolver() });
     try {
       const cookie = await register(app, 'v7-manual@example.com', '手工作者', 'strong-pass-557');
       const minimal = {
@@ -1535,7 +1535,7 @@ function packageForIdea(idea: string): typeof PACKAGE {
 }
 
 async function register(
-  app: Awaited<ReturnType<typeof createServer>>,
+  app: Awaited<ReturnType<typeof createAppServer>>,
   email: string,
   displayName: string,
   password: string
@@ -1550,7 +1550,7 @@ async function register(
 }
 
 async function poll(
-  app: Awaited<ReturnType<typeof createServer>>,
+  app: Awaited<ReturnType<typeof createAppServer>>,
   cookie: string,
   taskId: string,
   terminal: string[]
@@ -1570,7 +1570,7 @@ async function poll(
 }
 
 async function patchMember(
-  app: Awaited<ReturnType<typeof createServer>>,
+  app: Awaited<ReturnType<typeof createAppServer>>,
   cookie: string,
   memberKey: string,
   payload: Record<string, unknown>
