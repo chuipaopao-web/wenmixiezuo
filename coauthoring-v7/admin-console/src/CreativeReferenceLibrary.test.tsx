@@ -62,10 +62,10 @@ describe('创作库管理页', () => {
 
   it('成功渲染列表：编号+短语、名称、说明、版本状态与退役标记', async () => {
     render(<CreativeReferenceLibrary />);
-    expect(await screen.findByText('法001 起承转合短语')).toBeVisible();
+    expect(await screen.findByText('法001')).toBeVisible();
     expect(screen.getByText('起承转合')).toBeVisible();
-    expect(screen.getByText(/法002 三幕式短语（已退役）/)).toBeVisible();
-    expect(screen.getAllByText(/已退役/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/法002/)).toBeVisible();
+    expect(screen.getAllByText(/已合并或退役/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('第1版 · 草稿')).toBeVisible();
     const call = mocked.fetchCreativeCards.mock.calls[0]!;
     expect(call[0].assetKind).toBe('method');
@@ -78,13 +78,24 @@ describe('创作库管理页', () => {
     expect(screen.getByRole('status')).toHaveTextContent('正在读取创作库');
   });
 
+  it('按设计用途、细分用途和阶段组合检索，默认隐藏合并条目', async () => {
+    render(<CreativeReferenceLibrary />);
+    await screen.findByText('法001');
+    expect(mocked.fetchCreativeCards.mock.calls[0]![0].availabilities).toEqual(['draft', 'reviewed', 'published']);
+    fireEvent.click(screen.getByRole('button', { name: /设计卖点与体验/ }));
+    await waitFor(() => expect(mocked.fetchCreativeCards.mock.calls.at(-1)![0].usageTree).toBe('卖点与阅读体验'));
+    fireEvent.click(screen.getByRole('button', { name: '核心吸引力' }));
+    fireEvent.change(screen.getByLabelText('按适用层级筛选'), { target: { value: 'opening' } });
+    await waitFor(() => expect(mocked.fetchCreativeCards.mock.calls.at(-1)![0]).toMatchObject({usageTree:'核心吸引力',layers:['opening']}));
+  });
+
   it('读取失败显示错误与重试，重试重新请求', async () => {
     mocked.fetchCreativeCards.mockRejectedValueOnce(new Error('暂时连接不上后台'));
     render(<CreativeReferenceLibrary />);
     expect(await screen.findByText('暂时连接不上后台')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     await waitFor(() => { expect(mocked.fetchCreativeCards).toHaveBeenCalledTimes(2); });
-    expect(await screen.findByText('法001 起承转合短语')).toBeVisible();
+    expect(await screen.findByText('法001')).toBeVisible();
   });
 
   it('空库显示“尚未录入”，筛选后无结果显示无结果态（服务端筛选参数）', async () => {
@@ -101,7 +112,7 @@ describe('创作库管理页', () => {
     render(<CreativeReferenceLibrary />);
     fireEvent.change(await screen.findByLabelText('按用途筛选'), { target: { value: '故事与因果' } });
     await waitFor(() => { expect(mocked.fetchCreativeCards.mock.calls.at(-1)![0].usageTree).toBe('故事与因果'); });
-    fireEvent.click(await screen.findByText('法001 起承转合短语'));
+    fireEvent.click(await screen.findByText('法001'));
     expect(await screen.findByRole('button', { name: /编辑并保存新草稿/ })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: /返回列表/ }));
     expect(await screen.findByLabelText('按用途筛选')).toHaveValue('故事与因果');
@@ -110,7 +121,7 @@ describe('创作库管理页', () => {
 
   it('保存草稿失败/冲突：本地输入保留、给出对比提示、不自动重试', async () => {
     render(<CreativeReferenceLibrary />);
-    fireEvent.click(await screen.findByText('法001 起承转合短语'));
+    fireEvent.click(await screen.findByText('法001'));
     fireEvent.click(await screen.findByRole('button', { name: /编辑并保存新草稿/ }));
     const nameInput = await screen.findByLabelText('名称');
     fireEvent.change(nameInput, { target: { value: '改后的方法名' } });
@@ -125,7 +136,7 @@ describe('创作库管理页', () => {
   it('脏表单保护：取消/返回先确认一次，确认后才离开；干净表单不确认', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<CreativeReferenceLibrary />);
-    fireEvent.click(await screen.findByText('法001 起承转合短语'));
+    fireEvent.click(await screen.findByText('法001'));
     fireEvent.click(await screen.findByRole('button', { name: /编辑并保存新草稿/ }));
     const nameInput = await screen.findByLabelText('名称');
     // 脏：取消被确认弹窗拦下

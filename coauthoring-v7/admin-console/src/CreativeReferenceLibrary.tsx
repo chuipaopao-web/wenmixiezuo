@@ -15,14 +15,15 @@ import {
   type CreativeReferenceContent, type CreativeReleaseSummary, type CreativeRelationInput
 } from './creative-reference-api';
 import './creative-reference-library.css';
+import { CREATIVE_USAGE_NAV, usageParent } from './creative-usage-navigation';
 
 export const CREATIVE_USAGE_TREES = [
   '题材与融合', '卖点与阅读体验', '人物与关系', '故事与因果', '结构与节奏', '信息与表达', '衔接与收束', '审查与修订'
 ] as const;
 
 export const CREATIVE_LAYER_OPTIONS = [
-  { key: 'book_backbone', label: '全书顶层' }, { key: 'volume_distribution', label: '跨卷分布' },
-  { key: 'volume', label: '单卷' }, { key: 'chain', label: '单元链' }, { key: 'chapter_execution', label: '章节' }
+  { key:'opening',label:'开书' }, { key:'setting',label:'设定' }, { key:'book',label:'时光机（全书与分卷）' },
+  { key:'volume',label:'卷设计' }, { key:'chain',label:'链设计' }, { key:'chapter',label:'章纲' }, { key:'prose',label:'正文' }
 ] as const;
 
 export const CREATIVE_AVAILABILITY_LABELS: Record<CreativeAvailability, string> = {
@@ -51,6 +52,14 @@ function toArrayText(values: string[] | undefined): string {
 
 function parseArrayText(text: string): string[] {
   return text.split(/[,，\n]/).map((item) => item.trim()).filter((item) => item.length > 0);
+}
+
+function UsageOptions():React.JSX.Element{return <>{CREATIVE_USAGE_NAV.map(group=><optgroup key={group.value} label={group.label}>
+  <option value={group.value}>{group.label} · 通用</option>{group.children.map(child=><option key={child} value={child}>{child}</option>)}
+</optgroup>)}</>;}
+function StageChoices({value,onChange}:{value:string;onChange:(value:string)=>void}):React.JSX.Element{
+ const selected=parseArrayText(value);
+ return <fieldset className="crl-stage-choices crl-span2"><legend>适用阶段</legend>{CREATIVE_LAYER_OPTIONS.map(s=><button type="button" key={s.key} aria-pressed={selected.includes(s.key)} onClick={()=>onChange((selected.includes(s.key)?selected.filter(k=>k!==s.key):[...selected,s.key]).join('，'))}>{s.label}</button>)}</fieldset>;
 }
 
 /** 脏表单离开保护：取消/返回/切页统一走这里，提示一次；保存成功后调用方复位不再提示。 */
@@ -100,7 +109,7 @@ export function CreativeReferenceLibrary(): React.JSX.Element {
         ...(effective.keyword.length > 0 ? { keyword: effective.keyword } : {}),
         ...(effective.usageTree.length > 0 ? { usageTree: effective.usageTree } : {}),
         ...(effective.layer.length > 0 ? { layers: [effective.layer] } : {}),
-        ...(effective.status.length > 0 ? { availabilities: [effective.status as CreativeAvailability] } : {}),
+        availabilities: effective.status.length > 0 ? [effective.status as CreativeAvailability] : ['draft','reviewed','published'],
         ...(kind === 'reference' && effective.genre.length > 0 ? { genre: effective.genre } : {}),
         ...(kind === 'reference' && effective.mechanism.length > 0 ? { mechanism: effective.mechanism } : {}),
         ...(kind === 'reference' && effective.experience.length > 0 ? { experience: effective.experience } : {}),
@@ -165,6 +174,17 @@ export function CreativeReferenceLibrary(): React.JSX.Element {
       <button type="button" role="tab" aria-selected={kind === 'reference'} onClick={() => { setKind('reference'); setCursorStack([]); }}>创作参考</button>
     </div>
 
+    <nav className="crl-usage-nav" aria-label="按设计用途浏览">
+      {CREATIVE_USAGE_NAV.map(group=><button key={group.value} type="button" aria-pressed={usageParent(effective.usageTree)===group.value}
+        onClick={()=>applyFilters({...filters,usageTree:effective.usageTree===group.value?'':group.value})}>
+        <strong>{group.label}</strong><span>{group.children.slice(0,3).join(' · ')}</span>
+      </button>)}
+    </nav>
+    {usageParent(effective.usageTree) && <div className="crl-usage-children" role="group" aria-label="细分用途">
+      {CREATIVE_USAGE_NAV.find(g=>g.value===usageParent(effective.usageTree))!.children.map(child=><button key={child} type="button" aria-pressed={effective.usageTree===child}
+        onClick={()=>applyFilters({...filters,usageTree:child})}>{child}</button>)}
+    </div>}
+
     <div className="crl-toolbar">
       <label className="crl-search">
         <MagnifyingGlass aria-hidden="true" />
@@ -178,14 +198,17 @@ export function CreativeReferenceLibrary(): React.JSX.Element {
       </label>
       <select aria-label="按用途筛选" value={filters.usageTree} onChange={(event) => applyFilters({ ...filters, usageTree: event.target.value })}>
         <option value="">全部用途</option>
-        {CREATIVE_USAGE_TREES.map((tree) => <option key={tree} value={tree}>{tree}</option>)}
+        {CREATIVE_USAGE_NAV.map((group) => <optgroup key={group.value} label={group.label}>
+          <option value={group.value}>{group.label} · 全部</option>
+          {group.children.map(child=><option key={child} value={child}>{child}</option>)}
+        </optgroup>)}
       </select>
       <select aria-label="按适用层级筛选" value={filters.layer} onChange={(event) => applyFilters({ ...filters, layer: event.target.value })}>
-        <option value="">全部层级</option>
+        <option value="">全部阶段</option>
         {CREATIVE_LAYER_OPTIONS.map((layer) => <option key={layer.key} value={layer.key}>{layer.label}</option>)}
       </select>
       <select aria-label="按状态筛选" value={filters.status} onChange={(event) => applyFilters({ ...filters, status: event.target.value })}>
-        <option value="">全部状态</option>
+        <option value="">现有条目（不含已合并/退役）</option>
         {Object.entries(CREATIVE_AVAILABILITY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
       </select>
       {kind === 'reference' && <>
@@ -205,13 +228,13 @@ export function CreativeReferenceLibrary(): React.JSX.Element {
     </div>}
     {!loading && error === null && items.length === 0 && (hasActiveFilters
       ? <div className="crl-empty"><MagnifyingGlass aria-hidden="true" /><h2>没有符合条件的结果</h2><p>精确编号无结果就无结果；可换关键词或重置筛选。</p><button type="button" onClick={resetFilters}>重置筛选</button></div>
-      : <div className="crl-empty"><h2>尚未录入</h2><p>创作库还是空的；此数量不包含旧分层方法库。</p></div>)}
+      : <div className="crl-empty"><h2>尚未录入</h2><p>当前没有可查看的条目。</p></div>)}
 
     {!loading && error === null && items.length > 0 && <>
       <ul className="crl-list" aria-label="创作库条目">
         {items.map((item) => <li key={item.internalId}>
           <button type="button" className="crl-item" onClick={() => setSelectedId(item.internalId)}>
-            <span className="crl-item-code">{item.displayCode} {item.shortPhrase}{item.availability === 'retired' ? '（已退役）' : ''}</span>
+            <span className="crl-item-code">{item.displayCode}{item.availability === 'retired' ? '（已合并或退役）' : ''}</span>
             <strong>{item.name}</strong>
             <span className="crl-item-summary">{item.summary}</span>
             <span className="crl-item-meta">
@@ -451,7 +474,12 @@ function PayloadView({ payload }: { payload: CreativeCardPayload }): React.JSX.E
     </dl>
     {payload.method !== undefined && <section className="crl-section"><h2>做法与边界</h2>
       <p>{payload.method.instruction}</p>
-      {payload.method.boundary !== undefined && payload.method.boundary.length > 0 && <p className="crl-caution">边界：{payload.method.boundary}</p>}
+      {payload.method.boundary !== undefined && payload.method.boundary.length > 0 && <div className="crl-method-guide">
+        {payload.method.boundary.split('\n').filter(Boolean).map((line,index)=>{
+          const split=line.indexOf('：');
+          return split>0?<div key={index}><h3>{line.slice(0,split)}</h3><p>{line.slice(split+1)}</p></div>:<p key={index}>{line}</p>;
+        })}
+      </div>}
     </section>}
     {payload.reference !== undefined && <ReferencePayloadView reference={payload.reference} />}
   </div>;
@@ -688,12 +716,12 @@ function DraftEditor({ internalId, basePayload, expectedRevision, onDirtyChange,
         <label><span>方法标题</span><input aria-label="方法标题" value={form.methodTitle} onChange={(event) => update({ methodTitle: event.target.value })} /></label>
         <label><span>用途主类</span>
           <select aria-label="用途主类" value={form.methodUsageTree} onChange={(event) => update({ methodUsageTree: event.target.value })}>
-            {CREATIVE_USAGE_TREES.map((tree) => <option key={tree} value={tree}>{tree}</option>)}
+            <UsageOptions />
           </select>
         </label>
         <label className="crl-span2"><span>具体做法</span><textarea aria-label="具体做法" rows={3} value={form.methodInstruction} onChange={(event) => update({ methodInstruction: event.target.value })} /></label>
-        <label className="crl-span2"><span>边界与限制</span><textarea aria-label="边界与限制" rows={2} value={form.methodBoundary} onChange={(event) => update({ methodBoundary: event.target.value })} /></label>
-        <label className="crl-span2"><span>适用层级（逗号分隔：book_backbone/volume_distribution/volume/chain/chapter_execution）</span><input aria-label="适用层级" value={form.methodLayers} onChange={(event) => update({ methodLayers: event.target.value })} /></label>
+        <label className="crl-span2"><span>使用条件、边界与阶段用法（每行一项）</span><textarea aria-label="边界与限制" rows={7} value={form.methodBoundary} onChange={(event) => update({ methodBoundary: event.target.value })} /></label>
+        <StageChoices value={form.methodLayers} onChange={value=>update({methodLayers:value})}/>
         <label className="crl-span2"><span>方法别名（逗号分隔）</span><input aria-label="方法别名" value={form.methodAliases} onChange={(event) => update({ methodAliases: event.target.value })} /></label>
       </>}
       {kind === 'reference' && <>
@@ -1113,11 +1141,11 @@ function CreateCardPanel({ onClose, onCreated }: { onClose: () => void; onCreate
           <label><span>方法标题</span><input aria-label="方法标题" value={form.methodTitle} onChange={(event) => update({ methodTitle: event.target.value })} /></label>
           <label><span>用途主类</span>
             <select aria-label="用途主类" value={form.methodUsageTree} onChange={(event) => update({ methodUsageTree: event.target.value })}>
-              {CREATIVE_USAGE_TREES.map((tree) => <option key={tree} value={tree}>{tree}</option>)}
+              <UsageOptions />
             </select>
           </label>
           <label className="crl-span2"><span>具体做法</span><textarea aria-label="具体做法" rows={3} value={form.methodInstruction} onChange={(event) => update({ methodInstruction: event.target.value })} /></label>
-          <label className="crl-span2"><span>适用层级（逗号分隔）</span><input aria-label="适用层级" value={form.methodLayers} onChange={(event) => update({ methodLayers: event.target.value })} /></label>
+          <StageChoices value={form.methodLayers} onChange={value=>update({methodLayers:value})}/>
         </> : <>
           <label><span>参考类型</span><input aria-label="参考类型" value={form.referenceKind} onChange={(event) => update({ referenceKind: event.target.value })} /></label>
           <label><span>题材（逗号分隔）</span><input aria-label="题材" value={form.refGenres} onChange={(event) => update({ refGenres: event.target.value })} /></label>

@@ -52,7 +52,7 @@ import './asset-library.css';
 const ASSET_TABS = [
   { key:'workflow',label:'智能体工作流程' },
   { key:'time-machine',label:'时光机' },
-  { key: 'overview', label: '分层方法' }, { key: 'book-card', label: '信息短卡模板' },
+  { key: 'book-card', label: '信息短卡模板' },
   { key: 'creative', label: '创意与金手指' },
   { key: 'creative-reference', label: '创作库' },
 ] as const;
@@ -61,7 +61,7 @@ const NAVIGATION = [
   { key: 'rebuild', label: '功能与AI流程', icon: GitBranch, group: '产品管理' },
   { key: 'configuration', label: '配置中心', icon: ClipboardText, group: '产品管理' },
   { key: 'features', label: '现有能力对照', icon: ClipboardText, group: '产品管理' },
-  { key: 'overview', label: '资产方法论', icon: House, group: '创作资产' },
+  { key: 'creative-reference', label: '创作库', icon: House, group: '创作资产' },
   { key: 'time-machine', label: '时光机', icon: ClockCounterClockwise, group: '创作资产' },
   { key: 'agents', label: '成员与模型', icon: Robot, group: '创作团队' },
   { key: 'creation-ops', label: '创作运行', icon: GitBranch, group: '创作团队' },
@@ -102,6 +102,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
   const recipes = useMemo(() => filterRecipes(recipeFilters), [recipeFilters]);
 
   const navigate = (next: AdminSection): void => {
+    if (['overview','rhythm','methods','patterns','recipes','planning'].includes(next)) next='creative-reference';
     if (!window.dispatchEvent(new Event('wenmi:admin-navigate', { cancelable: true }))) return;
     if(next==='prompt-context')next='rebuild';
     setSection(next);
@@ -581,7 +582,7 @@ function EmptyState({ onClear }: { onClear: () => void }): React.JSX.Element {
 function sectionFromUrl(): AdminSection {
   const value = new URL(window.location.href).searchParams.get('section');
   if(value==='prompt-context')return 'rebuild';
-  if(value && ['rhythm','methods','patterns','recipes','planning'].includes(value))return 'overview';
+  if(value && ['overview','rhythm','methods','patterns','recipes','planning'].includes(value))return 'creative-reference';
   return [...NAVIGATION, ...ASSET_TABS].some((item) => item.key === value) ? value as AdminSection : 'rebuild';
 }
 
