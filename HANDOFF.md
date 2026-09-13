@@ -1,5 +1,7 @@
 # 文秘写作当前交接
 
+R209-A最新验收：第二次返修经Codex独立复跑S2/S3/S4/S5断言通过，实施前只读核查已结束；原任务书恢复、无产品代码修改。证据`.local/dispatch/outbox/task-209-a.acceptance.md`。下文需返修状态已由本条替代；真实模型/生产供给/语义召回仍未验证。B可准备分批任务，尚未派发，不能自动继续。
+
 R209-A已交付但Codex验收需返修：128/341计数及合成引擎路径复跑确认；真实模型根因推断、修复次数统计/缺断言、语义标注、覆盖零值及任务书擅自移出需纠正。审查`.local/dispatch/outbox/task-209-a.codex-review.md`，待手动触发`.local/dispatch/inbox/task-209-a-revision.md`。B批未放行；产品未修改、未部署。
 
 R209-A任务书已准备，待老板手动触发：`.local/dispatch/inbox/task-209-a.md`；结果`.local/dispatch/outbox/task-209-a.result.md`。仅只读审计与限定目录合成探针，免worktree，不改产品、不调模型、不部署、不自动接B批。基准a29fdb75707b98c762cbc05f08d2980bb986ce60，后续文档更新不要求回退。此条更新下文“未派任务”的历史状态，尚未执行或验收。
