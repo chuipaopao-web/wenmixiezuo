@@ -38,4 +38,4 @@
 
 ## 当前派工（2026-09-13）
 
-R209-A及两次返修已由Codex验收结束，见`outbox/task-209-a.acceptance.md`。inbox内A与revision文件保留追溯，不是待领取任务，勿重复执行。目前没有新批次待执行，B另行派单。outbox中的task-208及示例报告是旧结果，不覆盖。总规格不构成自动连续开发授权。
+R209-A及两次返修已由Codex验收结束，见`outbox/task-209-a.acceptance.md`。inbox内A与revision文件保留追溯，勿重复执行。当前唯一待手动触发任务为`inbox/task-209-b1.md`：编号、版本存储与精确读取底座；允许指定隔离分支提交，禁止合入/推送/部署。B2及后续未派单，不自动继续。旧结果不覆盖。
