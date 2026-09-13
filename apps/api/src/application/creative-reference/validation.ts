@@ -77,6 +77,17 @@ export function validatePayload(payload: CardPayload): void {
     if (countChars(m.instruction) === 0) throw new ValidationError('method.instruction不能为空。');
     if (countChars(m.usageTree) === 0) throw new ValidationError('method.usageTree不能为空。');
     validateStringArray(m.applicableLayers, 'method.applicableLayers', 10);
+    if(m.relatedPurposes!==undefined) validateStringArray(m.relatedPurposes,'method.relatedPurposes',8);
+    if(m.methodKind!==undefined&&!['technique','story_container','action_strategy','story_beat','combination','checklist'].includes(m.methodKind)) throw new ValidationError('方法类型无效。');
+    if(m.conditionalUses!==undefined){
+      if(!Array.isArray(m.conditionalUses)||m.conditionalUses.length>7)throw new ValidationError('条件用法最多7项。');
+      const seen=new Set<string>();
+      for(const item of m.conditionalUses){
+        if(!item||!['opening','setting','book','volume','chain','chapter','prose'].includes(item.stage)||seen.has(item.stage)||m.applicableLayers.includes(item.stage))throw new ValidationError('条件阶段重复、无效或与重点阶段重叠。');
+        if(typeof item.condition!=='string'||!item.condition.trim()||item.condition.length>600||typeof item.use!=='string'||!item.use.trim()||item.use.length>1000)throw new ValidationError('条件用法必须包含简短触发条件和具体用法。');
+        seen.add(item.stage);
+      }
+    }
     validateStringArray(m.aliases, 'method.aliases', 20);
   }
 }

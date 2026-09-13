@@ -21,6 +21,9 @@ export const CREATIVE_USAGE_TREES = [
   '题材与融合', '卖点与阅读体验', '人物与关系', '故事与因果', '结构与节奏', '信息与表达', '衔接与收束', '审查与修订'
 ] as const;
 
+const METHOD_KIND_LABELS={technique:'叙事技法',story_container:'故事场合',action_strategy:'人物行动策略',story_beat:'剧情变化与结果',combination:'组合参考',checklist:'检查准则'};
+const stageLabel=(key:string)=>CREATIVE_LAYER_OPTIONS.find(x=>x.key===key)?.label??key;
+
 export const CREATIVE_LAYER_OPTIONS = [
   { key:'opening',label:'开书' }, { key:'setting',label:'设定' }, { key:'book',label:'时光机（全书与分卷）' },
   { key:'volume',label:'卷设计' }, { key:'chain',label:'链设计' }, { key:'chapter',label:'章纲' }, { key:'prose',label:'正文' }
@@ -59,7 +62,7 @@ function UsageOptions():React.JSX.Element{return <>{CREATIVE_USAGE_NAV.map(group
 </optgroup>)}</>;}
 function StageChoices({value,onChange}:{value:string;onChange:(value:string)=>void}):React.JSX.Element{
  const selected=parseArrayText(value);
- return <fieldset className="crl-stage-choices crl-span2"><legend>适用阶段</legend>{CREATIVE_LAYER_OPTIONS.map(s=><button type="button" key={s.key} aria-pressed={selected.includes(s.key)} onClick={()=>onChange((selected.includes(s.key)?selected.filter(k=>k!==s.key):[...selected,s.key]).join('，'))}>{s.label}</button>)}</fieldset>;
+ return <fieldset className="crl-stage-choices crl-span2"><legend>重点使用阶段</legend>{CREATIVE_LAYER_OPTIONS.map(s=><button type="button" key={s.key} aria-pressed={selected.includes(s.key)} onClick={()=>onChange((selected.includes(s.key)?selected.filter(k=>k!==s.key):[...selected,s.key]).join('，'))}>{s.label}</button>)}</fieldset>;
 }
 
 /** 脏表单离开保护：取消/返回/切页统一走这里，提示一次；保存成功后调用方复位不再提示。 */
@@ -204,7 +207,7 @@ export function CreativeReferenceLibrary(): React.JSX.Element {
         </optgroup>)}
       </select>
       <select aria-label="按适用层级筛选" value={filters.layer} onChange={(event) => applyFilters({ ...filters, layer: event.target.value })}>
-        <option value="">全部阶段</option>
+        <option value="">全部重点阶段</option>
         {CREATIVE_LAYER_OPTIONS.map((layer) => <option key={layer.key} value={layer.key}>{layer.label}</option>)}
       </select>
       <select aria-label="按状态筛选" value={filters.status} onChange={(event) => applyFilters({ ...filters, status: event.target.value })}>
@@ -227,7 +230,7 @@ export function CreativeReferenceLibrary(): React.JSX.Element {
       <button type="button" onClick={() => void load(currentCursor)}>重试</button>
     </div>}
     {!loading && error === null && items.length === 0 && (hasActiveFilters
-      ? <div className="crl-empty"><MagnifyingGlass aria-hidden="true" /><h2>没有符合条件的结果</h2><p>精确编号无结果就无结果；可换关键词或重置筛选。</p><button type="button" onClick={resetFilters}>重置筛选</button></div>
+      ? <div className="crl-empty"><MagnifyingGlass aria-hidden="true" /><h2>没有符合条件的结果</h2><p>{effective.keyword ? '当前关键词与筛选组合没有匹配条目，可修改关键词或放宽筛选。' : '当前用途、重点阶段与状态组合没有匹配条目，不代表其他阶段或创作参考也没有内容。'}</p>{effective.layer && <button type="button" onClick={()=>applyFilters({...filters,layer:''})}>查看此用途的全部阶段</button>}{kind==='method' && <button type="button" onClick={()=>{setKind('reference');applyFilters({...filters,layer:''});}}>查看相关创作参考</button>}<button type="button" onClick={resetFilters}>重置筛选</button></div>
       : <div className="crl-empty"><h2>尚未录入</h2><p>当前没有可查看的条目。</p></div>)}
 
     {!loading && error === null && items.length > 0 && <>
@@ -239,7 +242,7 @@ export function CreativeReferenceLibrary(): React.JSX.Element {
             <span className="crl-item-summary">{item.summary}</span>
             <span className="crl-item-meta">
               {item.usageTree !== null && <i>{item.usageTree}</i>}
-              {item.applicableLayers.length > 0 && <i>{item.applicableLayers.map((layer) => CREATIVE_LAYER_OPTIONS.find((option) => option.key === layer)?.label ?? layer).join('、')}</i>}
+              {item.applicableLayers.length > 0 && <i>重点：{item.applicableLayers.map(stageLabel).join('、')}</i>}
               <i>{item.currentRevision === null ? '无版本' : `第${item.currentRevision}版 · ${item.revisionStatus === null ? '' : item.revisionStatus === 'draft' ? '草稿' : item.revisionStatus === 'reviewed' ? '已审核' : '已发布'}`}</i>
               {item.availability === 'retired' && <i className="crl-retired">已退役</i>}
             </span>
@@ -431,6 +434,9 @@ function diffPayload(before: CreativeCardPayload, after: CreativeCardPayload): A
       result['method.usageTree'] = payload.method.usageTree;
       result['method.applicableLayers'] = payload.method.applicableLayers.join('，');
       result['method.aliases'] = payload.method.aliases.join('，');
+      result['method.relatedPurposes'] = (payload.method.relatedPurposes??[]).join('、');
+      result['method.methodKind'] = payload.method.methodKind??'';
+      result['method.conditionalUses'] = (payload.method.conditionalUses??[]).map(x=>`${stageLabel(x.stage)}：${x.condition} → ${x.use}`).join('\n');
     }
     if (payload.reference !== undefined) {
       const reference = payload.reference;
@@ -469,11 +475,14 @@ function PayloadView({ payload }: { payload: CreativeCardPayload }): React.JSX.E
       <div><dt>一句说明</dt><dd>{payload.summary}</dd></div>
       {payload.method !== undefined && <>
         <div><dt>用途</dt><dd>{payload.method.usageTree}</dd></div>
-        <div><dt>适用层级</dt><dd>{payload.method.applicableLayers.map((layer) => CREATIVE_LAYER_OPTIONS.find((option) => option.key === layer)?.label ?? layer).join('、') || '—'}</dd></div>
+        <div><dt>重点阶段</dt><dd>{payload.method.applicableLayers.map(stageLabel).join('、') || '—'}</dd></div>
+        <div><dt>关联用途</dt><dd>{payload.method.relatedPurposes?.join('、')||'暂无其他关联'}</dd></div>
+        <div><dt>内容类型</dt><dd>{payload.method.methodKind?METHOD_KIND_LABELS[payload.method.methodKind]:'待细分'}</dd></div>
       </>}
     </dl>
     {payload.method !== undefined && <section className="crl-section"><h2>做法与边界</h2>
       <p>{payload.method.instruction}</p>
+      {(payload.method.conditionalUses?.length??0)>0 && <section><h3>其他阶段：满足条件时才使用</h3>{payload.method.conditionalUses!.map(item=><div key={item.stage} className="crl-section"><strong>{stageLabel(item.stage)}</strong><p>当{item.condition}时：</p><p>{item.use}</p></div>)}</section>}
       {payload.method.boundary !== undefined && payload.method.boundary.length > 0 && <div className="crl-method-guide">
         {payload.method.boundary.split('\n').filter(Boolean).map((line,index)=>{
           const split=line.indexOf('：');
@@ -574,6 +583,9 @@ function AvailabilityControl({ internalId, availability, seenRevision, onDone }:
 }
 
 interface DraftFormState {
+  methodRelated: string;
+  methodKind: NonNullable<import('./creative-reference-api').CreativeMethodContent['methodKind']>;
+  methodConditional: Array<{stage:string;condition:string;use:string}>;
   name: string;
   shortPhrase: string;
   summary: string;
@@ -615,6 +627,9 @@ function formFromPayload(payload: CreativeCardPayload): DraftFormState {
     methodUsageTree: method?.usageTree ?? '',
     methodLayers: toArrayText(method?.applicableLayers),
     methodAliases: toArrayText(method?.aliases),
+    methodRelated: toArrayText(method?.relatedPurposes),
+    methodKind: method?.methodKind??'technique',
+    methodConditional: (method?.conditionalUses??[]).map(x=>({...x})),
     referenceKind: reference?.kind ?? 'genre',
     refGenres: toArrayText(reference?.facets.genres),
     refMechanisms: toArrayText(reference?.facets.mechanisms),
@@ -639,6 +654,7 @@ function payloadFromForm(form: DraftFormState, kind: 'method' | 'reference'): Cr
       assetKind: 'method',
       name: form.name, shortPhrase: form.shortPhrase, summary: form.summary, aliases: parseArrayText(form.aliases),
       method: {
+        relatedPurposes:parseArrayText(form.methodRelated),methodKind:form.methodKind,conditionalUses:form.methodConditional,
         title: form.methodTitle, instruction: form.methodInstruction, boundary: form.methodBoundary,
         usageTree: form.methodUsageTree, applicableLayers: parseArrayText(form.methodLayers), aliases: parseArrayText(form.methodAliases)
       }
@@ -663,6 +679,21 @@ function payloadFromForm(form: DraftFormState, kind: 'method' | 'reference'): Cr
       evidence: { kind: form.evidenceKind as CreativeReferenceContent['evidence']['kind'], refs: parseArrayText(form.evidenceRefs), limitations: form.evidenceLimitations }
     }
   };
+}
+
+function MethodMetadataEditor({form,update}:{form:DraftFormState;update:(patch:Partial<DraftFormState>)=>void}):React.JSX.Element{
+ return <section className="crl-span2 crl-section">
+  <label><span>关联用途（逗号分隔）</span><input aria-label="关联用途" value={form.methodRelated} onChange={e=>update({methodRelated:e.target.value})}/></label>
+  <label><span>内容类型</span><select aria-label="内容类型" value={form.methodKind} onChange={e=>update({methodKind:e.target.value as DraftFormState['methodKind']})}>{Object.entries(METHOD_KIND_LABELS).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
+  <h3>其他阶段的条件用法</h3>
+  {form.methodConditional.map((item,i)=><div key={i} className="crl-section">
+   <select aria-label={`条件阶段${i+1}`} value={item.stage} onChange={e=>update({methodConditional:form.methodConditional.map((x,j)=>j===i?{...x,stage:e.target.value}:x)})}>{CREATIVE_LAYER_OPTIONS.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}</select>
+   <label><span>触发条件</span><textarea aria-label={`触发条件${i+1}`} rows={2} value={item.condition} onChange={e=>update({methodConditional:form.methodConditional.map((x,j)=>j===i?{...x,condition:e.target.value}:x)})}/></label>
+   <label><span>这一阶段怎么用</span><textarea aria-label={`条件用法${i+1}`} rows={2} value={item.use} onChange={e=>update({methodConditional:form.methodConditional.map((x,j)=>j===i?{...x,use:e.target.value}:x)})}/></label>
+   <button type="button" onClick={()=>update({methodConditional:form.methodConditional.filter((_,j)=>j!==i)})}>移除此条件用法</button>
+  </div>)}
+  <button type="button" disabled={!CREATIVE_LAYER_OPTIONS.some(s=>!parseArrayText(form.methodLayers).includes(s.key)&&!form.methodConditional.some(x=>x.stage===s.key))} onClick={()=>{const stage=CREATIVE_LAYER_OPTIONS.find(s=>!parseArrayText(form.methodLayers).includes(s.key)&&!form.methodConditional.some(x=>x.stage===s.key));if(stage)update({methodConditional:[...form.methodConditional,{stage:stage.key,condition:'',use:''}]});}}>添加条件用法</button>
+ </section>;
 }
 
 function DraftEditor({ internalId, basePayload, expectedRevision, onDirtyChange, onCancel, onSaved }: {
@@ -723,6 +754,7 @@ function DraftEditor({ internalId, basePayload, expectedRevision, onDirtyChange,
         <label className="crl-span2"><span>使用条件、边界与阶段用法（每行一项）</span><textarea aria-label="边界与限制" rows={7} value={form.methodBoundary} onChange={(event) => update({ methodBoundary: event.target.value })} /></label>
         <StageChoices value={form.methodLayers} onChange={value=>update({methodLayers:value})}/>
         <label className="crl-span2"><span>方法别名（逗号分隔）</span><input aria-label="方法别名" value={form.methodAliases} onChange={(event) => update({ methodAliases: event.target.value })} /></label>
+        <MethodMetadataEditor form={form} update={update}/>
       </>}
       {kind === 'reference' && <>
         <label><span>参考类型</span><input aria-label="参考类型" value={form.referenceKind} onChange={(event) => update({ referenceKind: event.target.value })} /></label>
@@ -1146,6 +1178,7 @@ function CreateCardPanel({ onClose, onCreated }: { onClose: () => void; onCreate
           </label>
           <label className="crl-span2"><span>具体做法</span><textarea aria-label="具体做法" rows={3} value={form.methodInstruction} onChange={(event) => update({ methodInstruction: event.target.value })} /></label>
           <StageChoices value={form.methodLayers} onChange={value=>update({methodLayers:value})}/>
+          <MethodMetadataEditor form={form} update={update}/>
         </> : <>
           <label><span>参考类型</span><input aria-label="参考类型" value={form.referenceKind} onChange={(event) => update({ referenceKind: event.target.value })} /></label>
           <label><span>题材（逗号分隔）</span><input aria-label="题材" value={form.refGenres} onChange={(event) => update({ refGenres: event.target.value })} /></label>

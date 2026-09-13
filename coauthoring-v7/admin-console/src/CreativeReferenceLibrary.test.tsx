@@ -78,6 +78,33 @@ describe('创作库管理页', () => {
     expect(screen.getByRole('status')).toHaveTextContent('正在读取创作库');
   });
 
+  it('编辑保留关联用途与条件用法，详情显示重点阶段和触发条件', async () => {
+    const d=detailOf(summary('card-1','法001','起承转合'));
+    Object.assign(d.revision!.payload.method!,{relatedPurposes:['结构检查'],methodKind:'technique',conditionalUses:[{stage:'chapter',condition:'本章承担结构转折',use:'只检查本章的转折作用'}]});
+    mocked.fetchCreativeCardDetail.mockResolvedValue(d);
+    mocked.saveCreativeCardRevision.mockResolvedValue({} as never);
+    render(<CreativeReferenceLibrary />);
+    fireEvent.click(await screen.findByText('法001'));
+    expect(await screen.findByText('其他阶段：满足条件时才使用')).toBeVisible();
+    fireEvent.click(screen.getByRole('button',{name:/编辑并保存新草稿/}));
+    fireEvent.change(screen.getByLabelText('关联用途'),{target:{value:'结构检查，阅读期待'}});
+    fireEvent.click(screen.getByRole('button',{name:'保存为新草稿'}));
+    await waitFor(()=>expect(mocked.saveCreativeCardRevision).toHaveBeenCalledTimes(1));
+    expect(mocked.saveCreativeCardRevision.mock.calls[0]![1].payload.method).toMatchObject({relatedPurposes:['结构检查','阅读期待'],conditionalUses:[{stage:'chapter',condition:'本章承担结构转折',use:'只检查本章的转折作用'}]});
+  });
+
+  it('分类无结果可以只清除阶段，保留用途，不显示编号搜索误导', async () => {
+    mocked.fetchCreativeCards.mockResolvedValue({items:[],nextCursor:null});
+    render(<CreativeReferenceLibrary />);
+    fireEvent.change(await screen.findByLabelText('按用途筛选'),{target:{value:'阅读期待'}});
+    fireEvent.change(screen.getByLabelText('按适用层级筛选'),{target:{value:'setting'}});
+    expect(await screen.findByText(/当前用途、重点阶段与状态组合/)).toBeVisible();
+    expect(screen.queryByText(/精确编号无结果/)).toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'查看此用途的全部阶段'}));
+    await waitFor(()=>expect(mocked.fetchCreativeCards.mock.calls.at(-1)![0].usageTree).toBe('阅读期待'));
+    expect(mocked.fetchCreativeCards.mock.calls.at(-1)![0].layers).toBeUndefined();
+  });
+
   it('按设计用途、细分用途和阶段组合检索，默认隐藏合并条目', async () => {
     render(<CreativeReferenceLibrary />);
     await screen.findByText('法001');

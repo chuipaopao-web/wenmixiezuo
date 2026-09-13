@@ -9,6 +9,9 @@ export type CreativeAvailability = 'draft' | 'reviewed' | 'published' | 'retired
 export type CreativeRevisionStatus = 'draft' | 'reviewed' | 'published';
 
 export interface CreativeMethodContent {
+  relatedPurposes?: string[];
+  methodKind?: 'technique' | 'story_container' | 'action_strategy' | 'story_beat' | 'combination' | 'checklist';
+  conditionalUses?: Array<{stage: string; condition: string; use: string}>;
   title: string;
   instruction: string;
   boundary?: string;

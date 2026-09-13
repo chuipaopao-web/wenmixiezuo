@@ -91,9 +91,9 @@ export class CreativeReferenceAdminRepository {
       // 用途父子匹配（18.3）：method按usageTree、reference按facets.purposes，命中主类或其子类。
       const terms = usageTreeTerms(filter.usageTree);
       const placeholders = terms.map(() => '?').join(',');
-      conditions.push(`((c.asset_kind='method' AND json_extract(r.payload_json,'$.method.usageTree') IN (${placeholders}))
+      conditions.push(`((c.asset_kind='method' AND (json_extract(r.payload_json,'$.method.usageTree') IN (${placeholders}) OR EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(r.payload_json,'$.method.relatedPurposes'),'[]')) mp WHERE mp.value IN (${placeholders}))))
         OR (c.asset_kind='reference' AND EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(r.payload_json,'$.reference.facets.purposes'),'[]')) pe WHERE pe.value IN (${placeholders}))))`);
-      params.push(...terms, ...terms);
+      params.push(...terms, ...terms, ...terms);
     }
     if (filter.keyword !== undefined && filter.keyword.trim().length > 0) {
       // 词法匹配：displayCode精确或名称/短语/摘要/别名LIKE，不做语义排序。
