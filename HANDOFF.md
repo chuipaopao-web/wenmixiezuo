@@ -1,5 +1,7 @@
 # 文秘写作当前交接
 
+R209-B1最终验收通过并已合入本地开发分支：隔离最终eaf0361d，Codex独立复跑36项测试及API类型检查通过。验收见`.local/dispatch/outbox/task-209-b1.acceptance.md`。未推送/部署；新增0122迁移尚未在生产运行。B2后台鉴权、分类管理、编辑审核和发布入口待单独派工，AI检索及提示词仍未接入。以下B1“未通过”记录为已解决的历史审计。
+
 R209-B1验收不通过：隔离commit b712325a的20项测试复跑通过，但Codex内存探针复现筛选SQL报错、退役破坏旧release、新版绕过审核、同实体两号、编辑后创建幂等失败。另有关系/竞争测试缺口。审查`.local/dispatch/outbox/task-209-b1.codex-review.md`；待手动触发`.local/dispatch/inbox/task-209-b1-revision.md`。未合入、未部署，不进入B2。
 
 R209-B1派工已备，待手动触发`.local/dispatch/inbox/task-209-b1.md`：基准327900d6，独立工作树与codex/dispatch-task-209-b1分支，编号/版本/Repository/精确读取及合成测试。允许隔离提交，不合入部署；暂不接路由/UI/生成流程，B2另派。结果`.local/dispatch/outbox/task-209-b1.result.md`，完成后Codex验收。
