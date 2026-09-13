@@ -1,5 +1,7 @@
 # 文秘写作当前交接
 
+B2最新6d223a12仍待收尾：同步事务与服务授权已补，API类型通过；独立44/45（双try单跑又通过）。COMMIT在catch外导致提交失败后depth残留，同实例下次返回成功但不提交，探针已复现。见outbox/task-209-b2.codex-review-3.md，任务inbox/task-209-b2-revision-3.md；不重做前端，不合入/部署。
+
 B2最新7e1316f1复验仍未通过：42项回归通过，单次回滚等前轮修复成立，但独立并发探针复现B返回成功后被A回滚；另有BEGIN失败深度未复位、管理服务缺授权/接口边界。审查`outbox/task-209-b2.codex-review-2.md`，待手动触发`inbox/task-209-b2-revision-2.md`。本地手机入口截图已改善，未合入未部署，不重复重做已通过UI。
 
 R209-B2首次验收不通过（9fde49ac）：39项复跑通过，但Codex故障探针复现审核500状态已改变、发布500活动版已切换且同键409、reference用途筛选漏项；另有关系编辑/冻结分页/离开表单与截图证据缺口。见`.local/dispatch/outbox/task-209-b2.codex-review.md`，返修任务`inbox/task-209-b2-revision.md`待手动触发。未合入、未部署，不续批。
