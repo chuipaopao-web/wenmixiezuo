@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { runMigrations } from '../../apps/api/src/infrastructure/db/migrations.js';
 import { SqliteCreativeReferenceRepository } from '../../apps/api/src/infrastructure/db/repositories/creative-reference-repository.js';
@@ -150,52 +150,128 @@ describe('B1第二次返修：审查五项', () => {
   });
 });
 
-describe('B1第二次返修：双进程真并发与冻结分页', () => {
-  it('双worker进程并发创建：编号无重号，两个成功时编号互异；失败者为锁冲突', async () => {
+describe('B1第三次返修：真锁竞争屏障与release绑定游标', () => {
+  /**
+   * 真并发证据链（非"两进程启动"即断言重叠）：
+   * 1. A进程(hold)异步启动 → 等它的stdout出现{phase:'locked'}（A已BEGIN IMMEDIATE持写锁并插卡）。
+   * 2. 收到LOCKED后，B进程(try)异步启动尝试同库createCard——此刻A确定持锁，B确定竞争。
+   * 3. 等B结束（成功或busy/locked失败），再给A的stdin写释放指令 → 等A提交退出。
+   * 4. 断言：B的结果、A提交成功、编号无重号、全库状态一致。全程超时清理并杀子进程。
+   */
+  it('A持BEGIN IMMEDIATE写锁时B竞争同库写入：B busy/locked或排队，A提交后全库无重号', async () => {
     const ctx = setup();
-    const run = (key: string) => spawnSync(process.execPath, [...NODE_ARGS, ctx.dbPath, key], { encoding: 'utf8', timeout: 60_000 });
-    const results = [run('proc-a'), run('proc-b')];
-    const parsed = results.map((r) => {
-      if (r.status !== 0) return { ok: false, error: (r.stderr || '').slice(0, 120) };
-      const line = (r.stdout || '').trim().split('\n').pop()!;
-      return JSON.parse(line) as { ok: boolean; displayCode?: string; error?: string };
+    const spawnAsync = (args: string[]) => {
+      const child = spawn(process.execPath, [...NODE_ARGS, ctx.dbPath, ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
+      const stdout: string[] = [];
+      child.stdout.on('data', (chunk) => { for (const line of String(chunk).trim().split('\n')) if (line) stdout.push(line); });
+      return { child, stdout };
+    };
+    const hold = spawnAsync(['hold-key', 'hold']);
+    const killAll = () => { for (const c of [hold, tryP?.child].filter(Boolean)) { try { c.child.kill(); } catch { /* 已退出 */ } } };
+    // 屏障1：等A真的持锁（读LOCKED信号，不靠启动/睡眠猜）
+    const lockedAt = Date.now();
+    while (!hold.stdout.some((l) => l.includes('"phase":"locked"'))) {
+      if (Date.now() - lockedAt > 20_000) { killAll(); throw new Error('A未在20秒内发出LOCKED持锁信号'); }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(hold.stdout.some((l) => l.includes('"phase":"locked"'))).toBe(true);
+    // A已持锁：B此刻竞争同库写入
+    let tryP: { child: ReturnType<typeof spawn>; stdout: string[] } | null = spawnAsync(['try-key', 'try']);
+    const tryDone = new Promise<string>((resolve, reject) => {
+      tryP!.child.on('exit', () => {
+        const last = tryP!.stdout.filter((l) => l.includes('"phase":"done"')).pop();
+        resolve(last ?? 'no-output');
+      });
+      tryP!.child.on('error', reject);
     });
-    const okCount = parsed.filter((p) => p.ok).length;
-    expect(okCount).toBeGreaterThanOrEqual(1);
-    for (const p of parsed) {
-      if (!p.ok) expect(String(p.error)).toMatch(/busy|locked|conflict/i);
-    }
-    if (okCount === 2) {
-      const codes = parsed.map((p) => p.displayCode!);
-      expect(codes[0]).not.toBe(codes[1]);
-    }
-    const all = ctx.database.prepare('SELECT display_code FROM creative_reference_cards').all() as Array<{ display_code: string }>;
+    const tryResult = await Promise.race([tryDone, new Promise<string>((_, rej) => setTimeout(() => rej(new Error('B超时30秒')), 30_000))]).catch((e) => { killAll(); throw e; });
+    const parsed = JSON.parse(tryResult) as { ok: boolean; displayCode?: string; error?: string };
+    // B要么busy/locked失败、要么排队后成功（SQLite允许等待）——不许是其他错误
+    if (!parsed.ok) expect(String(parsed.error)).toMatch(/busy|locked|conflict/i);
+    // 释放A：写stdin让它COMMIT并退出
+    hold.child.stdin.write('release\n');
+    const holdDone = new Promise<void>((resolve) => hold.child.on('exit', () => resolve()));
+    await Promise.race([holdDone, new Promise((_, rej) => setTimeout(() => rej(new Error('A超时30秒未提交')), 30_000))]).catch((e) => { killAll(); throw e; });
+    killAll();
+    // A提交成功+B结果 → 全库编号无重号、状态一致
+    const all = ctx.database.prepare('SELECT display_code, idempotency_key FROM creative_reference_cards').all() as Array<{ display_code: string; idempotency_key: string }>;
     const codes = all.map((r) => r.display_code);
     expect(new Set(codes).size).toBe(codes.length);
-  }, 120_000);
+    // hold占位卡（法999）与B的编号分配互不干扰（B成功时编号非999）
+    if (parsed.ok && parsed.displayCode !== undefined) expect(parsed.displayCode).not.toBe('法999');
+    // 幂等键各自存在
+    const keys = new Set(all.map((r) => r.idempotency_key));
+    expect(keys.has('hold-key')).toBe(true);
+    if (parsed.ok) expect(keys.has('try-key')).toBe(true);
+  }, 90_000);
 
-  it('冻结release分页：cursor绑定release，新release发布后旧release分页结果不变', async () => {
+  it('双try进程并发创建：至少1成功、失败者锁冲突、编号互异且全库唯一', async () => {
+    const ctx = setup();
+    const spawnAsync = (key: string) => {
+      const child = spawn(process.execPath, [...NODE_ARGS, ctx.dbPath, key, 'try'], { stdio: ['ignore', 'pipe', 'ignore'] });
+      const done = new Promise<{ ok: boolean; displayCode?: string; error?: string }>((resolve) => {
+        let out = '';
+        child.stdout.on('data', (c) => { out += String(c); });
+        child.on('exit', () => {
+          const line = out.trim().split('\n').filter((l) => l.includes('"phase":"done"')).pop();
+          resolve(line ? JSON.parse(line) : { ok: false, error: 'no-output' });
+        });
+      });
+      return { child, done };
+    };
+    // 同时启动两个独立进程：各自BEGIN IMMEDIATE，SQLite串行化写锁——真重叠由DB锁保证
+    const a = spawnAsync('dual-a');
+    const b = spawnAsync('dual-b');
+    const timeout = new Promise((_, rej) => setTimeout(() => { a.child.kill(); b.child.kill(); rej(new Error('双进程超时60秒')); }, 60_000));
+    const [ra, rb] = await Promise.race([Promise.all([a.done, b.done]), timeout]) as Array<{ ok: boolean; displayCode?: string; error?: string }>;
+    const okCount = [ra, rb].filter((r) => r.ok).length;
+    expect(okCount).toBeGreaterThanOrEqual(1);
+    for (const r of [ra, rb]) if (!r.ok) expect(String(r.error)).toMatch(/busy|locked|conflict/i);
+    if (okCount === 2) expect(ra.displayCode).not.toBe(rb.displayCode);
+    const all = ctx.database.prepare('SELECT display_code FROM creative_reference_cards').all() as Array<{ display_code: string }>;
+    expect(new Set(all.map((r) => r.display_code)).size).toBe(all.length);
+  }, 90_000);
+
+  it('冻结release分页：真实nextCursor带releaseId；r1页1游标用于r2必须拒绝；active切换后r1连续分页完整无重复；末页null；limit边界', async () => {
     const ctx = setup();
     const cards = [];
     for (let i = 0; i < 5; i++) cards.push(await makeCard(ctx, `pg-${i}`));
     const r1 = await ctx.service.publish(cards.map(en), [], manager, null, NOW);
-    // 分页读r1：每页2条
+    // 页1：真实返回的nextCursor（含releaseId）——不再手造游标
     const page1 = await ctx.service.memberListRelease(r1.releaseId, null, 2, member);
-    expect(page1).toHaveLength(2);
-    const page2 = await ctx.service.memberListRelease(r1.releaseId, { lastInternalId: page1[1]!.internalId }, 2, member);
-    expect(page2).toHaveLength(2);
-    const page3 = await ctx.service.memberListRelease(r1.releaseId, { lastInternalId: page2[1]!.internalId }, 2, member);
-    expect(page3).toHaveLength(1);
-    const all = [...page1, ...page2, ...page3];
+    expect(page1.items).toHaveLength(2);
+    expect(page1.nextCursor).not.toBeNull();
+    expect(page1.nextCursor!.releaseId).toBe(r1.releaseId);
+    // 页2用页1返回的游标
+    const page2 = await ctx.service.memberListRelease(r1.releaseId, page1.nextCursor, 2, member);
+    expect(page2.items).toHaveLength(2);
+    // 末页：nextCursor=null
+    const page3 = await ctx.service.memberListRelease(r1.releaseId, page2.nextCursor, 2, member);
+    expect(page3.items).toHaveLength(1);
+    expect(page3.nextCursor).toBeNull();
+    const all = [...page1.items, ...page2.items, ...page3.items];
     expect(new Set(all.map((e) => e.internalId)).size).toBe(5);
-    // 发布新release（子集）后：旧release分页结果不变（不随active变化）
+    // 发布r2后：r1的游标用于r2必须拒绝（跨release）
     const r2 = await ctx.service.publish([en(cards[0]!)], [], manager, r1.releaseId, NOW);
-    expect(r2.active).toBe(true);
-    const after = await ctx.service.memberListRelease(r1.releaseId, null, 2, member);
-    expect(after).toEqual(page1);
-    // 成员必须传release
+    await expect(ctx.service.memberListRelease(r2.releaseId, page1.nextCursor, 2, member)).rejects.toThrow(/不一致/);
+    // active在r2时，r1从游标继续分页仍完整且与active切换前一致
+    const page2After = await ctx.service.memberListRelease(r1.releaseId, page1.nextCursor, 2, member);
+    expect(page2After.items).toEqual(page2.items);
+    const page3After = await ctx.service.memberListRelease(r1.releaseId, page2After.nextCursor, 2, member);
+    expect(page3After.items).toEqual(page3.items);
+    // 伪造releaseId的游标拒绝；带过滤指纹的游标拒绝；limit非法拒绝
+    await expect(ctx.service.memberListRelease(r1.releaseId, { releaseId: 'forged', lastInternalId: page1.items[1]!.internalId, filterFingerprint: null }, 2, member)).rejects.toThrow(/不一致/);
+    await expect(ctx.service.memberListRelease(r1.releaseId, { releaseId: r1.releaseId, lastInternalId: page1.items[1]!.internalId, filterFingerprint: 'x' }, 2, member)).rejects.toThrow(/过滤指纹/);
+    await expect(ctx.service.memberListRelease(r1.releaseId, null, 0, member)).rejects.toThrow(/limit/);
+    await expect(ctx.service.memberListRelease(r1.releaseId, null, 101, member)).rejects.toThrow(/limit/);
+        // 成员必须传release；未知release；单卡release一页读完nextCursor=null（空清单release本身被发布拒绝）
     await expect(ctx.service.memberListRelease(undefined, null, 2, member)).rejects.toThrow(/冻结release/);
-    // 未知release报错
     await expect(ctx.service.memberListRelease('release-x', null, 2, member)).rejects.toThrow(/不存在/);
+    await expect(ctx.service.publish([], [], manager, r2.releaseId, NOW)).rejects.toThrow(/不能为空/);
+    const solo = await makeCard(ctx, 'solo');
+    const r3 = await ctx.service.publish([en(solo)], [], manager, r2.releaseId, NOW);
+    const soloPage = await ctx.service.memberListRelease(r3.releaseId, null, 2, member);
+    expect(soloPage.items).toHaveLength(1);
+    expect(soloPage.nextCursor).toBeNull();
   });
 });

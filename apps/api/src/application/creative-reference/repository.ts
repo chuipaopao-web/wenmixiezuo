@@ -41,6 +41,18 @@ export interface LegacyMappingEntry {
   sourceView: string;
 }
 
+/** 冻结release分页游标：releaseId绑定+可选过滤指纹+位置。 */
+export interface ReleaseEntriesCursor {
+  releaseId: string;
+  lastInternalId: string;
+  filterFingerprint: string | null;
+}
+
+export interface ReleaseEntriesPage {
+  items: ReadonlyArray<{ internalId: string; revision: number }>;
+  nextCursor: ReleaseEntriesCursor | null;
+}
+
 export interface CreativeReferenceRepository {
   createCard(input: CreateCardInput, now: string): Promise<CardRecord>;
   findByIdempotencyKey(kind: 'method' | 'reference', key: string): Promise<CardRecord | null>;
@@ -63,8 +75,8 @@ export interface CreativeReferenceRepository {
   getRevisionInRelease(releaseId: string, internalId: string): Promise<RevisionRecord | null>;
   /** release内冻结图谱。 */
   listRelationsInRelease(releaseId: string): Promise<RelationRecord[]>;
-  /** 冻结release分页：manifest条目序，cursor绑定releaseId，不随active变化。 */
-  listReleaseEntries(releaseId: string, cursor: { lastInternalId: string } | null, limit: number): Promise<Array<{ internalId: string; revision: number }>>;
+  /** 冻结release分页：manifest条目序，游标带releaseId，失配拒绝，末页nextCursor=null。 */
+  listReleaseEntries(releaseId: string, cursor: ReleaseEntriesCursor | null, limit: number): Promise<ReleaseEntriesPage>;
   listRelations(cardId: string): Promise<RelationRecord[]>;
   /** 同实体多别名挂同一canonical卡；确认同实体一个编号。 */
   attachAlias(internalId: string, legacy: LegacyRef, sourceView: string, now: string): Promise<void>;

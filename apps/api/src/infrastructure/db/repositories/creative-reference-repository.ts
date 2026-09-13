@@ -389,15 +389,30 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
   }
 
   /**
-   * 冻结release分页：按manifest条目序（internalId排序）遍历，cursor绑定releaseId；
-   * 不随active指针变化——旧release清单是不可变的。
+   * 冻结release分页：manifest条目序（internalId排序）遍历。
+   * 游标带releaseId与可选过滤指纹：跨release/带指纹游标本接口拒绝；末页nextCursor=null。
    */
-  public async listReleaseEntries(releaseId: string, cursor: { lastInternalId: string } | null, limit: number): Promise<Array<{ internalId: string; revision: number }>> {
+  public async listReleaseEntries(releaseId: string, cursor: ReleaseEntriesCursor | null, limit: number): Promise<ReleaseEntriesPage> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new ValidationError('limit必须在1至100之间。');
     const release = await this.getRelease(releaseId);
     if (release === null) throw new NotFoundError(`release不存在：${releaseId}。`);
+    if (cursor !== null) {
+      if (cursor.releaseId !== releaseId) {
+        throw new CursorInvalidError(`游标属于release ${cursor.releaseId}，与请求的 ${releaseId} 不一致；请重新查询。`);
+      }
+      if ((cursor.filterFingerprint ?? null) !== null) {
+        throw new CursorInvalidError('游标携带过滤指纹但本接口无过滤参数；请重新查询。');
+      }
+    }
     const sorted = [...release.entries].sort((a, b) => (a.internalId < b.internalId ? -1 : a.internalId > b.internalId ? 1 : 0));
-    const start = cursor === null ? 0 : sorted.findIndex((e) => e.internalId > cursor.lastInternalId);
-    return sorted.slice(start < 0 ? sorted.length : start, (start < 0 ? sorted.length : start) + limit);
+    const startIndex = cursor === null ? 0 : sorted.findIndex((e) => e.internalId > cursor.lastInternalId);
+    const start = startIndex === -1 ? sorted.length : startIndex;
+    const items = sorted.slice(start, start + limit);
+    const hasMore = start + limit < sorted.length;
+    return {
+      items,
+      nextCursor: hasMore && items.length > 0 ? { releaseId, lastInternalId: items[items.length - 1]!.internalId, filterFingerprint: null } : null
+    };
   }
 
   public async listRelations(cardId: string): Promise<RelationRecord[]> {

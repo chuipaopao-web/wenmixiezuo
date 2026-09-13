@@ -75,15 +75,15 @@ export class CreativeReferenceService {
     return this.repository.publishRelease({ entries, relations, publishedBy: context.actorId, expectedActiveReleaseId }, now);
   }
 
-  /** 成员按冻结release分页读取清单条目：cursor绑定releaseId，不随active指针变化。 */
-  public async memberListRelease(releaseId: string | undefined, cursor: { lastInternalId: string } | null, limit: number, context: ActorContext): Promise<Array<{ internalId: string; revision: number }>> {
+  /** 成员按冻结release分页：真实返回nextCursor（含releaseId），跨release游标拒绝，末页null。 */
+  public async memberListRelease(releaseId: string | undefined, cursor: import('./repository.js').ReleaseEntriesCursor | null, limit: number, context: ActorContext): Promise<import('./repository.js').ReleaseEntriesPage> {
     if (context.role !== 'member' || context.actorId.trim().length === 0 || !this.authorization.canReadAsMember(context)) {
       throw new AuthorizationError('成员读取需要有效的成员上下文。');
     }
     if (releaseId === undefined || releaseId.trim().length === 0) {
       throw new AuthorizationError('成员读取必须传冻结release，不允许默认读最新。');
     }
-    return this.repository.listReleaseEntries(releaseId, cursor, Math.min(Math.max(limit, 1), 100));
+    return this.repository.listReleaseEntries(releaseId, cursor, limit);
   }
 
   public async adminReadExact(key: ExactKey, options: ExactReadOptions, context: ActorContext): Promise<LookupResult> {
