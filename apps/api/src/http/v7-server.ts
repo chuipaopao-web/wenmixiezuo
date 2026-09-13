@@ -13,6 +13,7 @@ import { AccountAuthService } from '../infrastructure/security/account-auth-serv
 import { MembershipService } from '../infrastructure/security/membership-service.js';
 import { registerRequestPolicy, type RequestPolicyOptions } from '../infrastructure/security/request-policy.js';
 import { registerAccountRoutes } from './account-routes.js';
+import { registerCreativeReferenceAdminRoutes } from './creative-reference-admin-routes.js';
 import { registerV7AdminConsoleRoutes } from './v7-admin-console-routes.js';
 import { registerV7AdminPlatformRoutes } from './v7-admin-platform-routes.js';
 import { projectSerializedAuthorResponse, shouldProjectAuthorResponse } from './author-api-projection.js';
@@ -64,6 +65,7 @@ export async function createV7Server(
   await registerAccountRoutes(app, accounts, new MembershipService(database, new SystemClock()));
   await registerV7AdminPlatformRoutes(app, database);
   await registerV7AdminConsoleRoutes(app, database, config);
+  await registerCreativeReferenceAdminRoutes(app, database);
   await registerV7OpeningAgentRoutes(app, database, options.v7OpeningModelAdapters ?? modelAdapters, {
     codingPlan: config.modelRuntime.endpoints.coding.apiKey !== undefined,
     agentPlan: config.modelRuntime.endpoints.agent.apiKey !== undefined

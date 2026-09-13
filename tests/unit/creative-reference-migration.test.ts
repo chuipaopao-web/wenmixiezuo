@@ -21,9 +21,10 @@ describe('creative-reference migration 0122 (revised)', () => {
       const first = runMigrations(database, MIGRATIONS_DIR);
       expect(first.applied).toContain('0122_creative_reference.sql');
       const tables = database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'creative_reference_%'").all() as Array<{ name: string }>;
+      // B2追加0123：管理审计与发布幂等两张表，随全仓迁移序列共同创建。
       expect(tables.map((t) => t.name).sort()).toEqual([
-        'creative_reference_aliases', 'creative_reference_cards', 'creative_reference_counters',
-        'creative_reference_relations', 'creative_reference_release_relations', 'creative_reference_releases', 'creative_reference_revisions'
+        'creative_reference_admin_audit', 'creative_reference_aliases', 'creative_reference_cards', 'creative_reference_counters',
+        'creative_reference_relations', 'creative_reference_release_relations', 'creative_reference_release_requests', 'creative_reference_releases', 'creative_reference_revisions'
       ]);
       const again = runMigrations(database, MIGRATIONS_DIR);
       expect(again.applied).toEqual([]);

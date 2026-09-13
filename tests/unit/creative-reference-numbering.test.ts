@@ -55,7 +55,7 @@ describe('B1r 编号与幂等（返修）', () => {
   it('P1-5：创建幂等不受后续编辑影响——编辑后重放原create仍返回同一卡', async () => {
     const { service } = setup();
     const card = await service.createCard({ payload: methodPayload(), legacy: legacyFourAct, idempotencyKey: 'idem-stable' }, manager, NOW);
-    await service.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '改后' }) }, manager, NOW);
+    await service.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '改后' }), actor: 'm1' }, manager, NOW);
     const replay = await service.createCard({ payload: methodPayload(), legacy: legacyFourAct, idempotencyKey: 'idem-stable' }, manager, NOW);
     expect(replay.internalId).toBe(card.internalId);
   });
@@ -91,10 +91,10 @@ describe('B1r 编号与幂等（返修）', () => {
   it('改名/换分类不改号；退役不回收编号且不可再改', async () => {
     const { service } = setup();
     const card = await service.createCard({ payload: methodPayload(), legacy: null, idempotencyKey: 'stable-1' }, manager, NOW);
-    const updated = await service.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '修订', usageTree: '故事与因果' }) }, manager, NOW);
+    const updated = await service.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '修订', usageTree: '故事与因果' }), actor: 'm1' }, manager, NOW);
     expect(updated.displayCode).toBe(card.displayCode);
     await service.setAvailability(card.internalId, 'retired', manager, NOW);
-    await expect(service.updateCard({ internalId: card.internalId, expectedRevision: 2, payload: methodPayload({ name: '再改' }) }, manager, NOW))
+    await expect(service.updateCard({ internalId: card.internalId, expectedRevision: 2, payload: methodPayload({ name: '再改' }), actor: 'm1' }, manager, NOW))
       .rejects.toThrow(/退役/);
     const next = await service.createCard({ payload: methodPayload({ name: '新方法' }), legacy: null, idempotencyKey: 'stable-2' }, manager, NOW);
     expect(next.displayCode).not.toBe(card.displayCode);
@@ -144,6 +144,6 @@ describe('B1r 编号与幂等（返修）', () => {
     await expect(service.createCard({ payload: methodPayload(), legacy: { namespace: 'a:b', key: 'k' }, idempotencyKey: 'v-2' }, manager, NOW)).rejects.toThrow(ValidationError);
     await expect(service.createCard({ payload: methodPayload(), legacy: { namespace: 'n', key: 'k', version: 1.5 }, idempotencyKey: 'v-3' }, manager, NOW)).rejects.toThrow(ValidationError);
     const card = await service.createCard({ payload: methodPayload(), legacy: null, idempotencyKey: 'v-4' }, manager, NOW);
-    await expect(service.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: referencePayload() }, manager, NOW)).rejects.toThrow(/assetKind.*不一致/);
+    await expect(service.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: referencePayload(), actor: 'm1' }, manager, NOW)).rejects.toThrow(/assetKind.*不一致/);
   });
 });

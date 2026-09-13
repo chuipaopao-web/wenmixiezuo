@@ -715,3 +715,23 @@ GLM可在指定隔离分支提交，Codex审查合入；本批不推送/部署�
 最新：A已验收；B1编号/版本/Repository/精确读取已通过Codex36项回归与API类型检查并合入本地（9f6f0d6c），尚未上线。B2后台路由/编辑审核/发布管理任务书已备，待老板手动触发，见第20节。不能以底座测试通过宣称B整体完成。下述A待执行为历史记录。
 
 2026-09-13已准备本地`.local/dispatch/inbox/task-209-a.md`，待老板在ZCode手动触发。A批仅只读核查与限定目录中的合成探针，禁止修改产品代码；结果写`.local/dispatch/outbox/task-209-a.result.md`。本批免建worktree，其余改动型批次仍需隔离。此前“未派GLM任务”记录为当时状态；当前为任务书已备、未执行、未验收。GLM不得因总规格存在直接执行B—F。
+
+
+### 20.2 B2实施记录（GLM实施，Codex待验收；2026-09-13两轮）
+
+首轮交付commit 9fde49ac；返修增量见结果报告。范围：迁移0123、CreativeReferenceAdminService（全部管理写入同事务含审计，故障回滚经触发器注入测试验证）、11+1个端点（新增冻结条目分页`GET /releases/:id/entries`）、用途父子筛选（method usageTree与reference facets.purposes）、管理台创作库页（关系显式编辑/悬空阻止/端点版本更新、脏表单保护、发布预览含关系变化）、功能台账新模块（15模块/71项）。未接AI检索、未导入旧库内容、未部署。
+
+证据入口：集成测试6项 + B1回归36项全绿；探针三反例复验；admin-console 97/98（唯AiWorkNodes基线既有）；typecheck/build通过；本地真实后台点击路径与截图`.local/dispatch/outbox/task-209-b2/screenshots/r2-*`（经独立视觉审查逐张核验）。
+
+已知边界：tsconfig.tests.json中time-machine两文件4处类型错误、闭包门禁roster-200/202、AiWorkNodes与bundle警告均为基线既有，未越界修改。详细差异与命令见`.local/dispatch/outbox/task-209-b2.result.md`。
+
+### 20.3 旧入口/旧供给依赖清单（按19.6第1条交付）
+
+| 旧入口/供给 | 实际引用 | 尚未替代能力 | 退出条件 |
+| --- | --- | --- | --- |
+| 分层方法/模式/配方静态库（`asset-view-model.ts`、`AuditedMethodsPage`、AssetAdminApp methods/patterns/recipes/planning/rhythm页签） | 后台“资产方法论”各旧页签与规划演示直接读取静态数据，无数据库写入 | 创作库已提供方法/参考卡管理闭环，但旧页签内容尚未迁移（编号/别名/版本映射未建） | C批核对迁移有效内容与编号别名；D/E切换运行供给后由Codex按模块删除旧页签与静态库 |
+| 旧开书资产供给（`rebuild/packages/agent-catalog`） | 开书/设定运行链仍从agent-catalog取资产菜单与方法档案 | 新库AI检索接入（D/E批）未开始，当前开书未使用新库（页面已明示） | D/E完成工具适配与执行循环切换，确认唯一权威写入后退出 |
+| 创意与金手指页（`CreativeAssetsPage`） | 后台独立页签，静态创意资产 | 与创作库参考卡语义重叠，待内容归并 | C批归并内容后随旧方法入口一并评估 |
+| 现有v7入口装配（`v7-server.ts`） | 创作库路由经现有入口注册；登录/权限沿用 | 非删除对象（19.6已界定）；如拆分入口须同步调用方/测试/构建/部署 | 长期架构决定，不属于B2—F批次清理范围 |
+
+B2未删除任何旧文件/数据/页签；上表为退出决策输入，实际切换与删除由Codex按19.6第3条执行。

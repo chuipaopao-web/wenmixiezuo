@@ -114,8 +114,9 @@ describe('B1第二次返修：审查五项', () => {
     // 退役卡review拒绝（repository直测——退役拦截在数据层规则）
     const fresh = await ctx.service.createCard({ payload: methodPayload({ name: '新卡' }), legacy: null, idempotencyKey: 't-b' }, manager, NOW);
     await ctx.service.setAvailability(fresh.internalId, 'retired', manager, NOW);
-    await expect(ctx.repository.reviewRevision({ internalId: fresh.internalId, expectedRevision: 1, reviewActor: reviewer.actorId }, NOW))
-      .rejects.toThrow(/退役/);
+    // 仓储为同步签名（R209-B2二次返修）：同步断言同一条退役拦截规则
+    expect(() => ctx.repository.reviewRevision({ internalId: fresh.internalId, expectedRevision: 1, reviewActor: reviewer.actorId }, NOW))
+      .toThrow(/退役/);
     // publish退役卡：正确的active预期下仍被退役拦截
     const active = await ctx.repository.getActiveRelease();
     await expect(ctx.service.publish([en(a)], [], manager, active === null ? null : active.releaseId, NOW)).rejects.toThrow(/退役/);
@@ -167,7 +168,7 @@ describe('B1第三次返修：真锁竞争屏障与release绑定游标', () => {
       return { child, stdout };
     };
     const hold = spawnAsync(['hold-key', 'hold']);
-    const killAll = () => { for (const c of [hold, tryP?.child].filter(Boolean)) { try { c.child.kill(); } catch { /* 已退出 */ } } };
+    const killAll = () => { for (const c of [hold.child, tryP?.child]) { if (c !== undefined) { try { c.kill(); } catch { /* 已退出 */ } } } };
     // 屏障1：等A真的持锁（读LOCKED信号，不靠启动/睡眠猜）
     const lockedAt = Date.now();
     while (!hold.stdout.some((l) => l.includes('"phase":"locked"'))) {
@@ -207,14 +208,20 @@ describe('B1第三次返修：真锁竞争屏障与release绑定游标', () => {
 
   it('双try进程并发创建：至少1成功、失败者锁冲突、编号互异且全库唯一', async () => {
     const ctx = setup();
+    // R209-B2三次返修：采集子进程真实stdout/stderr与退出码——历史偶发okCount=0（Codex记录）
+    // 因stderr被丢弃、无输出时折叠为'no-output'而无法定位阶段；现在失败时把原始证据附进断言。
     const spawnAsync = (key: string) => {
-      const child = spawn(process.execPath, [...NODE_ARGS, ctx.dbPath, key, 'try'], { stdio: ['ignore', 'pipe', 'ignore'] });
-      const done = new Promise<{ ok: boolean; displayCode?: string; error?: string }>((resolve) => {
+      const child = spawn(process.execPath, [...NODE_ARGS, ctx.dbPath, key, 'try'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const done = new Promise<{ ok: boolean; displayCode?: string; error?: string; exitCode: number | null; rawOut: string; rawErr: string }>((resolve) => {
         let out = '';
+        let err = '';
         child.stdout.on('data', (c) => { out += String(c); });
-        child.on('exit', () => {
+        child.stderr.on('data', (c) => { err += String(c); });
+        child.on('error', (spawnError) => resolve({ ok: false, error: `spawn:${String(spawnError)}`, exitCode: null, rawOut: out, rawErr: err + String(spawnError) }));
+        child.on('exit', (code) => {
           const line = out.trim().split('\n').filter((l) => l.includes('"phase":"done"')).pop();
-          resolve(line ? JSON.parse(line) : { ok: false, error: 'no-output' });
+          const parsed = line ? JSON.parse(line) as { ok: boolean; displayCode?: string; error?: string } : { ok: false, error: 'no-output' };
+          resolve({ ...parsed, exitCode: code, rawOut: out.trim().slice(0, 400), rawErr: err.trim().slice(0, 400) });
         });
       });
       return { child, done };
@@ -223,10 +230,13 @@ describe('B1第三次返修：真锁竞争屏障与release绑定游标', () => {
     const a = spawnAsync('dual-a');
     const b = spawnAsync('dual-b');
     const timeout = new Promise((_, rej) => setTimeout(() => { a.child.kill(); b.child.kill(); rej(new Error('双进程超时60秒')); }, 60_000));
-    const [ra, rb] = await Promise.race([Promise.all([a.done, b.done]), timeout]) as Array<{ ok: boolean; displayCode?: string; error?: string }>;
+    const results = await Promise.race([Promise.all([a.done, b.done]), timeout]) as Array<{ ok: boolean; displayCode?: string; error?: string; exitCode: number | null; rawOut: string; rawErr: string }>;
+    const ra = results[0]!;
+    const rb = results[1]!;
     const okCount = [ra, rb].filter((r) => r.ok).length;
-    expect(okCount).toBeGreaterThanOrEqual(1);
-    for (const r of [ra, rb]) if (!r.ok) expect(String(r.error)).toMatch(/busy|locked|conflict/i);
+    const evidence = JSON.stringify({ ra: { ok: ra.ok, error: ra.error, exitCode: ra.exitCode, rawOut: ra.rawOut, rawErr: ra.rawErr }, rb: { ok: rb.ok, error: rb.error, exitCode: rb.exitCode, rawOut: rb.rawOut, rawErr: rb.rawErr } });
+    expect(okCount, `双try偶发失败证据（stdout/stderr/exit）：${evidence}`).toBeGreaterThanOrEqual(1);
+    for (const r of [ra, rb]) if (!r.ok) expect(String(r.error), `失败worker原始输出：${JSON.stringify(r)}`).toMatch(/busy|locked|conflict/i);
     if (okCount === 2) expect(ra.displayCode).not.toBe(rb.displayCode);
     const all = ctx.database.prepare('SELECT display_code FROM creative_reference_cards').all() as Array<{ display_code: string }>;
     expect(new Set(all.map((r) => r.display_code)).size).toBe(all.length);

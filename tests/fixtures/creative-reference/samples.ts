@@ -21,10 +21,12 @@ export function methodPayload(overrides: Partial<{ name: string; shortPhrase: st
 
 /** 描述里故意不含"volume"等层级词，验证过滤按结构化字段而非全文LIKE。 */
 export function methodPayloadTrickyText(): CardPayload {
+  const base = methodPayload();
+  if (base.assetKind !== 'method') throw new Error('unreachable: methodPayload必为method');
   return {
-    ...methodPayload(),
+    ...base,
     summary: '备注：本方法不适用于volume以外的层级（此文字只为验证过滤不靠全文匹配）。',
-    method: { ...methodPayload().method, applicableLayers: ['chapter_execution'] }
+    method: { ...base.method, applicableLayers: ['chapter_execution'] }
   };
 }
 

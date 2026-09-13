@@ -4,7 +4,7 @@
  * 幂等保存不可变请求指纹；发布用canonical manifest+乐观锁；同实体多别名同编号。
  */
 import { createHash, randomUUID } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { ConflictError, CursorInvalidError, NotFoundError, ValidationError } from '../../../application/creative-reference/errors.js';
 import type {
   AdminListFilter, AdminListPage, CardAvailability, CardPayload, CardRecord,
@@ -12,8 +12,9 @@ import type {
 } from '../../../application/creative-reference/types.js';
 import { displayCodePrefix } from '../../../application/creative-reference/types.js';
 import { assertAssetKindMatches, validateLegacyRef, validatePayload } from '../../../application/creative-reference/validation.js';
+import { usageTreeTerms } from '../../../application/creative-reference/usage-tree.js';
 import type {
-  CreateCardInput, CreativeReferenceRepository, LegacyMappingEntry, PublishReleaseInput, ReviewInput, UpdateCardInput
+  CreateCardInput, CreativeReferenceRepository, LegacyMappingEntry, PublishReleaseInput, ReleaseEntriesCursor, ReleaseEntriesPage, ReviewInput, UpdateCardInput
 } from '../../../application/creative-reference/repository.js';
 
 interface CardRow {
@@ -72,12 +73,109 @@ function toRevision(row: RevisionRow): RevisionRecord {
 export class SqliteCreativeReferenceRepository implements CreativeReferenceRepository {
   public constructor(private readonly database: DatabaseSync) {}
 
-  public async createCard(input: CreateCardInput, now: string): Promise<CardRecord> {
+  /**
+   * 同步事务工作单元（R209-B2二/三次返修）：operation必须同步完成，禁止返回Promise。
+   * 正确性：BEGIN与COMMIT之间不存在await/微任务边界——Node单线程下其他请求不可能
+   * 在事务开启期间执行，独立请求不可能被并入未提交事务，也不存在跨请求回滚。
+   * 嵌套：同一同步调用栈内的runInTransaction调用并入外层（深度即调用栈深度）。
+   * 失败出口统一走abortTransaction：BEGIN失败在置位前抛出（实例状态不被污染）；
+   * 业务异常、异步操作、COMMIT异常（如DELETE journal下外部读锁造成的SQLITE_BUSY、
+   * 磁盘/IO错误）都先尝试ROLLBACK——提交失败绝不返回成功、绝不留depth=1假装嵌套；
+   * 回滚本身失败时置connectionBroken，该连接后续一切写入被拒绝，不再当健康连接误写。
+   */
+  private transactionDepth = 0;
+  private connectionBroken = false;
+
+  public runInTransaction<T>(operation: () => T): T {
+    this.assertConnectionWritable();
+    if (this.transactionDepth > 0) {
+      const nested = operation();
+      if (nested instanceof Promise) throw new Error('事务工作单元必须同步完成（嵌套层返回了Promise）。');
+      return nested;
+    }
+    this.database.exec('BEGIN IMMEDIATE');
+    this.transactionDepth = 1;
+    let result: T;
+    try {
+      result = operation();
+    } catch (error) {
+      throw this.abortTransaction(error);
+    }
+    if (result instanceof Promise) {
+      throw this.abortTransaction(new Error('事务工作单元必须同步完成，不接受含await的异步操作。'));
+    }
+    try {
+      this.database.exec('COMMIT');
+    } catch (commitError) {
+      // 提交失败：事务仍开启，绝不返回成功；必须回滚并复位，回滚失败则封锁连接。
+      throw this.abortTransaction(commitError);
+    }
+    this.transactionDepth = 0;
+    return result;
+  }
+
+  private assertConnectionWritable(): void {
+    if (this.connectionBroken) {
+      throw new Error('该连接此前事务回滚失败，已停止写入；需重建连接后再操作。');
+    }
+  }
+
+  /**
+   * 失败统一收口：ROLLBACK结束事务并复位depth；回滚失败时置connectionBroken并抛出
+   * 回滚错误（原错误作为cause），绝不静默清零让后续操作拼进未结束事务。
+   * 返回值恒为never（总是抛出原错误或封锁错误）。
+   */
+  private abortTransaction(original: unknown): never {
+    let rollbackError: unknown = null;
+    try {
+      this.database.exec('ROLLBACK');
+    } catch (error) {
+      rollbackError = error;
+    }
+    this.transactionDepth = 0;
+    if (rollbackError !== null) {
+      this.connectionBroken = true;
+      throw new Error(
+        `事务回滚失败（${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}），连接已停止写入；需重建连接。`,
+        { cause: original }
+      );
+    }
+    throw original;
+  }
+
+  private txBegin(): void {
+    this.assertConnectionWritable();
+    if (this.transactionDepth === 0) this.database.exec('BEGIN IMMEDIATE');
+  }
+
+  private txCommit(): void {
+    if (this.transactionDepth > 0) return; // 环境事务由外层工作单元负责提交
+    this.assertConnectionWritable();
+    try {
+      this.database.exec('COMMIT');
+    } catch (commitError) {
+      throw this.abortTransaction(commitError);
+    }
+  }
+
+  private txRollback(): void {
+    if (this.transactionDepth > 0) return; // 环境事务由外层工作单元负责回滚
+    if (this.connectionBroken) return;
+    try {
+      this.database.exec('ROLLBACK');
+    } catch (error) {
+      this.transactionDepth = 0;
+      this.connectionBroken = true;
+      throw new Error(`事务回滚失败（${error instanceof Error ? error.message : String(error)}），连接已停止写入；需重建连接。`);
+    }
+  }
+
+  public createCard(input: CreateCardInput, now: string): CardRecord {
     validatePayload(input.payload);
     if (input.legacy !== null) validateLegacyRef(input.legacy);
     const fingerprint = fingerprintCreate(input);
     // 幂等按不可变请求指纹：编辑卡不影响原create的重放判定。
-    const existing = await this.findByIdempotencyKey(input.assetKind, input.idempotencyKey);
+    const existing = this.findByIdempotencyKey(input.assetKind, input.idempotencyKey);
     if (existing !== null) {
       const saved = this.database.prepare('SELECT create_request_fingerprint FROM creative_reference_cards WHERE internal_id=?')
         .get(existing.internalId) as { create_request_fingerprint: string | null };
@@ -85,14 +183,14 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
       throw new ConflictError(`幂等键已用于不同内容：${input.idempotencyKey}`);
     }
     const internalId = randomUUID();
-    this.database.exec('BEGIN IMMEDIATE');
+    this.txBegin();
     try {
       // 事务内重检：并发同键竞态在这里落定，避免裸唯一约束误报。
       const raced = this.database.prepare('SELECT internal_id, create_request_fingerprint FROM creative_reference_cards WHERE asset_kind=? AND idempotency_key=?')
         .get(input.assetKind, input.idempotencyKey) as { internal_id: string; create_request_fingerprint: string | null } | undefined;
       if (raced !== undefined) {
-        this.database.exec('ROLLBACK');
-        if (raced.create_request_fingerprint === fingerprint) return (await this.findCardByInternalId(raced.internal_id))!;
+        this.txRollback();
+        if (raced.create_request_fingerprint === fingerprint) return (this.findCardByInternalId(raced.internal_id))!;
         throw new ConflictError(`幂等键已用于不同内容（并发）：${input.idempotencyKey}`);
       }
       const number = this.allocateNumber(input.assetKind);
@@ -110,10 +208,10 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
           input.legacy?.namespace ?? null, input.legacy?.key ?? null, this.aliasVersionValue(input.legacy?.version),
           1, 'draft', input.idempotencyKey, fingerprint, now, now);
       this.insertRevisionRow(revision);
-      this.database.exec('COMMIT');
-      return (await this.findCardByInternalId(internalId))!;
+      this.txCommit();
+      return (this.findCardByInternalId(internalId))!;
     } catch (error) {
-      try { this.database.exec('ROLLBACK'); } catch { /* 已回滚 */ }
+      this.txRollback();
       throw error;
     }
   }
@@ -134,21 +232,21 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
         revision.shortPhrase, revision.summary, revision.status, revision.authorActor, revision.reviewActor, revision.createdAt);
   }
 
-  public async findByIdempotencyKey(kind: 'method' | 'reference', key: string): Promise<CardRecord | null> {
+  public findByIdempotencyKey(kind: 'method' | 'reference', key: string): CardRecord | null {
     const row = this.database.prepare('SELECT * FROM creative_reference_cards WHERE asset_kind=? AND idempotency_key=?').get(kind, key) as CardRow | undefined;
     return row === undefined ? null : toCard(row);
   }
 
-  public async findCardByInternalId(internalId: string): Promise<CardRecord | null> {
+  public findCardByInternalId(internalId: string): CardRecord | null {
     const row = this.database.prepare('SELECT * FROM creative_reference_cards WHERE internal_id=?').get(internalId) as CardRow | undefined;
     return row === undefined ? null : toCard(row);
   }
 
-  public async findCardsByLegacy(legacy: LegacyRef): Promise<CardRecord[]> {
+  public findCardsByLegacy(legacy: LegacyRef): CardRecord[] {
     validateLegacyRef(legacy);
     const versionValue = this.aliasVersionValue(legacy.version);
     const main = this.database.prepare('SELECT * FROM creative_reference_cards WHERE legacy_namespace=? AND legacy_key=? AND legacy_version=?')
-      .all(legacy.namespace, legacy.key, versionValue) as CardRow[];
+      .all(legacy.namespace, legacy.key, versionValue) as unknown as CardRow[];
     const aliasRows = this.database.prepare('SELECT internal_id FROM creative_reference_aliases WHERE namespace=? AND alias_key=? AND alias_version=?')
       .all(legacy.namespace, legacy.key, versionValue) as Array<{ internal_id: string }>;
     const byId = new Map<string, CardRow>();
@@ -160,25 +258,25 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
     return [...byId.values()].map(toCard);
   }
 
-  public async findCardsByDisplayCode(code: string): Promise<CardRecord[]> {
-    const rows = this.database.prepare('SELECT * FROM creative_reference_cards WHERE display_code=?').all(code) as CardRow[];
+  public findCardsByDisplayCode(code: string): CardRecord[] {
+    const rows = this.database.prepare('SELECT * FROM creative_reference_cards WHERE display_code=?').all(code) as unknown as CardRow[];
     return rows.map(toCard);
   }
 
-  public async getRevision(internalId: string, revision: number): Promise<RevisionRecord | null> {
+  public getRevision(internalId: string, revision: number): RevisionRecord | null {
     const row = this.database.prepare('SELECT * FROM creative_reference_revisions WHERE internal_id=? AND revision=?').get(internalId, revision) as RevisionRow | undefined;
     return row === undefined ? null : toRevision(row);
   }
 
-  public async getCurrentRevision(internalId: string): Promise<RevisionRecord | null> {
-    const card = await this.findCardByInternalId(internalId);
+  public getCurrentRevision(internalId: string): RevisionRecord | null {
+    const card = this.findCardByInternalId(internalId);
     if (card === null || card.currentRevision === null) return null;
     return this.getRevision(internalId, card.currentRevision);
   }
 
-  public async updateCard(input: UpdateCardInput, now: string): Promise<RevisionRecord> {
+  public updateCard(input: UpdateCardInput, now: string): RevisionRecord {
     validatePayload(input.payload);
-    const card = await this.requireCard(input.internalId);
+    const card = this.requireCard(input.internalId);
     if (card.availability === 'retired') throw new ConflictError('已退役条目不能修改；退役不回收编号。');
     assertAssetKindMatches(input.payload, card.assetKind);
     if (card.currentRevision === null) throw new ConflictError('条目没有可更新的版本。');
@@ -190,24 +288,24 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
       shortPhrase: input.payload.shortPhrase, summary: input.payload.summary,
       status: 'draft', authorActor: input.actor, reviewActor: null, createdAt: now
     };
-    this.database.exec('BEGIN IMMEDIATE');
+    this.txBegin();
     try {
       const guard = this.database.prepare('UPDATE creative_reference_cards SET current_revision=?, status=?, updated_at=? WHERE internal_id=? AND current_revision=?')
         .run(next, 'draft', now, card.internalId, input.expectedRevision);
       if (guard.changes !== 1) throw new ConflictError(`并发更新冲突：期望revision ${input.expectedRevision}未命中。`);
       this.insertRevisionRow(revision);
-      this.database.exec('COMMIT');
+      this.txCommit();
       return revision;
     } catch (error) {
-      try { this.database.exec('ROLLBACK'); } catch { /* 已回滚 */ }
+      this.txRollback();
       throw error;
     }
   }
 
-  public async reviewRevision(input: ReviewInput, now: string): Promise<RevisionRecord> {
-    const revision = await this.getRevision(input.internalId, input.expectedRevision);
+  public reviewRevision(input: ReviewInput, now: string): RevisionRecord {
+    const revision = this.getRevision(input.internalId, input.expectedRevision);
     if (revision === null) throw new NotFoundError(`revision ${input.expectedRevision} 不存在。`);
-    const card = await this.requireCard(input.internalId);
+    const card = this.requireCard(input.internalId);
     if (card.availability === 'retired') throw new ConflictError('已退役条目不能审核（不允许隐式复活进新发布）。');
     if (revision.status === 'published') throw new ConflictError('已发布revision不可变更。');
     if (revision.status === 'reviewed') throw new ConflictError('该revision已审核。');
@@ -217,31 +315,31 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
     // 退役卡不允许隐式恢复：只有非退役卡才同步卡可用状态。
     this.database.prepare(`UPDATE creative_reference_cards SET status='reviewed', updated_at=? WHERE internal_id=? AND current_revision=? AND status <> 'retired'`)
       .run(now, input.internalId, input.expectedRevision);
-    return (await this.getRevision(input.internalId, input.expectedRevision))!;
+    return (this.getRevision(input.internalId, input.expectedRevision))!;
   }
 
   /** 卡可用状态独立于revision：retired只禁新选择，不动任何revision行。 */
-  public async setAvailability(internalId: string, availability: CardAvailability, now: string): Promise<CardRecord> {
-    const card = await this.requireCard(internalId);
+  public setAvailability(internalId: string, availability: CardAvailability, now: string): CardRecord {
+    const card = this.requireCard(internalId);
     if (card.availability === 'retired') throw new ConflictError('已退役条目不能变更可用状态。');
     this.database.prepare('UPDATE creative_reference_cards SET status=?, updated_at=? WHERE internal_id=?').run(availability, now, internalId);
-    return (await this.findCardByInternalId(internalId))!;
+    return (this.findCardByInternalId(internalId))!;
   }
 
-  private async requireCard(internalId: string): Promise<CardRecord> {
-    const card = await this.findCardByInternalId(internalId);
+  private requireCard(internalId: string): CardRecord {
+    const card = this.findCardByInternalId(internalId);
     if (card === null) throw new NotFoundError('条目不存在。');
     return card;
   }
 
-  public async listAdmin(filter: AdminListFilter): Promise<AdminListPage> {
+  public listAdmin(filter: AdminListFilter): AdminListPage {
     const fingerprint = this.filterFingerprint(filter);
     if (filter.cursor !== null && filter.cursor !== undefined && filter.cursor.filterFingerprint !== fingerprint) {
       throw new CursorInvalidError('分页cursor与当前过滤条件不匹配；请重新查询。');
     }
     // 用途/层级按目标revision的结构化字段过滤：join当前revision，JSON提取明确字段，不LIKE全文。
     const conditions: string[] = [];
-    const params: unknown[] = [];
+    const params: SQLInputValue[] = [];
     if (filter.assetKind !== undefined) { conditions.push('c.asset_kind=?'); params.push(filter.assetKind); }
     if (filter.availabilities !== undefined && filter.availabilities.length > 0) {
       conditions.push(`c.status IN (${filter.availabilities.map(() => '?').join(',')})`);
@@ -253,8 +351,12 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
       params.push(...filter.layers);
     }
     if (filter.usageTree !== undefined) {
-      conditions.push("json_extract(r.payload_json,'$.method.usageTree')=?");
-      params.push(filter.usageTree);
+      // 用途父子匹配（18.3）：method.usageTree命中主类或子类；reference.facets.purposes包含主类或子类。
+      const terms = usageTreeTerms(filter.usageTree);
+      const placeholders = terms.map(() => '?').join(',');
+      conditions.push(`((c.asset_kind='method' AND json_extract(r.payload_json,'$.method.usageTree') IN (${placeholders}))
+        OR (c.asset_kind='reference' AND EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(r.payload_json,'$.reference.facets.purposes'),'[]')) pe WHERE pe.value IN (${placeholders}))))`);
+      params.push(...terms, ...terms);
     }
     const cursorInternalId = filter.cursor === null || filter.cursor === undefined ? null : filter.cursor.lastInternalId;
     if (cursorInternalId !== null) { conditions.push('c.internal_id > ?'); params.push(cursorInternalId); }
@@ -262,7 +364,7 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
     const limit = Math.min(Math.max(filter.limit ?? 20, 1), 100);
     const rows = this.database.prepare(`SELECT c.* FROM creative_reference_cards c
       LEFT JOIN creative_reference_revisions r ON r.internal_id=c.internal_id AND r.revision=c.current_revision
-      ${where} ORDER BY c.internal_id ASC LIMIT ?`).all(...params, limit + 1) as CardRow[];
+      ${where} ORDER BY c.internal_id ASC LIMIT ?`).all(...params, limit + 1) as unknown as CardRow[];
     const hasMore = rows.length > limit;
     const items = rows.slice(0, limit).map(toCard);
     return { items, nextCursor: hasMore && items.length > 0 ? { lastInternalId: items[items.length - 1]!.internalId, filterFingerprint: fingerprint } : null };
@@ -277,7 +379,7 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
     });
   }
 
-  public async publishRelease(input: PublishReleaseInput, now: string): Promise<ReleaseSnapshot> {
+  public publishRelease(input: PublishReleaseInput, now: string): ReleaseSnapshot {
     if (input.entries.length === 0) throw new ValidationError('发布清单不能为空。');
     // 条目去重预检
     const seen = new Set<string>();
@@ -285,7 +387,7 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
       if (seen.has(entry.internalId)) throw new ValidationError(`清单条目重复：${entry.internalId}。`);
       seen.add(entry.internalId);
     }
-    this.database.exec('BEGIN IMMEDIATE');
+    this.txBegin();
     try {
       // 乐观锁：active指针必须匹配调用者显式提供的预期；不自动读取最新掩盖陈旧编辑。
       const active = this.database.prepare('SELECT release_id FROM creative_reference_releases WHERE active=1').get() as { release_id: string } | undefined;
@@ -294,11 +396,11 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
         throw new ConflictError(`active指针与预期不符：期望${input.expectedActiveReleaseId ?? '无active'}，实际${currentActiveId ?? '无active'}。`);
       }
       for (const entry of input.entries) {
-        const card = await this.findCardByInternalId(entry.internalId);
+        const card = this.findCardByInternalId(entry.internalId);
         if (card === null) throw new NotFoundError(`清单卡不存在：${entry.internalId}`);
         // 退役卡禁止进入新release（旧release冻结资格不受影响）。
         if (card.availability === 'retired') throw new ValidationError(`退役条目不能发布进新release：${card.displayCode}。`);
-        const rev = await this.getRevision(entry.internalId, entry.revision);
+        const rev = this.getRevision(entry.internalId, entry.revision);
         if (rev === null) throw new NotFoundError(`清单引用不存在：${entry.internalId}@${entry.revision}`);
         // reviewed=首次发布；published=已发布内容进入新release（合法重发布）。draft不可发布。
         if (rev.status !== 'reviewed' && rev.status !== 'published') {
@@ -345,23 +447,23 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
       }
       this.database.prepare(`INSERT INTO creative_reference_releases(release_id, canonical_manifest, manifest_hash, manifest_json, active, created_at, published_by)
         VALUES (?,?,?,?,?,?,?)`).run(releaseId, canonicalJson, manifestHash, canonicalJson, 1, now, input.publishedBy);
-      this.database.exec('COMMIT');
+      this.txCommit();
       return { releaseId, manifestHash, entries: canonicalEntries, relations: canonicalRelations, active: true, createdAt: now, publishedBy: input.publishedBy };
     } catch (error) {
-      try { this.database.exec('ROLLBACK'); } catch { /* 已回滚 */ }
+      this.txRollback();
       throw error;
     }
   }
 
-  public async getActiveRelease(): Promise<ReleaseSnapshot | null> {
+  public getActiveRelease(): ReleaseSnapshot | null {
     return this.releaseByWhere('SELECT * FROM creative_reference_releases WHERE active=1');
   }
 
-  public async getRelease(releaseId: string): Promise<ReleaseSnapshot | null> {
+  public getRelease(releaseId: string): ReleaseSnapshot | null {
     return this.releaseByWhere('SELECT * FROM creative_reference_releases WHERE release_id=?', releaseId);
   }
 
-  private async releaseByWhere(sql: string, ...params: unknown[]): Promise<ReleaseSnapshot | null> {
+  private releaseByWhere(sql: string, ...params: SQLInputValue[]): ReleaseSnapshot | null {
     const row = this.database.prepare(sql).get(...params) as { release_id: string; manifest_hash: string; manifest_json: string; active: 0 | 1; created_at: string; published_by: string } | undefined;
     if (row === undefined) return null;
     const manifest = JSON.parse(row.manifest_json) as {
@@ -371,17 +473,17 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
     return { releaseId: row.release_id, manifestHash: row.manifest_hash, entries: manifest.entries, relations: manifest.relations, active: row.active === 1, createdAt: row.created_at, publishedBy: row.published_by };
   }
 
-  public async getRevisionInRelease(releaseId: string, internalId: string): Promise<RevisionRecord | null> {
-    const release = await this.getRelease(releaseId);
+  public getRevisionInRelease(releaseId: string, internalId: string): RevisionRecord | null {
+    const release = this.getRelease(releaseId);
     if (release === null) return null;
     const entry = release.entries.find((item) => item.internalId === internalId);
     if (entry === undefined) return null;
-    const revision = await this.getRevision(internalId, entry.revision);
+    const revision = this.getRevision(internalId, entry.revision);
     // 冻结资格只看发布时状态快照：清单内revision即使后续卡被retired，其发布身份保留（发布时不可能是非published以外状态后又被改，因为published不可变）。
     return revision;
   }
 
-  public async listRelationsInRelease(releaseId: string): Promise<RelationRecord[]> {
+  public listRelationsInRelease(releaseId: string): RelationRecord[] {
     const rows = this.database.prepare(`SELECT r.* FROM creative_reference_relations r
       JOIN creative_reference_release_relations rr ON rr.relation_id=r.relation_id
       WHERE rr.release_id=?`).all(releaseId) as Array<{ relation_id: string; from_id: string; from_revision: number; to_id: string; to_revision: number; relation_type: RelationRecord['relationType']; created_at: string }>;
@@ -392,9 +494,9 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
    * 冻结release分页：manifest条目序（internalId排序）遍历。
    * 游标带releaseId与可选过滤指纹：跨release/带指纹游标本接口拒绝；末页nextCursor=null。
    */
-  public async listReleaseEntries(releaseId: string, cursor: ReleaseEntriesCursor | null, limit: number): Promise<ReleaseEntriesPage> {
+  public listReleaseEntries(releaseId: string, cursor: ReleaseEntriesCursor | null, limit: number): ReleaseEntriesPage {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new ValidationError('limit必须在1至100之间。');
-    const release = await this.getRelease(releaseId);
+    const release = this.getRelease(releaseId);
     if (release === null) throw new NotFoundError(`release不存在：${releaseId}。`);
     if (cursor !== null) {
       if (cursor.releaseId !== releaseId) {
@@ -415,7 +517,7 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
     };
   }
 
-  public async listRelations(cardId: string): Promise<RelationRecord[]> {
+  public listRelations(cardId: string): RelationRecord[] {
     const rows = this.database.prepare('SELECT * FROM creative_reference_relations WHERE from_id=? OR to_id=? ORDER BY created_at').all(cardId, cardId) as Array<{ relation_id: string; from_id: string; from_revision: number; to_id: string; to_revision: number; relation_type: RelationRecord['relationType']; created_at: string }>;
     return rows.map((row) => ({ relationId: row.relation_id, fromId: row.from_id, fromRevision: row.from_revision, toId: row.to_id, toRevision: row.to_revision, relationType: row.relation_type, createdAt: row.created_at }));
   }
@@ -425,8 +527,8 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
     return version ?? 0;
   }
 
-  public async attachAlias(internalId: string, legacy: LegacyRef, sourceView: string, now: string): Promise<void> {
-    await this.requireCard(internalId);
+  public attachAlias(internalId: string, legacy: LegacyRef, sourceView: string, now: string): void {
+    this.requireCard(internalId);
     validateLegacyRef(legacy);
     const versionValue = this.aliasVersionValue(legacy.version);
     const existing = this.database.prepare('SELECT internal_id FROM creative_reference_aliases WHERE namespace=? AND alias_key=? AND alias_version=?')
@@ -442,28 +544,28 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
       VALUES (?,?,?,?,?,?,?)`).run(randomUUID(), internalId, legacy.namespace, legacy.key, versionValue, sourceView, now);
   }
 
-  public async listAliases(internalId: string): Promise<Array<{ legacy: LegacyRef; sourceView: string }>> {
-    const rows = this.database.prepare('SELECT namespace, alias_key, alias_version, source_view FROM creative_reference_aliases WHERE internal_id=?').all(internalId) as AliasRow[];
+  public listAliases(internalId: string): Array<{ legacy: LegacyRef; sourceView: string }> {
+    const rows = this.database.prepare('SELECT namespace, alias_key, alias_version, source_view FROM creative_reference_aliases WHERE internal_id=?').all(internalId) as unknown as AliasRow[];
     return rows.map((row) => ({ legacy: { namespace: row.namespace, key: row.alias_key, ...(row.alias_version === 0 || row.alias_version === null ? {} : { version: row.alias_version }) }, sourceView: row.source_view }));
   }
 
-  public async importLegacyMapping(entries: ReadonlyArray<LegacyMappingEntry>, idempotencyPrefix: string, actor: string, now: string): Promise<CardRecord[]> {
+  public importLegacyMapping(entries: ReadonlyArray<LegacyMappingEntry>, idempotencyPrefix: string, actor: string, now: string): CardRecord[] {
     const result: CardRecord[] = [];
     for (const entry of entries) {
       if (entry.canonicalInternalId !== undefined) {
         // 显式canonical：别名挂到既有目标卡，不建新卡不占新号。
         // attachAlias内部做目标冲突检测：同目标=幂等，异目标=ConflictError（返回值与重新读取一致）。
-        await this.attachAlias(entry.canonicalInternalId, entry.legacy, entry.sourceView, now);
-        result.push((await this.findCardByInternalId(entry.canonicalInternalId))!);
+        this.attachAlias(entry.canonicalInternalId, entry.legacy, entry.sourceView, now);
+        result.push((this.findCardByInternalId(entry.canonicalInternalId))!);
         continue;
       }
       // 无canonical：建卡后挂alias（attachAlias自带幂等/冲突语义；同alias已挂他卡时此处报冲突）。
       const idempotencyKey = `${idempotencyPrefix}:${entry.sourceView}:${entry.legacy.namespace}:${entry.legacy.key}`;
-      const card = await this.createCard(
+      const card = this.createCard(
         { assetKind: entry.payload.assetKind, payload: entry.payload, legacy: null, idempotencyKey, authorActor: actor },
         now
       );
-      await this.attachAlias(card.internalId, entry.legacy, entry.sourceView, now);
+      this.attachAlias(card.internalId, entry.legacy, entry.sourceView, now);
       result.push(card);
     }
     return result;
