@@ -74,15 +74,20 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
   public constructor(private readonly database: DatabaseSync) {}
 
   /**
-   * 同步事务工作单元（R209-B2二次返修）：operation必须同步完成，禁止返回Promise。
+   * 同步事务工作单元（R209-B2二/三次返修）：operation必须同步完成，禁止返回Promise。
    * 正确性：BEGIN与COMMIT之间不存在await/微任务边界——Node单线程下其他请求不可能
    * 在事务开启期间执行，独立请求不可能被并入未提交事务，也不存在跨请求回滚。
    * 嵌套：同一同步调用栈内的runInTransaction调用并入外层（深度即调用栈深度）。
-   * BEGIN失败在置位前抛出（实例状态不被污染），业务失败整体ROLLBACK。
+   * 失败出口统一走abortTransaction：BEGIN失败在置位前抛出（实例状态不被污染）；
+   * 业务异常、异步操作、COMMIT异常（如DELETE journal下外部读锁造成的SQLITE_BUSY、
+   * 磁盘/IO错误）都先尝试ROLLBACK——提交失败绝不返回成功、绝不留depth=1假装嵌套；
+   * 回滚本身失败时置connectionBroken，该连接后续一切写入被拒绝，不再当健康连接误写。
    */
   private transactionDepth = 0;
+  private connectionBroken = false;
 
   public runInTransaction<T>(operation: () => T): T {
+    this.assertConnectionWritable();
     if (this.transactionDepth > 0) {
       const nested = operation();
       if (nested instanceof Promise) throw new Error('事务工作单元必须同步完成（嵌套层返回了Promise）。');
@@ -94,23 +99,76 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
     try {
       result = operation();
     } catch (error) {
-      this.transactionDepth = 0;
-      try { this.database.exec('ROLLBACK'); } catch { /* 已回滚 */ }
-      throw error;
+      throw this.abortTransaction(error);
     }
     if (result instanceof Promise) {
-      this.transactionDepth = 0;
-      try { this.database.exec('ROLLBACK'); } catch { /* 已回滚 */ }
-      throw new Error('事务工作单元必须同步完成，不接受含await的异步操作。');
+      throw this.abortTransaction(new Error('事务工作单元必须同步完成，不接受含await的异步操作。'));
     }
-    this.database.exec('COMMIT');
+    try {
+      this.database.exec('COMMIT');
+    } catch (commitError) {
+      // 提交失败：事务仍开启，绝不返回成功；必须回滚并复位，回滚失败则封锁连接。
+      throw this.abortTransaction(commitError);
+    }
     this.transactionDepth = 0;
     return result;
   }
 
-  private txBegin(): void { if (this.transactionDepth === 0) this.database.exec('BEGIN IMMEDIATE'); }
-  private txCommit(): void { if (this.transactionDepth === 0) this.database.exec('COMMIT'); }
-  private txRollback(): void { if (this.transactionDepth === 0) { try { this.database.exec('ROLLBACK'); } catch { /* 已回滚 */ } } }
+  private assertConnectionWritable(): void {
+    if (this.connectionBroken) {
+      throw new Error('该连接此前事务回滚失败，已停止写入；需重建连接后再操作。');
+    }
+  }
+
+  /**
+   * 失败统一收口：ROLLBACK结束事务并复位depth；回滚失败时置connectionBroken并抛出
+   * 回滚错误（原错误作为cause），绝不静默清零让后续操作拼进未结束事务。
+   * 返回值恒为never（总是抛出原错误或封锁错误）。
+   */
+  private abortTransaction(original: unknown): never {
+    let rollbackError: unknown = null;
+    try {
+      this.database.exec('ROLLBACK');
+    } catch (error) {
+      rollbackError = error;
+    }
+    this.transactionDepth = 0;
+    if (rollbackError !== null) {
+      this.connectionBroken = true;
+      throw new Error(
+        `事务回滚失败（${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}），连接已停止写入；需重建连接。`,
+        { cause: original }
+      );
+    }
+    throw original;
+  }
+
+  private txBegin(): void {
+    this.assertConnectionWritable();
+    if (this.transactionDepth === 0) this.database.exec('BEGIN IMMEDIATE');
+  }
+
+  private txCommit(): void {
+    if (this.transactionDepth > 0) return; // 环境事务由外层工作单元负责提交
+    this.assertConnectionWritable();
+    try {
+      this.database.exec('COMMIT');
+    } catch (commitError) {
+      throw this.abortTransaction(commitError);
+    }
+  }
+
+  private txRollback(): void {
+    if (this.transactionDepth > 0) return; // 环境事务由外层工作单元负责回滚
+    if (this.connectionBroken) return;
+    try {
+      this.database.exec('ROLLBACK');
+    } catch (error) {
+      this.transactionDepth = 0;
+      this.connectionBroken = true;
+      throw new Error(`事务回滚失败（${error instanceof Error ? error.message : String(error)}），连接已停止写入；需重建连接。`);
+    }
+  }
 
   public createCard(input: CreateCardInput, now: string): CardRecord {
     validatePayload(input.payload);

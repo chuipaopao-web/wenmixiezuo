@@ -606,4 +606,58 @@ describe('creative-reference admin routes', () => {
       c.close();
     }
   }, 60_000);
+
+  it('COMMIT failure recovery: first unit fails without residue, same-instance retry persists, other connection reads it; rollback failure blocks connection', () => {
+    const c = createTestContext('b2-commit-');
+    try {
+      // 与Codex探针同法：DELETE journal + 短busy_timeout，第二连接持读锁使COMMIT得到SQLITE_BUSY。
+      // 生产WAL下同路径对应磁盘/IO等提交错误，恢复逻辑相同。
+      c.database.exec('PRAGMA journal_mode=DELETE; PRAGMA busy_timeout=10;');
+      c.database.exec('CREATE TABLE commit_marker(n INTEGER)');
+      const repo = new SqliteCreativeReferenceRepository(c.database);
+      const other = new DatabaseSync(c.config.databasePath);
+      try {
+        other.exec('BEGIN');
+        other.prepare('SELECT * FROM commit_marker').all();
+
+        // 首次工作单元：COMMIT被读锁阻塞 → 必须抛错（不得返回成功），且写入回滚无残留
+        let commitError: string | null = null;
+        try {
+          repo.runInTransaction(() => { c.database.exec('INSERT INTO commit_marker VALUES(1)'); });
+        } catch (error) {
+          commitError = error instanceof Error ? error.message : String(error);
+        }
+        expect(commitError).toMatch(/locked|busy/i);
+        expect((c.database.prepare('SELECT COUNT(*) n FROM commit_marker').get() as { n: number }).n).toBe(0);
+
+        // 释放读锁：同一实例重试 → 成功提交
+        other.exec('ROLLBACK');
+        repo.runInTransaction(() => { c.database.exec('INSERT INTO commit_marker VALUES(2)'); });
+
+        // 独立连接可读且无首笔残留（旧缺陷：外部连接被遗留未提交事务锁死）
+        const outside = other.prepare('SELECT n FROM commit_marker ORDER BY n').all() as Array<{ n: number }>;
+        expect(outside).toEqual([{ n: 2 }]);
+      } finally {
+        other.close();
+      }
+
+      // 操作异常恢复：单元内抛错→回滚→同实例继续可用
+      expect(() => repo.runInTransaction(() => { throw new Error('操作失败'); })).toThrow('操作失败');
+      repo.runInTransaction(() => { c.database.exec('INSERT INTO commit_marker VALUES(3)'); });
+      expect((c.database.prepare('SELECT COUNT(*) n FROM commit_marker').get() as { n: number }).n).toBe(2);
+
+      // 回滚自身失败（操作内关闭底层连接使ROLLBACK报错）→ 连接被封锁，后续写入拒绝
+      const brokenContext = createTestContext('b2-broken-');
+      try {
+        const brokenRepo = new SqliteCreativeReferenceRepository(brokenContext.database);
+        expect(() => brokenRepo.runInTransaction(() => { brokenContext.database.close(); throw new Error('boom'); })).toThrow(/回滚失败|停止写入/);
+        expect(() => brokenRepo.runInTransaction(() => 'x')).toThrow(/停止写入/);
+      } finally {
+        try { brokenContext.database.close(); } catch { /* 已在测试中关闭 */ }
+        rmSync(brokenContext.root, { force: true, recursive: true });
+      }
+    } finally {
+      c.close();
+    }
+  }, 60_000);
 });
