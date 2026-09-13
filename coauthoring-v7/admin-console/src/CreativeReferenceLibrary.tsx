@@ -26,7 +26,7 @@ const stageLabel=(key:string)=>CREATIVE_LAYER_OPTIONS.find(x=>x.key===key)?.labe
 
 export const CREATIVE_LAYER_OPTIONS = [
   { key:'opening',label:'开书' }, { key:'setting',label:'设定' }, { key:'book',label:'时光机（全书与分卷）' },
-  { key:'volume',label:'卷设计' }, { key:'chain',label:'链设计' }, { key:'chapter',label:'章纲' }, { key:'prose',label:'正文' }
+  { key:'volume',label:'卷设计' }, { key:'chain',label:'链故事设计' }, { key:'chain_chapters',label:'链页面·链分章' }, { key:'chapter',label:'章纲' }, { key:'prose',label:'正文' }
 ] as const;
 
 export const CREATIVE_AVAILABILITY_LABELS: Record<CreativeAvailability, string> = {

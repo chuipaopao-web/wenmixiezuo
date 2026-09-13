@@ -1,5 +1,11 @@
 # R209 创作库内容整理与导入
 
+## C6：独立链分章节奏卡
+
+最新要求恢复C5修改的33张原卡；按原宏观/情绪节奏另建32张独立卡，自动分配新编号并在边界中记录来源法号。`build-chain-variants.mjs`构建冻结计划`generated/chain-variants.json`，`apply-chain-variants.mjs <source> <db> <plan> <review> preview|apply`按原版本、活动发布与审核hash校验，同事务恢复/新增/审核/发布；重复执行不再分配编号。审核证据在`evidence/r209-c6/review.json`，原C4内容复用已通过hash，新卡独立GLM5.3审核。
+
+新卡重点阶段仅`chain_chapters`，后台显示“链页面·链分章”。运行时chain不再注入余韵检查，只有明确chain_chapters才注入；book/volume/chain/chapter/prose即使开启条件检索也不能查到新卡。余韵0—3章，最多3章，可不写，已在结果章收束不另加章；计入余韵安排的章节合计不得超过3章。方法不规定固定比例，也不强制各方震惊。未开发的链分章页面未来须按该阶段调用，并对结构化章纲的余韵章数执行0—3硬校验；本批不冒充已开发该页面。
+
 ## C5：余韵检查仅用于链（2026-09-14）
 
 `chain-rhythm.mjs`定义本次修订，`generated/chain-rhythm.json`绑定C4正式版本与33项原卡。法012改为“开端—推进—兑现—余韵扩散”，仅chain；其他宏观/情绪节奏保留原结构，链设计统一检查兑现与余韵。专门的“兑现与余韵”“让余韵带出行动”退出book/volume供给。章节或正文可落实已设计影响，但不新增链检查以外的强制检查。

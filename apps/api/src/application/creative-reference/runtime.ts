@@ -3,11 +3,11 @@ import type {DatabaseSync} from 'node:sqlite';
 import {SqliteCreativeReferenceRepository} from '../../infrastructure/db/repositories/creative-reference-repository.js';
 import type {CardPayload} from './types.js';
 
-export const CREATIVE_PROMPT_REVISION='creative-r209-c5';
+export const CREATIVE_PROMPT_REVISION='creative-r209-c6';
 export const CREATIVE_DESIGN_GUIDANCE=`理解作者方向后设计，未提及不等于禁止。“不要求/不强制X”表示可选，绝不能改写成“禁止/不写X”；本方案主动选择与作者硬限制分开。参考和本次方法用法都是软参考，不是本书事实或必须执行的模板，用法有误应先修正。职业和开局是入口，不限制全书只能重复同类任务。结合题材、人物追求与选择，设计具体吸引力、关系与回报；不强塞爱情、争霸、创伤或牺牲。快速建立期待不等于固定间隔打脸或每章高潮。输出前自行核查并修正作者原意、事实来源、人物动机、因果、期待与承接；本轮新设计的性格不能在自检中冒充已确认设定。只提交当前任务结果，不输出思维链。`;
-export const CHAIN_PAYOFF_GUIDANCE='链设计完成后，无论采用哪种节奏，都检查：建立的期待兑现了什么；当事人如何感受收益、损失或变化；相关人物、关系、生活或利益受到什么影响；情绪落地后如何及时收束和承接。避免新危机过早冲淡结果，也避免重复感叹。重大损失保留真实后果与人物自己的诉求。只表现相关影响，不强制各方震惊、独立余韵章、固定篇幅或统一四段结构。';
-export function creativeGuidance(stage?:Stage):string{return CREATIVE_DESIGN_GUIDANCE+(stage==='chain'?'\n兑现与余韵检查（仅链设计）：'+CHAIN_PAYOFF_GUIDANCE:'');}
-type Stage='opening'|'setting'|'book'|'volume'|'chain'|'chapter'|'prose';
+export const CHAIN_PAYOFF_GUIDANCE='仅在链页面把本链分成章时使用。保留所选节奏的结构，检查期待兑现、当事人反应、相关人物/关系/利益的影响及及时收束。余韵安排0—3章，最多3章，可以不写；已在高潮或结果章完成收束就不额外安排。不要凑满3章，不强制各方震惊或把所有节奏改成四段。计入余韵安排的章节合计不得超过3章，必要时可在章内以短场景完成。长期影响融入后续正常剧情，不以余韵名义延长。';
+export function creativeGuidance(stage?:Stage):string{return CREATIVE_DESIGN_GUIDANCE+(stage==='chain_chapters'?'\n兑现与余韵检查（链页面·链分章）：'+CHAIN_PAYOFF_GUIDANCE:'');}
+type Stage='opening'|'setting'|'book'|'volume'|'chain'|'chain_chapters'|'chapter'|'prose';
 interface Entry {id:string;internalId:string;revision:number;hash:string;payload:CardPayload}
 interface SessionRow {source_hash:string;release_id:string;stage:string;snapshot_json:string;result_json:string|null}
 export interface CreativeSessionInput {ownerId:string;bookId:string;sessionId:string;stage:Stage;source:string;releaseId?:string|null}
@@ -19,7 +19,7 @@ function stages(e:Entry):readonly string[]{return e.payload.assetKind==='method'
 function detail(e:Entry,stage:Stage):unknown{
  if(e.payload.assetKind!=='method')return {id:e.id,revision:e.revision,hash:e.hash,...e.payload};
  const m=e.payload.method;
- const boundary=stage==='chain'?m.boundary:m.boundary.split('\n').filter(line=>!line.startsWith('仅链设计检查：')).join('\n');
+ const boundary=stage==='chain_chapters'?m.boundary:m.boundary.split('\n').filter(line=>!line.startsWith('仅链设计检查：')).join('\n');
  return {id:e.id,revision:e.revision,hash:e.hash,name:e.payload.name,summary:e.payload.summary,instruction:m.instruction,boundary,primaryStages:m.applicableLayers,conditionalUse:m.conditionalUses?.filter(c=>c.stage===stage)??[]};
 }
 /** Tool actions are executed here, never inferred from a model's claim to have searched. */
