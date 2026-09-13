@@ -675,6 +675,19 @@ GLM本任务默认不部署、不触碰生产数据；老板对Codex的持续安
 
 ### 19.6 当前派工状态
 
-最新：A已在第二次返修后经Codex验收通过，限定本地合成引擎与源码盘点。B拆为B1编号/版本/Repository/精确读取（任务书已备，未执行）和B2后台路由/编辑审核/发布管理（尚未派单）。B1具体白名单见`.local/dispatch/inbox/task-209-b1.md`，不以底座测试通过宣称B整体完成。下述A待执行为历史记录。
+最新：A已通过二次返修验收；B1（编号/版本/Repository/精确读取/发布幂等底座）已由Codex三轮返修后验收合入（merge 9f6f0d6c）；B2（后台路由/编辑审核/发布管理界面）已于2026-09-13在隔离工作树执行完毕并交付报告至`.local/dispatch/outbox/task-209-b2.result.md`，等待Codex验收，未部署。不以B1底座或B2交付宣称B整体完成；C—F未开始，GLM不得因总规格存在直接执行C—F。
 
 2026-09-13已准备本地`.local/dispatch/inbox/task-209-a.md`，待老板在ZCode手动触发。A批仅只读核查与限定目录中的合成探针，禁止修改产品代码；结果写`.local/dispatch/outbox/task-209-a.result.md`。本批免建worktree，其余改动型批次仍需隔离。此前“未派GLM任务”记录为当时状态；当前为任务书已备、未执行、未验收。GLM不得因总规格存在直接执行B—F。
+
+## 20. B1/B2实施记录与证据入口（2026-09-13）
+
+### 20.1 B1（已验收合入）
+
+稳定编号（法/参前缀+事务计数器）、revision不可变版本链（draft→reviewed→published）、Repository接口与SQLite适配、精确读取（displayCode/legacy/internalId，歧义返回候选）、幂等创建指纹、发布乐观锁与冻结release分页。36项测试五文件全绿后由Codex验收合入（merge 9f6f0d6c）。
+
+### 20.2 B2（GLM实施，Codex待验收）
+
+- 范围：迁移0123（管理审计+发布请求幂等表）、CreativeReferenceAdminRepository、11个`/api/v1/admin/creative-reference/*`端点（服务端筛选+绑定游标分页、lookup精确404/歧义409、详情含审计与别名、建卡幂等、expectedRevision草稿、人工审核留意见、退役/恢复带并发防护、完整manifest发布+幂等键、发布历史与冻结清单）、管理台“资产方法论→创作库”页面（列表筛选、类型化表单编辑、字段级版本对比、发布预览/确认/历史）、功能台账新模块（15模块/71项，门禁计数同步）。未接AI检索、未导入旧库内容、未上线生产；“库已发布”仅表示后续批次可接入读取。
+- 证据：集成测试`tests/integration/security/creative-reference-admin.test.ts`3项全绿；B1五文件36项复跑全绿；API typecheck与tests类型检查（创作库相关清零）；admin-console 94/95（唯一失败AiWorkNodes为基线既有，主树同现）；vite build通过；能力门禁与闭包门禁中创作库全部入列；本地浏览器1440/390十二张截图存`.local/dispatch/outbox/task-209-b2/screenshots/`（每张截图前有对应DOM状态断言：列表编号、筛选命中、徽章、预览计数、错误文案、390无横向滚动）。
+- 已知边界：tsconfig.tests.json中time-machine两文件4处类型错误与闭包门禁roster-200/202两项为基线既有，非本批引入，未越界修改；B1合入时遗留的仓储类型错误与测试类型错误已在本批一并修复；退役卡在活动清单内时整库重发会被服务端拒绝（截图08验证），管理员需按提示显式移除后发布。
+- 详细差异、命令与未验证项见`.local/dispatch/outbox/task-209-b2.result.md`。

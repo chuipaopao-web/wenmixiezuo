@@ -115,7 +115,7 @@ describe('B1r 精确查询与过滤（返修）', () => {
     await ctx.service.reviewRevision(a.internalId, 1, reviewer, NOW);
     const r1 = await ctx.service.publish([{ internalId: a.internalId, revision: 1 }], [], manager, null, NOW);
     // 新revision（draft）：不进旧release
-    await ctx.service.updateCard({ internalId: a.internalId, expectedRevision: 1, payload: methodPayload({ name: '第2版' }) }, manager, NOW);
+    await ctx.service.updateCard({ internalId: a.internalId, expectedRevision: 1, payload: methodPayload({ name: '第2版' }), actor: 'm1' }, manager, NOW);
     const projection = await ctx.service.memberProject({ by: 'displayCode', displayCode: a.displayCode }, r1.releaseId, 'citation', member);
     expect(projection.revision).toBe(1);
     // 卡回到draft后release读取不受影响（冻结资格只看release清单）
@@ -137,14 +137,16 @@ describe('B1r 精确查询与过滤（返修）', () => {
     if (digest.tier === 'digest') expect(digest.applicableLayers).toEqual(['book_backbone', 'volume']);
     const detail = project(revision, 'detail');
     expect(detail.tier).toBe('detail');
-    if (detail.tier === 'detail') {
+    if (detail.tier === 'detail' && detail.payload.assetKind === 'method') {
       // 适用条件保留在详情投影
       expect(detail.payload.method.boundary).toContain('关键转向');
       expect(detail.payload.method.usageTree).toBe('结构与节奏');
     }
+    const hugeBase = methodPayload();
+    if (hugeBase.assetKind !== 'method') throw new Error('unreachable: methodPayload必为method');
     const huge: RevisionRecord = {
       ...revision,
-      payload: { ...methodPayload(), summary: '长'.repeat(200), method: { ...methodPayload().method, instruction: '细'.repeat(800) } }
+      payload: { ...hugeBase, summary: '长'.repeat(200), method: { ...hugeBase.method, instruction: '细'.repeat(800) } }
     };
     expect(() => project(huge, 'detail')).toThrow(BudgetError);
   });
@@ -159,7 +161,7 @@ describe('B1r 精确查询与过滤（返修）', () => {
   it('按internalId/displayCode/legacy+revision精确读取；不存在编号不近似匹配', async () => {
     const ctx = setup();
     const card = await ctx.service.createCard({ payload: methodPayload(), legacy: { namespace: 'n', key: 'k1' }, idempotencyKey: 'q-1' }, manager, NOW);
-    await ctx.service.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '第2版名' }) }, manager, NOW);
+    await ctx.service.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '第2版名' }), actor: 'm1' }, manager, NOW);
     const byId = await ctx.service.adminReadExact({ by: 'internalId', internalId: card.internalId }, { revision: 1 }, manager);
     expect(byId.outcome).toBe('found');
     if (byId.outcome === 'found') expect(byId.revision.payload.name).toBe('起承转合');

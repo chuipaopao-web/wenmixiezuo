@@ -167,7 +167,7 @@ describe('B1第三次返修：真锁竞争屏障与release绑定游标', () => {
       return { child, stdout };
     };
     const hold = spawnAsync(['hold-key', 'hold']);
-    const killAll = () => { for (const c of [hold, tryP?.child].filter(Boolean)) { try { c.child.kill(); } catch { /* 已退出 */ } } };
+    const killAll = () => { for (const c of [hold.child, tryP?.child]) { if (c !== undefined) { try { c.kill(); } catch { /* 已退出 */ } } } };
     // 屏障1：等A真的持锁（读LOCKED信号，不靠启动/睡眠猜）
     const lockedAt = Date.now();
     while (!hold.stdout.some((l) => l.includes('"phase":"locked"'))) {
@@ -223,7 +223,9 @@ describe('B1第三次返修：真锁竞争屏障与release绑定游标', () => {
     const a = spawnAsync('dual-a');
     const b = spawnAsync('dual-b');
     const timeout = new Promise((_, rej) => setTimeout(() => { a.child.kill(); b.child.kill(); rej(new Error('双进程超时60秒')); }, 60_000));
-    const [ra, rb] = await Promise.race([Promise.all([a.done, b.done]), timeout]) as Array<{ ok: boolean; displayCode?: string; error?: string }>;
+    const results = await Promise.race([Promise.all([a.done, b.done]), timeout]) as Array<{ ok: boolean; displayCode?: string; error?: string }>;
+    const ra = results[0]!;
+    const rb = results[1]!;
     const okCount = [ra, rb].filter((r) => r.ok).length;
     expect(okCount).toBeGreaterThanOrEqual(1);
     for (const r of [ra, rb]) if (!r.ok) expect(String(r.error)).toMatch(/busy|locked|conflict/i);

@@ -22,8 +22,9 @@ assertFrozen('清理前上一生产基线', V7_CUTOVER_PREVIOUS_PRODUCTION_IDS, 
 assertFrozen('清理前稳定基线', V7_CUTOVER_STABLE_BASELINE_IDS, 73, V7_CUTOVER_BASELINE_HASHES.stableBaseline);
 
 if (new Set(V7_CUTOVER_KNOWN_MISSING_IDS).size !== 2) errors.push('清理前两项疑似遗失记录发生变化。');
-if (FEATURE_CAPABILITIES.length !== 68) errors.push(`V7 当前能力应为 68 项，实际为 ${FEATURE_CAPABILITIES.length} 项。`);
-if (current.summary.modules !== 14) errors.push(`V7 当前模块应为 14 个，实际为 ${current.summary.modules} 个。`);
+// R209-B2 新增创作库管理模块3项：68→71、14→15。
+if (FEATURE_CAPABILITIES.length !== 71) errors.push(`V7 当前能力应为 71 项，实际为 ${FEATURE_CAPABILITIES.length} 项。`);
+if (current.summary.modules !== 15) errors.push(`V7 当前模块应为 15 个，实际为 ${current.summary.modules} 个。`);
 if (current.losses.length !== 0) errors.push('V7 当前台账不得包含旧产品待恢复能力。');
 if (FEATURE_CAPABILITIES.some((item) => !item.currentAvailable)) errors.push('V7 当前台账存在未上线能力。');
 

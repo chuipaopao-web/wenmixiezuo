@@ -4,7 +4,7 @@
  * 幂等保存不可变请求指纹；发布用canonical manifest+乐观锁；同实体多别名同编号。
  */
 import { createHash, randomUUID } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { ConflictError, CursorInvalidError, NotFoundError, ValidationError } from '../../../application/creative-reference/errors.js';
 import type {
   AdminListFilter, AdminListPage, CardAvailability, CardPayload, CardRecord,
@@ -13,7 +13,7 @@ import type {
 import { displayCodePrefix } from '../../../application/creative-reference/types.js';
 import { assertAssetKindMatches, validateLegacyRef, validatePayload } from '../../../application/creative-reference/validation.js';
 import type {
-  CreateCardInput, CreativeReferenceRepository, LegacyMappingEntry, PublishReleaseInput, ReviewInput, UpdateCardInput
+  CreateCardInput, CreativeReferenceRepository, LegacyMappingEntry, PublishReleaseInput, ReleaseEntriesCursor, ReleaseEntriesPage, ReviewInput, UpdateCardInput
 } from '../../../application/creative-reference/repository.js';
 
 interface CardRow {
@@ -148,7 +148,7 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
     validateLegacyRef(legacy);
     const versionValue = this.aliasVersionValue(legacy.version);
     const main = this.database.prepare('SELECT * FROM creative_reference_cards WHERE legacy_namespace=? AND legacy_key=? AND legacy_version=?')
-      .all(legacy.namespace, legacy.key, versionValue) as CardRow[];
+      .all(legacy.namespace, legacy.key, versionValue) as unknown as CardRow[];
     const aliasRows = this.database.prepare('SELECT internal_id FROM creative_reference_aliases WHERE namespace=? AND alias_key=? AND alias_version=?')
       .all(legacy.namespace, legacy.key, versionValue) as Array<{ internal_id: string }>;
     const byId = new Map<string, CardRow>();
@@ -161,7 +161,7 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
   }
 
   public async findCardsByDisplayCode(code: string): Promise<CardRecord[]> {
-    const rows = this.database.prepare('SELECT * FROM creative_reference_cards WHERE display_code=?').all(code) as CardRow[];
+    const rows = this.database.prepare('SELECT * FROM creative_reference_cards WHERE display_code=?').all(code) as unknown as CardRow[];
     return rows.map(toCard);
   }
 
@@ -241,7 +241,7 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
     }
     // 用途/层级按目标revision的结构化字段过滤：join当前revision，JSON提取明确字段，不LIKE全文。
     const conditions: string[] = [];
-    const params: unknown[] = [];
+    const params: SQLInputValue[] = [];
     if (filter.assetKind !== undefined) { conditions.push('c.asset_kind=?'); params.push(filter.assetKind); }
     if (filter.availabilities !== undefined && filter.availabilities.length > 0) {
       conditions.push(`c.status IN (${filter.availabilities.map(() => '?').join(',')})`);
@@ -262,7 +262,7 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
     const limit = Math.min(Math.max(filter.limit ?? 20, 1), 100);
     const rows = this.database.prepare(`SELECT c.* FROM creative_reference_cards c
       LEFT JOIN creative_reference_revisions r ON r.internal_id=c.internal_id AND r.revision=c.current_revision
-      ${where} ORDER BY c.internal_id ASC LIMIT ?`).all(...params, limit + 1) as CardRow[];
+      ${where} ORDER BY c.internal_id ASC LIMIT ?`).all(...params, limit + 1) as unknown as CardRow[];
     const hasMore = rows.length > limit;
     const items = rows.slice(0, limit).map(toCard);
     return { items, nextCursor: hasMore && items.length > 0 ? { lastInternalId: items[items.length - 1]!.internalId, filterFingerprint: fingerprint } : null };
@@ -361,7 +361,7 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
     return this.releaseByWhere('SELECT * FROM creative_reference_releases WHERE release_id=?', releaseId);
   }
 
-  private async releaseByWhere(sql: string, ...params: unknown[]): Promise<ReleaseSnapshot | null> {
+  private async releaseByWhere(sql: string, ...params: SQLInputValue[]): Promise<ReleaseSnapshot | null> {
     const row = this.database.prepare(sql).get(...params) as { release_id: string; manifest_hash: string; manifest_json: string; active: 0 | 1; created_at: string; published_by: string } | undefined;
     if (row === undefined) return null;
     const manifest = JSON.parse(row.manifest_json) as {
@@ -443,7 +443,7 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
   }
 
   public async listAliases(internalId: string): Promise<Array<{ legacy: LegacyRef; sourceView: string }>> {
-    const rows = this.database.prepare('SELECT namespace, alias_key, alias_version, source_view FROM creative_reference_aliases WHERE internal_id=?').all(internalId) as AliasRow[];
+    const rows = this.database.prepare('SELECT namespace, alias_key, alias_version, source_view FROM creative_reference_aliases WHERE internal_id=?').all(internalId) as unknown as AliasRow[];
     return rows.map((row) => ({ legacy: { namespace: row.namespace, key: row.alias_key, ...(row.alias_version === 0 || row.alias_version === null ? {} : { version: row.alias_version }) }, sourceView: row.source_view }));
   }
 

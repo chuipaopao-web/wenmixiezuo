@@ -77,7 +77,7 @@ describe('B1r 版本与发布（返修）', () => {
   it('P1-3：新revision必进draft——已发布卡更新后新revision为draft且卡回draft，需重新审核', async () => {
     const ctx = setup();
     const { card } = await publishSingle(ctx, methodPayload(), 'np-1');
-    const updated = await ctx.service.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '第2版' }) }, manager, NOW);
+    const updated = await ctx.service.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '第2版' }), actor: 'm1' }, manager, NOW);
     expect(updated.status).toBe('draft');
     expect(updated.reviewActor).toBeNull();
     const after = await ctx.service.adminReadExact({ by: 'internalId', internalId: card.internalId }, {}, manager);
@@ -116,7 +116,7 @@ describe('B1r 版本与发布（返修）', () => {
     const result = await ctx.service.memberReadExact({ by: 'displayCode', displayCode: card.displayCode }, release.releaseId, member);
     expect(result.outcome).toBe('found');
     // 退役卡的新发布选择被拒：新revision审核后进发布清单没问题（发布看revision），但updateCard被退役挡住
-    await expect(ctx.service.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '退役后改' }) }, manager, NOW))
+    await expect(ctx.service.updateCard({ internalId: card.internalId, expectedRevision: 1, payload: methodPayload({ name: '退役后改' }), actor: 'm1' }, manager, NOW))
       .rejects.toThrow(/退役/);
   });
 

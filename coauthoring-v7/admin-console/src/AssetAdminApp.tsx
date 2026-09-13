@@ -46,6 +46,7 @@ import { CreativeAssetsPage } from './CreativeAssetsPage';
 import { BookCardTemplatePage } from './BookCardTemplatePage';
 import { AgentWorkflowPage } from './AgentWorkflowPage';
 import { TimeMachineOpsPage } from './TimeMachineOpsPage';
+import { CreativeReferenceLibrary } from './CreativeReferenceLibrary';
 import './asset-library.css';
 
 const ASSET_TABS = [
@@ -53,6 +54,7 @@ const ASSET_TABS = [
   { key:'time-machine',label:'时光机' },
   { key: 'overview', label: '分层方法' }, { key: 'book-card', label: '信息短卡模板' },
   { key: 'creative', label: '创意与金手指' },
+  { key: 'creative-reference', label: '创作库' },
 ] as const;
 
 const NAVIGATION = [
@@ -70,7 +72,7 @@ const NAVIGATION = [
   { key: 'memberships', label: '会员与收入', icon: Crown, group: '平台运营' }
 ] as const;
 
-type AdminSection = AssetSection | PlatformSection | 'book-card' | 'rhythm' | 'creative' | 'workflow' | 'time-machine' | 'agents' | 'prompt-context' | 'creation-ops' | 'features' | 'rebuild' | 'configuration';
+type AdminSection = AssetSection | PlatformSection | 'book-card' | 'rhythm' | 'creative' | 'creative-reference' | 'workflow' | 'time-machine' | 'agents' | 'prompt-context' | 'creation-ops' | 'features' | 'rebuild' | 'configuration';
 
 const DEFAULT_METHOD_FILTERS: MethodFilters = { query: '', dimension: 'all', scope: 'all' };
 const DEFAULT_PATTERN_FILTERS: PatternFilters = { query: '', category: 'all', genre: 'all' };
@@ -175,6 +177,7 @@ export function AssetAdminApp({ account, onSignOut }: { account: AdminAccount; o
         {section === 'planning' && <PlanningPage />}
         {section === 'rhythm' && <AuditedMethodsPage />}
         {section === 'creative' && <CreativeAssetsPage />}
+        {section === 'creative-reference' && <CreativeReferenceLibrary />}
         {section === 'agents' && <UnifiedAgentGovernance />}
         {section === 'creation-ops' && <CreationOperationsPage />}
         {section === 'features' && <FeatureCapabilitiesPage />}
@@ -590,6 +593,7 @@ function sectionCapabilityLabel(section: AdminSection): string {
   if (section === 'operations' || section === 'usage') return '实时数据';
   if (section === 'creation-ops') return '运行只读';
   if (section === 'features') return '版本能力对照';
+  if (section === 'creative-reference') return '管理录入 · 版本发布';
   return '资产只读';
 }
 

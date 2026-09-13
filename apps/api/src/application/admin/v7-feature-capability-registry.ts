@@ -194,6 +194,16 @@ export const FEATURE_CAPABILITIES: FeatureCapabilityDefinition[] = [
     ['context-manifests', '上下文清单', '查看冻结来源、版本、Skill 和预算。'],
     ['prompt-execution-evidence', '执行证据', '核查脱敏后的真实执行绑定和失败信息。']
   ]),
+  // R209-B2 新增：创作参考库管理闭环（未接AI检索、未导入旧库内容；AI检索接入待后续批次）。
+  ...currentModule('admin-creative-library', '创作库管理', 'admin', '独立后台 → 资产方法论 → 创作库', [
+    'coauthoring-v7/admin-console/src/CreativeReferenceLibrary.tsx',
+    'apps/api/src/http/creative-reference-admin-routes.ts',
+    'tests/integration/security/creative-reference-admin.test.ts'
+  ], [
+    ['creative-library-cards', '方法与参考卡管理', '服务端筛选列表、类型化表单编辑草稿、人工审核留意见、退役与恢复带并发防护。'],
+    ['creative-library-release', '整库版本发布', '基于活动完整清单调整并预览增删改，确认后原子发布不可变manifest；幂等键防重复发布。'],
+    ['creative-library-history', '版本与发布历史', '字段级版本对比、冻结发布清单、操作审计与审核意见可查。']
+  ]),
   ...currentModule('feature-governance', '当前功能台账', 'admin', '独立后台 → 功能台账', [
     'apps/api/src/application/admin/v7-feature-capability-registry.ts',
     'coauthoring-v7/admin-console/src/FeatureCapabilitiesPage.tsx',
