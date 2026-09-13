@@ -6,6 +6,7 @@ import {V7AgentGovernanceRepository} from '../../infrastructure/db/repositories/
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
 import {TIME_MACHINE_CARD_TEMPLATE_REVISION} from './time-machine-card-template.js';
 import {SqliteCreativeReferenceRepository} from '../../infrastructure/db/repositories/creative-reference-repository.js';
+import {CREATIVE_PROMPT_REVISION} from '../creative-reference/runtime.js';
 export interface SourceDocument {key:string;text:string}
 export interface MethodCard {id:string;name:string;category:string;intro:string;usage:string}
 /** 字数口径：规划字数与作者正文统计使用同一以"字"为单位的字符计数口径；作者开书填写的总字数按软目标处理（第23.3节）。 */
@@ -37,6 +38,6 @@ export function snapshotTimeMachine(db:DatabaseSync,scope:Scope,intent:string,wi
  const writers:V7EffectiveMember[]=[];const usedModels=new Set<string>();
  for(const m of eligible){if(writers.length>=3)break;if(!usedModels.has(m.model.modelId)){writers.push(m);usedModels.add(m.model.modelId);}}
  for(const m of eligible){if(writers.length>=3)break;if(!writers.includes(m)){writers.push(m);usedModels.add(m.model.modelId);}}
- manifest.sources.push({kind:'asset',id:'creative-library',revision:creativeReleaseId??'unpublished',hash:digest({creativeReleaseId,prompt:'creative-r209-de-1'})});
+ manifest.sources.push({kind:'asset',id:'creative-library',revision:creativeReleaseId??'unpublished',hash:digest({creativeReleaseId,prompt:CREATIVE_PROMPT_REVISION})});
  return {creativeReleaseId,manifest,documents,methods,members:{researcher:member('deputy_editor'),chief:member('chief_editor'),writer:writers[0]!},writers,intent,targetWords,wordPolicy:targetWords===null?null:{policy:'chars-v1',unit:'字',hard:false},windowTokens};
 }

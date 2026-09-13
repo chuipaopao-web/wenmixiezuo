@@ -1,0 +1,2186 @@
+{
+  "batch": "r209-c5",
+  "expectedReleaseId": "4ea466ea-5a28-4ad1-9bab-f1fe50a7251c",
+  "entries": [
+    {
+      "identity": "r209-c1/method-story-completeness",
+      "code": "法012",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "开端—发展—结果完形",
+        "shortPhrase": "开端—发展—结果完形",
+        "summary": "先让读者进入一个明确局面，再让局面发生变化，最后给出阶段结果。",
+        "aliases": [
+          "story-completeness"
+        ],
+        "method": {
+          "title": "开端—发展—结果完形",
+          "instruction": "先让读者进入一个明确局面，再让局面发生变化，最后给出阶段结果。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“开端—发展—结果完形”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "story-completeness"
+          ],
+          "relatedPurposes": [
+            "结构检查"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "开端—推进—兑现—余韵扩散",
+        "shortPhrase": "开端—推进—兑现—余韵扩散",
+        "summary": "链内先建立目标与期待，经行动和变化兑现结果，再用人物反应及相关影响让情绪落地。",
+        "aliases": [
+          "story-completeness",
+          "开端—发展—结果完形"
+        ],
+        "method": {
+          "title": "开端—推进—兑现—余韵扩散",
+          "instruction": "开端：明确谁要做成什么、为何现在行动及读者期待。推进：通过行动、阻力、选择和变化增强结果的重要性。兑现：回答关键冲突，落实成功、失败或目标变化及收益与代价。余韵扩散：按事件分量呈现当事人反应、关系与利益变化，让结果可感知后及时收束。扩大的是结果的影响，不是强行扩大事件规模。例：救下工匠后，同伴愿意共同建坊，原本拒绝合作的人递来订单；不连续安排多人重复惊呼。",
+          "boundary": "仅用于链设计；不用于全书、分卷或卷的粗节奏。四段是本方法的一种选择，不规定章数和比例。余韵可短至一个动作，不额外拉长许多章节，不为套结构强造牺牲。\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "chain"
+          ],
+          "aliases": [
+            "story-completeness",
+            "开端—发展—结果完形"
+          ],
+          "relatedPurposes": [
+            "结构检查"
+          ],
+          "conditionalUses": [],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-three-act",
+      "code": "法013",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "三幕式",
+        "shortPhrase": "三幕式",
+        "summary": "建立局面与主要追求—发展行动及阻力—集中处理核心问题并呈现结果。",
+        "aliases": [
+          "three-act"
+        ],
+        "method": {
+          "title": "三幕式",
+          "instruction": "建立局面与主要追求—发展行动及阻力—集中处理核心问题并呈现结果。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“三幕式”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "three-act"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "三幕式",
+        "shortPhrase": "三幕式",
+        "summary": "建立局面与主要追求—发展行动及阻力—集中处理核心问题并呈现结果。",
+        "aliases": [
+          "three-act"
+        ],
+        "method": {
+          "title": "三幕式",
+          "instruction": "建立局面与主要追求—发展行动及阻力—集中处理核心问题并呈现结果。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“三幕式”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "three-act"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-four-act",
+      "code": "法014",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "起承转合",
+        "shortPhrase": "起承转合",
+        "summary": "建立处境—展开发展—关键转向—收束回应。",
+        "aliases": [
+          "four-act"
+        ],
+        "method": {
+          "title": "起承转合",
+          "instruction": "建立处境—展开发展—关键转向—收束回应。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“起承转合”。\n误用边界：此处作为四阶段参考，不将西方四幕式与所有起承转合实践视作同一严格理论。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "four-act"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "起承转合",
+        "shortPhrase": "起承转合",
+        "summary": "建立处境—展开发展—关键转向—收束回应。",
+        "aliases": [
+          "four-act"
+        ],
+        "method": {
+          "title": "起承转合",
+          "instruction": "建立处境—展开发展—关键转向—收束回应。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“起承转合”。\n误用边界：此处作为四阶段参考，不将西方四幕式与所有起承转合实践视作同一严格理论。\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "four-act"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-five-act",
+      "code": "法015",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "五阶段",
+        "shortPhrase": "五阶段",
+        "summary": "开端—上升行动—高潮—后果展开—结局。",
+        "aliases": [
+          "five-act"
+        ],
+        "method": {
+          "title": "五阶段",
+          "instruction": "开端—上升行动—高潮—后果展开—结局。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“五阶段”。\n误用边界：本库采用五阶段曲线参考；高潮位置依作品安排，不要求再造一次低谷。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "five-act"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "五阶段",
+        "shortPhrase": "五阶段",
+        "summary": "开端—上升行动—高潮—后果展开—结局。",
+        "aliases": [
+          "five-act"
+        ],
+        "method": {
+          "title": "五阶段",
+          "instruction": "开端—上升行动—高潮—后果展开—结局。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“五阶段”。\n误用边界：本库采用五阶段曲线参考；高潮位置依作品安排，不要求再造一次低谷。\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "five-act"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-six-act",
+      "code": "法016",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "六阶段",
+        "shortPhrase": "六阶段",
+        "summary": "进入—转向—升级—危机—重整—解决。",
+        "aliases": [
+          "six-act"
+        ],
+        "method": {
+          "title": "六阶段",
+          "instruction": "进入—转向—升级—危机—重整—解决。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“六阶段”。\n误用边界：这是本库六阶段版本，不是唯一六幕标准，不绑定六卷。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "six-act"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "六阶段",
+        "shortPhrase": "六阶段",
+        "summary": "进入—转向—升级—危机—重整—解决。",
+        "aliases": [
+          "six-act"
+        ],
+        "method": {
+          "title": "六阶段",
+          "instruction": "进入—转向—升级—危机—重整—解决。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“六阶段”。\n误用边界：这是本库六阶段版本，不是唯一六幕标准，不绑定六卷。\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "six-act"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-hero-journey",
+      "code": "法017",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "英雄之旅",
+        "shortPhrase": "英雄之旅",
+        "summary": "以出发、考验、代价与归来或新处境组织人物经历；根据故事取舍环节。",
+        "aliases": [
+          "hero-journey"
+        ],
+        "method": {
+          "title": "英雄之旅",
+          "instruction": "以出发、考验、代价与归来或新处境组织人物经历；根据故事取舍环节。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“英雄之旅”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "hero-journey"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "英雄之旅",
+        "shortPhrase": "英雄之旅",
+        "summary": "以出发、考验、代价与归来或新处境组织人物经历；根据故事取舍环节。",
+        "aliases": [
+          "hero-journey"
+        ],
+        "method": {
+          "title": "英雄之旅",
+          "instruction": "以出发、考验、代价与归来或新处境组织人物经历；根据故事取舍环节。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“英雄之旅”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "hero-journey"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-eight-sequence",
+      "code": "法018",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "八序列",
+        "shortPhrase": "八序列",
+        "summary": "将较长故事组织为八个相互承接的区段，各段承担不同推进责任。",
+        "aliases": [
+          "eight-sequence"
+        ],
+        "method": {
+          "title": "八序列",
+          "instruction": "将较长故事组织为八个相互承接的区段，各段承担不同推进责任。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“八序列”。\n误用边界：可用于全书、卷或完整故事；不限定只能一卷，也不强迫简单故事拆八段。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "eight-sequence"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "八序列",
+        "shortPhrase": "八序列",
+        "summary": "将较长故事组织为八个相互承接的区段，各段承担不同推进责任。",
+        "aliases": [
+          "eight-sequence"
+        ],
+        "method": {
+          "title": "八序列",
+          "instruction": "将较长故事组织为八个相互承接的区段，各段承担不同推进责任。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“八序列”。\n误用边界：可用于全书、卷或完整故事；不限定只能一卷，也不强迫简单故事拆八段。\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "eight-sequence"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-seven-point",
+      "code": "法019",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "七点式故事结构",
+        "shortPhrase": "七点式故事结构",
+        "summary": "围绕核心问题安排主动转向、外部施压和中点变化，形成强冲突路线。",
+        "aliases": [
+          "seven-point"
+        ],
+        "method": {
+          "title": "七点式故事结构",
+          "instruction": "围绕核心问题安排主动转向、外部施压和中点变化，形成强冲突路线。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“七点式故事结构”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "seven-point"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "七点式故事结构",
+        "shortPhrase": "七点式故事结构",
+        "summary": "围绕核心问题安排主动转向、外部施压和中点变化，形成强冲突路线。",
+        "aliases": [
+          "seven-point"
+        ],
+        "method": {
+          "title": "七点式故事结构",
+          "instruction": "围绕核心问题安排主动转向、外部施压和中点变化，形成强冲突路线。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“七点式故事结构”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "seven-point"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-story-circle",
+      "code": "法020",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "故事圈",
+        "shortPhrase": "故事圈",
+        "summary": "围绕人物需要、进入陌生局面、得到与付出、回归与改变组织变化。",
+        "aliases": [
+          "story-circle"
+        ],
+        "method": {
+          "title": "故事圈",
+          "instruction": "围绕人物需要、进入陌生局面、得到与付出、回归与改变组织变化。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“故事圈”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "story-circle"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "故事圈",
+        "shortPhrase": "故事圈",
+        "summary": "围绕人物需要、进入陌生局面、得到与付出、回归与改变组织变化。",
+        "aliases": [
+          "story-circle"
+        ],
+        "method": {
+          "title": "故事圈",
+          "instruction": "围绕人物需要、进入陌生局面、得到与付出、回归与改变组织变化。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“故事圈”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "story-circle"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-save-the-cat",
+      "code": "法021",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "拯救猫咪节拍表",
+        "shortPhrase": "拯救猫咪节拍表",
+        "summary": "尽快兑现作品卖点，中段改变胜负意义，逼近代价后用新选择完成高潮。",
+        "aliases": [
+          "save-the-cat"
+        ],
+        "method": {
+          "title": "拯救猫咪节拍表",
+          "instruction": "尽快兑现作品卖点，中段改变胜负意义，逼近代价后用新选择完成高潮。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“拯救猫咪节拍表”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "save-the-cat"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "拯救猫咪节拍表",
+        "shortPhrase": "拯救猫咪节拍表",
+        "summary": "尽快兑现作品卖点，中段改变胜负意义，逼近代价后用新选择完成高潮。",
+        "aliases": [
+          "save-the-cat"
+        ],
+        "method": {
+          "title": "拯救猫咪节拍表",
+          "instruction": "尽快兑现作品卖点，中段改变胜负意义，逼近代价后用新选择完成高潮。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“拯救猫咪节拍表”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "save-the-cat"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-truby-22",
+      "code": "法022",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "特鲁比22步",
+        "shortPhrase": "特鲁比22步",
+        "summary": "参考欲望、弱点、对手、计划、道德选择与自我认识等环节检查人物和故事发展。",
+        "aliases": [
+          "truby-22"
+        ],
+        "method": {
+          "title": "特鲁比22步",
+          "instruction": "参考欲望、弱点、对手、计划、道德选择与自我认识等环节检查人物和故事发展。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“特鲁比22步”。\n误用边界：这是方法方向摘要，不冒充完整22步讲义，不要求所有故事逐项执行。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "truby-22"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "特鲁比22步",
+        "shortPhrase": "特鲁比22步",
+        "summary": "参考欲望、弱点、对手、计划、道德选择与自我认识等环节检查人物和故事发展。",
+        "aliases": [
+          "truby-22"
+        ],
+        "method": {
+          "title": "特鲁比22步",
+          "instruction": "参考欲望、弱点、对手、计划、道德选择与自我认识等环节检查人物和故事发展。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“特鲁比22步”。\n误用边界：这是方法方向摘要，不冒充完整22步讲义，不要求所有故事逐项执行。\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "truby-22"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-field-paradigm",
+      "code": "法023",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "悉德·菲尔德范式",
+        "shortPhrase": "悉德·菲尔德范式",
+        "summary": "以建置、对抗、解决构成三幕，两个主要情节点改变行动方向。",
+        "aliases": [
+          "field-paradigm"
+        ],
+        "method": {
+          "title": "悉德·菲尔德范式",
+          "instruction": "以建置、对抗、解决构成三幕，两个主要情节点改变行动方向。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“悉德·菲尔德范式”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "field-paradigm"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "悉德·菲尔德范式",
+        "shortPhrase": "悉德·菲尔德范式",
+        "summary": "以建置、对抗、解决构成三幕，两个主要情节点改变行动方向。",
+        "aliases": [
+          "field-paradigm"
+        ],
+        "method": {
+          "title": "悉德·菲尔德范式",
+          "instruction": "以建置、对抗、解决构成三幕，两个主要情节点改变行动方向。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“悉德·菲尔德范式”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "field-paradigm"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-fichtean-curve",
+      "code": "法024",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "菲希特式危机曲线",
+        "shortPhrase": "菲希特式危机曲线",
+        "summary": "快速进入冲突，用一连串因果相连的危机逼近高潮，最后用较短篇幅结算。",
+        "aliases": [
+          "fichtean-curve"
+        ],
+        "method": {
+          "title": "菲希特式危机曲线",
+          "instruction": "快速进入冲突，用一连串因果相连的危机逼近高潮，最后用较短篇幅结算。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“菲希特式危机曲线”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "fichtean-curve"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "菲希特式危机曲线",
+        "shortPhrase": "菲希特式危机曲线",
+        "summary": "快速进入冲突，用一连串因果相连的危机逼近高潮，最后用较短篇幅结算。",
+        "aliases": [
+          "fichtean-curve"
+        ],
+        "method": {
+          "title": "菲希特式危机曲线",
+          "instruction": "快速进入冲突，用一连串因果相连的危机逼近高潮，最后用较短篇幅结算。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“菲希特式危机曲线”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "fichtean-curve"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-kishotenketsu",
+      "code": "法025",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "起承转结的非对抗结构",
+        "shortPhrase": "起承转结的非对抗结构",
+        "summary": "先建立和发展日常或现象，再用意外视角改变理解，最后把前后内容重新连起来。",
+        "aliases": [
+          "kishotenketsu"
+        ],
+        "method": {
+          "title": "起承转结的非对抗结构",
+          "instruction": "先建立和发展日常或现象，再用意外视角改变理解，最后把前后内容重新连起来。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“起承转结的非对抗结构”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "kishotenketsu"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "起承转结的非对抗结构",
+        "shortPhrase": "起承转结的非对抗结构",
+        "summary": "先建立和发展日常或现象，再用意外视角改变理解，最后把前后内容重新连起来。",
+        "aliases": [
+          "kishotenketsu"
+        ],
+        "method": {
+          "title": "起承转结的非对抗结构",
+          "instruction": "先建立和发展日常或现象，再用意外视角改变理解，最后把前后内容重新连起来。",
+          "boundary": "使用条件：完整故事需要划分各阶段的叙事责任时，考虑“起承转结的非对抗结构”。\n误用边界：按故事容量缩放，不绑定卷数，不强制每章都走完整模板\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "宏观节奏",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "kishotenketsu"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-anticipation-pressure-release",
+      "code": "法091",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "铺垫—压制—释放",
+        "shortPhrase": "铺垫—压制—释放",
+        "summary": "先建立读者期待，再让阻力和代价积累，最后用符合前因的结果释放情绪。",
+        "aliases": [
+          "anticipation-pressure-release"
+        ],
+        "method": {
+          "title": "铺垫—压制—释放",
+          "instruction": "先建立读者期待，再让阻力和代价积累，最后用符合前因的结果释放情绪。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“铺垫—压制—释放”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "anticipation-pressure-release"
+          ],
+          "relatedPurposes": [
+            "情绪回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "铺垫—压制—释放",
+        "shortPhrase": "铺垫—压制—释放",
+        "summary": "先建立读者期待，再让阻力和代价积累，最后用符合前因的结果释放情绪。",
+        "aliases": [
+          "anticipation-pressure-release"
+        ],
+        "method": {
+          "title": "铺垫—压制—释放",
+          "instruction": "先建立读者期待，再让阻力和代价积累，最后用符合前因的结果释放情绪。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“铺垫—压制—释放”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "anticipation-pressure-release"
+          ],
+          "relatedPurposes": [
+            "情绪回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-tension-relief",
+      "code": "法092",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "紧张与舒缓交替",
+        "shortPhrase": "紧张与舒缓交替",
+        "summary": "高压之后给人物和读者消化、关系或日常空间，再进入下一轮压力。",
+        "aliases": [
+          "tension-relief"
+        ],
+        "method": {
+          "title": "紧张与舒缓交替",
+          "instruction": "高压之后给人物和读者消化、关系或日常空间，再进入下一轮压力。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“紧张与舒缓交替”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "tension-relief"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "紧张与舒缓交替",
+        "shortPhrase": "紧张与舒缓交替",
+        "summary": "高压之后给人物和读者消化、关系或日常空间，再进入下一轮压力。",
+        "aliases": [
+          "tension-relief"
+        ],
+        "method": {
+          "title": "紧张与舒缓交替",
+          "instruction": "高压之后给人物和读者消化、关系或日常空间，再进入下一轮压力。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“紧张与舒缓交替”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "tension-relief"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-hope-despair-cycle",
+      "code": "法093",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "希望与绝望循环",
+        "shortPhrase": "希望与绝望循环",
+        "summary": "给出真实希望，再让既有因果造成挫败，最终由人物行动争取新的可能。",
+        "aliases": [
+          "hope-despair-cycle"
+        ],
+        "method": {
+          "title": "希望与绝望循环",
+          "instruction": "给出真实希望，再让既有因果造成挫败，最终由人物行动争取新的可能。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“希望与绝望循环”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "hope-despair-cycle"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "希望与绝望循环",
+        "shortPhrase": "希望与绝望循环",
+        "summary": "给出真实希望，再让既有因果造成挫败，最终由人物行动争取新的可能。",
+        "aliases": [
+          "hope-despair-cycle"
+        ],
+        "method": {
+          "title": "希望与绝望循环",
+          "instruction": "给出真实希望，再让既有因果造成挫败，最终由人物行动争取新的可能。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“希望与绝望循环”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "hope-despair-cycle"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-emotional-contrast",
+      "code": "法096",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "情绪对照",
+        "shortPhrase": "情绪对照",
+        "summary": "用相邻但不同的情绪状态互相衬托，让喜悦、恐惧或悲伤更鲜明。",
+        "aliases": [
+          "emotional-contrast"
+        ],
+        "method": {
+          "title": "情绪对照",
+          "instruction": "用相邻但不同的情绪状态互相衬托，让喜悦、恐惧或悲伤更鲜明。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“情绪对照”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chapter",
+            "prose"
+          ],
+          "aliases": [
+            "emotional-contrast"
+          ],
+          "relatedPurposes": [
+            "反差"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "两个有因果或主题联系的场面需要形成对照",
+              "use": "说明对照改变什么理解，不为反差拼贴无关场面。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "情绪对照",
+        "shortPhrase": "情绪对照",
+        "summary": "用相邻但不同的情绪状态互相衬托，让喜悦、恐惧或悲伤更鲜明。",
+        "aliases": [
+          "emotional-contrast"
+        ],
+        "method": {
+          "title": "情绪对照",
+          "instruction": "用相邻但不同的情绪状态互相衬托，让喜悦、恐惧或悲伤更鲜明。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“情绪对照”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chapter",
+            "prose"
+          ],
+          "aliases": [
+            "emotional-contrast"
+          ],
+          "relatedPurposes": [
+            "反差"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "两个有因果或主题联系的场面需要形成对照",
+              "use": "说明对照改变什么理解，不为反差拼贴无关场面。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-cathartic-release",
+      "code": "法097",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "情感宣泄与净化",
+        "shortPhrase": "情感宣泄与净化",
+        "summary": "在关键行动或表达中释放积累的情绪，使人物与读者感到变化落定。",
+        "aliases": [
+          "cathartic-release"
+        ],
+        "method": {
+          "title": "情感宣泄与净化",
+          "instruction": "在关键行动或表达中释放积累的情绪，使人物与读者感到变化落定。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“情感宣泄与净化”。\n误用边界：释放并非必然治愈或净化，也可留下复杂余味。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "cathartic-release"
+          ],
+          "relatedPurposes": [
+            "情绪回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "情感宣泄与净化",
+        "shortPhrase": "情感宣泄与净化",
+        "summary": "在关键行动或表达中释放积累的情绪，使人物与读者感到变化落定。",
+        "aliases": [
+          "cathartic-release"
+        ],
+        "method": {
+          "title": "情感宣泄与净化",
+          "instruction": "在关键行动或表达中释放积累的情绪，使人物与读者感到变化落定。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“情感宣泄与净化”。\n误用边界：释放并非必然治愈或净化，也可留下复杂余味。\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "cathartic-release"
+          ],
+          "relatedPurposes": [
+            "情绪回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-dread-accumulation",
+      "code": "法098",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "不祥感累积",
+        "shortPhrase": "不祥感累积",
+        "summary": "通过越来越具体的异常和选择后果累积不安，让恐惧来自理解正在逼近而不是突然音效。",
+        "aliases": [
+          "dread-accumulation"
+        ],
+        "method": {
+          "title": "不祥感累积",
+          "instruction": "通过越来越具体的异常和选择后果累积不安，让恐惧来自理解正在逼近而不是突然音效。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“不祥感累积”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "dread-accumulation"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "不祥感累积",
+        "shortPhrase": "不祥感累积",
+        "summary": "通过越来越具体的异常和选择后果累积不安，让恐惧来自理解正在逼近而不是突然音效。",
+        "aliases": [
+          "dread-accumulation"
+        ],
+        "method": {
+          "title": "不祥感累积",
+          "instruction": "通过越来越具体的异常和选择后果累积不安，让恐惧来自理解正在逼近而不是突然音效。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“不祥感累积”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "dread-accumulation"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-comic-relief",
+      "code": "法099",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "喜剧缓冲",
+        "shortPhrase": "喜剧缓冲",
+        "summary": "在高压中用人物性格、关系或处境产生短暂轻松，同时不取消正在发生的危险和代价。",
+        "aliases": [
+          "comic-relief"
+        ],
+        "method": {
+          "title": "喜剧缓冲",
+          "instruction": "在高压中用人物性格、关系或处境产生短暂轻松，同时不取消正在发生的危险和代价。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“喜剧缓冲”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "comic-relief"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "喜剧缓冲",
+        "shortPhrase": "喜剧缓冲",
+        "summary": "在高压中用人物性格、关系或处境产生短暂轻松，同时不取消正在发生的危险和代价。",
+        "aliases": [
+          "comic-relief"
+        ],
+        "method": {
+          "title": "喜剧缓冲",
+          "instruction": "在高压中用人物性格、关系或处境产生短暂轻松，同时不取消正在发生的危险和代价。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“喜剧缓冲”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "comic-relief"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-recovery-period",
+      "code": "法287",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "恢复期",
+        "shortPhrase": "恢复期",
+        "summary": "人物处理身体、资源与心理损耗，为下一次行动恢复基本能力。",
+        "aliases": [
+          "recovery-period"
+        ],
+        "method": {
+          "title": "恢复期",
+          "instruction": "人物处理身体、资源与心理损耗，为下一次行动恢复基本能力。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“恢复期”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "recovery-period"
+          ],
+          "relatedPurposes": [
+            "情绪回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "卷末需要交代后果或引出下一处境",
+              "use": "明确本卷已完成的责任与仍待推进的线。"
+            }
+          ],
+          "methodKind": "story_beat"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "恢复期",
+        "shortPhrase": "恢复期",
+        "summary": "人物处理身体、资源与心理损耗，为下一次行动恢复基本能力。",
+        "aliases": [
+          "recovery-period"
+        ],
+        "method": {
+          "title": "恢复期",
+          "instruction": "人物处理身体、资源与心理损耗，为下一次行动恢复基本能力。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“恢复期”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "recovery-period"
+          ],
+          "relatedPurposes": [
+            "情绪回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "卷末需要交代后果或引出下一处境",
+              "use": "明确本卷已完成的责任与仍待推进的线。"
+            }
+          ],
+          "methodKind": "story_beat"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-daily-life-window",
+      "code": "法288",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "日常窗口",
+        "shortPhrase": "日常窗口",
+        "summary": "通过吃住、工作和小关系展示人物在重大事件之外怎样生活。",
+        "aliases": [
+          "daily-life-window"
+        ],
+        "method": {
+          "title": "日常窗口",
+          "instruction": "通过吃住、工作和小关系展示人物在重大事件之外怎样生活。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“日常窗口”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "daily-life-window"
+          ],
+          "relatedPurposes": [
+            "情绪回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "卷末需要交代后果或引出下一处境",
+              "use": "明确本卷已完成的责任与仍待推进的线。"
+            }
+          ],
+          "methodKind": "story_beat"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "日常窗口",
+        "shortPhrase": "日常窗口",
+        "summary": "通过吃住、工作和小关系展示人物在重大事件之外怎样生活。",
+        "aliases": [
+          "daily-life-window"
+        ],
+        "method": {
+          "title": "日常窗口",
+          "instruction": "通过吃住、工作和小关系展示人物在重大事件之外怎样生活。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“日常窗口”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "daily-life-window"
+          ],
+          "relatedPurposes": [
+            "情绪回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "卷末需要交代后果或引出下一处境",
+              "use": "明确本卷已完成的责任与仍待推进的线。"
+            }
+          ],
+          "methodKind": "story_beat"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-mourning-ritual",
+      "code": "法294",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "哀悼与送别",
+        "shortPhrase": "哀悼与送别",
+        "summary": "人物与群体承认失去，通过仪式和选择决定怎样带着记忆继续。",
+        "aliases": [
+          "mourning-ritual"
+        ],
+        "method": {
+          "title": "哀悼与送别",
+          "instruction": "人物与群体承认失去，通过仪式和选择决定怎样带着记忆继续。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“哀悼与送别”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "mourning-ritual"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "卷末需要交代后果或引出下一处境",
+              "use": "明确本卷已完成的责任与仍待推进的线。"
+            }
+          ],
+          "methodKind": "story_beat"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "哀悼与送别",
+        "shortPhrase": "哀悼与送别",
+        "summary": "人物与群体承认失去，通过仪式和选择决定怎样带着记忆继续。",
+        "aliases": [
+          "mourning-ritual"
+        ],
+        "method": {
+          "title": "哀悼与送别",
+          "instruction": "人物与群体承认失去，通过仪式和选择决定怎样带着记忆继续。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“哀悼与送别”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "mourning-ritual"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "卷末需要交代后果或引出下一处境",
+              "use": "明确本卷已完成的责任与仍待推进的线。"
+            }
+          ],
+          "methodKind": "story_beat"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-celebration-window",
+      "code": "法295",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "庆祝与奖励",
+        "shortPhrase": "庆祝与奖励",
+        "summary": "人物在阶段成功后获得情绪释放、公开认可和关系互动。",
+        "aliases": [
+          "celebration-window"
+        ],
+        "method": {
+          "title": "庆祝与奖励",
+          "instruction": "人物在阶段成功后获得情绪释放、公开认可和关系互动。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“庆祝与奖励”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "celebration-window"
+          ],
+          "relatedPurposes": [
+            "情绪回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "卷末需要交代后果或引出下一处境",
+              "use": "明确本卷已完成的责任与仍待推进的线。"
+            }
+          ],
+          "methodKind": "story_beat"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "庆祝与奖励",
+        "shortPhrase": "庆祝与奖励",
+        "summary": "人物在阶段成功后获得情绪释放、公开认可和关系互动。",
+        "aliases": [
+          "celebration-window"
+        ],
+        "method": {
+          "title": "庆祝与奖励",
+          "instruction": "人物在阶段成功后获得情绪释放、公开认可和关系互动。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“庆祝与奖励”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "celebration-window"
+          ],
+          "relatedPurposes": [
+            "情绪回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "卷末需要交代后果或引出下一处境",
+              "use": "明确本卷已完成的责任与仍待推进的线。"
+            }
+          ],
+          "methodKind": "story_beat"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-emotional-staircase",
+      "code": "法094",
+      "expectedRevision": 4,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "情绪阶梯",
+        "shortPhrase": "情绪阶梯",
+        "summary": "相似情绪每次作用到更重要的人、目标或代价上，形成层层加深的体验。",
+        "aliases": [
+          "emotional-staircase"
+        ],
+        "method": {
+          "title": "情绪阶梯",
+          "instruction": "相似情绪每次作用到更重要的人、目标或代价上，形成层层加深的体验。\n具体用法：递进可以来自意义加深、关系变近、理解改变，不只增加伤亡或战力；给高强度段落留对比和恢复空间。\n正例：从陌生人认可手艺，到同伴愿意交付性命，同样是信任但意义递进。\n反例：每次都杀更亲近的人来升级悲伤，使人物关系只剩制造痛苦的用途。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“情绪阶梯”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "emotional-staircase"
+          ],
+          "relatedPurposes": [
+            "情绪回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "情绪阶梯",
+        "shortPhrase": "情绪阶梯",
+        "summary": "相似情绪每次作用到更重要的人、目标或代价上，形成层层加深的体验。",
+        "aliases": [
+          "emotional-staircase"
+        ],
+        "method": {
+          "title": "情绪阶梯",
+          "instruction": "相似情绪每次作用到更重要的人、目标或代价上，形成层层加深的体验。\n具体用法：递进可以来自意义加深、关系变近、理解改变，不只增加伤亡或战力；给高强度段落留对比和恢复空间。\n正例：从陌生人认可手艺，到同伴愿意交付性命，同样是信任但意义递进。\n反例：每次都杀更亲近的人来升级悲伤，使人物关系只剩制造痛苦的用途。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“情绪阶梯”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "emotional-staircase"
+          ],
+          "relatedPurposes": [
+            "情绪回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-payoff-afterglow",
+      "code": "法095",
+      "expectedRevision": 4,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "兑现与余韵",
+        "shortPhrase": "兑现与余韵",
+        "summary": "重要结果发生后不立刻跳走，让人物、关系和世界对结果作出反应。",
+        "aliases": [
+          "payoff-afterglow"
+        ],
+        "method": {
+          "title": "兑现与余韵",
+          "instruction": "重要结果发生后不立刻跳走，让人物、关系和世界对结果作出反应。\n具体用法：先判断结果改变了谁在乎的东西，再选择反应、关系回应、处境后果或后续行动表现余韵。重大事件可延后回响，小事件可用一个动作收束；不要求每次单列反应章。\n正例：洗清冤屈后不再重复宣判；昔日避开主角的同僚第一次把钥匙交给他，呈现信任恢复。\n反例：刚洗冤便出现更强敌人将成果清零；或连续多人用同样的话惊叹。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“兑现与余韵”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "payoff-afterglow"
+          ],
+          "relatedPurposes": [
+            "情绪回报",
+            "阶段回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "兑现与余韵",
+        "shortPhrase": "兑现与余韵",
+        "summary": "重要结果发生后不立刻跳走，让人物、关系和世界对结果作出反应。",
+        "aliases": [
+          "payoff-afterglow"
+        ],
+        "method": {
+          "title": "兑现与余韵",
+          "instruction": "重要结果发生后不立刻跳走，让人物、关系和世界对结果作出反应。\n具体用法：先判断结果改变了谁在乎的东西，再选择反应、关系回应、处境后果或后续行动表现余韵。重大事件可延后回响，小事件可用一个动作收束；不要求每次单列反应章。\n正例：洗清冤屈后不再重复宣判；昔日避开主角的同僚第一次把钥匙交给他，呈现信任恢复。\n反例：刚洗冤便出现更强敌人将成果清零；或连续多人用同样的话惊叹。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“兑现与余韵”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮\n本方法不供全书/卷粗节奏规划余韵段；链内设计后可在具体场景落实，不要求专门安排多个余韵章节。\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "payoff-afterglow"
+          ],
+          "relatedPurposes": [
+            "情绪回报",
+            "阶段回报"
+          ],
+          "conditionalUses": [],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-pressure-payoff-loop",
+      "code": "法109",
+      "expectedRevision": 4,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "压力与回报循环",
+        "shortPhrase": "压力与回报循环",
+        "summary": "让压制、准备、反证、结果和收获形成因果闭环，不把打脸当成唯一回报。",
+        "aliases": [
+          "pressure-payoff-loop"
+        ],
+        "method": {
+          "title": "压力与回报循环",
+          "instruction": "让压制、准备、反证、结果和收获形成因果闭环，不把打脸当成唯一回报。\n具体用法：明确读者为什么希望人物成功、阻力怎样成立、如何破局，以及胜利带来什么实际改变。可以先小兑现再推进，也允许轻松、智谋、关系或安宁的回报。\n正例：普通工匠用早先验证过的工艺救下军械库，获得独立承接任务的资格。\n反例：临时获得无来源的能力，再让所有人惊呼以代替破局过程。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“压力与回报循环”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "aliases": [
+            "pressure-payoff-loop"
+          ],
+          "relatedPurposes": [
+            "情绪回报",
+            "阶段回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "chapter",
+              "condition": "本章承担成长证明或阶段回报",
+              "use": "落实这次成果的证据，不凭章数触发升级。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "压力与回报循环",
+        "shortPhrase": "压力与回报循环",
+        "summary": "让压制、准备、反证、结果和收获形成因果闭环，不把打脸当成唯一回报。",
+        "aliases": [
+          "pressure-payoff-loop"
+        ],
+        "method": {
+          "title": "压力与回报循环",
+          "instruction": "让压制、准备、反证、结果和收获形成因果闭环，不把打脸当成唯一回报。\n具体用法：明确读者为什么希望人物成功、阻力怎样成立、如何破局，以及胜利带来什么实际改变。可以先小兑现再推进，也允许轻松、智谋、关系或安宁的回报。\n正例：普通工匠用早先验证过的工艺救下军械库，获得独立承接任务的资格。\n反例：临时获得无来源的能力，再让所有人惊呼以代替破局过程。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“压力与回报循环”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "aliases": [
+            "pressure-payoff-loop"
+          ],
+          "relatedPurposes": [
+            "情绪回报",
+            "阶段回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "chapter",
+              "condition": "本章承担成长证明或阶段回报",
+              "use": "落实这次成果的证据，不凭章数触发升级。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-recovery-window",
+      "code": "法112",
+      "expectedRevision": 4,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "恢复与关系窗口",
+        "shortPhrase": "恢复与关系窗口",
+        "summary": "在连续高压之间安排恢复、日常和关系推进，让人物有机会消化变化。",
+        "aliases": [
+          "recovery-window"
+        ],
+        "method": {
+          "title": "恢复与关系窗口",
+          "instruction": "在连续高压之间安排恢复、日常和关系推进，让人物有机会消化变化。",
+          "boundary": "使用条件：高强度事件后需要恢复与关系推进\n误用边界：恢复不必引出新危机，不用固定休息章数，也不把日常当无关填充。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "recovery-window"
+          ],
+          "relatedPurposes": [
+            "情绪回报",
+            "亲密关系"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "高强度事件后需要恢复与关系推进",
+              "use": "安排修补、日常和互动，呈现前事影响并维持必要进展"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "恢复与关系窗口",
+        "shortPhrase": "恢复与关系窗口",
+        "summary": "在连续高压之间安排恢复、日常和关系推进，让人物有机会消化变化。",
+        "aliases": [
+          "recovery-window"
+        ],
+        "method": {
+          "title": "恢复与关系窗口",
+          "instruction": "在连续高压之间安排恢复、日常和关系推进，让人物有机会消化变化。",
+          "boundary": "使用条件：高强度事件后需要恢复与关系推进\n误用边界：恢复不必引出新危机，不用固定休息章数，也不把日常当无关填充。\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "recovery-window"
+          ],
+          "relatedPurposes": [
+            "情绪回报",
+            "亲密关系"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "高强度事件后需要恢复与关系推进",
+              "use": "安排修补、日常和互动，呈现前事影响并维持必要进展"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c3/reward-stagger",
+      "code": "法356",
+      "expectedRevision": 2,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "回报错峰",
+        "shortPhrase": "回报错峰",
+        "summary": "将不同线的阶段答案、能力验证和关系回应安排在各自有因果依据的位置，保留大兑现。",
+        "aliases": [],
+        "method": {
+          "title": "回报错峰",
+          "instruction": "将不同线的阶段答案、能力验证和关系回应安排在各自有因果依据的位置，保留大兑现。\n具体用法：让不同线在有因果依据时回答各自的问题；大兑现前可以有真实的小进展，不用固定章数派发奖励。\n正例：战争尚未结束，同伴先修复信任；战胜之后再落实失地归还。\n反例：为了轮流发糖，每条线都按相同间隔解决，不顾事件条件。",
+          "boundary": "使用条件：多条线的回报全挤在卷末，中段长期没有收获\n误用边界：不按固定章数发奖，不强迫每章爽点或清空所有悬念。",
+          "usageTree": "情绪节奏",
+          "relatedPurposes": [],
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "回报错峰",
+        "shortPhrase": "回报错峰",
+        "summary": "将不同线的阶段答案、能力验证和关系回应安排在各自有因果依据的位置，保留大兑现。",
+        "aliases": [],
+        "method": {
+          "title": "回报错峰",
+          "instruction": "将不同线的阶段答案、能力验证和关系回应安排在各自有因果依据的位置，保留大兑现。\n具体用法：让不同线在有因果依据时回答各自的问题；大兑现前可以有真实的小进展，不用固定章数派发奖励。\n正例：战争尚未结束，同伴先修复信任；战胜之后再落实失地归还。\n反例：为了轮流发糖，每条线都按相同间隔解决，不顾事件条件。",
+          "boundary": "使用条件：多条线的回报全挤在卷末，中段长期没有收获\n误用边界：不按固定章数发奖，不强迫每章爽点或清空所有悬念。\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "relatedPurposes": [],
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      }
+    },
+    {
+      "identity": "r209-c4/loss-trace",
+      "code": "法367",
+      "expectedRevision": 1,
+      "expectedPayload": {
+        "assetKind": "method",
+        "schemaVersion": 1,
+        "name": "失落的生活留痕",
+        "shortPhrase": "失落的生活留痕",
+        "summary": "损失发生后，从人物仍要继续的日常或行动中选择一项缺席、习惯改变或未竟承诺，让失去有后果而非只靠哭诉。",
+        "aliases": [],
+        "method": {
+          "title": "失落的生活留痕",
+          "instruction": "损失发生后，从人物仍要继续的日常或行动中选择一项缺席、习惯改变或未竟承诺，让失去有后果而非只靠哭诉。\n正例：同伴离去后主角仍多盛一碗饭，随后把那碗饭交给新来的孤儿。\n反例：重复遗言和哭泣，不改变任何关系或行动。",
+          "boundary": "只在作品确有损失时使用，不为套方法制造死亡；动作可克制，不规定必须走出悲伤。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter",
+            "prose"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "schemaVersion": 1,
+        "name": "失落的生活留痕",
+        "shortPhrase": "失落的生活留痕",
+        "summary": "损失发生后，从人物仍要继续的日常或行动中选择一项缺席、习惯改变或未竟承诺，让失去有后果而非只靠哭诉。",
+        "aliases": [],
+        "method": {
+          "title": "失落的生活留痕",
+          "instruction": "损失发生后，从人物仍要继续的日常或行动中选择一项缺席、习惯改变或未竟承诺，让失去有后果而非只靠哭诉。\n正例：同伴离去后主角仍多盛一碗饭，随后把那碗饭交给新来的孤儿。\n反例：重复遗言和哭泣，不改变任何关系或行动。",
+          "boundary": "只在作品确有损失时使用，不为套方法制造死亡；动作可克制，不规定必须走出悲伤。\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter",
+            "prose"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      }
+    },
+    {
+      "identity": "r209-c4/aftermath-handoff",
+      "code": "法370",
+      "expectedRevision": 1,
+      "expectedPayload": {
+        "assetKind": "method",
+        "schemaVersion": 1,
+        "name": "让余韵带出行动",
+        "shortPhrase": "让余韵带出行动",
+        "summary": "让结果的自然后果、人物的新选择或关系变化引出下一段；保留真实成果，避免靠立刻清零胜利维持刺激。",
+        "aliases": [],
+        "method": {
+          "title": "让余韵带出行动",
+          "instruction": "让结果的自然后果、人物的新选择或关系变化引出下一段；保留真实成果，避免靠立刻清零胜利维持刺激。\n正例：平反后获得调查权，主角决定查清被牵连者的去向，上一段的意义成为下一段动力。\n反例：胜利后一秒被新敌打回原点，所有成长和人际变化消失。",
+          "boundary": "可以出现新危机，但须有因果并保留前事影响；终局不强行引出续集。",
+          "usageTree": "承接转场",
+          "applicableLayers": [
+            "volume",
+            "chain",
+            "chapter"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "schemaVersion": 1,
+        "name": "让余韵带出行动",
+        "shortPhrase": "让余韵带出行动",
+        "summary": "让结果的自然后果、人物的新选择或关系变化引出下一段；保留真实成果，避免靠立刻清零胜利维持刺激。",
+        "aliases": [],
+        "method": {
+          "title": "让余韵带出行动",
+          "instruction": "让结果的自然后果、人物的新选择或关系变化引出下一段；保留真实成果，避免靠立刻清零胜利维持刺激。\n正例：平反后获得调查权，主角决定查清被牵连者的去向，上一段的意义成为下一段动力。\n反例：胜利后一秒被新敌打回原点，所有成长和人际变化消失。",
+          "boundary": "可以出现新危机，但须有因果并保留前事影响；终局不强行引出续集。\n本方法不供全书/卷粗节奏规划余韵段；链内设计后可在具体场景落实，不要求专门安排多个余韵章节。",
+          "usageTree": "承接转场",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      }
+    },
+    {
+      "identity": "r209-c4/intensity-space",
+      "code": "法371",
+      "expectedRevision": 1,
+      "expectedPayload": {
+        "assetKind": "method",
+        "schemaVersion": 1,
+        "name": "情绪强度留出对比",
+        "shortPhrase": "情绪强度留出对比",
+        "summary": "识别相邻情节是否在重复同一种高强度刺激，用较轻的行动、局部兑现、关系互动或新的问题改变体验，不机械插入休息章。",
+        "aliases": [],
+        "method": {
+          "title": "情绪强度留出对比",
+          "instruction": "识别相邻情节是否在重复同一种高强度刺激，用较轻的行动、局部兑现、关系互动或新的问题改变体验，不机械插入休息章。\n正例：连续逃亡后获得短暂安全，让人物修补装备与关系，再因新判断主动出发。\n反例：每章都靠濒死或羞辱加码，或突然与全书无关地闲聊数章。",
+          "boundary": "快节奏仍须有实质行动和可辨进展，不以降强度为灌水理由。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "schemaVersion": 1,
+        "name": "情绪强度留出对比",
+        "shortPhrase": "情绪强度留出对比",
+        "summary": "识别相邻情节是否在重复同一种高强度刺激，用较轻的行动、局部兑现、关系互动或新的问题改变体验，不机械插入休息章。",
+        "aliases": [],
+        "method": {
+          "title": "情绪强度留出对比",
+          "instruction": "识别相邻情节是否在重复同一种高强度刺激，用较轻的行动、局部兑现、关系互动或新的问题改变体验，不机械插入休息章。\n正例：连续逃亡后获得短暂安全，让人物修补装备与关系，再因新判断主动出发。\n反例：每章都靠濒死或羞辱加码，或突然与全书无关地闲聊数章。",
+          "boundary": "快节奏仍须有实质行动和可辨进展，不以降强度为灌水理由。\n仅链设计检查：无论采用哪种节奏，检查期待兑现、当事人反应、相关人物/关系/利益的影响，以及情绪落地后及时收束与承接。不强制各方震惊、独立余韵章或固定篇幅；不把其他节奏统一改成四段。全书和卷不执行此检查。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      }
+    }
+  ],
+  "additions": []
+}

@@ -3,13 +3,15 @@ import type {DatabaseSync} from 'node:sqlite';
 import {SqliteCreativeReferenceRepository} from '../../infrastructure/db/repositories/creative-reference-repository.js';
 import type {CardPayload} from './types.js';
 
-export const CREATIVE_PROMPT_REVISION='creative-r209-de-1';
-export const CREATIVE_DESIGN_GUIDANCE=`理解作者方向后设计，未提及不等于禁止。“不要求/不强制X”表示可选，绝不能改写成“禁止/不写X”；本方案主动选择与作者硬限制分开。参考和本次方法用法都是软参考，不是本书事实或必须执行的模板，用法有误应先修正。职业和开局是入口，不限制全书只能重复同类任务。结合题材、人物追求与选择，设计具体吸引力、关系与回报；不强塞爱情、争霸、创伤或牺牲。事件结果需要让人感受到：收益、损失、认知或关系怎样改变。按事件分量安排反应、生活影响与后续选择作为余韵，避免刚兑现就被新危机冲淡，也不要反复解释感受拖慢节奏。克制不等于把严重损失一句带过：受影响人物有自己的诉求，后续分工、能力或关系应体现影响，不以不诉苦证明高尚。快速建立期待不等于固定间隔打脸或每章高潮。输出前自行核查并修正作者原意、事实来源、人物动机、因果、期待兑现、情绪释放、余韵与承接；本轮新设计的性格不能在自检中冒充已确认设定。只提交当前任务结果，不输出思维链。`;
+export const CREATIVE_PROMPT_REVISION='creative-r209-c5';
+export const CREATIVE_DESIGN_GUIDANCE=`理解作者方向后设计，未提及不等于禁止。“不要求/不强制X”表示可选，绝不能改写成“禁止/不写X”；本方案主动选择与作者硬限制分开。参考和本次方法用法都是软参考，不是本书事实或必须执行的模板，用法有误应先修正。职业和开局是入口，不限制全书只能重复同类任务。结合题材、人物追求与选择，设计具体吸引力、关系与回报；不强塞爱情、争霸、创伤或牺牲。快速建立期待不等于固定间隔打脸或每章高潮。输出前自行核查并修正作者原意、事实来源、人物动机、因果、期待与承接；本轮新设计的性格不能在自检中冒充已确认设定。只提交当前任务结果，不输出思维链。`;
+export const CHAIN_PAYOFF_GUIDANCE='链设计完成后，无论采用哪种节奏，都检查：建立的期待兑现了什么；当事人如何感受收益、损失或变化；相关人物、关系、生活或利益受到什么影响；情绪落地后如何及时收束和承接。避免新危机过早冲淡结果，也避免重复感叹。重大损失保留真实后果与人物自己的诉求。只表现相关影响，不强制各方震惊、独立余韵章、固定篇幅或统一四段结构。';
+export function creativeGuidance(stage?:Stage):string{return CREATIVE_DESIGN_GUIDANCE+(stage==='chain'?'\n兑现与余韵检查（仅链设计）：'+CHAIN_PAYOFF_GUIDANCE:'');}
 type Stage='opening'|'setting'|'book'|'volume'|'chain'|'chapter'|'prose';
 interface Entry {id:string;internalId:string;revision:number;hash:string;payload:CardPayload}
 interface SessionRow {source_hash:string;release_id:string;stage:string;snapshot_json:string;result_json:string|null}
 export interface CreativeSessionInput {ownerId:string;bookId:string;sessionId:string;stage:Stage;source:string;releaseId?:string|null}
-export interface CreativeSelection {revision:string;releaseId:string|null;selected:Array<{id:string;revision:number;application:string;content:unknown}>;note:string}
+export interface CreativeSelection {revision:string;stage?:Stage;releaseId:string|null;selected:Array<{id:string;revision:number;application:string;content:unknown}>;note:string}
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 function parse(text:string):Record<string,unknown>{const value=JSON.parse(text.trim().replace(/^```(?:json)?\s*/u,'').replace(/\s*```$/u,''));if(!value||typeof value!=='object'||Array.isArray(value))throw Error('动作必须是对象');return value;}
 function purposes(e:Entry):string[]{return e.payload.assetKind==='method'?[e.payload.method.usageTree,...(e.payload.method.relatedPurposes??[])]:e.payload.reference.facets.purposes;}
@@ -17,13 +19,14 @@ function stages(e:Entry):readonly string[]{return e.payload.assetKind==='method'
 function detail(e:Entry,stage:Stage):unknown{
  if(e.payload.assetKind!=='method')return {id:e.id,revision:e.revision,hash:e.hash,...e.payload};
  const m=e.payload.method;
- return {id:e.id,revision:e.revision,hash:e.hash,name:e.payload.name,summary:e.payload.summary,instruction:m.instruction,boundary:m.boundary,primaryStages:m.applicableLayers,conditionalUse:m.conditionalUses?.filter(c=>c.stage===stage)??[]};
+ const boundary=stage==='chain'?m.boundary:m.boundary.split('\n').filter(line=>!line.startsWith('仅链设计检查：')).join('\n');
+ return {id:e.id,revision:e.revision,hash:e.hash,name:e.payload.name,summary:e.payload.summary,instruction:m.instruction,boundary,primaryStages:m.applicableLayers,conditionalUse:m.conditionalUses?.filter(c=>c.stage===stage)??[]};
 }
 /** Tool actions are executed here, never inferred from a model's claim to have searched. */
 export class CreativeReferenceRuntime {
  constructor(private readonly db:DatabaseSync){}
  async select(input:CreativeSessionInput,call:(step:number,prompt:string)=>Promise<string>):Promise<CreativeSelection>{
-  const empty=(note:string):CreativeSelection=>({revision:CREATIVE_PROMPT_REVISION,releaseId:null,selected:[],note});
+  const empty=(note:string):CreativeSelection=>({revision:CREATIVE_PROMPT_REVISION,stage:input.stage,releaseId:null,selected:[],note});
   if(!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='creative_reference_sessions'").get())return empty('新检索存储尚未安装，未使用新库');
   const args=[input.ownerId,input.bookId,input.sessionId] as const;
   let row=this.db.prepare('SELECT * FROM creative_reference_sessions WHERE owner_id=? AND book_id=? AND session_id=?').get(...args) as SessionRow|undefined;
@@ -43,7 +46,7 @@ export class CreativeReferenceRuntime {
   const entries=(JSON.parse(row.snapshot_json) as Entry[]).map(ref=>{const r=repo.getRevisionInRelease(row!.release_id,ref.internalId);if(!r||r.contentHash!==ref.hash||r.revision!==ref.revision)throw Error('冻结方法版本不符');return {...ref,payload:r.payload};}),read=new Set<string>(),offered=new Set<string>();
   const catalogue=[...new Set(entries.flatMap(purposes))];let latest:unknown=null;let lastCandidates:unknown[]=[];
   const save=(step:number,event:unknown)=>this.db.prepare('INSERT INTO creative_reference_session_events VALUES(?,?,?,?,?) ON CONFLICT(owner_id,book_id,session_id,step) DO UPDATE SET event_json=excluded.event_json').run(...args,step,JSON.stringify(event));
-  const finish=(selected:CreativeSelection['selected'],note:string)=>{const result={revision:CREATIVE_PROMPT_REVISION,releaseId:row!.release_id,selected,note};this.db.prepare('UPDATE creative_reference_sessions SET result_json=? WHERE owner_id=? AND book_id=? AND session_id=? AND result_json IS NULL').run(JSON.stringify(result),...args);return result;};
+  const finish=(selected:CreativeSelection['selected'],note:string)=>{const result={revision:CREATIVE_PROMPT_REVISION,stage:input.stage,releaseId:row!.release_id,selected,note};this.db.prepare('UPDATE creative_reference_sessions SET result_json=? WHERE owner_id=? AND book_id=? AND session_id=? AND result_json IS NULL').run(JSON.stringify(result),...args);return result;};
   // Source is preserved whole. Oversized source must be reduced by its upstream owner, not sliced here.
   if(input.source.length>10000)return finish([],'当前资料占满预算，未增加方法参考，按原任务设计');
   for(let step=0;step<6;step++){
@@ -76,9 +79,9 @@ export class CreativeReferenceRuntime {
   return finish([],'查询预算用完，未选定方法，按原创继续');
  }
 }
-export function creativeSupplement(selection:CreativeSelection):string{return `\n创作执行要求（${CREATIVE_PROMPT_REVISION}）：${CREATIVE_DESIGN_GUIDANCE}\n本次参考（软参考，不是本书事实）：${JSON.stringify(selection)}\n只按原任务格式输出，不复述工具协议和参考清单。`;}
+export function creativeSupplement(selection:CreativeSelection):string{return `\n创作执行要求（${CREATIVE_PROMPT_REVISION}）：${creativeGuidance(selection.stage)}\n本次参考（软参考，不是本书事实）：${JSON.stringify(selection)}\n只按原任务格式输出，不复述工具协议和参考清单。`;}
 export function attachCreativeContext(prompt:string,selection?:CreativeSelection):string{
- const reference={promptRevision:CREATIVE_PROMPT_REVISION,instruction:CREATIVE_DESIGN_GUIDANCE,...(selection?{selection}:{})};
+ const reference={promptRevision:CREATIVE_PROMPT_REVISION,instruction:creativeGuidance(selection?.stage),...(selection?{selection}:{})};
  try{const data=JSON.parse(prompt);if(data&&typeof data==='object'&&!Array.isArray(data))return JSON.stringify({...data,creativeReference:reference});}catch{}
  return prompt+'\n'+JSON.stringify({creativeReference:reference});
 }

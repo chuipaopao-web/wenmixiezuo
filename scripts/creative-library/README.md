@@ -1,5 +1,13 @@
 # R209 创作库内容整理与导入
 
+## C5：余韵检查仅用于链（2026-09-14）
+
+`chain-rhythm.mjs`定义本次修订，`generated/chain-rhythm.json`绑定C4正式版本与33项原卡。法012改为“开端—推进—兑现—余韵扩散”，仅chain；其他宏观/情绪节奏保留原结构，链设计统一检查兑现与余韵。专门的“兑现与余韵”“让余韵带出行动”退出book/volume供给。章节或正文可落实已设计影响，但不新增链检查以外的强制检查。
+
+`apply-chain-rhythm.mjs <source> <db> <plan> <review> preview|apply`核对原版本、审核与活动发布，整批修订/审核/发布同事务。存在未核对的关系或人工编辑则停止；旧release保持可读，重复发布零变更。审核证据在`evidence/r209-c5/review.json`，未改卡按hash复用C4通过项。
+
+共享runtime按真实stage注入检查，即使成员原创空选也执行链检查；非chain不注入检查说明。法012不以conditional搜索回流book/volume。链页面未开发，本批交付供后续链入口直接复用的执行接口和数据，不冒充链页面已上线。最新发布结果见R209工作清单C5。
+
 ## C4/D/E：正式发布与真实使用（2026-09-14）
 
 当前合同及上线记录在`coauthoring-v7/docs/worklists/CREATIVE-LIBRARY-209.md`。562条公共卡片完成GLM5.3独立审核；29项修订、5项新增；366方法、196参考，5退役来源保留原号。不要重跑下面旧C1流程替代本批。

@@ -1,0 +1,19 @@
+import {describe,it,expect} from 'vitest';
+import {readFileSync} from 'node:fs';
+import {DatabaseSync} from 'node:sqlite';
+import {CreativeReferenceRuntime,creativeSupplement} from '../../apps/api/src/application/creative-reference/runtime.js';
+import {SqliteCreativeReferenceRepository} from '../../apps/api/src/infrastructure/db/repositories/creative-reference-repository.js';
+import {validatePayload} from '../../apps/api/src/application/creative-reference/validation.js';
+const plan=JSON.parse(readFileSync('scripts/creative-library/generated/chain-rhythm.json','utf8'));
+describe('链节奏检查的阶段边界',()=>{
+ it('33项修订格式有效，法012只属于链且其他节奏不改结构',()=>{expect(plan.entries).toHaveLength(33);for(const e of plan.entries){validatePayload(e.payload);if(e.code==='法012'){expect(e.payload.method.applicableLayers).toEqual(['chain']);expect(e.payload.method.conditionalUses).toEqual([]);expect(e.payload.name).toBe('开端—推进—兑现—余韵扩散');}else expect(e.payload.name).toBe(e.expectedPayload.name);}});
+ it.each(['book','volume','chain'] as const)('%s的最终真实选择注入只在链出现检查',async stage=>{
+  const db=new DatabaseSync(':memory:');try{for(const f of ['0122_creative_reference.sql','0124_creative_reference_sessions.sql'])db.exec(readFileSync('apps/api/src/infrastructure/db/migrations/'+f,'utf8'));
+  const repo=new SqliteCreativeReferenceRepository(db),e=plan.entries.find((e:any)=>e.code==='法013');const c=repo.createCard({assetKind:'method',idempotencyKey:'test',legacy:null,authorActor:'test',payload:e.payload},'now');repo.reviewRevision({internalId:c.internalId,expectedRevision:1,reviewActor:'other'},'now');repo.publishRelease({entries:[{internalId:c.internalId,revision:1}],relations:[],publishedBy:'test',expectedActiveReleaseId:null},'now');
+  const actions=[{action:'search',purpose:'宏观节奏',query:'',conditional:true,cursor:0},{action:'read',ids:[c.displayCode]},{action:'ready',selected:[{id:c.displayCode,application:'按当前目标安排结构'}]}];
+  const r=await new CreativeReferenceRuntime(db).select({ownerId:'test',bookId:'test',sessionId:stage,stage,source:'主角尝试夺回工坊'},async(i,p)=>{if(i===2&&stage!=='chain')expect(p).not.toContain('仅链设计检查：');return JSON.stringify(actions[i]);});expect(r.selected).toHaveLength(1);const text=creativeSupplement(r);expect(text.includes('兑现与余韵检查（仅链设计）')).toBe(stage==='chain');if(stage!=='chain')expect(text).not.toContain('仅链设计检查：');
+  }finally{db.close();}
+ });
+ it('法012旧发布可读，新发布全书/卷不能搜索到',async()=>{const db=new DatabaseSync(':memory:');try{for(const f of ['0122_creative_reference.sql','0124_creative_reference_sessions.sql'])db.exec(readFileSync('apps/api/src/infrastructure/db/migrations/'+f,'utf8'));const repo=new SqliteCreativeReferenceRepository(db),e=plan.entries.find((e:any)=>e.code==='法012'),c=repo.createCard({assetKind:'method',idempotencyKey:'12',legacy:null,authorActor:'test',payload:e.expectedPayload},'now');repo.reviewRevision({internalId:c.internalId,expectedRevision:1,reviewActor:'other'},'now');const old=repo.publishRelease({entries:[{internalId:c.internalId,revision:1}],relations:[],publishedBy:'test',expectedActiveReleaseId:null},'now');repo.updateCard({internalId:c.internalId,expectedRevision:1,payload:e.payload,actor:'test'},'now');repo.reviewRevision({internalId:c.internalId,expectedRevision:2,reviewActor:'other'},'now');repo.publishRelease({entries:[{internalId:c.internalId,revision:2}],relations:[],publishedBy:'test',expectedActiveReleaseId:old.releaseId},'now');expect(repo.getRevisionInRelease(old.releaseId,c.internalId)?.payload.name).toBe(e.expectedPayload.name);
+ for(const stage of ['book','volume'] as const)await new CreativeReferenceRuntime(db).select({ownerId:'test',bookId:'test',sessionId:stage,stage,source:'当前粗节奏'},async(i,p)=>{if(i===0)return JSON.stringify({action:'search',purpose:'宏观节奏',query:c.displayCode,conditional:true,cursor:0});expect(p).toContain('"total":0');return '{"action":"ready","selected":[]}';});}finally{db.close();}});
+});
