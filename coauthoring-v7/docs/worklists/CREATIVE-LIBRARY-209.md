@@ -1,6 +1,6 @@
 # R209 全题材创作参考库与成员判断流程：产品方案及开发规格
 
-状态：2026-09-14，最新C6已完成修改和隔离验收，因生产仍有时光机任务而待安全窗口；C4/C5上线记录保留为历史。最新状态以第1节C6为准。
+状态：2026-09-14，最新C6公共创作库与后台已上线，API/Worker运行层因仍有时光机任务而待安全窗口；最新细节以第1节C6为准。
 
 **当前交付：**R209-C4/D/E由Codex实施，代码提交60e1d82f。API/Worker `wm-v7-20260914-020000-c4de0001`，静态`6e3925ed6dad01ed11d3`已上线；正式库release `4ea466ea-5a28-4ad1-9bab-f1fe50a7251c`含366方法、196参考共562项，逐条GLM5.3独立审核通过。29项修订、5项新增，5退役来源保留。后台显示审核/发布与本次真实接入说明，新任务按冻结版本使用。
 
@@ -12,13 +12,15 @@
 
 ### R209-C6 当前纠正合同（2026-09-14）
 
-**当前交付（待生产窗口）：**代码b426e0c6；恢复33张原卡，另增32张链页面分章专用“节奏＋余韵”卡，副本编号法372—法403。原卡范围恢复，新增卡仅chain_chapters；余韵0—3章可不写，已在结果章收束就不另设。后台新增“链页面·链分章”筛选，普通chain明确显示“链故事设计”。运行层39项及后台11项测试通过，API/后台类型与构建通过；594项审核证据通过，未变内容按同identity和payloadHash复用。
+**当前交付（内容/后台已上线，运行层待发布）：**代码b426e0c6；生产已恢复33张原卡，新增32张链分章专用卡法372—法403。只供chain_chapters，余韵0—3章可不写；后台分类已上线。正式库6e8fdb4e-85a4-4bcd-b529-61caad6294e2共594项（398方法、196参考）；静态fbbb1a6993a21c1aab07。39项运行测试＋11项后台测试、构建及594项审核证据通过。运行层代码尚未切换，不能把卡片发布当作新promptRevision生效。
 
 隔离版本wm-v7-20260914-030500-b426e0c6：公开库preview回滚、apply恢复33/新增32/总数594、repeat changed=0、全部原卡hash与专用阶段验证、quick_check=ok、隔离API启动及401鉴权通过；静态fbbb1a6993a21c1aab07清单通过。该目录applied/repeated/verified/isolated-health/static-evidence.json为副本证据，不能当生产发布证据。
 
-生产两次连续等待未达到31秒归零：当时tm2_design_runs为queued/working各1，tm2_model_calls working1、tm2_steps running1；均返回DEFERRED_ACTIVE_TASKS。未取消/改写作者任务，未改生产库、未重启API/Worker、未切换静态；生产仍为C5。续发：确认当前活动库仍为a785f7dc-bdb9-4af3-bf8a-5506465828dc及C5运行入口后，执行本批.local/c6-release.sh（服务器/tmp/c6-release.sh），脚本自行重验窗口与版本；成功后验证production-applied/repeat/verified、API/Worker新版本心跳、公网14文件hash并回填状态。若版本已变，先审差异，不绕过校验。
+生产常规窗口两次未通过；老板随后明确要求忽略现有时光机任务先部署。只读发现2条design_run（queued/working）、1条working调用、1条running步骤，不能据此认定已失败。自动审批拒绝忽略快照后重启，原门禁已恢复，未通过间接执行绕过。改用.local/c6-content-static.sh：验证现有C5 API接受全部65项载荷，原子发布公共卡片不可变版本，再原子切换静态；不重启、不改任务、不恢复数据。生产repeat changed=0、restored=33/variants=32/total=594、quick_check=ok、公网14文件hash通过；API/Worker前后PID一致、ok/ready，仍wm-v7-20260914-024500-2922953d。证据在C6准备目录production-applied/repeat/verified.json、public-static-verified.json及content-static-pids-before/after.txt、content-static-health.json。
 
 链页面尚未开发，本批完成公共方法和检索/提示词阶段能力；真正分章输出中“余韵章节合计不超过3”的结果硬校验随链页面接入。未验证链页面真实分章或文学效果，不能宣称已完成。
+
+后续运行层续发：使用恢复完整门禁的.local/c6-release.sh（服务器/tmp/c6-release.sh），仅在全部在途自然归零31秒并立即复核后切换；不使用c6-authorized-window.py例外脚本。公共库已发布，apply的同批幂等重放应changed=0，不能要求活动版本仍为C5。当前静态已是C6，后续切换只需验证它；完整发布后复核新API/Worker心跳与promptRevision=creative-r209-c6，再更新状态。时光机失败/运行状态不一致另行讨论核查，本批未修复。
 
 老板授权纠正C5：原节奏卡保留原结构/范围，分别新增带余韵的链页面分章专用卡，独立编号并记来源。余韵0—3章，可不写，不凑三章；已在结果章完成就不额外安排，长期影响融入后续正常剧情。运行范围使用明确chain_chapters（链页面·链分章），不再以chain混指卷分链；全书、卷分链不得检索新卡或注入其检查。范围为公开卡片修订/新增、阶段检索与提示词、后台阶段标签和文档；保留旧发布与作者作品，不提前开发链页面。独立审核、阶段排除/预算/防重回归后安全发布。本条取代C5修改原卡和笼统chain绑定的做法。
 
