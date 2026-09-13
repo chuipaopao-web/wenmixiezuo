@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { fetchCreativeCards, fetchCreativeRevisionSnapshot, publishCreativeRelease } from './creative-reference-api';
+import { fetchCreativeCards, fetchCreativeReleaseEntries, fetchCreativeRevisionSnapshot, publishCreativeRelease, setCreativeAvailability } from './creative-reference-api';
 
 function ok(data: unknown): Response {
   return new Response(JSON.stringify({ data }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -52,5 +52,20 @@ describe('创作库管理API客户端', () => {
   test('错误envelope抛出服务器可读文案，不伪装成功', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: '发布请求键已用于不同内容。' } }), { status: 409 })));
     await expect(fetchCreativeCards({})).rejects.toThrow('发布请求键已用于不同内容。');
+  });
+
+  test('冻结清单条目走绑定release的分页端点并透传游标', async () => {
+    const fetchMock = vi.fn(async () => ok({ items: [], nextCursor: null }));
+    vi.stubGlobal('fetch', fetchMock);
+    await fetchCreativeReleaseEntries('rel-9', { limit: 50, cursor: 'PAGE3' });
+    expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toBe('/api/v1/admin/creative-reference/releases/rel-9/entries?limit=50&cursor=PAGE3');
+  });
+
+  test('退役/恢复提交所见状态与所见版本（必传防并发覆盖）', async () => {
+    const fetchMock = vi.fn(async () => ok({ card: { internalId: 'card-1', assetKind: 'method', displayCode: '法001', currentRevision: 2, availability: 'retired', createdAt: '2026-09-13T00:00:00Z', updatedAt: '2026-09-13T00:00:00Z' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await setCreativeAvailability('card-1', { action: 'retire', seenAvailability: 'draft', seenRevision: 2, reason: '并入其他条目' });
+    const init = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toEqual({ action: 'retire', seenAvailability: 'draft', seenRevision: 2, reason: '并入其他条目' });
   });
 });

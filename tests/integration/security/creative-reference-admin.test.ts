@@ -119,6 +119,8 @@ describe('creative-reference admin routes', () => {
       expect((republishRes.json().data as { release: { releaseId: string }; replayed: boolean }).replayed).toBe(true);
       // 同键异内容409
       expect((await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: { entries: [], relations: [], expectedActiveReleaseId: release.releaseId, idempotencyKey: 'b2-rel-1' } })).statusCode).toBe(400);
+      // 陈旧active指针：预期不符属于版本冲突409
+      expect((await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: { entries: [{ internalId: card.internalId, revision: 2 }], relations: [], expectedActiveReleaseId: 'not-the-active-id', idempotencyKey: 'b2-stale-1' } })).statusCode).toBe(409);
       // 陈旧active预期409
       const staleRes = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: { entries: [{ internalId: card.internalId, revision: 2 }], relations: [], expectedActiveReleaseId: null, idempotencyKey: 'b2-rel-2' } });
       expect(staleRes.statusCode).toBe(409);
@@ -128,9 +130,9 @@ describe('creative-reference admin routes', () => {
       const releasesData = releasesRes.json().data as { items: Array<{ releaseId: string; active: boolean; entryCount: number }>; activeReleaseId: string | null };
       expect(releasesData.activeReleaseId).toBe(release.releaseId);
       expect(releasesData.items[0]!.entryCount).toBe(1);
-      const releaseDetailRes = await app.inject({ url: `/api/v1/admin/creative-reference/releases/${release.releaseId}`, headers: adminHeaders });
+      const releaseDetailRes = await app.inject({ url: `/api/v1/admin/creative-reference/releases/${release.releaseId}/entries?limit=100`, headers: adminHeaders });
       expect(releaseDetailRes.statusCode).toBe(200);
-      expect((releaseDetailRes.json().data as { release: { entries: unknown[] } }).release.entries).toHaveLength(1);
+      expect(((releaseDetailRes.json().data as { items: unknown[] }).items)).toHaveLength(1);
 
       // 再编辑→旧release读取不变
       await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${card.internalId}/revisions`, headers: adminHeaders, payload: { payload: methodPayload('第三版', 1), expectedRevision: 2 } });
@@ -139,17 +141,20 @@ describe('creative-reference admin routes', () => {
       const oldRevBody = oldRevision.json().data as { revision: { payload: { name: string } } };
       expect(oldRevBody.revision.payload.name).toBe('起承转合修订');
 
-      // 退役：意见留痕、再退役冲突、恢复、恢复后历史可读
-      const retireRes = await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${card.internalId}/availability`, headers: adminHeaders, payload: { action: 'retire', seenAvailability: 'draft', reason: '内容并入其他条目' } });
+      // 退役：意见留痕、再退役冲突、恢复、恢复后历史可读（所见状态+版本必传，原子校验）
+      const retireRes = await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${card.internalId}/availability`, headers: adminHeaders, payload: { action: 'retire', seenAvailability: 'draft', seenRevision: 3, reason: '内容并入其他条目' } });
       expect(retireRes.statusCode).toBe(200);
       const retireBody = retireRes.json().data as { card: { availability: string } };
       expect(retireBody.card.availability).toBe('retired');
-      expect((await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${card.internalId}/availability`, headers: adminHeaders, payload: { action: 'retire', seenAvailability: 'retired' } })).statusCode).toBe(409);
-      // 并发覆盖防护：所见状态不对409
-      expect((await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${card.internalId}/availability`, headers: adminHeaders, payload: { action: 'restore', seenAvailability: 'published' } })).statusCode).toBe(409);
+      expect((await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${card.internalId}/availability`, headers: adminHeaders, payload: { action: 'retire', seenAvailability: 'retired', seenRevision: 3 } })).statusCode).toBe(409);
+      // 并发覆盖防护：所见状态不对409；所见版本不对409；缺任一所见值400
+      expect((await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${card.internalId}/availability`, headers: adminHeaders, payload: { action: 'restore', seenAvailability: 'published', seenRevision: 3 } })).statusCode).toBe(409);
+      expect((await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${card.internalId}/availability`, headers: adminHeaders, payload: { action: 'restore', seenAvailability: 'retired', seenRevision: 2 } })).statusCode).toBe(409);
+      expect((await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${card.internalId}/availability`, headers: adminHeaders, payload: { action: 'retire', seenAvailability: 'retired' } })).statusCode).toBe(400);
+      expect((await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${card.internalId}/availability`, headers: adminHeaders, payload: { action: 'retire', seenRevision: 3 } })).statusCode).toBe(400);
       // 退役卡不能再发布
       expect((await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: { entries: [{ internalId: card.internalId, revision: 2 }], relations: [], expectedActiveReleaseId: release.releaseId, idempotencyKey: 'b2-rel-3' } })).statusCode).toBe(400);
-      const restoreRes = await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${card.internalId}/availability`, headers: adminHeaders, payload: { action: 'restore', seenAvailability: 'retired', reason: '恢复使用' } });
+      const restoreRes = await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${card.internalId}/availability`, headers: adminHeaders, payload: { action: 'restore', seenAvailability: 'retired', seenRevision: 3, reason: '恢复使用' } });
       expect(restoreRes.statusCode).toBe(200);
       const restoreBody = restoreRes.json().data as { card: { availability: string } };
       expect(restoreBody.card.availability).toBe('draft');
@@ -228,9 +233,17 @@ describe('creative-reference admin routes', () => {
       expect(release2.entries).toHaveLength(45);
       expect(release2.entries.find((e) => e.internalId === changed.internalId)!.revision).toBe(2);
       expect(release2.entries.filter((e) => e.revision === 1)).toHaveLength(44);
-      // 旧release冻结不变
-      const oldDetail = (await (await app.inject({ url: `/api/v1/admin/creative-reference/releases/${release45.releaseId}`, headers: adminHeaders })).json().data) as { release: { entries: Array<{ internalId: string; revision: number }> } };
-      expect(oldDetail.release.entries.find((e) => e.internalId === changed.internalId)!.revision).toBe(1);
+      // 旧release冻结不变：条目走冻结分页遍历（不读活动指针）
+      const frozen: Array<{ internalId: string; revision: number }> = [];
+      let entriesCursor: string | null = null;
+      for (let page = 0; page < 10; page += 1) {
+        const res = (await (await app.inject({ url: `/api/v1/admin/creative-reference/releases/${release45.releaseId}/entries?limit=20${entriesCursor === null ? '' : `&cursor=${encodeURIComponent(entriesCursor)}`}`, headers: adminHeaders })).json().data) as { items: Array<{ internalId: string; revision: number }>; nextCursor: string | null };
+        frozen.push(...res.items);
+        entriesCursor = res.nextCursor;
+        if (entriesCursor === null) break;
+      }
+      expect(frozen).toHaveLength(45);
+      expect(frozen.find((e) => e.internalId === changed.internalId)!.revision).toBe(1);
       // 悬空关系拒绝：目标不在清单
       const dangling = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: { entries: [{ internalId: ids[0]!.internalId, revision: 1 }], relations: [{ fromId: ids[0]!.internalId, fromRevision: 1, toId: 'nonexistent', toRevision: 1, relationType: 'supplement' }], expectedActiveReleaseId: release2.releaseId, idempotencyKey: 'b2-45-rel-3' } });
       expect(dangling.statusCode).toBe(400);
@@ -259,4 +272,166 @@ describe('creative-reference admin routes', () => {
       rmSync(root, { force: true, recursive: true });
     }
   });
+
+  it('fault injection: audit/result-write failure rolls back state+audit+request; same-key retry succeeds after rollback', async () => {
+    const c = createTestContext();
+    const app = await createV7Server(c.config, c.database);
+    try {
+      const headers = { host: '127.0.0.1:43111', origin: c.config.webOrigin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' };
+      const register = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers, payload: { email: 'b2-atomic@example.com', displayName: '管理员', password: 'Strong-test-pass-123!' } });
+      const adminHeaders = { ...headers, cookie: String(register.headers['set-cookie']).split(';')[0]! };
+      const create = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: methodPayload('原子性方法', 1), legacy: null, idempotencyKey: 'atomic-1' } });
+      const internalId = (create.json().data as { card: { internalId: string } }).card.internalId;
+
+      // 反例1：review审计写入失败 → HTTP错误且revision保持draft、无意见、无review审计行
+      c.database.exec("CREATE TRIGGER fail_review_audit BEFORE INSERT ON creative_reference_admin_audit WHEN NEW.action='review' BEGIN SELECT RAISE(ABORT,'synthetic audit failure'); END");
+      const failedReview = await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${internalId}/review`, headers: adminHeaders, payload: { expectedRevision: 1, opinion: '必须同事务' } });
+      expect(failedReview.statusCode).toBeGreaterThanOrEqual(500);
+      const revState = c.database.prepare('SELECT status FROM creative_reference_revisions WHERE internal_id=? AND revision=1').get(internalId) as { status: string };
+      expect(revState.status).toBe('draft');
+      expect((c.database.prepare("SELECT COUNT(*) n FROM creative_reference_admin_audit WHERE action='review'").get() as { n: number }).n).toBe(0);
+      c.database.exec('DROP TRIGGER fail_review_audit');
+      // 故障解除后重试成功：意见与审计留痕
+      const okReview = await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${internalId}/review`, headers: adminHeaders, payload: { expectedRevision: 1, opinion: '故障后重审通过' } });
+      expect(okReview.statusCode).toBe(200);
+      expect((c.database.prepare("SELECT COUNT(*) n FROM creative_reference_admin_audit WHERE action='review' AND opinion='故障后重审通过'").get() as { n: number }).n).toBe(1);
+
+      // 反例2：create审计写入失败 → 无卡、无版本、无审计（整体回滚）
+      c.database.exec("CREATE TRIGGER fail_create_audit BEFORE INSERT ON creative_reference_admin_audit WHEN NEW.action='create' BEGIN SELECT RAISE(ABORT,'synthetic create audit failure'); END");
+      const failedCreate = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: methodPayload('失败创建', 2), legacy: null, idempotencyKey: 'atomic-2' } });
+      expect(failedCreate.statusCode).toBeGreaterThanOrEqual(500);
+      expect((c.database.prepare("SELECT COUNT(*) n FROM creative_reference_cards WHERE idempotency_key='atomic-2'").get() as { n: number }).n).toBe(0);
+      c.database.exec('DROP TRIGGER fail_create_audit');
+
+      // 反例3：发布结果回填失败 → active指针、请求记录、审计与发布全部回滚；同键重试可成功
+      c.database.exec('CREATE TRIGGER fail_release_result BEFORE UPDATE OF release_id ON creative_reference_release_requests BEGIN SELECT RAISE(ABORT,\'synthetic result failure\'); END');
+      const publishBody = { entries: [{ internalId, revision: 1 }], relations: [], expectedActiveReleaseId: null, idempotencyKey: 'atomic-release-1' };
+      const failedPublish = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: publishBody });
+      expect(failedPublish.statusCode).toBeGreaterThanOrEqual(500);
+      expect(c.database.prepare('SELECT release_id FROM creative_reference_releases WHERE active=1').get()).toBeUndefined();
+      expect(c.database.prepare('SELECT release_id FROM creative_reference_release_requests WHERE request_key=?').get('atomic-release-1')).toBeUndefined();
+      expect((c.database.prepare("SELECT COUNT(*) n FROM creative_reference_admin_audit WHERE action='publish'").get() as { n: number }).n).toBe(0);
+      c.database.exec('DROP TRIGGER fail_release_result');
+      const retryPublish = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: publishBody });
+      expect(retryPublish.statusCode).toBe(200);
+      const retried = retryPublish.json().data as { release: { releaseId: string }; replayed: boolean };
+      expect(retried.replayed).toBe(false);
+      expect(c.database.prepare('SELECT release_id FROM creative_reference_releases WHERE active=1').get()).toMatchObject({ release_id: retried.release.releaseId });
+    } finally {
+      await app.close();
+      c.close();
+    }
+  }, 120_000);
+
+  it('usage tree filter: method usageTree and reference purposes match main class and children', async () => {
+    const c = createTestContext();
+    const app = await createV7Server(c.config, c.database);
+    try {
+      const headers = { host: '127.0.0.1:43111', origin: c.config.webOrigin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' };
+      const register = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers, payload: { email: 'b2-usage@example.com', displayName: '管理员', password: 'Strong-test-pass-123!' } });
+      const adminHeaders = { ...headers, cookie: String(register.headers['set-cookie']).split(';')[0]! };
+      // method：主类直接命中；reference：purposes存主类与子类各一张
+      await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: methodPayload('因果方法', 1), legacy: null, idempotencyKey: 'usage-m-1' } });
+      await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: methodPayload('节奏方法', 2), legacy: null, idempotencyKey: 'usage-m-2' } });
+      const withPurposes = (name: string, index: number, purposes: string[]): Record<string, unknown> => {
+        const payload = referencePayload(name, index);
+        (payload.reference as { facets: { purposes: string[] } }).facets.purposes = purposes;
+        return payload;
+      };
+      await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: withPurposes('人物参考主类', 3, ['人物与关系']), legacy: null, idempotencyKey: 'usage-r-1' } });
+      await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: withPurposes('人物参考子类', 4, ['欲望动机']), legacy: null, idempotencyKey: 'usage-r-2' } });
+
+      const list = async (query: string): Promise<Array<{ displayCode: string; assetKind: string }>> =>
+        ((await (await app.inject({ url: `/api/v1/admin/creative-reference/cards?${query}`, headers: adminHeaders })).json().data) as { items: Array<{ displayCode: string; assetKind: string }> }).items;
+      // method命中/不命中
+      expect((await list('assetKind=method&usageTree=' + encodeURIComponent('故事与因果'))).map((i) => i.displayCode)).toEqual(['法001']);
+      expect((await list('assetKind=method&usageTree=' + encodeURIComponent('人物与关系')))).toHaveLength(0);
+      // reference：主类与子类purposes都命中主类筛选（Codex探针场景）
+      const refHits = await list('assetKind=reference&usageTree=' + encodeURIComponent('人物与关系'));
+      expect(refHits).toHaveLength(2);
+      expect(refHits.every((i) => i.assetKind === 'reference')).toBe(true);
+      // 混合（不带类型）：method因果 + 两张reference人物
+      const mixed = await list('usageTree=' + encodeURIComponent('人物与关系'));
+      expect(mixed).toHaveLength(2);
+      // 不存在的用途：无结果且HTTP 200（不近似替代）
+      expect((await list('usageTree=' + encodeURIComponent('不存在的用途')))).toHaveLength(0);
+      // 跨页：5张同主类method卡，limit=2 → 3页无重复
+      const genreTreePayload = (name: string): Record<string, unknown> => {
+        const payload = methodPayload(name, 1);
+        (payload.method as { usageTree: string }).usageTree = '题材与融合';
+        return payload;
+      };
+      for (let i = 1; i <= 5; i += 1) {
+        await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: genreTreePayload(`题材方法${i}`), legacy: null, idempotencyKey: `usage-mg-${i}` } });
+      }
+      const collected: string[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 5; page += 1) {
+        const res = (await (await app.inject({ url: `/api/v1/admin/creative-reference/cards?assetKind=method&usageTree=${encodeURIComponent('题材与融合')}&limit=2${cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`}`, headers: adminHeaders })).json().data) as { items: Array<{ displayCode: string }>; nextCursor: string | null };
+        collected.push(...res.items.map((i) => i.displayCode));
+        cursor = res.nextCursor;
+        if (cursor === null) break;
+      }
+      expect(collected).toHaveLength(5);
+      expect(new Set(collected).size).toBe(5);
+    } finally {
+      await app.close();
+      c.close();
+    }
+  }, 120_000);
+
+  it('release entries pagination with cursor validation; relations across two releases; per-release freeze', async () => {
+    const c = createTestContext();
+    const app = await createV7Server(c.config, c.database);
+    try {
+      const headers = { host: '127.0.0.1:43111', origin: c.config.webOrigin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' };
+      const register = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers, payload: { email: 'b2-relpage@example.com', displayName: '管理员', password: 'Strong-test-pass-123!' } });
+      const adminHeaders = { ...headers, cookie: String(register.headers['set-cookie']).split(';')[0]! };
+      const ids: string[] = [];
+      for (let i = 1; i <= 5; i += 1) {
+        const res = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/cards', headers: adminHeaders, payload: { payload: methodPayload(`关系卡${i}`, i), legacy: null, idempotencyKey: `relpage-${i}` } });
+        ids.push((res.json().data as { card: { internalId: string } }).card.internalId);
+        await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${ids[i - 1]}/review`, headers: adminHeaders, payload: { expectedRevision: 1, opinion: '审核' } });
+      }
+      // 首发带边：A@1 supplement B@1
+      const rel1 = [{ fromId: ids[0]!, fromRevision: 1, toId: ids[1]!, toRevision: 1, relationType: 'supplement' as const }];
+      const publish1 = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: { entries: ids.map((id) => ({ internalId: id, revision: 1 })), relations: rel1, expectedActiveReleaseId: null, idempotencyKey: 'relpage-rel-1' } });
+      expect(publish1.statusCode).toBe(200);
+      const release1 = (publish1.json().data as { release: { releaseId: string } }).release.releaseId;
+
+      // 冻结分页：limit=2 → 2+2+1，nextCursor链尾null
+      const page1 = (await (await app.inject({ url: `/api/v1/admin/creative-reference/releases/${release1}/entries?limit=2`, headers: adminHeaders })).json().data) as { items: Array<{ internalId: string }>; nextCursor: string };
+      expect(page1.items).toHaveLength(2);
+      const page2 = (await (await app.inject({ url: `/api/v1/admin/creative-reference/releases/${release1}/entries?limit=2&cursor=${encodeURIComponent(page1.nextCursor)}`, headers: adminHeaders })).json().data) as { items: Array<{ internalId: string }>; nextCursor: string };
+      expect(page2.items).toHaveLength(2);
+      const page3 = (await (await app.inject({ url: `/api/v1/admin/creative-reference/releases/${release1}/entries?limit=2&cursor=${encodeURIComponent(page2.nextCursor)}`, headers: adminHeaders })).json().data) as { items: Array<{ internalId: string }>; nextCursor: string | null };
+      expect(page3.items).toHaveLength(1);
+      expect(page3.nextCursor).toBeNull();
+      expect(new Set([...page1.items, ...page2.items, ...page3.items].map((i) => i.internalId)).size).toBe(5);
+      // 游标校验：畸形、跨release、带过滤指纹均拒绝400
+      expect((await app.inject({ url: `/api/v1/admin/creative-reference/releases/${release1}/entries?cursor=bad`, headers: adminHeaders })).statusCode).toBe(400);
+      expect((await app.inject({ url: `/api/v1/admin/creative-reference/releases/${release1}/entries?cursor=${encodeURIComponent(Buffer.from(JSON.stringify({ releaseId: 'another-release', lastInternalId: 'x', filterFingerprint: null }), 'utf8').toString('base64url'))}`, headers: adminHeaders })).statusCode).toBe(400);
+      expect((await app.inject({ url: `/api/v1/admin/creative-reference/releases/${release1}/entries?cursor=${encodeURIComponent(Buffer.from(JSON.stringify({ releaseId: release1, lastInternalId: page1.items[0]!.internalId, filterFingerprint: 'stale' }), 'utf8').toString('base64url'))}`, headers: adminHeaders })).statusCode).toBe(400);
+      expect((await app.inject({ url: `/api/v1/admin/creative-reference/releases/${release1}/entries?limit=0`, headers: adminHeaders })).statusCode).toBe(400);
+
+      // 二发：替换A为第2版并把边端点版本更新到A@2；未动条目与边语义保持
+      await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${ids[0]}/revisions`, headers: adminHeaders, payload: { payload: methodPayload('关系卡1修订', 1), expectedRevision: 1 } });
+      await app.inject({ method: 'POST', url: `/api/v1/admin/creative-reference/cards/${ids[0]}/review`, headers: adminHeaders, payload: { expectedRevision: 2, opinion: '修订审核' } });
+      const rel2 = [{ fromId: ids[0]!, fromRevision: 2, toId: ids[1]!, toRevision: 1, relationType: 'supplement' as const }];
+      const publish2 = await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: { entries: ids.map((id) => ({ internalId: id, revision: id === ids[0] ? 2 : 1 })), relations: rel2, expectedActiveReleaseId: release1, idempotencyKey: 'relpage-rel-2' } });
+      expect(publish2.statusCode).toBe(200);
+      const release2 = (publish2.json().data as { release: { releaseId: string } }).release.releaseId;
+
+      // 两个release的冻结关系各自可读且不变（不可变边复用，端点版本不同则视为新边）
+      const relations1 = ((await (await app.inject({ url: `/api/v1/admin/creative-reference/releases/${release1}`, headers: adminHeaders })).json().data) as { relations: Array<{ fromRevision: number; toRevision: number }> }).relations.map((r) => ({ fromRevision: r.fromRevision, toRevision: r.toRevision }));
+      expect(relations1).toEqual([{ fromRevision: 1, toRevision: 1 }]);
+      const relations2 = ((await (await app.inject({ url: `/api/v1/admin/creative-reference/releases/${release2}`, headers: adminHeaders })).json().data) as { relations: Array<{ fromRevision: number; toRevision: number }> }).relations.map((r) => ({ fromRevision: r.fromRevision, toRevision: r.toRevision }));
+      expect(relations2).toEqual([{ fromRevision: 2, toRevision: 1 }]);
+      // 陈旧active 409（用已过期的active指针发布）
+      expect((await app.inject({ method: 'POST', url: '/api/v1/admin/creative-reference/releases', headers: adminHeaders, payload: { entries: ids.map((id) => ({ internalId: id, revision: id === ids[0] ? 2 : 1 })), relations: rel2, expectedActiveReleaseId: release1, idempotencyKey: 'relpage-rel-3' } })).statusCode).toBe(409);
+    } finally {
+      await app.close();
+      c.close();
+    }
+  }, 180_000);
 });

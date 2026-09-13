@@ -15,6 +15,7 @@ vi.mock('./creative-reference-api', async (importOriginal) => {
     fetchCreativeRevisionSnapshot: vi.fn(),
     fetchCreativeReleases: vi.fn(),
     fetchCreativeReleaseDetail: vi.fn(),
+    fetchCreativeReleaseEntries: vi.fn(),
     saveCreativeCardRevision: vi.fn(),
     reviewCreativeCard: vi.fn(),
     setCreativeAvailability: vi.fn(),
@@ -86,11 +87,10 @@ describe('创作库管理页', () => {
     expect(await screen.findByText('法001 起承转合短语')).toBeVisible();
   });
 
-  it('空库显示“尚未录入”，筛选后无结果显示无结果态', async () => {
+  it('空库显示“尚未录入”，筛选后无结果显示无结果态（服务端筛选参数）', async () => {
     mocked.fetchCreativeCards.mockResolvedValue({ items: [], nextCursor: null });
     render(<CreativeReferenceLibrary />);
     expect(await screen.findByText('尚未录入')).toBeVisible();
-    mocked.fetchCreativeCards.mockResolvedValue({ items: [], nextCursor: null });
     fireEvent.change(screen.getByLabelText('按状态筛选'), { target: { value: 'published' } });
     expect(await screen.findByText('没有符合条件的结果')).toBeVisible();
     const call = mocked.fetchCreativeCards.mock.calls.at(-1)!;
@@ -122,34 +122,82 @@ describe('创作库管理页', () => {
     await waitFor(() => { expect(mocked.saveCreativeCardRevision).toHaveBeenCalledTimes(1); });
   });
 
-  it('发布：预览基于完整清单计数，确认发送完整manifest且双击只发一次', async () => {
+  it('脏表单保护：取消/返回先确认一次，确认后才离开；干净表单不确认', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<CreativeReferenceLibrary />);
+    fireEvent.click(await screen.findByText('法001 起承转合短语'));
+    fireEvent.click(await screen.findByRole('button', { name: /编辑并保存新草稿/ }));
+    const nameInput = await screen.findByLabelText('名称');
+    // 脏：取消被确认弹窗拦下
+    fireEvent.change(nameInput, { target: { value: '未保存的修改' } });
+    await waitFor(() => { expect(screen.getByText(/有未保存修改/)).toBeVisible(); });
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: '保存为新草稿' })).toBeVisible();
+    // 脏：返回列表也被拦下
+    fireEvent.click(screen.getByRole('button', { name: /返回列表/ }));
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('button', { name: '保存为新草稿' })).toBeVisible();
+    // 脏：切页导航事件被阻止
+    const blocked = !window.dispatchEvent(new Event('wenmi:admin-navigate', { cancelable: true }));
+    expect(blocked).toBe(true);
+    // 确认放行后离开
+    confirmSpy.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    await waitFor(() => { expect(screen.queryByRole('button', { name: '保存为新草稿' })).toBeNull(); });
+    confirmSpy.mockRestore();
+  });
+
+  it('发布：完整清单经冻结分页遍历、关系显式编辑、悬空阻止确认；双击只发一次', async () => {
     mocked.fetchCreativeReleases.mockResolvedValue({ items: [], total: 0, activeReleaseId: 'rel-0', nextOffset: null });
     mocked.fetchCreativeReleaseDetail.mockResolvedValue({
-      release: { releaseId: 'rel-0', manifestHash: 'h', active: true, createdAt: '2026-09-12T00:00:00Z', publishedBy: 'admin', entries: [{ internalId: 'card-1', revision: 1 }], relations: [] },
-      relations: []
+      release: { releaseId: 'rel-0', manifestHash: 'h0', active: true, createdAt: '2026-09-12T00:00:00Z', publishedBy: 'admin', relations: [{ fromId: 'card-1', fromRevision: 1, toId: 'card-3', toRevision: 1, relationType: 'supplement' }] },
+      relations: [{ fromId: 'card-1', fromRevision: 1, toId: 'card-3', toRevision: 1, relationType: 'supplement' }]
     });
-    const cardA = summary('card-1', '法001', '起承转合', { currentRevision: 1, revisionStatus: 'published' });
+    // 冻结条目分页：两页遍历（固定rel-0，不读活动指针）
+    mocked.fetchCreativeReleaseEntries.mockImplementation(async (_releaseId: string, options: { cursor?: string | null } = {}) => {
+      if (options.cursor === undefined || options.cursor === null) {
+        return { items: [{ internalId: 'card-1', revision: 1 }], nextCursor: 'page-2' };
+      }
+      return { items: [{ internalId: 'card-3', revision: 1 }], nextCursor: null };
+    });
+    const cardA = summary('card-1', '法001', '起承转合', { currentRevision: 1, revisionStatus: 'published', availability: 'published' });
     const cardB = summary('card-2', '法002', '三幕式', { currentRevision: 2, revisionStatus: 'reviewed' });
-    mocked.fetchCreativeCards.mockResolvedValue({ items: [cardA, cardB], nextCursor: null });
+    const cardC = summary('card-3', '法003', '悬念前置', { currentRevision: 1, revisionStatus: 'published', availability: 'published' });
+    mocked.fetchCreativeCards.mockResolvedValue({ items: [cardA, cardB, cardC], nextCursor: null });
     let resolvePublish: ((value: { release: api.CreativeReleaseDetail['release']; replayed: boolean }) => void) | undefined;
     mocked.publishCreativeRelease.mockImplementation(() => new Promise<{ release: api.CreativeReleaseDetail['release']; replayed: boolean }>((resolve) => { resolvePublish = resolve; }));
 
     render(<CreativeReferenceLibrary />);
     fireEvent.click(await screen.findByRole('button', { name: '发布版本' }));
-    expect(await screen.findByText(/当前基准：rel-0/)).toBeVisible();
-    expect(await screen.findByText(/基于打开时的完整清单（1 条）/)).toBeVisible();
-    expect(screen.getByText('总条目')).toBeVisible();
+    expect(await screen.findByText(/基于打开时的完整清单（2 条、1 关系）/)).toBeVisible();
+    await waitFor(() => { expect(mocked.fetchCreativeReleaseEntries).toHaveBeenCalledTimes(2); });
 
-    // 新增card-2第2版 → 预览总数2、新增1
+    // 新增card-2第2版，并显式添加关系 card-2@2→card-1@1
     fireEvent.click(screen.getByRole('button', { name: '加入第2版' }));
-    expect(await screen.findByText('新增')).toBeVisible();
-    const confirm = screen.getByRole('button', { name: '确认发布（2 条）' });
+    fireEvent.change(await screen.findByLabelText('新关系起点'), { target: { value: 'card-2' } });
+    fireEvent.change(screen.getByLabelText('新关系终点'), { target: { value: 'card-1' } });
+    fireEvent.click(screen.getByRole('button', { name: '添加关联' }));
+    expect(await screen.findByText(/新增关系：法002@2→法001@1（补充）/)).toBeVisible();
+
+    // 移除card-3：其残留边悬空，确认按钮禁用，必须显式处理关系
+    const removeC = screen.getAllByRole('button', { name: '移除' }).find((button) => button.closest('li')?.textContent?.includes('法003'))!;
+    fireEvent.click(removeC);
+    expect(await screen.findByText(/有1条关系端点不在本次清单内/)).toBeVisible();
+    expect(screen.getByRole('button', { name: /确认发布/ })).toBeDisabled();
+    const removeDangling = screen.getAllByRole('button', { name: '移除该关系' }).find((button) => button.closest('li')?.textContent?.includes('法003'))!;
+    fireEvent.click(removeDangling);
+    await waitFor(() => { expect(screen.getByRole('button', { name: /确认发布/ })).toBeEnabled(); });
+
+    const confirm = screen.getByRole('button', { name: '确认发布（2 条 · 1 关系）' });
     fireEvent.click(confirm);
     fireEvent.click(confirm);
     await waitFor(() => { expect(mocked.publishCreativeRelease).toHaveBeenCalledTimes(1); });
     const input = mocked.publishCreativeRelease.mock.calls[0]![0];
     expect(input.expectedActiveReleaseId).toBe('rel-0');
     expect(input.entries).toEqual([{ internalId: 'card-1', revision: 1 }, { internalId: 'card-2', revision: 2 }]);
-    resolvePublish?.({ release: { releaseId: 'rel-9', manifestHash: 'h9', active: true, createdAt: '2026-09-13T00:00:00Z', publishedBy: 'admin', entries: [], relations: [] }, replayed: false });
-    expect(await screen.findByText('发布成功')).toBeVisible();});
+    expect(input.relations).toEqual([{ fromId: 'card-2', fromRevision: 2, toId: 'card-1', toRevision: 1, relationType: 'supplement' }]);
+    resolvePublish?.({ release: { releaseId: 'rel-9', manifestHash: 'h9', active: true, createdAt: '2026-09-13T00:00:00Z', publishedBy: 'admin', relations: [] }, replayed: false });
+    expect(await screen.findByText('发布成功')).toBeVisible();
+  });
 });

@@ -121,7 +121,6 @@ export interface CreativeReleaseDetail {
     active: boolean;
     createdAt: string;
     publishedBy: string;
-    entries: Array<{ internalId: string; revision: number }>;
     relations: CreativeRelationInput[];
   };
   relations: CreativeRelationInput[];
@@ -185,7 +184,7 @@ export function reviewCreativeCard(internalId: string, input: { expectedRevision
   return platformRequest(`/api/v1/admin/creative-reference/cards/${encodeURIComponent(internalId)}/review`, { method: 'POST', body: JSON.stringify(input) });
 }
 
-export function setCreativeAvailability(internalId: string, input: { action: 'retire' | 'restore'; seenAvailability?: CreativeAvailability; reason?: string | null }): Promise<{ card: CreativeCardDetail['card'] }> {
+export function setCreativeAvailability(internalId: string, input: { action: 'retire' | 'restore'; seenAvailability: CreativeAvailability; seenRevision: number; reason?: string | null }): Promise<{ card: CreativeCardDetail['card'] }> {
   return platformRequest(`/api/v1/admin/creative-reference/cards/${encodeURIComponent(internalId)}/availability`, { method: 'POST', body: JSON.stringify(input) });
 }
 
@@ -195,6 +194,13 @@ export function fetchCreativeReleases(signal?: AbortSignal): Promise<{ items: Cr
 
 export function fetchCreativeReleaseDetail(releaseId: string, signal?: AbortSignal): Promise<CreativeReleaseDetail> {
   return platformRequest(`/api/v1/admin/creative-reference/releases/${encodeURIComponent(releaseId)}`, signal === undefined ? {} : { signal });
+}
+
+/** 冻结清单条目分页：游标绑定该release，跨release/畸形由服务端拒绝；需要完整清单时按固定releaseId遍历。 */
+export function fetchCreativeReleaseEntries(releaseId: string, options: { limit?: number; cursor?: string | null; signal?: AbortSignal } = {}): Promise<{ items: Array<{ internalId: string; revision: number }>; nextCursor: string | null }> {
+  const query = new URLSearchParams({ limit: String(options.limit ?? 100) });
+  if (options.cursor !== undefined && options.cursor !== null) query.set('cursor', options.cursor);
+  return platformRequest(`/api/v1/admin/creative-reference/releases/${encodeURIComponent(releaseId)}/entries?${query.toString()}`, options.signal === undefined ? {} : { signal: options.signal });
 }
 
 export function publishCreativeRelease(input: {

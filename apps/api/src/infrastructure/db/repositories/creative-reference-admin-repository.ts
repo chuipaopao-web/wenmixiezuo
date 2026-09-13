@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { ConflictError, CursorInvalidError, NotFoundError, ValidationError } from '../../../application/creative-reference/errors.js';
 import type { CardAvailability, AssetKind, RevisionStatus } from '../../../application/creative-reference/types.js';
+import { usageTreeTerms } from '../../../application/creative-reference/usage-tree.js';
 
 export interface AdminCardListFilter {
   assetKind?: AssetKind;
@@ -86,7 +87,14 @@ export class CreativeReferenceAdminRepository {
       conditions.push(`EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(r.payload_json,'$.method.applicableLayers'), json_extract(r.payload_json,'$.reference.stages'), '[]')) je WHERE je.value IN (${filter.layers.map(() => '?').join(',')}))`);
       params.push(...filter.layers);
     }
-    if (filter.usageTree !== undefined) { conditions.push("json_extract(r.payload_json,'$.method.usageTree')=?"); params.push(filter.usageTree); }
+    if (filter.usageTree !== undefined) {
+      // 用途父子匹配（18.3）：method按usageTree、reference按facets.purposes，命中主类或其子类。
+      const terms = usageTreeTerms(filter.usageTree);
+      const placeholders = terms.map(() => '?').join(',');
+      conditions.push(`((c.asset_kind='method' AND json_extract(r.payload_json,'$.method.usageTree') IN (${placeholders}))
+        OR (c.asset_kind='reference' AND EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(r.payload_json,'$.reference.facets.purposes'),'[]')) pe WHERE pe.value IN (${placeholders}))))`);
+      params.push(...terms, ...terms);
+    }
     if (filter.keyword !== undefined && filter.keyword.trim().length > 0) {
       // 词法匹配：displayCode精确或名称/短语/摘要/别名LIKE，不做语义排序。
       const kw = `%${filter.keyword.trim()}%`;
@@ -163,12 +171,6 @@ export class CreativeReferenceAdminRepository {
     return (this.database.prepare('SELECT COUNT(*) c FROM creative_reference_revisions WHERE internal_id=?').get(internalId) as { c: number }).c;
   }
 
-  /** 审核意见：与状态转换同事务由调用方包裹；只新增不覆盖。 */
-  public recordReviewOpinion(internalId: string, revision: number, actorId: string, opinion: string, now: string): void {
-    this.database.prepare(`INSERT INTO creative_reference_admin_audit(audit_id, action, target_id, target_revision, actor_id, opinion, result_ref, idempotency_key, request_digest, created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?)`).run(randomUUID(), 'review', internalId, revision, actorId, opinion, null, null, null, now);
-  }
-
   /**
    * 恢复：管理端专属操作。B1域规则从retired拒绝任何变更；恢复由本仓在调用方已核验retired的前提下
    * 用条件UPDATE原子落定（并发重复恢复第二次changes=0→冲突），恢复后回draft需重新审核再发布。
@@ -210,6 +212,21 @@ export class CreativeReferenceAdminRepository {
     this.database.prepare('INSERT INTO creative_reference_release_requests(request_key, request_digest, release_id, created_at) VALUES (?,?,?,?)')
       .run(requestKey, requestDigest, result.releaseId, now);
     return { releaseId: result.releaseId, replayed: false };
+  }
+
+  /** 幂等请求只读查询：undefined=无记录；release_id为null表示上次结果未知。 */
+  public findReleaseRequest(requestKey: string): { requestDigest: string; releaseId: string | null } | undefined {
+    const row = this.database.prepare('SELECT request_digest, release_id FROM creative_reference_release_requests WHERE request_key=?').get(requestKey) as { request_digest: string; release_id: string | null } | undefined;
+    return row === undefined ? undefined : { requestDigest: row.request_digest, releaseId: row.release_id };
+  }
+
+  /** 占位写入（release_id NULL=结果未知防护）；并发同键由主键唯一约束落定，调用方在事务内捕获后重查。 */
+  public insertReleaseRequestPlaceholder(requestKey: string, requestDigest: string, now: string): void {
+    this.database.prepare('INSERT INTO creative_reference_release_requests(request_key, request_digest, release_id, created_at) VALUES (?,?,NULL,?)').run(requestKey, requestDigest, now);
+  }
+
+  public completeReleaseRequest(requestKey: string, releaseId: string): void {
+    this.database.prepare('UPDATE creative_reference_release_requests SET release_id=? WHERE request_key=?').run(releaseId, requestKey);
   }
 
   public listReleaseSummaries(limit: number, offset: number): Array<{ releaseId: string; manifestHash: string; active: boolean; createdAt: string; publishedBy: string; entryCount: number; relationCount: number }> {

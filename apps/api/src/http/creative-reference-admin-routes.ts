@@ -1,5 +1,6 @@
 /**
- * R209-B2 创作库管理路由：现有后台会话→requireAdministrator→CreativeReferenceService/AdminRepository→现有SQLite。
+ * R209-B2 创作库管理路由（返修版）：路由只做认证、参数解析与错误映射；
+ * 全部管理写入（状态+意见+审计+发布请求）由CreativeReferenceAdminService在同一事务内完成。
  * 只管理创作参考库全局编辑资产；不导入旧库内容、不接AI检索、不触作者数据。
  */
 import type { DatabaseSync } from 'node:sqlite';
@@ -9,10 +10,12 @@ import { DomainError, errorCodes } from '../domain/errors.js';
 import { requireAdministrator } from '../infrastructure/security/auth-context.js';
 import { SqliteCreativeReferenceRepository } from '../infrastructure/db/repositories/creative-reference-repository.js';
 import { CreativeReferenceAdminRepository } from '../infrastructure/db/repositories/creative-reference-admin-repository.js';
+import { CreativeReferenceAdminService } from '../application/creative-reference/admin-service.js';
+import { CreativeReferenceService } from '../application/creative-reference/service.js';
 // 领域公共面统一走桶导出（types/errors/validation/service），保持该面在运行闭包内。
 import {
   AmbiguityError, AuthorizationError, ConflictError, CreativeReferenceError, CursorInvalidError,
-  NotFoundError, ValidationError, CreativeReferenceService, validatePayload,
+  NotFoundError, ValidationError, validatePayload,
   type CardPayload, type LegacyRef
 } from '../application/creative-reference/index.js';
 
@@ -33,7 +36,6 @@ function httpError(error: unknown): DomainError {
   return new DomainError(retryable ? 'DATABASE_BUSY' : 'INTERNAL_ERROR', message, {}, retryable, retryable ? 503 : 500);
 }
 
-// service层方法为async签名；guard同时收窄同步与异步主体，统一映射领域错误到HTTP状态。
 async function guard<T>(fn: () => T | Promise<T>): Promise<T> {
   try { return await fn(); } catch (error) { throw httpError(error); }
 }
@@ -81,6 +83,21 @@ function encodeCursor(cursor: { fingerprint: string; lastInternalId: string } | 
   return cursor === null ? null : Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
 }
 
+/** 冻结release条目游标：与B1 ReleaseEntriesCursor同形；编码不是安全验证，服务端校验releaseId绑定。 */
+function parseReleaseEntriesCursor(raw: unknown): { releaseId: string; lastInternalId: string; filterFingerprint: string | null } | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw !== 'string') throw new DomainError(errorCodes.validation, '游标格式无效。', {}, false, 400);
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as { releaseId?: unknown; lastInternalId?: unknown; filterFingerprint?: unknown };
+    if (typeof parsed.releaseId !== 'string' || typeof parsed.lastInternalId !== 'string') throw new Error('bad');
+    return { releaseId: parsed.releaseId, lastInternalId: parsed.lastInternalId, filterFingerprint: typeof parsed.filterFingerprint === 'string' ? parsed.filterFingerprint : null };
+  } catch { throw new DomainError(errorCodes.validation, '游标格式无效或损坏，请重新查询。', {}, false, 400); }
+}
+
+function encodeReleaseEntriesCursor(cursor: { releaseId: string; lastInternalId: string; filterFingerprint?: string | null } | null): string | null {
+  return cursor === null ? null : Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+}
+
 function parseLimit(raw: unknown, fallback: number): number {
   if (raw === undefined || raw === null || raw === '') return fallback;
   const value = Number(raw);
@@ -111,12 +128,6 @@ function parseLegacy(raw: unknown): LegacyRef | null {
   return version === undefined ? { namespace, key } : { namespace, key, version };
 }
 
-interface RevisionFullRow {
-  revision: number; asset_kind: 'method' | 'reference'; schema_version: number; payload_json: string; content_hash: string;
-  display_code: string; short_phrase: string; summary: string; status: 'draft' | 'reviewed' | 'published' | 'retired';
-  author_actor: string; review_actor: string | null; created_at: string;
-}
-
 export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance, database: DatabaseSync): Promise<void> {
   const repository = new SqliteCreativeReferenceRepository(database);
   const admin = new CreativeReferenceAdminRepository(database);
@@ -124,12 +135,13 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
     canManage: () => true,
     canReadAsMember: () => false
   };
-  // 服务只做领域校验；HTTP层requireAdministrator已验证身份，actorId取验证后account.userId。
-  const service = new CreativeReferenceService(repository, authorization);
+  // 读走B1领域服务；写走管理应用服务（同事务+审计）。
+  const domainService = new CreativeReferenceService(repository, authorization);
+  const service = new CreativeReferenceAdminService(repository, admin);
 
-  const actorOf = (request: Parameters<typeof requireAdministrator>[0]): { role: 'manager'; actorId: string } => {
+  const actorOf = (request: Parameters<typeof requireAdministrator>[0]): { actorId: string } => {
     const account = requireAdministrator(request);
-    return { role: 'manager', actorId: account.userId };
+    return { actorId: account.userId };
   };
   const noStore = (reply: { header: (k: string, v: string) => unknown }) => { reply.header('Cache-Control', 'no-store'); };
 
@@ -164,12 +176,13 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
   });
 
   app.get<{ Querystring: { by?: string; displayCode?: string; namespace?: string; key?: string; version?: string } }>('/api/v1/admin/creative-reference/lookup', async (request, reply) => {
-    const manager = actorOf(request);
+    const actor = actorOf(request);
     noStore(reply);
     return guard(async () => {
       const q = request.query;
-      const respond = async (key: Parameters<typeof service.adminReadExact>[0]) => {
-        const result = await service.adminReadExact(key, {}, manager);
+      const manager = { role: 'manager' as const, actorId: actor.actorId };
+      const respond = async (key: Parameters<typeof domainService.adminReadExact>[0]) => {
+        const result = await domainService.adminReadExact(key, {}, manager);
         if (result.outcome === 'found') return success({ outcome: 'found', card: result.card, revision: result.revision }, request.id);
         if (result.outcome === 'notFound') throw new NotFoundError(result.reason);
         throw new DomainError('AMBIGUOUS_LOOKUP', result.reason, { candidates: result.candidates }, false, 409);
@@ -187,10 +200,11 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
   });
 
   app.get<{ Params: { id: string } }>('/api/v1/admin/creative-reference/cards/:id', async (request, reply) => {
-    const manager = actorOf(request);
+    const actor = actorOf(request);
     noStore(reply);
     return guard(async () => {
-      const result = await service.adminReadExact({ by: 'internalId', internalId: request.params.id }, {}, manager);
+      const manager = { role: 'manager' as const, actorId: actor.actorId };
+      const result = await domainService.adminReadExact({ by: 'internalId', internalId: request.params.id }, {}, manager);
       if (result.outcome !== 'found') throw new NotFoundError(result.reason);
       const aliases = await repository.listAliases(request.params.id);
       const audit = admin.listAudit(request.params.id, 50);
@@ -199,26 +213,20 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
   });
 
   app.post<{ Body: unknown }>('/api/v1/admin/creative-reference/cards', async (request, reply) => {
-    const manager = actorOf(request);
+    const actor = actorOf(request);
     noStore(reply);
     return guard(async () => {
       const body = bodyRecord(request);
       const payload = parsePayload(body.payload);
       const legacy = parseLegacy(body.legacy);
       const idempotencyKey = requireString(body.idempotencyKey, '创建幂等键', 200);
-      const now = new Date().toISOString();
-      // 幂等重放不重复记审计：先查同键卡是否已存在（服务层事务内仍兜底并发竞态）。
-      const prior = await repository.findByIdempotencyKey(payload.assetKind, idempotencyKey);
-      const card = await service.createCard({ payload, legacy, idempotencyKey }, manager, now);
-      if (prior === null) {
-        admin.recordAudit({ action: 'create', targetId: card.internalId, targetRevision: card.currentRevision, actorId: manager.actorId, resultRef: card.displayCode, idempotencyKey }, now);
-      }
-      return success({ card }, request.id);
+      const outcome = await service.createCardWithAudit({ payload, legacy, idempotencyKey }, actor, new Date().toISOString());
+      return success({ card: outcome.card }, request.id);
     });
   });
 
   app.post<{ Params: { id: string }; Body: unknown }>('/api/v1/admin/creative-reference/cards/:id/revisions', async (request, reply) => {
-    const manager = actorOf(request);
+    const actor = actorOf(request);
     noStore(reply);
     return guard(async () => {
       const body = bodyRecord(request);
@@ -227,9 +235,10 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
       if (!Number.isSafeInteger(expectedRevisionRaw) || (expectedRevisionRaw as number) < 1) {
         throw new DomainError(errorCodes.validation, 'expectedRevision必须为正整数。', {}, false, 400);
       }
-      const now = new Date().toISOString();
-      const revision = await service.updateCard({ internalId: request.params.id, expectedRevision: expectedRevisionRaw as number, payload, actor: manager.actorId }, manager, now);
-      admin.recordAudit({ action: 'revise', targetId: request.params.id, targetRevision: revision.revision, actorId: manager.actorId, resultRef: revision.displayCode }, now);
+      const revision = await service.updateCardWithAudit(
+        { internalId: request.params.id, expectedRevision: expectedRevisionRaw as number, payload },
+        actor, new Date().toISOString()
+      );
       return success({ revision: { revision: revision.revision, status: revision.status } }, request.id);
     });
   });
@@ -248,19 +257,20 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
   });
 
   app.get<{ Params: { id: string; revision: string } }>('/api/v1/admin/creative-reference/cards/:id/revisions/:revision', async (request, reply) => {
-    const manager = actorOf(request);
+    const actor = actorOf(request);
     noStore(reply);
     return guard(async () => {
       const revisionNum = Number(request.params.revision);
       if (!Number.isSafeInteger(revisionNum) || revisionNum < 1) throw new DomainError(errorCodes.validation, 'revision必须为正整数。', {}, false, 400);
-      const result = await service.adminReadExact({ by: 'internalId', internalId: request.params.id }, { revision: revisionNum }, manager);
+      const manager = { role: 'manager' as const, actorId: actor.actorId };
+      const result = await domainService.adminReadExact({ by: 'internalId', internalId: request.params.id }, { revision: revisionNum }, manager);
       if (result.outcome !== 'found') throw new NotFoundError(result.reason);
       return success({ revision: result.revision, reviewOpinion: admin.latestReviewOpinion(request.params.id, revisionNum) }, request.id);
     });
   });
 
   app.post<{ Params: { id: string }; Body: unknown }>('/api/v1/admin/creative-reference/cards/:id/review', async (request, reply) => {
-    const manager = actorOf(request);
+    const actor = actorOf(request);
     noStore(reply);
     return guard(async () => {
       const body = bodyRecord(request);
@@ -269,16 +279,13 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
         throw new DomainError(errorCodes.validation, 'expectedRevision必须为正整数。', {}, false, 400);
       }
       const opinion = body.opinion === undefined || body.opinion === null || body.opinion === '' ? null : requireString(body.opinion, '审核意见', 500);
-      const now = new Date().toISOString();
-      // 状态转换由repository单条UPDATE原子完成；意见随后独立落库（不跨await包事务）。
-      const revision = await service.reviewRevision(request.params.id, expectedRevisionRaw as number, manager, now);
-      admin.recordReviewOpinion(request.params.id, revision.revision, manager.actorId, opinion ?? '', now);
-      return success({ revision: { revision: revision.revision, status: revision.status }, reviewOpinion: opinion }, request.id);
+      const outcome = await service.reviewWithOpinion(request.params.id, expectedRevisionRaw as number, opinion, actor, new Date().toISOString());
+      return success({ revision: { revision: outcome.revision.revision, status: outcome.revision.status }, reviewOpinion: outcome.reviewOpinion }, request.id);
     });
   });
 
   app.post<{ Params: { id: string }; Body: unknown }>('/api/v1/admin/creative-reference/cards/:id/availability', async (request, reply) => {
-    const manager = actorOf(request);
+    const actor = actorOf(request);
     noStore(reply);
     return guard(async () => {
       const body = bodyRecord(request);
@@ -286,25 +293,18 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
       if (action !== 'retire' && action !== 'restore') {
         throw new DomainError(errorCodes.validation, 'action只能是retire或restore。', {}, false, 400);
       }
+      // 所见状态与版本必传：服务层在事务内原子校验，防并发覆盖。
       const seenAvailability = optionalEnum(body.seenAvailability, AVAILABILITIES, '所见状态');
+      if (seenAvailability === undefined) throw new DomainError(errorCodes.validation, 'seenAvailability必传（当前所见可用状态）。', {}, false, 400);
+      if (!Number.isSafeInteger(body.seenRevision) || (body.seenRevision as number) < 1) {
+        throw new DomainError(errorCodes.validation, 'seenRevision必传（当前所见版本，正整数）。', {}, false, 400);
+      }
       const reason = body.reason === undefined || body.reason === null || body.reason === '' ? null : requireString(body.reason, '原因', 500);
-      const card = await repository.findCardByInternalId(request.params.id);
-      if (card === null) throw new NotFoundError('条目不存在。');
-      if (seenAvailability !== undefined && card.availability !== seenAvailability) {
-        throw new ConflictError(`状态已被并发修改：所见${seenAvailability}，当前${card.availability}。请刷新后重试。`);
-      }
-      if (action === 'retire' && card.availability === 'retired') throw new ConflictError('条目已退役。');
-      if (action === 'restore' && card.availability !== 'retired') throw new ConflictError('条目未退役，无需恢复。');
-      const now = new Date().toISOString();
-      if (action === 'retire') {
-        const updated = await service.setAvailability(request.params.id, 'retired', manager, now);
-        admin.recordAudit({ action: 'retire', targetId: request.params.id, targetRevision: updated.currentRevision, actorId: manager.actorId, opinion: reason }, now);
-        return success({ card: updated }, request.id);
-      }
-      admin.setAvailabilityForRestore(request.params.id, now);
-      const restored = await repository.findCardByInternalId(request.params.id);
-      admin.recordAudit({ action: 'restore', targetId: request.params.id, targetRevision: restored === null ? null : restored.currentRevision, actorId: manager.actorId, opinion: reason }, now);
-      return success({ card: restored }, request.id);
+      const card = await service.setAvailabilityWithAudit({
+        internalId: request.params.id, action: action as 'retire' | 'restore',
+        seenAvailability, seenRevision: body.seenRevision as number, reason
+      }, actor, new Date().toISOString());
+      return success({ card }, request.id);
     });
   });
 
@@ -329,12 +329,24 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
       const release = await repository.getRelease(request.params.id);
       if (release === null) throw new NotFoundError('release不存在。');
       const relations = await repository.listRelationsInRelease(request.params.id);
-      return success({ release, relations }, request.id);
+      return success({ release: { ...release, entries: [] }, relations }, request.id);
+    });
+  });
+
+  /** 冻结清单条目：B1绑定release分页；游标校验releaseId绑定与畸形，跨release/带指纹游标拒绝。 */
+  app.get<{ Params: { id: string }; Querystring: Record<string, string | undefined> }>('/api/v1/admin/creative-reference/releases/:id/entries', async (request, reply) => {
+    actorOf(request);
+    noStore(reply);
+    return guard(async () => {
+      const limit = parseLimit(request.query.limit, 20);
+      const cursor = parseReleaseEntriesCursor(request.query.cursor);
+      const page = await repository.listReleaseEntries(request.params.id, cursor, limit);
+      return success({ items: page.items, nextCursor: encodeReleaseEntriesCursor(page.nextCursor) }, request.id);
     });
   });
 
   app.post<{ Body: unknown }>('/api/v1/admin/creative-reference/releases', async (request, reply) => {
-    const manager = actorOf(request);
+    const actor = actorOf(request);
     noStore(reply);
     return guard(async () => {
       const body = bodyRecord(request);
@@ -368,41 +380,12 @@ export async function registerCreativeReferenceAdminRoutes(app: FastifyInstance,
         throw new DomainError(errorCodes.validation, 'expectedActiveReleaseId必须是字符串或null。', {}, false, 400);
       }
       const requestKey = requireString(body.idempotencyKey, '发布幂等键', 200);
-      const now = new Date().toISOString();
-      const requestDigest = admin.digest({ entries, relations, expectedActive });
-      // 发布幂等：publishRelease内部自有事务（不可外层再包，否则嵌套BEGIN）。
-      // 占位记录（release_id NULL=结果未知防护）→发布→回填；发布失败时补偿删除占位，不留半状态。
-      const existing = database.prepare('SELECT request_digest, release_id FROM creative_reference_release_requests WHERE request_key=?').get(requestKey) as { request_digest: string; release_id: string | null } | undefined;
-      if (existing !== undefined) {
-        if (existing.request_digest !== requestDigest) throw new ConflictError('发布请求键已用于不同内容。');
-        if (existing.release_id !== null) {
-          const release = await repository.getRelease(existing.release_id);
-          if (release !== null) return success({ release, replayed: true }, request.id);
-        }
-        throw new ConflictError('上次发布结果未知；请勿重复提交，请核对releases列表。');
-      }
-      try {
-        database.prepare('INSERT INTO creative_reference_release_requests(request_key, request_digest, release_id, created_at) VALUES (?,?,NULL,?)').run(requestKey, requestDigest, now);
-      } catch (error) {
-        // 并发同键：占位唯一约束兜底，落回重放/未知判定，不裸抛500。
-        if (!(error instanceof Error) || !error.message.includes('UNIQUE constraint failed')) throw error;
-        const raced = database.prepare('SELECT request_digest, release_id FROM creative_reference_release_requests WHERE request_key=?').get(requestKey) as { request_digest: string; release_id: string | null } | undefined;
-        if (raced !== undefined && raced.request_digest === requestDigest && raced.release_id !== null) {
-          const release = await repository.getRelease(raced.release_id);
-          if (release !== null) return success({ release, replayed: true }, request.id);
-        }
-        throw new ConflictError('发布请求正在处理或结果未知；请稍后核对releases列表。');
-      }
-      let release;
-      try {
-        release = await service.publish(entries, relations, manager, expectedActive === undefined ? null : expectedActive as string | null, now);
-      } catch (error) {
-        database.prepare('DELETE FROM creative_reference_release_requests WHERE request_key=? AND release_id IS NULL').run(requestKey);
-        throw error;
-      }
-      database.prepare('UPDATE creative_reference_release_requests SET release_id=? WHERE request_key=?').run(release.releaseId, requestKey);
-      admin.recordAudit({ action: 'publish', targetId: release.releaseId, targetRevision: null, actorId: manager.actorId, opinion: null, resultRef: release.manifestHash, idempotencyKey: requestKey, requestDigest }, now);
-      return success({ release, replayed: false }, request.id);
+      const outcome = await service.publishWithRequestAndAudit({
+        entries, relations,
+        expectedActiveReleaseId: expectedActive === undefined ? null : expectedActive as string | null,
+        idempotencyKey: requestKey
+      }, actor, new Date().toISOString());
+      return success({ release: outcome.release, replayed: outcome.replayed }, request.id);
     });
   });
 }

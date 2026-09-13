@@ -1,16 +1,18 @@
 /**
- * R209-B2 创作库管理页：列表（服务端筛选+游标分页）→ 详情/草稿编辑/人工审核/退役恢复 → 完整清单发布。
- * 只通过creative-reference-api访问真实接口；状态来自真实执行，失败保留输入不自动重试。
+ * R209-B2 创作库管理页（返修版）：列表（服务端筛选+游标分页）→ 详情/草稿编辑/人工审核/退役恢复
+ * → 完整清单发布（条目+关系显式编辑、悬空阻止）→ 发布历史（冻结分页）。
+ * 只通过creative-reference-api访问真实接口；状态来自真实执行，失败保留输入不自动重试；
+ * 脏表单在取消/返回/切页时保护输入，保存成功后不再提示。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MagnifyingGlass, X } from '@phosphor-icons/react';
 import { newPlatformActionKey } from './platform-api';
 import {
   createCreativeCard, fetchCreativeCardDetail, fetchCreativeCards, fetchCreativeReleaseDetail,
-  fetchCreativeReleases, fetchCreativeRevisionSnapshot, fetchCreativeRevisions, publishCreativeRelease,
-  reviewCreativeCard, saveCreativeCardRevision, setCreativeAvailability,
+  fetchCreativeReleaseEntries, fetchCreativeReleases, fetchCreativeRevisionSnapshot, fetchCreativeRevisions,
+  publishCreativeRelease, reviewCreativeCard, saveCreativeCardRevision, setCreativeAvailability,
   type CreativeAvailability, type CreativeCardDetail, type CreativeCardPayload, type CreativeCardSummary,
-  type CreativeReferenceContent, type CreativeReleaseSummary
+  type CreativeReferenceContent, type CreativeReleaseSummary, type CreativeRelationInput
 } from './creative-reference-api';
 import './creative-reference-library.css';
 
@@ -25,6 +27,10 @@ export const CREATIVE_LAYER_OPTIONS = [
 
 export const CREATIVE_AVAILABILITY_LABELS: Record<CreativeAvailability, string> = {
   draft: '草稿', reviewed: '已审核', published: '已发布', retired: '已退役'
+};
+
+export const CREATIVE_RELATION_TYPE_LABELS: Record<CreativeRelationInput['relationType'], string> = {
+  supplement: '补充', fusion: '融合', synonym: '同义', replacement: '替代', related_method: '关联方法'
 };
 
 interface LibraryFilters {
@@ -45,6 +51,26 @@ function toArrayText(values: string[] | undefined): string {
 
 function parseArrayText(text: string): string[] {
   return text.split(/[,，\n]/).map((item) => item.trim()).filter((item) => item.length > 0);
+}
+
+/** 脏表单离开保护：取消/返回/切页统一走这里，提示一次；保存成功后调用方复位不再提示。 */
+function useDirtyGuard(): { dirty: boolean; setDirty: (value: boolean) => void; confirmLeave: () => boolean } {
+  const [dirty, setDirty] = useState(false);
+  // 切页保护：AssetAdminApp导航派发cancelable事件，脏表单时阻止一次。
+  useEffect(() => {
+    if (!dirty) return;
+    const block = (event: Event): void => { event.preventDefault(); };
+    window.addEventListener('wenmi:admin-navigate', block);
+    return () => window.removeEventListener('wenmi:admin-navigate', block);
+  }, [dirty]);
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (event: BeforeUnloadEvent): void => { event.preventDefault(); };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [dirty]);
+  const confirmLeave = useCallback((): boolean => (!dirty || window.confirm('有未保存的修改，确定离开？')), [dirty]);
+  return { dirty, setDirty, confirmLeave };
 }
 
 export function CreativeReferenceLibrary(): React.JSX.Element {
@@ -213,6 +239,7 @@ function CardDetailPanel({ internalId, onBack }: { internalId: string; onBack: (
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const { setDirty, confirmLeave } = useDirtyGuard();
   const reload = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
@@ -236,7 +263,7 @@ function CardDetailPanel({ internalId, onBack }: { internalId: string; onBack: (
   const payload = detail.revision?.payload ?? null;
 
   return <div className="crl-page crl-detail">
-    <button type="button" className="crl-back" onClick={onBack}>← 返回列表（保留筛选）</button>
+    <button type="button" className="crl-back" onClick={() => { if (confirmLeave()) onBack(); }}>← 返回列表（保留筛选）</button>
     <header className="crl-detail-heading">
       <div>
         <h1>{card.displayCode}</h1>
@@ -255,15 +282,16 @@ function CardDetailPanel({ internalId, onBack }: { internalId: string; onBack: (
     {!editing && <div className="crl-detail-actions">
       <button type="button" className="crl-primary" disabled={card.availability === 'retired'} onClick={() => setEditing(true)}>{card.availability === 'retired' ? '已退役，不能编辑' : '编辑并保存新草稿'}</button>
       <ReviewControl internalId={internalId} expectedRevision={card.currentRevision} revisionStatus={detail.revision?.status ?? null} onDone={reload} />
-      <AvailabilityControl internalId={internalId} availability={card.availability} onDone={reload} />
+      <AvailabilityControl internalId={internalId} availability={card.availability} seenRevision={card.currentRevision} onDone={reload} />
     </div>}
 
     {editing && payload !== null && <DraftEditor
       internalId={internalId}
       basePayload={payload}
       expectedRevision={card.currentRevision ?? 1}
-      onCancel={() => setEditing(false)}
-      onSaved={() => { setEditing(false); void reload(); }}
+      onDirtyChange={setDirty}
+      onCancel={() => { if (confirmLeave()) setEditing(false); }}
+      onSaved={() => { setDirty(false); setEditing(false); void reload(); }}
     />}
 
     <section className="crl-section">
@@ -290,7 +318,7 @@ function CardDetailPanel({ internalId, onBack }: { internalId: string; onBack: (
 
 interface CreativeRevisionList { items: Array<{ revision: number; status: string; shortPhrase: string; summary: string; authorActor: string; reviewActor: string | null; reviewOpinion: string | null; createdAt: string }>; total: number }
 
-/** 读取具体版本快照（版本对比用）；不存在返回null交由上层提示。 */
+/** 读取具体版本快照（版本对比用）；读取失败返回null由上层提示。 */
 async function fetchCardRevision(internalId: string, revision: number): Promise<CreativeCardPayload | null> {
   try {
     const response = await fetchCreativeRevisionSnapshot(internalId, revision);
@@ -320,6 +348,10 @@ function RevisionHistory({ items, internalId }: { items: CreativeRevisionList['i
           fetchCardRevision(internalId, right)
         ]);
         if (cancelled) return;
+        if (a === null || b === null) {
+          setCompareError('版本快照读取失败，稍后可重试对比。');
+          return;
+        }
         setLeftPayload(a);
         setRightPayload(b);
       } catch (reason) {
@@ -480,16 +512,20 @@ function ReviewControl({ internalId, expectedRevision, revisionStatus, onDone }:
   </div>;
 }
 
-function AvailabilityControl({ internalId, availability, onDone }: { internalId: string; availability: CreativeAvailability; onDone: () => void }): React.JSX.Element {
+function AvailabilityControl({ internalId, availability, seenRevision, onDone }: { internalId: string; availability: CreativeAvailability; seenRevision: number | null; onDone: () => void }): React.JSX.Element {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const act = async (action: 'retire' | 'restore'): Promise<void> => {
-    if (busy) return;
+    if (busy || seenRevision === null) return;
     setBusy(true);
     setError(null);
     try {
-      await setCreativeAvailability(internalId, { action, seenAvailability: availability, ...(reason.trim().length > 0 ? { reason: reason.trim() } : {}) });
+      // 所见状态+版本必传：服务端在事务内原子校验，防并发覆盖。
+      await setCreativeAvailability(internalId, {
+        action, seenAvailability: availability, seenRevision,
+        ...(reason.trim().length > 0 ? { reason: reason.trim() } : {})
+      });
       setReason('');
       onDone();
     } catch (reason_) {
@@ -601,10 +637,11 @@ function payloadFromForm(form: DraftFormState, kind: 'method' | 'reference'): Cr
   };
 }
 
-function DraftEditor({ internalId, basePayload, expectedRevision, onCancel, onSaved }: {
+function DraftEditor({ internalId, basePayload, expectedRevision, onDirtyChange, onCancel, onSaved }: {
   internalId: string;
   basePayload: CreativeCardPayload;
   expectedRevision: number;
+  onDirtyChange: (dirty: boolean) => void;
   onCancel: () => void;
   onSaved: () => void;
 }): React.JSX.Element {
@@ -615,12 +652,7 @@ function DraftEditor({ internalId, basePayload, expectedRevision, onCancel, onSa
   const [conflict, setConflict] = useState<{ serverPayload: CreativeCardPayload } | null>(null);
   const dirty = useMemo(() => JSON.stringify(formFromPayload(basePayload)) !== JSON.stringify(form), [form, basePayload]);
 
-  useEffect(() => {
-    if (!dirty) return;
-    const handler = (event: BeforeUnloadEvent): void => { event.preventDefault(); };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [dirty]);
+  useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
 
   const save = async (): Promise<void> => {
     if (busy) return;
@@ -646,7 +678,7 @@ function DraftEditor({ internalId, basePayload, expectedRevision, onCancel, onSa
 
   return <section className="crl-editor" aria-label="编辑草稿">
     <h2>编辑并保存新草稿（基于第{expectedRevision}版）</h2>
-    {dirty && <p className="crl-hint">有未保存修改；离开页面前会提示一次。</p>}
+    {dirty && <p className="crl-hint">有未保存修改；取消、返回或切换页面前会提示一次。</p>}
     <div className="crl-form-grid">
       <label><span>名称</span><input aria-label="名称" value={form.name} onChange={(event) => update({ name: event.target.value })} /></label>
       <label><span>短语（4—12字，最多30字符）</span><input aria-label="短语" value={form.shortPhrase} onChange={(event) => update({ shortPhrase: event.target.value })} /></label>
@@ -717,15 +749,28 @@ function DraftEditor({ internalId, basePayload, expectedRevision, onCancel, onSa
   </section>;
 }
 
-/** 发布：基于打开预览时的active完整清单做增删改，预览后确认，幂等键防双击/超时重发。 */
+interface PublishRelation extends CreativeRelationInput {}
+
+function relationSignature(relation: PublishRelation): string {
+  return `${relation.fromId}@${relation.fromRevision}->${relation.toId}@${relation.toRevision}:${relation.relationType}`;
+}
+
+/**
+ * 发布：基于打开预览时的active完整清单（固定releaseId遍历冻结分页，不逐页读活动指针）做条目与关系的
+ * 显式调整（加入/替换/移除条目；增加/修改端点版本/移除关系），悬空或端点版本过期必须显式处理后才能确认。
+ */
 function PublishPanel({ onBack }: { onBack: () => void }): React.JSX.Element {
   const [phase, setPhase] = useState<'loading' | 'editing' | 'publishing' | 'done'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [expectedActive, setExpectedActive] = useState<string | null>(null);
   const [baseEntries, setBaseEntries] = useState<Array<{ internalId: string; revision: number }>>([]);
-  const [baseRelations, setBaseRelations] = useState<Array<{ fromId: string; fromRevision: number; toId: string; toRevision: number; relationType: string }>>([]);
+  const [baseRelations, setBaseRelations] = useState<PublishRelation[]>([]);
   const [cards, setCards] = useState<CreativeCardSummary[]>([]);
   const [changes, setChanges] = useState<Record<string, { revision: number } | null>>({});
+  const [relations, setRelations] = useState<PublishRelation[]>([]);
+  const [addFrom, setAddFrom] = useState('');
+  const [addTo, setAddTo] = useState('');
+  const [addType, setAddType] = useState<PublishRelation['relationType']>('supplement');
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishedId, setPublishedId] = useState<string | null>(null);
   const [replayed, setReplayed] = useState(false);
@@ -738,13 +783,20 @@ function PublishPanel({ onBack }: { onBack: () => void }): React.JSX.Element {
         const releaseList = await fetchCreativeReleases();
         const activeId = releaseList.activeReleaseId;
         let entries: Array<{ internalId: string; revision: number }> = [];
-        let relations: Array<{ fromId: string; fromRevision: number; toId: string; toRevision: number; relationType: string }> = [];
+        let relationsList: PublishRelation[] = [];
         if (activeId !== null) {
+          // 固定release遍历冻结分页拿完整清单；不逐页重读active指针。
           const detail = await fetchCreativeReleaseDetail(activeId);
-          entries = detail.release.entries;
-          relations = detail.relations;
+          relationsList = detail.relations;
+          let cursor: string | null = null;
+          for (let page = 0; page < 200; page += 1) {
+            const result = await fetchCreativeReleaseEntries(activeId, { limit: 100, ...(cursor === null ? {} : { cursor }) });
+            entries.push(...result.items);
+            cursor = result.nextCursor;
+            if (cursor === null) break;
+          }
         }
-        // 拉全库卡片（分页累积）作为选择基础；服务端筛选保证不全库进浏览器时也能逐页查看。
+        // 拉全库卡片（分页累积）作为选择基础。
         const collected: CreativeCardSummary[] = [];
         let cursor: string | null = null;
         for (let page = 0; page < 50; page += 1) {
@@ -756,7 +808,8 @@ function PublishPanel({ onBack }: { onBack: () => void }): React.JSX.Element {
         if (cancelled) return;
         setExpectedActive(activeId);
         setBaseEntries(entries);
-        setBaseRelations(relations);
+        setBaseRelations(relationsList);
+        setRelations(relationsList);
         setCards(collected);
         setPhase('editing');
       } catch (reason) {
@@ -778,7 +831,7 @@ function PublishPanel({ onBack }: { onBack: () => void }): React.JSX.Element {
   const added: string[] = [];
   const replaced: Array<{ internalId: string; from: number; to: number }> = [];
   const removed: string[] = [];
-  for (const [internalId, revision] of plannedEntries) {
+  for (const [internalId] of plannedEntries) {
     if (!baseMap.has(internalId)) added.push(internalId);
   }
   for (const [internalId, change] of Object.entries(changes)) {
@@ -787,18 +840,26 @@ function PublishPanel({ onBack }: { onBack: () => void }): React.JSX.Element {
     if (baseRevision !== undefined && baseRevision !== change.revision) replaced.push({ internalId, from: baseRevision, to: change.revision });
   }
   const kept = plannedEntries.size - added.length - replaced.length;
-  const removedIds = new Set(removed);
-  const droppedRelations = baseRelations.filter((relation) => removedIds.has(relation.fromId) || removedIds.has(relation.toId));
-  const keptRelations = baseRelations.filter((relation) => !removedIds.has(relation.fromId) && !removedIds.has(relation.toId));
+
+  const plannedPairs = useMemo(() => new Set([...plannedEntries.entries()].map(([id, rev]) => `${id}@${rev}`)), [plannedEntries]);
+  const baseRelationSigs = useMemo(() => new Set(baseRelations.map(relationSignature)), [baseRelations]);
+  const relationSigs = useMemo(() => new Set(relations.map(relationSignature)), [relations]);
+  // 悬空：端点(条目,版本)不在计划清单内（含移除条目残留的边、替换后端点版本过期）。
+  const dangling = useMemo(() => relations.filter((rel) => !plannedPairs.has(`${rel.fromId}@${rel.fromRevision}`) || !plannedPairs.has(`${rel.toId}@${rel.toRevision}`)), [relations, plannedPairs]);
+  const relationsAdded = relations.filter((rel) => !baseRelationSigs.has(relationSignature(rel)));
+  const relationsRemoved = baseRelations.filter((rel) => !relationSigs.has(relationSignature(rel)));
+
+  const cardById = useMemo(() => new Map(cards.map((card) => [card.internalId, card])), [cards]);
+  const codeOf = (id: string): string => cardById.get(id)?.displayCode ?? id;
 
   const submit = async (): Promise<void> => {
-    if (phase === 'publishing') return;
+    if (phase === 'publishing' || dangling.length > 0) return;
     setPhase('publishing');
     setPublishError(null);
     try {
       const result = await publishCreativeRelease({
         entries: [...plannedEntries.entries()].map(([internalId, revision]) => ({ internalId, revision })),
-        relations: keptRelations.map((relation) => ({ ...relation, relationType: relation.relationType as 'supplement' })),
+        relations,
         expectedActiveReleaseId: expectedActive,
         idempotencyKey: idempotencyKey.current
       });
@@ -810,8 +871,6 @@ function PublishPanel({ onBack }: { onBack: () => void }): React.JSX.Element {
       setPhase('editing');
     }
   };
-
-  const cardById = useMemo(() => new Map(cards.map((card) => [card.internalId, card])), [cards]);
 
   if (phase === 'loading') return <div className="crl-page"><p className="crl-status" role="status">正在读取当前版本与全库清单…</p><button type="button" onClick={onBack}>返回</button></div>;
   if (loadError !== null) return <div className="crl-page"><div className="crl-error" role="alert"><p>{loadError}</p></div><button type="button" onClick={onBack}>返回列表</button></div>;
@@ -826,7 +885,7 @@ function PublishPanel({ onBack }: { onBack: () => void }): React.JSX.Element {
     <button type="button" className="crl-back" onClick={onBack}>← 返回列表</button>
     <h1>发布整库版本</h1>
     <p className="crl-hint">
-      基于打开时的完整清单（{baseEntries.length} 条）调整；未调整的条目与关系原样保留。当前基准：{expectedActive === null ? '初次发布（无活动版本）' : expectedActive}。
+      基于打开时的完整清单（{baseEntries.length} 条、{baseRelations.length} 关系）调整；未调整的条目与关系原样保留。当前基准：{expectedActive === null ? '初次发布（无活动版本）' : expectedActive}。
     </p>
 
     <section className="crl-section">
@@ -858,6 +917,54 @@ function PublishPanel({ onBack }: { onBack: () => void }): React.JSX.Element {
     </section>
 
     <section className="crl-section">
+      <h2>关联关系（显式编辑，不自动删边）</h2>
+      {relations.length === 0 && <p className="crl-hint">当前清单没有关系。</p>}
+      <ul className="crl-relation-list">
+        {relations.map((relation, index) => {
+          const plannedFrom = plannedEntries.get(relation.fromId);
+          const plannedTo = plannedEntries.get(relation.toId);
+          const staleFrom = plannedFrom !== undefined && plannedFrom !== relation.fromRevision;
+          const staleTo = plannedTo !== undefined && plannedTo !== relation.toRevision;
+          const lostFrom = !plannedEntries.has(relation.fromId);
+          const lostTo = !plannedEntries.has(relation.toId);
+          return <li key={`${relationSignature(relation)}-${index}`}>
+            <span className="crl-item-code">{codeOf(relation.fromId)}@{relation.fromRevision} → {codeOf(relation.toId)}@{relation.toRevision}</span>
+            <select aria-label={`关系${index + 1}类型`} value={relation.relationType} onChange={(event) => setRelations(relations.map((item, i) => i === index ? { ...item, relationType: event.target.value as PublishRelation['relationType'] } : item))}>
+              {Object.entries(CREATIVE_RELATION_TYPE_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+            {(lostFrom || lostTo) && <small className="crl-error-inline">端点条目已被移除：该关系悬空，必须移除该关系或恢复条目。</small>}
+            {(!lostFrom && !lostTo && (staleFrom || staleTo)) && <small className="crl-error-inline">端点版本已变化（本次清单为 {codeOf(relation.fromId)}@{plannedFrom ?? '?'} / {codeOf(relation.toId)}@{plannedTo ?? '?'}）。</small>}
+            <div className="crl-publish-actions">
+              {(!lostFrom && !lostTo && (staleFrom || staleTo)) && <button type="button" onClick={() => setRelations(relations.map((item, i) => i === index ? { ...item, fromRevision: plannedFrom ?? item.fromRevision, toRevision: plannedTo ?? item.toRevision } : item))}>更新端点版本</button>}
+              <button type="button" className="crl-danger" onClick={() => setRelations(relations.filter((_, i) => i !== index))}>移除该关系</button>
+            </div>
+          </li>;
+        })}
+      </ul>
+      <div className="crl-relation-add">
+        <select aria-label="新关系起点" value={addFrom} onChange={(event) => setAddFrom(event.target.value)}>
+          <option value="">选择起点条目</option>
+          {[...plannedEntries.entries()].map(([id, rev]) => <option key={id} value={id}>{codeOf(id)}@{rev}</option>)}
+        </select>
+        <select aria-label="新关系终点" value={addTo} onChange={(event) => setAddTo(event.target.value)}>
+          <option value="">选择终点条目</option>
+          {[...plannedEntries.entries()].map(([id, rev]) => <option key={id} value={id}>{codeOf(id)}@{rev}</option>)}
+        </select>
+        <select aria-label="新关系类型" value={addType} onChange={(event) => setAddType(event.target.value as PublishRelation['relationType'])}>
+          {Object.entries(CREATIVE_RELATION_TYPE_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+        <button type="button" disabled={addFrom === '' || addTo === '' || addFrom === addTo} onClick={() => {
+          setRelations([...relations, { fromId: addFrom, fromRevision: plannedEntries.get(addFrom) ?? 1, toId: addTo, toRevision: plannedEntries.get(addTo) ?? 1, relationType: addType }]);
+          setAddFrom(''); setAddTo('');
+        }}>添加关联</button>
+      </div>
+      {dangling.length > 0 && <div className="crl-error" role="alert">
+        <p>有{dangling.length}条关系端点不在本次清单内（悬空或版本过期）。移除被关联条目时必须显式处理这些关系；不会自动删边。</p>
+        <p className="crl-hint">在上方列表逐条“更新端点版本”或“移除该关系”后才能确认发布。</p>
+      </div>}
+    </section>
+
+    <section className="crl-section">
       <h2>发布预览（发送完整manifest）</h2>
       <dl className="crl-facts">
         <div><dt>总条目</dt><dd>{plannedEntries.size}</dd></div>
@@ -865,18 +972,20 @@ function PublishPanel({ onBack }: { onBack: () => void }): React.JSX.Element {
         <div><dt>替换</dt><dd>{replaced.length}</dd></div>
         <div><dt>移除</dt><dd>{removed.length}</dd></div>
         <div><dt>保留</dt><dd>{kept}</dd></div>
-        <div><dt>关系</dt><dd>{keptRelations.length}{droppedRelations.length > 0 ? `（随移除条目去掉${droppedRelations.length}条）` : ''}</dd></div>
+        <div><dt>关系（新增/移除）</dt><dd>{relationsAdded.length} / {relationsRemoved.length}（共{relations.length}条）</dd></div>
       </dl>
-      {added.length > 0 && <p className="crl-hint">新增：{added.map((id) => cardById.get(id)?.displayCode ?? id).join('、')}</p>}
-      {replaced.length > 0 && <p className="crl-hint">替换：{replaced.map((item) => `${cardById.get(item.internalId)?.displayCode ?? item.internalId} 第${item.from}→${item.to}版`).join('、')}</p>}
-      {removed.length > 0 && <p className="crl-hint">移除：{removed.map((id) => cardById.get(id)?.displayCode ?? id).join('、')}</p>}
+      {added.length > 0 && <p className="crl-hint">新增：{added.map((id) => codeOf(id)).join('、')}</p>}
+      {replaced.length > 0 && <p className="crl-hint">替换：{replaced.map((item) => `${codeOf(item.internalId)} 第${item.from}→${item.to}版`).join('、')}</p>}
+      {removed.length > 0 && <p className="crl-hint">移除：{removed.map((id) => codeOf(id)).join('、')}</p>}
+      {relationsAdded.length > 0 && <p className="crl-hint">新增关系：{relationsAdded.map((rel) => `${codeOf(rel.fromId)}@${rel.fromRevision}→${codeOf(rel.toId)}@${rel.toRevision}（${CREATIVE_RELATION_TYPE_LABELS[rel.relationType]}）`).join('；')}</p>}
+      {relationsRemoved.length > 0 && <p className="crl-hint">移除关系：{relationsRemoved.map((rel) => `${codeOf(rel.fromId)}@${rel.fromRevision}→${codeOf(rel.toId)}@${rel.toRevision}（${CREATIVE_RELATION_TYPE_LABELS[rel.relationType]}）`).join('；')}</p>}
       {publishError !== null && <div className="crl-error" role="alert"><p>{publishError}</p><p className="crl-hint">编辑意图已保留；请刷新基准重新比较后再发布。</p></div>}
       <div className="crl-editor-actions">
-        <button type="button" className="crl-primary" disabled={phase === 'publishing' || plannedEntries.size === 0} onClick={() => void submit()}>
-          {phase === 'publishing' ? '发布中…' : `确认发布（${plannedEntries.size} 条）`}
+        <button type="button" className="crl-primary" disabled={phase === 'publishing' || plannedEntries.size === 0 || dangling.length > 0} onClick={() => void submit()}>
+          {phase === 'publishing' ? '发布中…' : `确认发布（${plannedEntries.size} 条 · ${relations.length} 关系）`}
         </button>
       </div>
-      <p className="crl-hint">确认后发送完整清单；双击与超时重试由幂等键保护，同内容不会重复建版。</p>
+      <p className="crl-hint">确认后发送完整清单与关系；双击与超时重试由幂等键保护，同内容不会重复建版。</p>
     </section>
   </div>;
 }
@@ -911,8 +1020,16 @@ function ReleaseHistoryPanel({ onBack }: { onBack: () => void }): React.JSX.Elem
     setOpenId(releaseId);
     setOpenDetail(null);
     try {
-      const detail = await fetchCreativeReleaseDetail(releaseId);
-      setOpenDetail(detail.release.entries);
+      // 冻结清单分页遍历固定release。
+      const collected: Array<{ internalId: string; revision: number }> = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 200; page += 1) {
+        const result = await fetchCreativeReleaseEntries(releaseId, { limit: 100, ...(cursor === null ? {} : { cursor }) });
+        collected.push(...result.items);
+        cursor = result.nextCursor;
+        if (cursor === null) break;
+      }
+      setOpenDetail(collected);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '版本详情读取失败。');
     }
@@ -948,6 +1065,7 @@ function CreateCardPanel({ onClose, onCreated }: { onClose: () => void; onCreate
   const [legacyKey, setLegacyKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [touched, setTouched] = useState(false);
   const idempotencyKey = useRef(newPlatformActionKey('creative-card'));
   const [created, setCreated] = useState<string | null>(null);
 
@@ -968,10 +1086,13 @@ function CreateCardPanel({ onClose, onCreated }: { onClose: () => void; onCreate
       setBusy(false);
     }
   };
-  const update = (patch: Partial<DraftFormState>): void => setForm((current) => ({ ...current, ...patch }));
+  const update = (patch: Partial<DraftFormState>): void => { setTouched(true); setForm((current) => ({ ...current, ...patch })); };
   const switchKind = (next: 'method' | 'reference'): void => {
     setKind(next);
     setForm((current) => ({ ...formFromPayload(payloadFromForm(current, next)) }));
+  };
+  const guardedClose = (): void => {
+    if (!touched || window.confirm('有未保存的输入，确定放弃并关闭？')) onClose();
   };
 
   return <section className="crl-editor" aria-label="新建卡">
@@ -1003,13 +1124,13 @@ function CreateCardPanel({ onClose, onCreated }: { onClose: () => void; onCreate
           <label className="crl-span2"><span>适用条件（逗号分隔）</span><textarea aria-label="适用条件" rows={2} value={form.refUseWhen} onChange={(event) => update({ refUseWhen: event.target.value })} /></label>
           <label className="crl-span2"><span>局限说明</span><textarea aria-label="局限说明" rows={2} value={form.evidenceLimitations} onChange={(event) => update({ evidenceLimitations: event.target.value })} /></label>
         </>}
-        <label><span>旧库命名空间（可选）</span><input aria-label="旧库命名空间" value={legacyNamespace} onChange={(event) => setLegacyNamespace(event.target.value)} /></label>
-        <label><span>旧库key（可选）</span><input aria-label="旧库key" value={legacyKey} onChange={(event) => setLegacyKey(event.target.value)} /></label>
+        <label><span>旧库命名空间（可选）</span><input aria-label="旧库命名空间" value={legacyNamespace} onChange={(event) => { setTouched(true); setLegacyNamespace(event.target.value); }} /></label>
+        <label><span>旧库key（可选）</span><input aria-label="旧库key" value={legacyKey} onChange={(event) => { setTouched(true); setLegacyKey(event.target.value); }} /></label>
       </div>
       {error !== null && <div className="crl-error" role="alert"><p>{error}</p></div>}
       <div className="crl-editor-actions">
         <button type="button" className="crl-primary" disabled={busy} onClick={() => void submit()}>{busy ? '创建中…' : '创建（编号由服务器分配）'}</button>
-        <button type="button" disabled={busy} onClick={onClose}>取消</button>
+        <button type="button" disabled={busy} onClick={guardedClose}>取消</button>
       </div>
     </>}
   </section>;

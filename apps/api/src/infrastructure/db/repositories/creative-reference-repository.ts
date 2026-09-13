@@ -12,6 +12,7 @@ import type {
 } from '../../../application/creative-reference/types.js';
 import { displayCodePrefix } from '../../../application/creative-reference/types.js';
 import { assertAssetKindMatches, validateLegacyRef, validatePayload } from '../../../application/creative-reference/validation.js';
+import { usageTreeTerms } from '../../../application/creative-reference/usage-tree.js';
 import type {
   CreateCardInput, CreativeReferenceRepository, LegacyMappingEntry, PublishReleaseInput, ReleaseEntriesCursor, ReleaseEntriesPage, ReviewInput, UpdateCardInput
 } from '../../../application/creative-reference/repository.js';
@@ -72,6 +73,32 @@ function toRevision(row: RevisionRow): RevisionRecord {
 export class SqliteCreativeReferenceRepository implements CreativeReferenceRepository {
   public constructor(private readonly database: DatabaseSync) {}
 
+  /**
+   * 管理端组合事务（R209-B2）：外层只开一次BEGIN IMMEDIATE并统一提交/回滚；
+   * 仓储方法在此环境内不再自行开事务（解决嵌套BEGIN），单独调用时行为与旧版一致。
+   */
+  private transactionDepth = 0;
+
+  public async runInImmediateTransaction<T>(operation: () => T | Promise<T>): Promise<T> {
+    if (this.transactionDepth > 0) return await operation();
+    this.transactionDepth = 1;
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const result = await operation();
+      this.database.exec('COMMIT');
+      return result;
+    } catch (error) {
+      try { this.database.exec('ROLLBACK'); } catch { /* 已回滚 */ }
+      throw error;
+    } finally {
+      this.transactionDepth = 0;
+    }
+  }
+
+  private txBegin(): void { if (this.transactionDepth === 0) this.database.exec('BEGIN IMMEDIATE'); }
+  private txCommit(): void { if (this.transactionDepth === 0) this.database.exec('COMMIT'); }
+  private txRollback(): void { if (this.transactionDepth === 0) { try { this.database.exec('ROLLBACK'); } catch { /* 已回滚 */ } } }
+
   public async createCard(input: CreateCardInput, now: string): Promise<CardRecord> {
     validatePayload(input.payload);
     if (input.legacy !== null) validateLegacyRef(input.legacy);
@@ -85,13 +112,13 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
       throw new ConflictError(`幂等键已用于不同内容：${input.idempotencyKey}`);
     }
     const internalId = randomUUID();
-    this.database.exec('BEGIN IMMEDIATE');
+    this.txBegin();
     try {
       // 事务内重检：并发同键竞态在这里落定，避免裸唯一约束误报。
       const raced = this.database.prepare('SELECT internal_id, create_request_fingerprint FROM creative_reference_cards WHERE asset_kind=? AND idempotency_key=?')
         .get(input.assetKind, input.idempotencyKey) as { internal_id: string; create_request_fingerprint: string | null } | undefined;
       if (raced !== undefined) {
-        this.database.exec('ROLLBACK');
+        this.txRollback();
         if (raced.create_request_fingerprint === fingerprint) return (await this.findCardByInternalId(raced.internal_id))!;
         throw new ConflictError(`幂等键已用于不同内容（并发）：${input.idempotencyKey}`);
       }
@@ -110,10 +137,10 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
           input.legacy?.namespace ?? null, input.legacy?.key ?? null, this.aliasVersionValue(input.legacy?.version),
           1, 'draft', input.idempotencyKey, fingerprint, now, now);
       this.insertRevisionRow(revision);
-      this.database.exec('COMMIT');
+      this.txCommit();
       return (await this.findCardByInternalId(internalId))!;
     } catch (error) {
-      try { this.database.exec('ROLLBACK'); } catch { /* 已回滚 */ }
+      this.txRollback();
       throw error;
     }
   }
@@ -190,16 +217,16 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
       shortPhrase: input.payload.shortPhrase, summary: input.payload.summary,
       status: 'draft', authorActor: input.actor, reviewActor: null, createdAt: now
     };
-    this.database.exec('BEGIN IMMEDIATE');
+    this.txBegin();
     try {
       const guard = this.database.prepare('UPDATE creative_reference_cards SET current_revision=?, status=?, updated_at=? WHERE internal_id=? AND current_revision=?')
         .run(next, 'draft', now, card.internalId, input.expectedRevision);
       if (guard.changes !== 1) throw new ConflictError(`并发更新冲突：期望revision ${input.expectedRevision}未命中。`);
       this.insertRevisionRow(revision);
-      this.database.exec('COMMIT');
+      this.txCommit();
       return revision;
     } catch (error) {
-      try { this.database.exec('ROLLBACK'); } catch { /* 已回滚 */ }
+      this.txRollback();
       throw error;
     }
   }
@@ -253,8 +280,12 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
       params.push(...filter.layers);
     }
     if (filter.usageTree !== undefined) {
-      conditions.push("json_extract(r.payload_json,'$.method.usageTree')=?");
-      params.push(filter.usageTree);
+      // 用途父子匹配（18.3）：method.usageTree命中主类或子类；reference.facets.purposes包含主类或子类。
+      const terms = usageTreeTerms(filter.usageTree);
+      const placeholders = terms.map(() => '?').join(',');
+      conditions.push(`((c.asset_kind='method' AND json_extract(r.payload_json,'$.method.usageTree') IN (${placeholders}))
+        OR (c.asset_kind='reference' AND EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(r.payload_json,'$.reference.facets.purposes'),'[]')) pe WHERE pe.value IN (${placeholders}))))`);
+      params.push(...terms, ...terms);
     }
     const cursorInternalId = filter.cursor === null || filter.cursor === undefined ? null : filter.cursor.lastInternalId;
     if (cursorInternalId !== null) { conditions.push('c.internal_id > ?'); params.push(cursorInternalId); }
@@ -285,7 +316,7 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
       if (seen.has(entry.internalId)) throw new ValidationError(`清单条目重复：${entry.internalId}。`);
       seen.add(entry.internalId);
     }
-    this.database.exec('BEGIN IMMEDIATE');
+    this.txBegin();
     try {
       // 乐观锁：active指针必须匹配调用者显式提供的预期；不自动读取最新掩盖陈旧编辑。
       const active = this.database.prepare('SELECT release_id FROM creative_reference_releases WHERE active=1').get() as { release_id: string } | undefined;
@@ -345,10 +376,10 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
       }
       this.database.prepare(`INSERT INTO creative_reference_releases(release_id, canonical_manifest, manifest_hash, manifest_json, active, created_at, published_by)
         VALUES (?,?,?,?,?,?,?)`).run(releaseId, canonicalJson, manifestHash, canonicalJson, 1, now, input.publishedBy);
-      this.database.exec('COMMIT');
+      this.txCommit();
       return { releaseId, manifestHash, entries: canonicalEntries, relations: canonicalRelations, active: true, createdAt: now, publishedBy: input.publishedBy };
     } catch (error) {
-      try { this.database.exec('ROLLBACK'); } catch { /* 已回滚 */ }
+      this.txRollback();
       throw error;
     }
   }
