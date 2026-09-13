@@ -1,5 +1,6 @@
 import {afterEach,describe,it,expect} from 'vitest';
 import {createTestContext,type TestContext} from '../../helpers/test-context.js';
+import {seedCreativeLibrary} from '../../helpers/creative-library.js';
 import {BookRepository} from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import {TimeMachineDesignService} from '../../../apps/api/src/application/books/time-machine-design-service.js';
 import {TimeMachineModelGateway} from '../../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
@@ -185,15 +186,16 @@ describe('new time machine orchestration with real persistence and simulated mod
   const repo=new SqlPlanRepository(c.database);expect(repo.readCandidate(scope,id,1)).not.toBeNull();expect(repo.readCandidate(scope,id,2)).not.toBeNull();expect(()=>repo.adopt(scope,id,2,0,'adopt')).toThrow('核查');
   await service.process(id);expect(reviews).toBe(2);
  });
- it('lets a member read five methods, correct invalid tool parameters and receive author intent',async()=>{
-  const {c,scope}=setup();const ids=['a','b','c','d','e'];c.database.prepare('INSERT INTO v7_rhythm_policy_versions VALUES(1,?,?,?)').run(JSON.stringify({cards:ids.map(key=>({key,title:key,instruction:'推进本书冲突',boundary:'用于方向设计',category:'rhythm'}))}),'test','2026-09-10');
+ it('queries the published library, corrects invalid tools and injects selected details',async()=>{
+  const {c,scope}=setup();const {id:methodId}=seedCreativeLibrary(c.database);
   let round=0;const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
    let value=output(request.prompt);
-   if(request.prompt.includes('判断需要哪些方法')){
-    expect(request.prompt).toContain('作者当前选择与补充');expect(request.prompt).toContain('坚持单主线');
-    value=[{action:'read_methods',ids:['missing']},{action:'search_methods',category:'',cursor:0},{action:'read_methods',ids},{action:'ready',selected:[{id:'a',application:'用订单危机推进成长'}]}][round++];
-    if(round===2)expect(request.prompt).toContain('包含不存在的方法ID');
+   if(request.prompt.includes('当前仅选取创作参考')){
+    expect(request.prompt).toContain('坚持单主线');
+    value=[{action:'read',ids:['missing']},{action:'search',purpose:'阶段回报',query:'',conditional:false,cursor:0},{action:'read',ids:[methodId]},{action:'ready',selected:[{id:methodId,application:'用订单危机推进成长'}]}][round++];
+    if(round===2)expect(request.prompt).toContain('只能读取');
    }
+   if(request.prompt.includes('设计全书骨架')){expect(request.prompt).toContain(methodId);expect(request.prompt).toContain('不反复复述结果');}
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
   }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','坚持单主线','methods');await service.process(id);
   expect(round).toBe(4);expect(service.state(scope).find(r=>r.id===id)).toMatchObject({state:'succeeded'});
@@ -204,12 +206,12 @@ describe('new time machine orchestration with real persistence and simulated mod
  });
  it('rejects missing formal sources and overlong author selections',()=>{const {c,scope}=setup();const gateway=new TimeMachineModelGateway(c.database,()=>{throw Error('must not dispatch');});const service=new TimeMachineDesignService(c.database,gateway,128000);expect(()=>service.start(scope,'recommend','x'.repeat(4001),'key')).toThrow('过长');c.database.prepare("UPDATE book_opening_blueprints SET status='superseded'").run();expect(()=>service.start(scope,'recommend','','key')).toThrow('开书');});
  it('continues with original creation when the member never finishes method rounds',async()=>{
-  const {c,scope}=setup();let rounds=0;const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
+  const {c,scope}=setup();seedCreativeLibrary(c.database);let rounds=0;const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
    let value=output(request.prompt);
-   if(request.prompt.includes('判断需要哪些方法')){value={action:'search_methods',category:'',cursor:rounds++};}
+   if(request.prompt.includes('当前仅选取创作参考')){value={action:'search',purpose:'阶段回报',query:'',conditional:false,cursor:rounds++};}
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
   }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','成长线','no-ready');await service.process(id);
-  expect(rounds).toBe(7);
+  expect(rounds).toBe(6);
   expect(service.state(scope).find(r=>r.id===id)).toMatchObject({state:'succeeded',result:{review:{pass:true}}});
  });
  it('self-check issues trigger one revision round and both revisions stay readable',async()=>{

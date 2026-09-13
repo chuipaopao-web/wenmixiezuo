@@ -4,7 +4,7 @@
 
 > 重构收尾要求：新模块实际接管后，逐模块删除废弃旧入口/实现并清理多余本地工作树、缓存及服务器发布物，不永久维护两套。R209执行规则见[总规格第19.6节](../coauthoring-v7/docs/worklists/CREATIVE-LIBRARY-209.md)。作者数据、历史引用和必要回滚资源不能按版本名删除；当前尚未执行清理。
 
-> R209当前（2026-09-14）：Codex已上线C3用途与阶段精修。361方法草稿、5退役来源、196参考；主/关联用途、重点阶段及条件阶段用法、六类内容类型均可查看编辑。34用途子类有覆盖，空结果可保留用途清除阶段。46项测试、类型/构建、生产仓储与防重检查通过。API/Worker wm-v7-20260914-001000-c3000001，静态407cfe86e54de52eff81。浏览器连接超时，真实视觉点击未完成。尚未独立内容审核，D/E真实AI检索与提示词仍未接入，旧运行供给暂留；库上线不等于AI已使用。以新书验收，不处理或删除旧书。细节见[唯一规格](../coauthoring-v7/docs/worklists/CREATIVE-LIBRARY-209.md)。
+> R209当前（2026-09-14）：C4/D/E由Codex完成代码与本地验收，正在安全发布。562项公共卡片独立审核通过（366方法、196参考），真实检索已接入开书、设定、故事线、全书方向；最多6轮/3项，完整请求上限15000字符，参考不可冒充事实。103项回归、两项真实生成及修订探针完成；初版质量问题和GLM超时如实保留。上线结果见[唯一规格](../coauthoring-v7/docs/worklists/CREATIVE-LIBRARY-209.md)当前交付。卷链章、VP-01及旧书清理不在本批。
 
 > R209配套更新：同一规格第17节包含逐岗位提示词正文、接入位置与专项验收，第18节包含稳定编号、短语分层、后台分类、语义检索与验收，第19节明确GLM执行边界和新后端接入路线。A只读盘点复现，不顺手修改业务；其他批次按任务书白名单执行。D/E交付必须同时完成库供给、真实调用循环和提示词，不能拆成只有文案或只有库页面的完成状态。当前未修改线上提示词。
 
@@ -752,6 +752,8 @@
 
 ### RB-19 单页创意开书与结果采用
 
+- **开发·R209当前**：Codex完成C4/D/E本地验收，562项内容独立审核，103项回归及公共样例实际检索/生成完成；安全发布待当前交付记录确认。生成者自查不能代替独立事实审查，不声称文学质量保证。
+
 - **开发·审查规则**：第194批，单人设计按真实modelId排除同模型主编；不同套餐或供应商不能冒充不同模型。页面预告按可用异模型主编显示，执行后显示真实尝试成员；无合格审查者则阻断，不伪装完成。首次取名参考番茄式题材/反差/独有卖点表达，不照抄作品名称。
 
 - **开发·当前记录**：2026-09-13 R208批次（GLM5.3实施，Codex返修复核通过105项相关测试，已发布wm-v7-20260913-053000-a2080001，静态976dd329934d83ef1f77）：开书候选新增核心卖点与阅读味道输出——runtime schema、keepNow、设计/审查指令同步两字段责任；包合同支持readingTone（0—300，历史缺键保持缺省）；返修白名单加入该字段。短卡模板card-6：卖点归premise、味道归preferences，审查核对遗漏/反向改写，预算不变；旧快照（card-5及更早）按templateRevision逐字复用原合同与审查提示，保证既有步骤input_hash不变。返修补齐：审查决定schema与OPENING_DECISION_FIELDS补positioning.readingTone，前端决定标签"核心卖点/阅读味道"。三国与悬疑合成调用完整解析通过；日常目录外标签失败待修，见OPENING-APPEAL-208.md第13节。
@@ -761,8 +763,8 @@
 - **收尾·剩余工作**：按现有证据核对尚未完成范围：[第167批：一个主偏向、最多四个辅助偏向及全链继承上线](../coauthoring-v7/docs/worklists/CREATIVE-STYLES-167.md)
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
-- **管理·代码来源**：rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,rebuild/packages/agent-catalog/creative-assets.js,rebuild/packages/backend/src/legacy-opening/opening-agent/opening-prompt-compiler.ts,apps/api/src/application/books/v7-opening-agent-service.ts,coauthoring-v7/author-app/src/NewNovelPage.tsx,coauthoring-v7/author-app/src/AuthorApp.tsx
-- **管理·代码核对**：88d5a7726077af0c18f3c0784af3182562608afbc2235b4973a4e71ea97b5d0e
+- **管理·代码来源**：rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,rebuild/packages/agent-catalog/creative-assets.js,rebuild/packages/backend/src/legacy-opening/opening-agent/opening-prompt-compiler.ts,apps/api/src/application/books/v7-opening-agent-service.ts,coauthoring-v7/author-app/src/NewNovelPage.tsx,coauthoring-v7/author-app/src/AuthorApp.tsx,apps/api/src/application/creative-reference/runtime.ts,apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.ts
+- **管理·代码核对**：62f50db6a0c4f4b791e6db8310eecda28dffebe7703f01f2cbdab238fe222fad
 
 - **管理·共享步骤**：none
 - **第166批确认方案**：首页直接开书，新貂蝉为亲切可爱的成年古风女性；尺度为常规发挥/趣味加料/反差脑洞/荒诞猎奇/极限整活，默认4。风格已由第167批调整为一个主偏向、最多四个辅助偏向；主导与辅助用途分别明确。完整机制库允许自由组合与原创，不宣称全网最全。后台“资产方法论→创意与金手指”查看同源卡片和节点规则；正式调用快照在本功能的上下文样例中追溯。2026-09-09 02:56:49已上线wm-v7-20260909-024500-108646da，静态a950d437b17ebb3fa52b。手机/电脑和定向接口验证通过，真实合成样例设计88秒、审查21秒通过；单例不代表所有任务速度。剧本尚未开放。
@@ -776,9 +778,9 @@
 - **管理·功能介绍**：单页开书：貂蝉迎接，作者直接输入想法、选头像成员、五档创意尺度及一个主偏向与最多四个辅助偏向。开书候选生成核心卖点与阅读味道（可编辑；长期期待、全书钩子、故事线与分卷仍在时光机，开书阶段不输出）；确认建书后两项保存进信息→资料页，可修改并被后续任务按来源版本读取。取消独立类型页与自己设计入口，保留生成后编辑与换成员。题材创作思路库尚未接入，本功能不按题材自动查询阅读偏好。网文可用，剧本明确未开放。
 - **管理·用户操作**：输入4至2000字想法；确定仅确认文字、不调用模型；选择头像、尺度与偏向后开始设计，阅读候选并修改、重设计或确认建书。
 - **管理·流程**：系统冻结作者原话、创意偏好和成员模型 → 策划编剧接收完整精简创意目录并自主选用/组合/原创 → 异模型主编按该尺度审查 → 必要时修订/恢复 → 作者确认，书籍继承偏好。
-- **管理·资料供给**：系统直接提供作者原话、五档尺度、风格主次、分类参考和128张创意机制短卡（编号/名称/一句说明），不做关键词硬筛、不调用额外资料Agent选卡；修订另带当前候选与作者意见。资料库不是本书事实。
-- **管理·注入与压缩**：开书设计完整注入128张精简机制卡，当前约5211字符；不携带研究原文和来源长文。审查只收创意规则与具体候选，不重复发整库；后续设定、规划与正文只收书级偏好及本节点短指令。实际字符/Token与冻结版本可在任务上下文查看。
-- **管理·格式化输入**：结构化任务、原始想法、分类参考、候选与修改要求分别标识来源。输出合同由开书编译器提供。
+- **管理·资料供给**：R209-C4/D/E：正式作者想法、调整意见与候选分开提供；不再全量注入128张旧创意卡。设计成员从已审核发布的创作库按用途、阶段查阅，再选择少量详情；候选不是事实。
+- **管理·注入与压缩**：最终完整输入含岗位、模板、资料、工具结果与系统消息不超过15000字符。分类词表只保留一份；输出使用简明字段/类型模板，服务器原字段校验不变。作者意见不在候选中重复。超限明确停止，不截断作者要求。
+- **管理·格式化输入**：输出模板列明所有字段、嵌套、数量、长度及枚举；频道分类按openingTaxonomy对应频道数组选取，题材及标签只引用同一份目录。方法用稳定编号、版本、详情、具体用法输入，不能凭空引用未读编号。
 - **管理·输出与校验**：按现有JSON合同输出可编辑的开书资料和审查结论。主动提出适配金手指，服从作者明确无外挂；尺度4/5以好玩、猎奇、爽快为主，不因荒诞、碾压、无厘头或无代价要求返工。只阻断改错姓名/作者明确要求、必要信息缺失与结构无效；不展示思维链。
 - **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。
 - **管理·思考与解释**：现有通用规则不要求返回内部思维链，也不保存或展示内部推理。成员按照任务要求完成工作；需要解释时只交付简短依据、来源和问题。输出字段约束不等于给小说套固定情节模板。
@@ -872,6 +874,8 @@
 
 ### RB-21 设定页
 
+- **开发·R209当前**：Codex完成C4/D/E本地验收，562项内容独立审核，103项回归及公共样例实际检索/生成完成；安全发布待当前交付记录确认。生成者自查不能代替独立事实审查，不声称文学质量保证。
+
 - **第184批恢复调整**：首次读取遇到网络中断或临时不可用时，在1、3、8、15秒后有限重连；只重试读取，不启动设计。已加载内容保持显示，退出页面取消重连；权限错误不自动重试。发布模块门禁增加版本号格式校验。本批静态单独发布，不重启API/Worker。详见[执行记录](../coauthoring-v7/docs/worklists/QUIET-RECOVERY-184.md)。
 
 - **收尾·线上现状**：24主题设定流程已上线；R177资料分页选材、最多4项设计和R179已有结果状态修复已发布。
@@ -953,8 +957,8 @@
 - **确认方案·验收05·交互与兼容**：已实现并通过工程验证：三阶段页面、头像选人、批量原子确认，旧条目重新归并有完整覆盖凭证。作者有意改变旧规则可明确确认；规划、其他正式依据或定稿冲突不能借此跳过。核对期间来源变化则凭证过期，旧正式版本和定稿保持。
 - **确认方案·验收06·长篇效果**：工程链路及少量真实语义小样持续核验：两卷规划与定稿的隔离资料检查了来源、冲突、版本失效和正文保护；三次Kimi审查分别约4.8/5.1/2.6秒，识别限制扩大、正文矛盾与明确未来生效的合理变化。百万字连续阅读质量尚无实证，作为后续持续评测项，不伪称完成。
 
-- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/books/v7-setting-editorial-service.ts,apps/api/src/application/books/v7-task-roster-snapshot.ts,apps/api/src/infrastructure/db/repositories/setting-change-impact.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-rules.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-catalog.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-agent-support.ts,rebuild/packages/backend/src/legacy-opening/agent-governance/agent-governance-registry.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/books/setting-continuity.ts,apps/api/src/infrastructure/db/repositories/setting-version-selection.ts,apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.ts,coauthoring-v7/author-app/src/SettingPage.tsx,apps/api/src/infrastructure/db/repositories/setting-continuity-repository.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/books/setting-context-selection.ts
-- **管理·代码核对**：6b25bf6fc4a792ba28c146c5b22b49f48f45f445c05670dbd1edb4a8814e8419
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/books/v7-setting-editorial-service.ts,apps/api/src/application/books/v7-task-roster-snapshot.ts,apps/api/src/infrastructure/db/repositories/setting-change-impact.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-rules.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-catalog.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-agent-support.ts,rebuild/packages/backend/src/legacy-opening/agent-governance/agent-governance-registry.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/books/setting-continuity.ts,apps/api/src/infrastructure/db/repositories/setting-version-selection.ts,apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.ts,coauthoring-v7/author-app/src/SettingPage.tsx,apps/api/src/infrastructure/db/repositories/setting-continuity-repository.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/books/setting-context-selection.ts,apps/api/src/application/creative-reference/runtime.ts
+- **管理·代码核对**：d8caed86cb80585225ad03cf62ea5d456792c73d988f1b0015fd93aaba252955
 
 - **管理·共享步骤**：AI-008,AI-009
 
@@ -966,8 +970,8 @@
 - **管理·功能介绍**：设定：初始页以大头像接待，说“老板确认一下，我帮您设计本作品需要的主题设定。”；点击“确认设计”启动主题推荐，仍可确认和调整范围。24个跨题材主题按需要设计、已有资料足够、不适用分类；一名成员设计简洁规则，主编核对后作者采用。旧条目归并核对完整事实，修改规则检查对规划和定稿的影响；页面与下游读取同一正式规则。
 - **管理·用户操作**：选择需要的设定，提交设计；可逐条修改、重设计或执行统一整理，确认后成为后续依据。
 - **管理·流程**：系统准备正式开书与现有设定 → 策划编剧判断24主题适用性并逐组设计 → 主编统一/单条核对与定向修订 → 有旧正式资料的候选追加连续性核对 → 作者采用。纯换说法只核对旧规则，事实改变再核对其他设定、开书、当前规划和定稿。旧清单任务继续按冻结岗位读取。
-- **管理·资料供给**：系统组包：正式开书、已确认设定、本轮候选、作者意见。超预算时由策划编剧筛选所需事实；不是每项都派资料编辑。副编仅在明确专项核查路径介入。
-- **管理·注入与压缩**：同一轮已设计的条目进入后续资料。完整组包过大时选择已有事实，保留confirmed与candidate身份。现有选择目标约10000字内、选择请求上限60000字符；这是代码约束，修改提示词不能直接改变上限。 变更核对每页6000码点、前后最多400重叠，完整读取而不截断；候选全文另列。纯换说法不重读整本正文。分页是单次预算，不限制全书长度，长书事实变更可能耗时较久，已完成页可复用。 第166批：设定首次模型调用按账号和书籍读取创意偏好，注入设定专用短指令；保留已确认能力和高尺度趣味，不重复携带完整创意库。技术重试保留原快照。
+- **管理·资料供给**：正式开书、已确认设定、本轮候选及作者意见保持身份。设计成员按用途与阶段检索已发布创作库；资料选择仍由现有资料成员按完整事实分页判断。
+- **管理·注入与压缩**：R209-C4/D/E：完整模型输入上限15000字符；事实选择页最多8000字符，为岗位和输出合同留空间。总审索引优先用完整已存事实，不能截断条件和例外；索引只能定位问题，修订需回查原文。技术重试沿用冻结输入。
 - **管理·格式化输入**：条目合同与既有资料分开传输；保留每条来源和版本，不把尚未确认的候选写成正史。
 - **管理·输出与校验**：新提示要求rules规则卡：结论、层级、范围、条件、代价、例外、关联对象。页面正文和事实索引同源，条件例外直接显示；兼容读取旧content/factEntries。单条规则卡审查只返回按原编号replace/remove的局部修改和简短依据，系统保留其余规则，拒绝错误/重复编号、删空及两份结果；旧文本任务保持原合同。取消600字质量门槛，每项12000字符、完整事实24000字符为技术容量，超限修复而不截断。统一审查不得通过仍有未落实冲突的结果。修改期间读取上一正式版本；主编另返回wording/fact、覆盖与具体冲突。只改变旧规则时提供“采用新规则”；涉及其他正式依据、规划或定稿的冲突须先处理候选或未来规划，不能覆盖定稿。归并仅隐藏完整承接或作者明确取舍的精确旧版本；后续修改旧项重新可见。小样已验证主要/只能及禁令纠正，仍发现局部重复，不宣称零幻觉。
 - **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。 批量采用先核对全部版本和来源，再在同一事务保存，任一过期则全部不写；来源与候选哈希失配必须重新核对。
@@ -1026,6 +1030,8 @@
 
 ### RB-22 全书蓝图与方向页
 
+- **开发·R209当前**：Codex完成C4/D/E本地验收，562项内容独立审核，103项回归及公共样例实际检索/生成完成；安全发布待当前交付记录确认。生成者自查不能代替独立事实审查，不声称文学质量保证。
+
 - **确认方案·分卷数量与容量**：2026-09-13由Codex按老板要求定稿VP-01，方案已定、待开发。默认6—10卷，每卷常规30万—50万字且预算不超过50万字；以40万字估算后约束到可行卷数。500万字固定10卷，每卷50万字，不再设计13卷。不足180万字允许6个短卷；超过500万字保留输入并提示调整目标，不偷偷扩卷。阶段职责可跨卷，不固定阶段数等于卷数。
 - **确认方案·分卷成员流程**：系统计算容量→成员读取有效资料和选定故事线→按用途查方法→分配阶段与每卷起止/转折/人物变化/编号故事线职责→预算校验和自查→异模型独立审查→作者采用。采用后沿用卷A—卷J编号，预算不当正文事实，字数到数不自动结束一卷。
 - **计划·分卷开发批次**：VP-01A新time-machine-core预算策略与合同验证；VP-01B全书设计服务、R209工具检索、冻结上下文、审查及采用事务；VP-01C作者展示与后台证据、手机桌面验收。三批均未开始，不改变现有线上生成规则。详细开发规格见docs/TIMEMACHINE_STORY_DESIGN.md第24节。
@@ -1070,8 +1076,8 @@
 - **收尾·剩余工作**：第192批已获新时光机实施授权，按P0—P5推进；共用现有身份、账本和模型传输，通过独立领域与适配接口接入，不复制旧时光机业务。旧任务继续由原运行版本处理，新功能验证后再按书籍执行归属切换。
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
-- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/planning/v7-planning-route-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/planning/v7-book-design-card-service.ts,apps/api/src/application/planning/v7-planning-source-compiler.ts,coauthoring-v7/backend/planning-methods/book-design-card.ts,coauthoring-v7/backend/planning-methods/rhythm-policy.ts,coauthoring-v7/backend/planning-methods/layer-asset-menu.ts,coauthoring-v7/backend/planning-methods/complete-method-catalog.ts,coauthoring-v7/backend/planning-methods/layered-planning-engine.ts,coauthoring-v7/backend/planning-methods/planning-story-routes.ts,rebuild/packages/backend/src/legacy-opening/planning-methods/planning-story-routes.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
-- **管理·代码核对**：0cbc8bde4cb097b7073c617c40e7c6cc3e5d13e025f3fdb77ff203a505eca207
+- **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/planning/v7-planning-route-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/planning/v7-book-design-card-service.ts,apps/api/src/application/planning/v7-planning-source-compiler.ts,coauthoring-v7/backend/planning-methods/book-design-card.ts,coauthoring-v7/backend/planning-methods/rhythm-policy.ts,coauthoring-v7/backend/planning-methods/layer-asset-menu.ts,coauthoring-v7/backend/planning-methods/complete-method-catalog.ts,coauthoring-v7/backend/planning-methods/layered-planning-engine.ts,coauthoring-v7/backend/planning-methods/planning-story-routes.ts,rebuild/packages/backend/src/legacy-opening/planning-methods/planning-story-routes.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts,apps/api/src/application/creative-reference/runtime.ts
+- **管理·代码核对**：1f5126cf7c6cfce0623466f016b5eebed55afb18af58046bcbd3f81738707f29
 
 - **管理·共享步骤**：AI-001,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1083,8 +1089,8 @@
 - **管理·功能介绍**：全书方向：在时光机提交全书目标、字数等要求，查看方向或蓝图候选，按需要调整并确认。
 - **管理·用户操作**：在时光机提交全书目标、字数等要求，查看方向或蓝图候选，按需要调整并确认。
 - **管理·流程**：新方向任务冻结正式开书与设定 → 资料编辑分批填写六栏短卡、两两合并、逐页核对原文 → 系统保存版本并提供本层方法 → 主编设计方向 → 对应路径审查或融合 → 作者确认。相同来源复用短卡；不再额外调用一轮资料选择。既有树生成与已冻结旧菜单的历史任务仍走各自兼容路径。
-- **管理·资料供给**：六栏为创作要求、主角与起点、核心卖点、世界背景、影响全书的规则、作者指定内容。资料成员提取已有事实，不新增剧情；普通未指定信息允许留白，正式来源存在关键冲突则提示作者处理。系统另外提供本次作者目标、已有方向或实际进展并明确身份；方法来自后台本层已启用的名称与简短介绍。
-- **管理·注入与压缩**：第185批新方向短卡目标1800、正文上限3200字符；原文每页9000字符、整理业务请求上限18000字符、输出上限4000 Token，外层岗位合同另计。超长输出有限重整，不直接截断。合并后逐页核对主角、能力条件、关键规则和作者要求，成功阶段按账号/书籍/来源版本/模板版本缓存。设计调用只注入短卡，不重复传输完整开书与设定；作者目标及其他补充来源合并超过16000字符时停止并保留短卡。第186批方法供给改为本层完整简短目录，默认各层约1.7—1.85万字符，片段发布上限30000字符；这是方法片段而非总请求。代码编号只用于引用，按资产类别分组，不注入长理论。完整请求仍经模型网关总预算，不静默截断目录。字符数不保证注意力或不遗漏。原文与历史版本不覆盖。旧菜单任务、树生成及卷链章尚未改成六栏模板。 R190新方法版本覆盖上述历史目录供给方式：首次仅提供分类导航，成员按需查方法，最多4轮8次；选材后清掉查询页，只保留至多8项方法与本任务用法。完整请求仍走模型总预算，不截断作品事实。旧任务继续读取冻结版本。
+- **管理·资料供给**：资料成员从已确认开书和设定整理短卡并核对，故事线推荐与全书设计复用。方法统一来自已审核发布的创作库；新任务冻结release，进行中任务不随后台发布变化。
+- **管理·注入与压缩**：R209-C4/D/E：按用途与当前阶段提供简短候选，成员read后才能选用，最多6轮/3项。查询页不作为最终创作资料重复注入；选中方法保留完整用法与边界。完整请求仍不超过15000字符，空命中或方法不适合可原创，不能伪称已使用。
 - **管理·格式化输入**：整理阶段使用六栏JSON，每项含简短正文及可核对来源编号；系统检验字段、来源引用和预算。设计阶段使用中文短卡、当前层责任、目标容量、作者偏好及本层方法菜单。来源映射单独保存，不把编号解释长文注入设计正文。
 - **管理·输出与校验**：方向/结构使用对应JSON合同与解析器；校验容量和引用，结构错误进入修复。方向审查与融合单列；树生成不能因结构合格被标为文学质量通过。
 - **管理·系统职责**：验证管理员/作者身份、书籍归属、来源版本与预算；读取和保存资料、防重、状态与额度记账由系统执行。只有明确模型步骤才会启动成员；未知结果先核对，不能直接重复派单。

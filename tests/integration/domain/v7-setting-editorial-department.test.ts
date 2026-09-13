@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
+import {seedCreativeLibrary} from '../../helpers/creative-library.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
@@ -24,6 +25,11 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7设定编辑部', () => {
+  it('设定设计使用已发布方法，审查保留正式来源边界',async()=>{
+    context=createTestContext('creative-setting-');const {id}=seedCreativeLibrary(context.database);const base=new SettingResolver(false);let tools=0;const prompts:string[]=[];
+    const resolver:V7OpeningModelAdapterResolver={resolve(provider,modelId,purpose){const original=base.resolve(provider,modelId,purpose);return {...original,async generate(request){prompts.push(request.prompt);if(request.prompt.includes('当前仅选取创作参考'))return successfulModelResult(provider,modelId,JSON.stringify([{action:'search',purpose:'阶段回报',query:'',conditional:false,cursor:0},{action:'read',ids:[id]},{action:'ready',selected:[{id,application:'用驿站规则体现百姓得到的便利'}]}][tools++]));return original.generate(request);}};}};
+    const app=await createServer(context.config,context.database,{v7OpeningModelAdapters:resolver});try{const cookie=await register(app,'creative-setting@example.com','方法测试','strong-pass-123');const bookId=await createBook(app,cookie,'方法测试','creative-setting-book','历史脑洞');const started=await app.inject({method:'POST',url:`/api/v1/v7/books/${bookId}/setting-batches`,headers:{...HEADERS,cookie},payload:{selectedItemKeys:['world-stage'],designMemberKey:'planner-deepseek-v4-pro',idempotencyKey:'creative-setting-batch'}});expect(started.statusCode).toBe(200);const result=await pollBatch(app,cookie,bookId,started.json().data.batchId);expect(result.status).toBe('awaiting_author');expect(tools).toBe(3);expect(prompts.some(p=>p.includes('creativeReference')&&p.includes('用驿站规则体现百姓得到的便利')&&p.includes('不反复复述结果')),JSON.stringify(context.database.prepare('SELECT result_json FROM creative_reference_sessions').all())).toBe(true);expect(prompts.every(p=>JSON.stringify({messages:[{role:'user',content:p}]}).length<=15000)).toBe(true);}finally{await app.close();}
+  });
   it('无冲突的旧辅助字段仍交现有主编合并，完整来源保留且不凭索引改写', async () => {
     context = createTestContext('r173-integrated-');
     const base = new SettingResolver(false);
@@ -394,8 +400,7 @@ describe('V7设定编辑部', () => {
       expect(created.statusCode,created.body).toBe(200);
       const completed=await pollBatch(app,cookie,bookId,created.json().data.batchId);
       expect(completed.status,JSON.stringify(context.database.prepare('SELECT error_message FROM v7_setting_batches WHERE batch_id=?').get(completed.batchId))).toBe('awaiting_author');
-      if (draftLength === 740) expect(selectionCalls).toBe(1);
-      else expect(selectionCalls).toBeGreaterThan(1);
+      expect(selectionCalls).toBeGreaterThan(1); // Complete facts are now paged within the full 15k context budget.
       const selectionRows = context.database.prepare("SELECT member_key FROM v7_setting_model_calls WHERE batch_id=? AND node_key='setting_context_select'").all(completed.batchId) as Array<{member_key:string}>;
       expect(selectionRows.length).toBe(selectionCalls);
       expect(selectionRows.every(row=>row.member_key==='deputy-deepseek-v4-pro')).toBe(true);

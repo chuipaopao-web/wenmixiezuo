@@ -1,0 +1,2023 @@
+{
+  "batch": "r209-c4",
+  "status": "draft",
+  "entries": [
+    {
+      "identity": "r209-c1/method-payoff-afterglow",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "兑现与余韵",
+        "shortPhrase": "兑现与余韵",
+        "summary": "重要结果发生后不立刻跳走，让人物、关系和世界对结果作出反应。",
+        "aliases": [
+          "payoff-afterglow"
+        ],
+        "method": {
+          "title": "兑现与余韵",
+          "instruction": "重要结果发生后不立刻跳走，让人物、关系和世界对结果作出反应。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“兑现与余韵”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "payoff-afterglow"
+          ],
+          "relatedPurposes": [
+            "情绪回报",
+            "阶段回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "兑现与余韵",
+        "shortPhrase": "兑现与余韵",
+        "summary": "重要结果发生后不立刻跳走，让人物、关系和世界对结果作出反应。",
+        "aliases": [
+          "payoff-afterglow"
+        ],
+        "method": {
+          "title": "兑现与余韵",
+          "instruction": "重要结果发生后不立刻跳走，让人物、关系和世界对结果作出反应。\n具体用法：先判断结果改变了谁在乎的东西，再选择反应、关系回应、处境后果或后续行动表现余韵。重大事件可延后回响，小事件可用一个动作收束；不要求每次单列反应章。\n正例：洗清冤屈后不再重复宣判；昔日避开主角的同僚第一次把钥匙交给他，呈现信任恢复。\n反例：刚洗冤便出现更强敌人将成果清零；或连续多人用同样的话惊叹。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“兑现与余韵”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "payoff-afterglow"
+          ],
+          "relatedPurposes": [
+            "情绪回报",
+            "阶段回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-scene-sequel-cycle",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "行动场景—反应场景循环",
+        "shortPhrase": "行动场景—反应场景循环",
+        "summary": "高行动之后给人物反应、判断和决定的空间，再由新决定启动下一轮行动。",
+        "aliases": [
+          "scene-sequel-cycle"
+        ],
+        "method": {
+          "title": "行动场景—反应场景循环",
+          "instruction": "高行动之后给人物反应、判断和决定的空间，再由新决定启动下一轮行动。",
+          "boundary": "使用条件：一场具体行动需要明确参与者、变化和结果时，考虑“行动场景—反应场景循环”。\n误用边界：不要求每场都有激烈冲突；省略无关动作，保留因果和空间清晰",
+          "usageTree": "场景结构",
+          "applicableLayers": [
+            "chapter",
+            "prose"
+          ],
+          "aliases": [
+            "scene-sequel-cycle"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "链的关键场面是否成立尚不清楚",
+              "use": "只验证关键场面的目标和结果，不提前扩写对白。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "行动场景—反应场景循环",
+        "shortPhrase": "行动场景—反应场景循环",
+        "summary": "高行动之后给人物反应、判断和决定的空间，再由新决定启动下一轮行动。",
+        "aliases": [
+          "scene-sequel-cycle"
+        ],
+        "method": {
+          "title": "行动场景—反应场景循环",
+          "instruction": "高行动之后给人物反应、判断和决定的空间，再由新决定启动下一轮行动。\n具体用法：行动结束后只补必要的承受、理解和选择，反应可与赶路、修补、照顾他人等行动同时发生，再让人物的新决定推动后续。\n正例：战后边修桥边讨论谁留下守城，损失的感受与下一步选择同步推进。\n反例：每场打斗后固定安排长篇心理独白，重复刚发生的过程。",
+          "boundary": "使用条件：行动后需要人物消化结果并决定下一步\n误用边界：不强制每次行动后插入完整反应段，不重复复述刚发生的事。",
+          "usageTree": "场景结构",
+          "applicableLayers": [
+            "chapter",
+            "prose"
+          ],
+          "aliases": [
+            "scene-sequel-cycle"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "行动后需要人物消化结果并决定下一步",
+              "use": "安排必要的反应、判断和再决定，可与其他行动同时发生"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-reaction-dilemma-decision",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "反应—权衡—决定",
+        "shortPhrase": "反应—权衡—决定",
+        "summary": "人物先真实承受刚发生的事，再权衡无法兼得的选项，最后作出推动剧情的决定。",
+        "aliases": [
+          "reaction-dilemma-decision"
+        ],
+        "method": {
+          "title": "反应—权衡—决定",
+          "instruction": "人物先真实承受刚发生的事，再权衡无法兼得的选项，最后作出推动剧情的决定。",
+          "boundary": "使用条件：一场具体行动需要明确参与者、变化和结果时，考虑“反应—权衡—决定”。\n误用边界：不要求每场都有激烈冲突；省略无关动作，保留因果和空间清晰",
+          "usageTree": "场景结构",
+          "applicableLayers": [
+            "chapter",
+            "prose"
+          ],
+          "aliases": [
+            "reaction-dilemma-decision"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "链的关键场面是否成立尚不清楚",
+              "use": "只验证关键场面的目标和结果，不提前扩写对白。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "反应—权衡—决定",
+        "shortPhrase": "反应—权衡—决定",
+        "summary": "人物先真实承受刚发生的事，再权衡无法兼得的选项，最后作出推动剧情的决定。",
+        "aliases": [
+          "reaction-dilemma-decision"
+        ],
+        "method": {
+          "title": "反应—权衡—决定",
+          "instruction": "人物先真实承受刚发生的事，再权衡无法兼得的选项，最后作出推动剧情的决定。\n具体用法：找出结果对人物原本追求的影响，呈现其可行选择与在乎的区别；决定必须来自人物动机，不要求每次痛苦或牺牲。\n正例：赢得任命后主角选择把旧伙伴带入新机构，荣誉转化为责任与关系。\n反例：为制造虐点让人物放弃明显可行的救援，却不给行动理由。",
+          "boundary": "使用条件：结果影响人物追求，需要权衡后行动\n误用边界：不强制痛苦、两难或牺牲；权衡服从人物动机。",
+          "usageTree": "场景结构",
+          "applicableLayers": [
+            "chapter",
+            "prose"
+          ],
+          "aliases": [
+            "reaction-dilemma-decision"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "结果影响人物追求，需要权衡后行动",
+              "use": "从人物在乎的差别和可行选择出发形成决定"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-emotional-staircase",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "情绪阶梯",
+        "shortPhrase": "情绪阶梯",
+        "summary": "相似情绪每次作用到更重要的人、目标或代价上，形成层层加深的体验。",
+        "aliases": [
+          "emotional-staircase"
+        ],
+        "method": {
+          "title": "情绪阶梯",
+          "instruction": "相似情绪每次作用到更重要的人、目标或代价上，形成层层加深的体验。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“情绪阶梯”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "emotional-staircase"
+          ],
+          "relatedPurposes": [
+            "情绪回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "情绪阶梯",
+        "shortPhrase": "情绪阶梯",
+        "summary": "相似情绪每次作用到更重要的人、目标或代价上，形成层层加深的体验。",
+        "aliases": [
+          "emotional-staircase"
+        ],
+        "method": {
+          "title": "情绪阶梯",
+          "instruction": "相似情绪每次作用到更重要的人、目标或代价上，形成层层加深的体验。\n具体用法：递进可以来自意义加深、关系变近、理解改变，不只增加伤亡或战力；给高强度段落留对比和恢复空间。\n正例：从陌生人认可手艺，到同伴愿意交付性命，同样是信任但意义递进。\n反例：每次都杀更亲近的人来升级悲伤，使人物关系只剩制造痛苦的用途。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“情绪阶梯”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "emotional-staircase"
+          ],
+          "relatedPurposes": [
+            "情绪回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要安排主要情绪峰值与恢复区间",
+              "use": "只规划重要体验变化，不预排每章固定爽点。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-pressure-payoff-loop",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "压力与回报循环",
+        "shortPhrase": "压力与回报循环",
+        "summary": "让压制、准备、反证、结果和收获形成因果闭环，不把打脸当成唯一回报。",
+        "aliases": [
+          "pressure-payoff-loop"
+        ],
+        "method": {
+          "title": "压力与回报循环",
+          "instruction": "让压制、准备、反证、结果和收获形成因果闭环，不把打脸当成唯一回报。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“压力与回报循环”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "aliases": [
+            "pressure-payoff-loop"
+          ],
+          "relatedPurposes": [
+            "情绪回报",
+            "阶段回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "chapter",
+              "condition": "本章承担成长证明或阶段回报",
+              "use": "落实这次成果的证据，不凭章数触发升级。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "压力与回报循环",
+        "shortPhrase": "压力与回报循环",
+        "summary": "让压制、准备、反证、结果和收获形成因果闭环，不把打脸当成唯一回报。",
+        "aliases": [
+          "pressure-payoff-loop"
+        ],
+        "method": {
+          "title": "压力与回报循环",
+          "instruction": "让压制、准备、反证、结果和收获形成因果闭环，不把打脸当成唯一回报。\n具体用法：明确读者为什么希望人物成功、阻力怎样成立、如何破局，以及胜利带来什么实际改变。可以先小兑现再推进，也允许轻松、智谋、关系或安宁的回报。\n正例：普通工匠用早先验证过的工艺救下军械库，获得独立承接任务的资格。\n反例：临时获得无来源的能力，再让所有人惊呼以代替破局过程。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“压力与回报循环”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "aliases": [
+            "pressure-payoff-loop"
+          ],
+          "relatedPurposes": [
+            "情绪回报",
+            "阶段回报"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "chapter",
+              "condition": "本章承担成长证明或阶段回报",
+              "use": "落实这次成果的证据，不凭章数触发升级。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c3/reward-proof",
+      "expectedRevision": 1,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "成果可见化",
+        "shortPhrase": "成果可见化",
+        "summary": "选择一项可观察证据：办成以前办不到的事、获得行动自由、关系回应或他人判断改变。",
+        "aliases": [],
+        "method": {
+          "title": "成果可见化",
+          "instruction": "选择一项可观察证据：办成以前办不到的事、获得行动自由、关系回应或他人判断改变。",
+          "boundary": "使用条件：人物获得成果却缺少读者能感受到的变化\n误用边界：不要只报等级和奖励清单，也不要求所有成果公开炫耀。",
+          "usageTree": "情绪回报",
+          "relatedPurposes": [],
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "成果可见化",
+        "shortPhrase": "成果可见化",
+        "summary": "选择一项可观察证据：办成以前办不到的事、获得行动自由、关系回应或他人判断改变。",
+        "aliases": [],
+        "method": {
+          "title": "成果可见化",
+          "instruction": "选择一项可观察证据：办成以前办不到的事、获得行动自由、关系回应或他人判断改变。\n具体用法：用与人物追求有关的行为变化验证成果，可由自己、伙伴或环境体现，不强迫围观赞美。\n正例：主角终于能拒绝不公平订单，还能给伙伴发足工钱。\n反例：奖励十个等级却仍反复遭遇同一羞辱，所得对行动毫无作用。",
+          "boundary": "使用条件：人物获得成果却缺少读者能感受到的变化\n误用边界：不要只报等级和奖励清单，也不要求所有成果公开炫耀。",
+          "usageTree": "情绪回报",
+          "relatedPurposes": [],
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      }
+    },
+    {
+      "identity": "r209-c3/reward-stagger",
+      "expectedRevision": 1,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "回报错峰",
+        "shortPhrase": "回报错峰",
+        "summary": "将不同线的阶段答案、能力验证和关系回应安排在各自有因果依据的位置，保留大兑现。",
+        "aliases": [],
+        "method": {
+          "title": "回报错峰",
+          "instruction": "将不同线的阶段答案、能力验证和关系回应安排在各自有因果依据的位置，保留大兑现。",
+          "boundary": "使用条件：多条线的回报全挤在卷末，中段长期没有收获\n误用边界：不按固定章数发奖，不强迫每章爽点或清空所有悬念。",
+          "usageTree": "情绪节奏",
+          "relatedPurposes": [],
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "回报错峰",
+        "shortPhrase": "回报错峰",
+        "summary": "将不同线的阶段答案、能力验证和关系回应安排在各自有因果依据的位置，保留大兑现。",
+        "aliases": [],
+        "method": {
+          "title": "回报错峰",
+          "instruction": "将不同线的阶段答案、能力验证和关系回应安排在各自有因果依据的位置，保留大兑现。\n具体用法：让不同线在有因果依据时回答各自的问题；大兑现前可以有真实的小进展，不用固定章数派发奖励。\n正例：战争尚未结束，同伴先修复信任；战胜之后再落实失地归还。\n反例：为了轮流发糖，每条线都按相同间隔解决，不顾事件条件。",
+          "boundary": "使用条件：多条线的回报全挤在卷末，中段长期没有收获\n误用边界：不按固定章数发奖，不强迫每章爽点或清空所有悬念。",
+          "usageTree": "情绪节奏",
+          "relatedPurposes": [],
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      }
+    },
+    {
+      "identity": "r209-c3/reward-variety",
+      "expectedRevision": 1,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "回报方式换新",
+        "shortPhrase": "回报方式换新",
+        "summary": "保持核心体验，改变获得方式、对象、意义或代价；让这次成果对人物有新的作用。",
+        "aliases": [],
+        "method": {
+          "title": "回报方式换新",
+          "instruction": "保持核心体验，改变获得方式、对象、意义或代价；让这次成果对人物有新的作用。",
+          "boundary": "使用条件：连续故事仅换对手重复同一种打脸或奖励\n误用边界：不为求新突然换题材；小尺度深化也有效，不必不断扩大力量。",
+          "usageTree": "情绪回报",
+          "relatedPurposes": [],
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "回报方式换新",
+        "shortPhrase": "回报方式换新",
+        "summary": "保持核心体验，改变获得方式、对象、意义或代价；让这次成果对人物有新的作用。",
+        "aliases": [],
+        "method": {
+          "title": "回报方式换新",
+          "instruction": "保持核心体验，改变获得方式、对象、意义或代价；让这次成果对人物有新的作用。\n具体用法：保留作品的核心体验，变换达成方式、被改变的关系或成果意义，避免所有胜利都只剩换脸打脸。\n正例：第一次靠技术证明能力，下一次靠谈判让对手主动合作。\n反例：只换更强的敌人，准备、嘲讽、击败、惊呼一模一样。",
+          "boundary": "使用条件：连续故事仅换对手重复同一种打脸或奖励\n误用边界：不为求新突然换题材；小尺度深化也有效，不必不断扩大力量。",
+          "usageTree": "情绪回报",
+          "relatedPurposes": [],
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-multi-line-convergence",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "多线汇流",
+        "shortPhrase": "多线汇流",
+        "summary": "前期分别发展的线索和人物，在关键阶段因同一件事汇合。",
+        "aliases": [
+          "multi-line-convergence"
+        ],
+        "method": {
+          "title": "多线汇流",
+          "instruction": "前期分别发展的线索和人物，在关键阶段因同一件事汇合。",
+          "boundary": "使用条件：需要决定主线数量、关注人物及交汇关系时，考虑“多线汇流”。\n误用边界：一条线有自己的目标与因果；不要求平均戏份或全部汇合",
+          "usageTree": "故事交织",
+          "applicableLayers": [
+            "book"
+          ],
+          "aliases": [
+            "multi-line-convergence"
+          ],
+          "relatedPurposes": [
+            "群像"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷有多线交织或独立单元，需确定关注顺序",
+              "use": "仅安排本卷相关线的交汇与回访，不重建全书结构。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "多线汇流",
+        "shortPhrase": "多线汇流",
+        "summary": "前期分别发展的线索和人物，在关键阶段因同一件事汇合。",
+        "aliases": [
+          "multi-line-convergence"
+        ],
+        "method": {
+          "title": "多线汇流",
+          "instruction": "前期分别发展的线索和人物，在关键阶段因同一件事汇合。",
+          "boundary": "使用条件：几条已展开的线需要因同一件事产生交汇\n误用边界：不要求全书所有支线汇合，也不要求平均戏份；参与本次汇合的线必须有共同因果。",
+          "usageTree": "故事交织",
+          "applicableLayers": [
+            "book"
+          ],
+          "aliases": [
+            "multi-line-convergence"
+          ],
+          "relatedPurposes": [
+            "群像"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "几条已展开的线需要因同一件事产生交汇",
+              "use": "选定参与汇合的线及共同因果，说明相遇怎样改变各自目标"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-frame-story",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "框架故事",
+        "shortPhrase": "框架故事",
+        "summary": "用一个现在时的讲述、调查或记录包住内部故事，让两层内容互相解释。",
+        "aliases": [
+          "frame-story"
+        ],
+        "method": {
+          "title": "框架故事",
+          "instruction": "用一个现在时的讲述、调查或记录包住内部故事，让两层内容互相解释。",
+          "boundary": "使用条件：呈现顺序或叙述框架能改变读者理解时，考虑“框架故事”。\n误用边界：叙述顺序可变化，事实时间与因果仍需可回查",
+          "usageTree": "时间组织",
+          "applicableLayers": [
+            "book"
+          ],
+          "aliases": [
+            "frame-story"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷有多线交织或独立单元，需确定关注顺序",
+              "use": "仅安排本卷相关线的交汇与回访，不重建全书结构。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "框架故事",
+        "shortPhrase": "框架故事",
+        "summary": "用一个现在时的讲述、调查或记录包住内部故事，让两层内容互相解释。",
+        "aliases": [
+          "frame-story"
+        ],
+        "method": {
+          "title": "框架故事",
+          "instruction": "用一个现在时的讲述、调查或记录包住内部故事，让两层内容互相解释。",
+          "boundary": "使用条件：本卷需要通过外层讲述解释内层故事，或反过来改变外层理解\n误用边界：框架不是普通多线切换，不为套结构增加无作用的讲述者。",
+          "usageTree": "时间组织",
+          "applicableLayers": [
+            "book"
+          ],
+          "aliases": [
+            "frame-story"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷需要通过外层讲述解释内层故事，或反过来改变外层理解",
+              "use": "安排内外层信息的出现时机与互相解释的作用"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-story-spine",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "故事脊柱",
+        "shortPhrase": "故事脊柱",
+        "summary": "用“原来如此—直到某天—因此不断—最后—从此”快速检查故事是否真的在前进。",
+        "aliases": [
+          "story-spine"
+        ],
+        "method": {
+          "title": "故事脊柱",
+          "instruction": "用“原来如此—直到某天—因此不断—最后—从此”快速检查故事是否真的在前进。",
+          "boundary": "使用条件：需要检查行动是否产生后果并打开下一步时，考虑“故事脊柱”。\n误用边界：可以有停顿与偶然，但关键解决应有铺垫；不强制每次都升级",
+          "usageTree": "事件发展",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "story-spine"
+          ],
+          "relatedPurposes": [
+            "结构检查"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "当前链本身构成完整故事且需要结构检查",
+              "use": "缩放为当前故事的功能检查，不硬套阶段数量。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "故事脊柱",
+        "shortPhrase": "故事脊柱",
+        "summary": "从前—每天—直到某天—因此不断—最后—从此：从原有日常出发，让一次变化引发连续后果，最终形成新的状态。",
+        "aliases": [
+          "story-spine"
+        ],
+        "method": {
+          "title": "故事脊柱",
+          "instruction": "从前—每天—直到某天—因此不断—最后—从此：从原有日常出发，让一次变化引发连续后果，最终形成新的状态。",
+          "boundary": "使用条件：需要把故事从日常变化串成因果脊柱\n误用边界：句式只帮助检查因果，不要求正文逐句照写。",
+          "usageTree": "事件发展",
+          "applicableLayers": [
+            "book",
+            "volume"
+          ],
+          "aliases": [
+            "story-spine"
+          ],
+          "relatedPurposes": [
+            "结构检查"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "chain",
+              "condition": "需要把故事从日常变化串成因果脊柱",
+              "use": "从原有状态、触发变化、连续后果到新状态检查缺口"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-circular-chronology",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "循环时间结构",
+        "shortPhrase": "循环时间结构",
+        "summary": "故事回到类似起点，但人物选择、理解或代价已经不同。",
+        "aliases": [
+          "circular-chronology"
+        ],
+        "method": {
+          "title": "循环时间结构",
+          "instruction": "故事回到类似起点，但人物选择、理解或代价已经不同。",
+          "boundary": "使用条件：呈现顺序或叙述框架能改变读者理解时，考虑“循环时间结构”。\n误用边界：叙述顺序可变化，事实时间与因果仍需可回查",
+          "usageTree": "时间组织",
+          "applicableLayers": [
+            "book",
+            "chapter"
+          ],
+          "aliases": [
+            "circular-chronology"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "prose",
+              "condition": "正文呈现顺序与事实时间不同",
+              "use": "按已定时间组织安排叙述，核查读者知道的信息。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "循环时间结构",
+        "shortPhrase": "循环时间结构",
+        "summary": "故事回到类似起点，但人物选择、理解或代价已经不同。",
+        "aliases": [
+          "circular-chronology"
+        ],
+        "method": {
+          "title": "循环时间结构",
+          "instruction": "故事回到类似起点，但人物选择、理解或代价已经不同。",
+          "boundary": "使用条件：希望通过回到相似情境凸显人物变化\n误用边界：回环可以按事实时间顺叙，不等于时间循环，也不要求人物回到原状。",
+          "usageTree": "时间组织",
+          "applicableLayers": [
+            "book",
+            "chapter"
+          ],
+          "aliases": [
+            "circular-chronology"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "prose",
+              "condition": "希望通过回到相似情境凸显人物变化",
+              "use": "对照回环处的人物选择、理解或处境差异"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-parallel-simultaneous-time",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "同时空平行推进",
+        "shortPhrase": "同时空平行推进",
+        "summary": "在同一时间段切换不同地点或人物，让行动在时间压力下互相影响。",
+        "aliases": [
+          "parallel-simultaneous-time"
+        ],
+        "method": {
+          "title": "同时空平行推进",
+          "instruction": "在同一时间段切换不同地点或人物，让行动在时间压力下互相影响。",
+          "boundary": "使用条件：呈现顺序或叙述框架能改变读者理解时，考虑“同时空平行推进”。\n误用边界：叙述顺序可变化，事实时间与因果仍需可回查",
+          "usageTree": "时间组织",
+          "applicableLayers": [
+            "book",
+            "chapter"
+          ],
+          "aliases": [
+            "parallel-simultaneous-time"
+          ],
+          "relatedPurposes": [
+            "群像"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "prose",
+              "condition": "正文呈现顺序与事实时间不同",
+              "use": "按已定时间组织安排叙述，核查读者知道的信息。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "同时空平行推进",
+        "shortPhrase": "同时空平行推进",
+        "summary": "在同一时间段切换不同地点或人物，让行动在时间压力下互相影响。",
+        "aliases": [
+          "parallel-simultaneous-time"
+        ],
+        "method": {
+          "title": "同时空平行推进",
+          "instruction": "在同一时间段切换不同地点或人物，让行动在时间压力下互相影响。",
+          "boundary": "使用条件：同一时间段内需切换不同地点或人物的行动\n误用边界：可以按时间顺序切换，不以交错叙述制造事实时间矛盾。",
+          "usageTree": "时间组织",
+          "applicableLayers": [
+            "book",
+            "chapter"
+          ],
+          "aliases": [
+            "parallel-simultaneous-time"
+          ],
+          "relatedPurposes": [
+            "群像"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "prose",
+              "condition": "同一时间段内需切换不同地点或人物的行动",
+              "use": "核对各线的时间压力、行动进度和相互影响"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-direct-opposition",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "目标对冲",
+        "shortPhrase": "目标对冲",
+        "summary": "双方都在主动争取互不相容的结果，所以不是一个人做事、另一个人临时来挡路。",
+        "aliases": [
+          "direct-opposition"
+        ],
+        "method": {
+          "title": "目标对冲",
+          "instruction": "双方都在主动争取互不相容的结果，所以不是一个人做事、另一个人临时来挡路。",
+          "boundary": "使用条件：目标被资源、利益、规则或责任限制，需要形成有意义的取舍时，考虑“目标对冲”。\n误用边界：阻力要源于本书处境，不把压迫、两难和永久损失强加给所有故事",
+          "usageTree": "阻力选择",
+          "applicableLayers": [
+            "chain"
+          ],
+          "aliases": [
+            "direct-opposition"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "需要确立贯穿本卷的阻力及关键选择",
+              "use": "确定目标冲突与代价，局部策略留到链设计。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "目标对冲",
+        "shortPhrase": "目标对冲",
+        "summary": "双方都在主动争取互不相容的结果，所以不是一个人做事、另一个人临时来挡路。",
+        "aliases": [
+          "direct-opposition"
+        ],
+        "method": {
+          "title": "目标对冲",
+          "instruction": "双方都在主动争取互不相容的结果，所以不是一个人做事、另一个人临时来挡路。",
+          "boundary": "使用条件：双方主动争取互不相容的结果\n误用边界：不是单方面两难；对手不必全程在场，也不必全知。",
+          "usageTree": "阻力选择",
+          "applicableLayers": [
+            "chain"
+          ],
+          "aliases": [
+            "direct-opposition"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "双方主动争取互不相容的结果",
+              "use": "明确双方行动如何阻碍对方目标，并保留各自合理的信息范围"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-antagonist-counterplan",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "对手反计划",
+        "shortPhrase": "对手反计划",
+        "summary": "对手会观察主角的行动、调整策略并利用主角弱点，而不是固定站着等主角升级。",
+        "aliases": [
+          "antagonist-counterplan"
+        ],
+        "method": {
+          "title": "对手反计划",
+          "instruction": "对手会观察主角的行动、调整策略并利用主角弱点，而不是固定站着等主角升级。",
+          "boundary": "使用条件：目标被资源、利益、规则或责任限制，需要形成有意义的取舍时，考虑“对手反计划”。\n误用边界：阻力要源于本书处境，不把压迫、两难和永久损失强加给所有故事",
+          "usageTree": "阻力选择",
+          "applicableLayers": [
+            "chain"
+          ],
+          "aliases": [
+            "antagonist-counterplan"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "需要确立贯穿本卷的阻力及关键选择",
+              "use": "确定目标冲突与代价，局部策略留到链设计。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "对手反计划",
+        "shortPhrase": "对手反计划",
+        "summary": "对手会观察主角的行动、调整策略并利用主角弱点，而不是固定站着等主角升级。",
+        "aliases": [
+          "antagonist-counterplan"
+        ],
+        "method": {
+          "title": "对手反计划",
+          "instruction": "对手会观察主角的行动、调整策略并利用主角弱点，而不是固定站着等主角升级。",
+          "boundary": "使用条件：对手需要对主角行动作出观察和调整\n误用边界：不能让对手凭作者知道的信息行动，也不要求每次反制都成功。",
+          "usageTree": "阻力选择",
+          "applicableLayers": [
+            "chain"
+          ],
+          "aliases": [
+            "antagonist-counterplan"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "对手需要对主角行动作出观察和调整",
+              "use": "依据对手已知信息设计反制，再判断它怎样迫使主角变招"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-internal-external-bind",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "内外冲突咬合",
+        "shortPhrase": "内外冲突咬合",
+        "summary": "外部难题会击中人物内在缺口，人物的旧习惯又会让外部局面更难。",
+        "aliases": [
+          "internal-external-bind"
+        ],
+        "method": {
+          "title": "内外冲突咬合",
+          "instruction": "外部难题会击中人物内在缺口，人物的旧习惯又会让外部局面更难。",
+          "boundary": "使用条件：目标被资源、利益、规则或责任限制，需要形成有意义的取舍时，考虑“内外冲突咬合”。\n误用边界：阻力要源于本书处境，不把压迫、两难和永久损失强加给所有故事",
+          "usageTree": "阻力选择",
+          "applicableLayers": [
+            "chain"
+          ],
+          "aliases": [
+            "internal-external-bind"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "需要确立贯穿本卷的阻力及关键选择",
+              "use": "确定目标冲突与代价，局部策略留到链设计。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "内外冲突咬合",
+        "shortPhrase": "内外冲突咬合",
+        "summary": "外部难题会击中人物内在缺口，人物的旧习惯又会让外部局面更难。",
+        "aliases": [
+          "internal-external-bind"
+        ],
+        "method": {
+          "title": "内外冲突咬合",
+          "instruction": "外部难题会击中人物内在缺口，人物的旧习惯又会让外部局面更难。",
+          "boundary": "使用条件：外部困难会触动人物内在问题，而内在问题影响行动\n误用边界：不强制每个事件都有心理创伤或内在缺陷，人物可以有稳定信念。",
+          "usageTree": "阻力选择",
+          "applicableLayers": [
+            "chain"
+          ],
+          "aliases": [
+            "internal-external-bind"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "外部困难会触动人物内在问题，而内在问题影响行动",
+              "use": "说明两者如何通过具体选择互相作用"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-false-victory-defeat",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "假胜利／假失败",
+        "shortPhrase": "假胜利／假失败",
+        "summary": "阶段结果表面与真实意义不同：赢了眼前却暴露更大代价，或输了眼前却得到关键条件。",
+        "aliases": [
+          "false-victory-defeat"
+        ],
+        "method": {
+          "title": "假胜利／假失败",
+          "instruction": "阶段结果表面与真实意义不同：赢了眼前却暴露更大代价，或输了眼前却得到关键条件。",
+          "boundary": "使用条件：需要检查行动是否产生后果并打开下一步时，考虑“假胜利／假失败”。\n误用边界：可以有停顿与偶然，但关键解决应有铺垫；不强制每次都升级",
+          "usageTree": "事件发展",
+          "applicableLayers": [
+            "chain"
+          ],
+          "aliases": [
+            "false-victory-defeat"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "需要确立贯穿本卷的阻力及关键选择",
+              "use": "确定目标冲突与代价，局部策略留到链设计。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "假胜利／假失败",
+        "shortPhrase": "假胜利／假失败",
+        "summary": "阶段结果表面与真实意义不同：赢了眼前却暴露更大代价，或输了眼前却得到关键条件。",
+        "aliases": [
+          "false-victory-defeat"
+        ],
+        "method": {
+          "title": "假胜利／假失败",
+          "instruction": "阶段结果表面与真实意义不同：赢了眼前却暴露更大代价，或输了眼前却得到关键条件。",
+          "boundary": "使用条件：阶段结果的表面成败与真实意义不同\n误用边界：差异必须有依据，不为反转撤销已经成立的事实。",
+          "usageTree": "事件发展",
+          "applicableLayers": [
+            "chain"
+          ],
+          "aliases": [
+            "false-victory-defeat"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "阶段结果的表面成败与真实意义不同",
+              "use": "分别呈现表面结果和实际收获、损失或后续影响"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-corruption-arc",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "腐化弧线",
+        "shortPhrase": "腐化弧线",
+        "summary": "人物不断用看似合理的小妥协换取结果，最终成为自己曾经反对的人。",
+        "aliases": [
+          "corruption-arc"
+        ],
+        "method": {
+          "title": "腐化弧线",
+          "instruction": "人物不断用看似合理的小妥协换取结果，最终成为自己曾经反对的人。",
+          "boundary": "使用条件：人物经历需要形成可辨认的变化或坚守时，考虑“腐化弧线”。\n误用边界：人物可以不改变信念；成长不只升级，不强制创伤、救赎或悲剧",
+          "usageTree": "人物变化",
+          "applicableLayers": [
+            "setting",
+            "book"
+          ],
+          "aliases": [
+            "corruption-arc"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷承担已定人物弧光的一次变化",
+              "use": "安排能支持变化的选择与后果，不重置人物性格。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "腐化弧线",
+        "shortPhrase": "腐化弧线",
+        "summary": "人物不断用看似合理的小妥协换取结果，最终成为自己曾经反对的人。",
+        "aliases": [
+          "corruption-arc"
+        ],
+        "method": {
+          "title": "腐化弧线",
+          "instruction": "人物不断用看似合理的小妥协换取结果，最终成为自己曾经反对的人。",
+          "boundary": "使用条件：人物通过连续妥协逐渐背离原先坚持\n误用边界：可以保留某些信念；核心原则的背离须可见，不强制彻底堕落或死亡。",
+          "usageTree": "人物变化",
+          "applicableLayers": [
+            "setting",
+            "book"
+          ],
+          "aliases": [
+            "corruption-arc"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "人物通过连续妥协逐渐背离原先坚持",
+              "use": "展示每次妥协的理由与累积变化，而不是突然换性格"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-disillusionment-arc",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "祛魅弧线",
+        "shortPhrase": "祛魅弧线",
+        "summary": "人物失去一个曾经相信的错误答案，虽然更痛苦，却开始看清真实世界和自己的责任。",
+        "aliases": [
+          "disillusionment-arc"
+        ],
+        "method": {
+          "title": "祛魅弧线",
+          "instruction": "人物失去一个曾经相信的错误答案，虽然更痛苦，却开始看清真实世界和自己的责任。",
+          "boundary": "使用条件：人物经历需要形成可辨认的变化或坚守时，考虑“祛魅弧线”。\n误用边界：人物可以不改变信念；成长不只升级，不强制创伤、救赎或悲剧",
+          "usageTree": "人物变化",
+          "applicableLayers": [
+            "setting",
+            "book"
+          ],
+          "aliases": [
+            "disillusionment-arc"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷承担已定人物弧光的一次变化",
+              "use": "安排能支持变化的选择与后果，不重置人物性格。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "祛魅弧线",
+        "shortPhrase": "祛魅弧线",
+        "summary": "人物失去一个曾经相信的错误答案，虽然更痛苦，却开始看清真实世界和自己的责任。",
+        "aliases": [
+          "disillusionment-arc"
+        ],
+        "method": {
+          "title": "祛魅弧线",
+          "instruction": "人物失去一个曾经相信的错误答案，虽然更痛苦，却开始看清真实世界和自己的责任。",
+          "boundary": "使用条件：人物发现曾相信的答案不成立\n误用边界：祛魅不等于否定一切，允许保留其他信念或建立新的希望。",
+          "usageTree": "人物变化",
+          "applicableLayers": [
+            "setting",
+            "book"
+          ],
+          "aliases": [
+            "disillusionment-arc"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "人物发现曾相信的答案不成立",
+              "use": "展示什么证据动摇原认识，以及人物如何重新判断和行动"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-crosscutting-pressure",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "交叉剪辑推进",
+        "shortPhrase": "交叉剪辑推进",
+        "summary": "在同时发生且彼此影响的行动之间切换，利用时间压力和信息差共同推高结果。",
+        "aliases": [
+          "crosscutting-pressure"
+        ],
+        "method": {
+          "title": "交叉剪辑推进",
+          "instruction": "在同时发生且彼此影响的行动之间切换，利用时间压力和信息差共同推高结果。",
+          "boundary": "使用条件：重要时刻与重复过程需要不同的叙述密度时，考虑“交叉剪辑推进”。\n误用边界：概述不是删关键变化，放慢不是堆独白和形容词",
+          "usageTree": "叙述速度",
+          "applicableLayers": [
+            "chapter",
+            "prose"
+          ],
+          "aliases": [
+            "crosscutting-pressure"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷事件很多，需要决定详略重点",
+              "use": "确定哪些结果要展开、哪些过程可概述，不写句子节奏。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "交叉剪辑推进",
+        "shortPhrase": "交叉剪辑推进",
+        "summary": "在同时发生且彼此影响的行动之间切换，利用时间压力和信息差共同推高结果。",
+        "aliases": [
+          "crosscutting-pressure"
+        ],
+        "method": {
+          "title": "交叉剪辑推进",
+          "instruction": "在同时发生且彼此影响的行动之间切换，利用时间压力和信息差共同推高结果。",
+          "boundary": "使用条件：同时发生的行动互相影响，需要借切换形成压力\n误用边界：不把普通详略压缩叫交叉剪辑，切换不应仅打断读者。",
+          "usageTree": "叙述速度",
+          "applicableLayers": [
+            "chapter",
+            "prose"
+          ],
+          "aliases": [
+            "crosscutting-pressure"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "同时发生的行动互相影响，需要借切换形成压力",
+              "use": "选择切换点，核对时间压力、信息差和行动关联"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-montage-compression",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "蒙太奇式组接",
+        "shortPhrase": "蒙太奇式组接",
+        "summary": "用一组有共同方向的短片段快速表现训练、扩张、衰败或关系变化。",
+        "aliases": [
+          "montage-compression"
+        ],
+        "method": {
+          "title": "蒙太奇式组接",
+          "instruction": "用一组有共同方向的短片段快速表现训练、扩张、衰败或关系变化。",
+          "boundary": "使用条件：重要时刻与重复过程需要不同的叙述密度时，考虑“蒙太奇式组接”。\n误用边界：概述不是删关键变化，放慢不是堆独白和形容词",
+          "usageTree": "叙述速度",
+          "applicableLayers": [
+            "chapter",
+            "prose"
+          ],
+          "aliases": [
+            "montage-compression"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷事件很多，需要决定详略重点",
+              "use": "确定哪些结果要展开、哪些过程可概述，不写句子节奏。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "蒙太奇式组接",
+        "shortPhrase": "蒙太奇式组接",
+        "summary": "用一组有共同方向的短片段快速表现训练、扩张、衰败或关系变化。",
+        "aliases": [
+          "montage-compression"
+        ],
+        "method": {
+          "title": "蒙太奇式组接",
+          "instruction": "用一组有共同方向的短片段快速表现训练、扩张、衰败或关系变化。",
+          "boundary": "使用条件：一段过程适合由共同方向的短片段表现\n误用边界：不能省掉结果成立必需的因果，不把无关片段拼贴当推进。",
+          "usageTree": "叙述速度",
+          "applicableLayers": [
+            "chapter",
+            "prose"
+          ],
+          "aliases": [
+            "montage-compression"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "一段过程适合由共同方向的短片段表现",
+              "use": "挑选能够表现同一变化趋势的片段，确定组接方向"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-strategic-pause",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "有意义的停顿",
+        "shortPhrase": "有意义的停顿",
+        "summary": "在重大信息或决定前后短暂停下，让人物和读者理解重量，但停顿本身仍包含观察、选择或关系。",
+        "aliases": [
+          "strategic-pause"
+        ],
+        "method": {
+          "title": "有意义的停顿",
+          "instruction": "在重大信息或决定前后短暂停下，让人物和读者理解重量，但停顿本身仍包含观察、选择或关系。",
+          "boundary": "使用条件：重要时刻与重复过程需要不同的叙述密度时，考虑“有意义的停顿”。\n误用边界：概述不是删关键变化，放慢不是堆独白和形容词",
+          "usageTree": "叙述速度",
+          "applicableLayers": [
+            "chapter",
+            "prose"
+          ],
+          "aliases": [
+            "strategic-pause"
+          ],
+          "relatedPurposes": [
+            "文学修订"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "本卷事件很多，需要决定详略重点",
+              "use": "确定哪些结果要展开、哪些过程可概述，不写句子节奏。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "有意义的停顿",
+        "shortPhrase": "有意义的停顿",
+        "summary": "在重大信息或决定前后短暂停下，让人物和读者理解重量，但停顿本身仍包含观察、选择或关系。",
+        "aliases": [
+          "strategic-pause"
+        ],
+        "method": {
+          "title": "有意义的停顿",
+          "instruction": "在重大信息或决定前后短暂停下，让人物和读者理解重量，但停顿本身仍包含观察、选择或关系。",
+          "boundary": "使用条件：重要信息或决定前后需要短暂感受与判断空间\n误用边界：停顿应增加理解或感受，不机械插入闲聊或重复内心独白。",
+          "usageTree": "叙述速度",
+          "applicableLayers": [
+            "chapter",
+            "prose"
+          ],
+          "aliases": [
+            "strategic-pause"
+          ],
+          "relatedPurposes": [
+            "文学修订"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "重要信息或决定前后需要短暂感受与判断空间",
+              "use": "选择停顿位置和承载它的观察、选择或关系行动"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-recovery-window",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "恢复与关系窗口",
+        "shortPhrase": "恢复与关系窗口",
+        "summary": "在连续高压之间安排恢复、日常和关系推进，让人物有机会消化变化。",
+        "aliases": [
+          "recovery-window"
+        ],
+        "method": {
+          "title": "恢复与关系窗口",
+          "instruction": "在连续高压之间安排恢复、日常和关系推进，让人物有机会消化变化。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“恢复与关系窗口”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "recovery-window"
+          ],
+          "relatedPurposes": [
+            "情绪回报",
+            "亲密关系"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "正在处理卷末收束或跨卷承接",
+              "use": "用当前结果产生后续问题，最终卷不再引出下一卷。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "恢复与关系窗口",
+        "shortPhrase": "恢复与关系窗口",
+        "summary": "在连续高压之间安排恢复、日常和关系推进，让人物有机会消化变化。",
+        "aliases": [
+          "recovery-window"
+        ],
+        "method": {
+          "title": "恢复与关系窗口",
+          "instruction": "在连续高压之间安排恢复、日常和关系推进，让人物有机会消化变化。",
+          "boundary": "使用条件：高强度事件后需要恢复与关系推进\n误用边界：恢复不必引出新危机，不用固定休息章数，也不把日常当无关填充。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "recovery-window"
+          ],
+          "relatedPurposes": [
+            "情绪回报",
+            "亲密关系"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "高强度事件后需要恢复与关系推进",
+              "use": "安排修补、日常和互动，呈现前事影响并维持必要进展"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-recap-through-consequence",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "以后果代替复述",
+        "shortPhrase": "以后果代替复述",
+        "summary": "通过伤势、关系、资源和决定的当前变化提醒读者前情，而不是让角色重新讲一遍。",
+        "aliases": [
+          "recap-through-consequence"
+        ],
+        "method": {
+          "title": "以后果代替复述",
+          "instruction": "通过伤势、关系、资源和决定的当前变化提醒读者前情，而不是让角色重新讲一遍。",
+          "boundary": "使用条件：阶段、地点或视角切换需要让后果自然接力时，考虑“以后果代替复述”。\n误用边界：当前责任先落定；最终卷不再强制引出下一卷",
+          "usageTree": "承接转场",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "recap-through-consequence"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "正在处理卷末收束或跨卷承接",
+              "use": "用当前结果产生后续问题，最终卷不再引出下一卷。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "以后果代替复述",
+        "shortPhrase": "以后果代替复述",
+        "summary": "通过伤势、关系、资源和决定的当前变化提醒读者前情，而不是让角色重新讲一遍。",
+        "aliases": [
+          "recap-through-consequence"
+        ],
+        "method": {
+          "title": "以后果代替复述",
+          "instruction": "通过伤势、关系、资源和决定的当前变化提醒读者前情，而不是让角色重新讲一遍。",
+          "boundary": "使用条件：读者需要想起影响当前行动的前情\n误用边界：只提示当前相关的前情，不能借复述改写过去事实。",
+          "usageTree": "承接转场",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "recap-through-consequence"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "读者需要想起影响当前行动的前情",
+              "use": "通过当前后果或行为提醒必要前情，避免角色互相复述已知信息"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-recruitment-selection",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "招募选拔",
+        "shortPhrase": "招募选拔",
+        "summary": "组织在有限名额下寻找合适成员，应聘者也评估组织是否值得加入。",
+        "aliases": [
+          "recruitment-selection"
+        ],
+        "method": {
+          "title": "招募选拔",
+          "instruction": "组织在有限名额下寻找合适成员，应聘者也评估组织是否值得加入。",
+          "boundary": "使用条件：不同目标的人需要竞争、协作或重新协商边界时，考虑“招募选拔”。\n误用边界：同阵营也有不同利益；转向须有前因，不用无据背叛造戏",
+          "usageTree": "合作对抗",
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "aliases": [
+            "recruitment-selection"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "book",
+              "condition": "需要检验全书某阶段能由什么故事场合承载",
+              "use": "只选与本书规则和人物相关的场合，不把场合当具体剧情。"
+            }
+          ],
+          "methodKind": "story_container"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "招募选拔",
+        "shortPhrase": "招募选拔",
+        "summary": "组织在有限名额下寻找合适成员，应聘者也评估组织是否值得加入。",
+        "aliases": [
+          "recruitment-selection"
+        ],
+        "method": {
+          "title": "招募选拔",
+          "instruction": "组织在有限名额下寻找合适成员，应聘者也评估组织是否值得加入。",
+          "boundary": "使用条件：组织与个人相互挑选、检验匹配，或名额有限需要取舍\n误用边界：允许不录取或主动退出，不把选拔写成所有人无条件加入。",
+          "usageTree": "合作对抗",
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "aliases": [
+            "recruitment-selection"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "book",
+              "condition": "组织与个人相互挑选、检验匹配，或名额有限需要取舍",
+              "use": "设计双方的标准、表现与选择后果"
+            }
+          ],
+          "methodKind": "story_container"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-unreliable-intelligence",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "情报不完整",
+        "shortPhrase": "情报不完整",
+        "summary": "人物必须在信息缺失、过时或可能被操纵的情况下行动。",
+        "aliases": [
+          "unreliable-intelligence"
+        ],
+        "method": {
+          "title": "情报不完整",
+          "instruction": "人物必须在信息缺失、过时或可能被操纵的情况下行动。",
+          "boundary": "使用条件：目标被资源、利益、规则或责任限制，需要形成有意义的取舍时，考虑“情报不完整”。\n误用边界：阻力要源于本书处境，不把压迫、两难和永久损失强加给所有故事",
+          "usageTree": "阻力选择",
+          "applicableLayers": [
+            "chain"
+          ],
+          "aliases": [
+            "unreliable-intelligence"
+          ],
+          "relatedPurposes": [
+            "信息因果"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "某种限制会长期影响本卷行动",
+              "use": "定义限制来源和适用范围，不机械叠加压迫。"
+            }
+          ],
+          "methodKind": "story_beat"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "情报不完整",
+        "shortPhrase": "情报不完整",
+        "summary": "人物必须在信息缺失、过时或可能被操纵的情况下行动。",
+        "aliases": [
+          "unreliable-intelligence"
+        ],
+        "method": {
+          "title": "情报不完整",
+          "instruction": "人物必须在信息缺失、过时或可能被操纵的情况下行动。",
+          "boundary": "使用条件：人物需要在信息缺失、过时或可能被操纵时行动\n误用边界：信息不完整不是作者任意改答案的借口，人物不知道不等于读者必须不知道。",
+          "usageTree": "阻力选择",
+          "applicableLayers": [
+            "chain"
+          ],
+          "aliases": [
+            "unreliable-intelligence"
+          ],
+          "relatedPurposes": [
+            "信息因果"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "人物需要在信息缺失、过时或可能被操纵时行动",
+              "use": "区分已知、猜测和误导，设计验证及错误判断的后果"
+            }
+          ],
+          "methodKind": "story_beat"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-foreshadow-seed",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "埋下后续触发",
+        "shortPhrase": "埋下后续触发",
+        "summary": "用可感知但暂不解释完的信息、物件或选择建立未来问题。",
+        "aliases": [
+          "foreshadow-seed"
+        ],
+        "method": {
+          "title": "埋下后续触发",
+          "instruction": "用可感知但暂不解释完的信息、物件或选择建立未来问题。",
+          "boundary": "使用条件：信息差、秘密或线索能建立读者愿意追踪的问题时，考虑“埋下后续触发”。\n误用边界：线索有来源，揭示有依据；伏笔不是全部细节，别为留坑拒绝回答",
+          "usageTree": "悬念伏笔",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "foreshadow-seed"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "卷末需要交代后果或引出下一处境",
+              "use": "明确本卷已完成的责任与仍待推进的线。"
+            }
+          ],
+          "methodKind": "story_beat"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "埋下后续触发",
+        "shortPhrase": "埋下后续触发",
+        "summary": "用可感知但暂不解释完的信息、物件或选择建立未来问题。",
+        "aliases": [
+          "foreshadow-seed"
+        ],
+        "method": {
+          "title": "埋下后续触发",
+          "instruction": "用可感知但暂不解释完的信息、物件或选择建立未来问题。",
+          "boundary": "使用条件：当前事件适合留下后续会触发的线索或问题\n误用边界：只记录计划伏笔，不冒充正文已埋；终局不强制留续集钩子。",
+          "usageTree": "悬念伏笔",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "aliases": [
+            "foreshadow-seed"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [
+            {
+              "stage": "volume",
+              "condition": "当前事件适合留下后续会触发的线索或问题",
+              "use": "明确留下什么可回查的细节，以及未来触发的可能条件"
+            }
+          ],
+          "methodKind": "story_beat"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-sensory-point-of-view",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "感官细节与当前关注",
+        "shortPhrase": "感官细节与当前关注",
+        "summary": "选择当前人物会注意到的感官细节，让环境服务情绪、行动或信息。",
+        "aliases": [
+          "sensory-point-of-view"
+        ],
+        "method": {
+          "title": "感官细节与当前关注",
+          "instruction": "选择当前人物会注意到的感官细节，让环境服务情绪、行动或信息。",
+          "boundary": "使用条件：场景需要由当前人物关注的感官细节产生具体感时，考虑“感官细节与当前关注”。\n误用边界：不堆五感清单，不在全书规划中扩写景物",
+          "usageTree": "对白描写",
+          "applicableLayers": [
+            "prose"
+          ],
+          "aliases": [
+            "sensory-point-of-view"
+          ],
+          "relatedPurposes": [
+            "文学修订"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "chapter",
+              "condition": "章纲需要确保关键对白、动作或互动有实际作用",
+              "use": "只记录行动目的和变化，不扩写语言表现。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "感官细节与当前关注",
+        "shortPhrase": "感官细节与当前关注",
+        "summary": "选择当前人物会注意到的感官细节，让环境服务情绪、行动或信息。",
+        "aliases": [
+          "sensory-point-of-view"
+        ],
+        "method": {
+          "title": "感官细节与当前关注",
+          "instruction": "选择当前人物会注意到的感官细节，让环境服务情绪、行动或信息。",
+          "boundary": "使用条件：本场景的关键体验需要由人物感官关注表现\n误用边界：不堆全部感官，不让视角人物感知其接触不到的信息。",
+          "usageTree": "对白描写",
+          "applicableLayers": [
+            "prose"
+          ],
+          "aliases": [
+            "sensory-point-of-view"
+          ],
+          "relatedPurposes": [
+            "文学修订"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "chapter",
+              "condition": "本场景的关键体验需要由人物感官关注表现",
+              "use": "标记该人物会注意的关键细节及作用，章纲不扩写景物语言"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    },
+    {
+      "identity": "r209-c1/method-comic-incongruity",
+      "expectedRevision": 3,
+      "expectedPayload": {
+        "assetKind": "method",
+        "name": "错位趣味与笑点回响",
+        "shortPhrase": "错位趣味与笑点回响",
+        "summary": "让身份、期待和实际反应形成有趣落差，并用后续反应或变化延续笑点。",
+        "aliases": [
+          "comic-incongruity"
+        ],
+        "method": {
+          "title": "错位趣味与笑点回响",
+          "instruction": "让身份、期待和实际反应形成有趣落差，并用后续反应或变化延续笑点。",
+          "boundary": "使用条件：需要选择体验、积累情绪并给读者消化空间时，考虑“错位趣味与笑点回响”。\n误用边界：服从作者味道，不要求每章爽点、固定压抑循环或必有大高潮",
+          "usageTree": "反差",
+          "applicableLayers": [
+            "prose"
+          ],
+          "aliases": [
+            "comic-incongruity"
+          ],
+          "relatedPurposes": [
+            "核心吸引力",
+            "情绪节奏"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "chapter",
+              "condition": "章纲需要确保关键对白、动作或互动有实际作用",
+              "use": "只记录行动目的和变化，不扩写语言表现。"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      },
+      "payload": {
+        "assetKind": "method",
+        "name": "错位趣味与笑点回响",
+        "shortPhrase": "错位趣味与笑点回响",
+        "summary": "让身份、期待和实际反应形成有趣落差，并用后续反应或变化延续笑点。",
+        "aliases": [
+          "comic-incongruity"
+        ],
+        "method": {
+          "title": "错位趣味与笑点回响",
+          "instruction": "让身份、期待和实际反应形成有趣落差，并用后续反应或变化延续笑点。",
+          "boundary": "使用条件：身份、预期与实际反应的落差可以形成趣味\n误用边界：不强迫所有人物降智，不靠重复同一包袱维持趣味。",
+          "usageTree": "反差",
+          "applicableLayers": [
+            "prose"
+          ],
+          "aliases": [
+            "comic-incongruity"
+          ],
+          "relatedPurposes": [
+            "核心吸引力",
+            "情绪节奏"
+          ],
+          "conditionalUses": [
+            {
+              "stage": "chapter",
+              "condition": "身份、预期与实际反应的落差可以形成趣味",
+              "use": "标记落差设置与后续回响位置，章纲不提前写满笑点台词"
+            }
+          ],
+          "methodKind": "technique"
+        }
+      }
+    }
+  ],
+  "additions": [
+    {
+      "identity": "r209-c4/loss-trace",
+      "payload": {
+        "assetKind": "method",
+        "schemaVersion": 1,
+        "name": "失落的生活留痕",
+        "shortPhrase": "失落的生活留痕",
+        "summary": "损失发生后，从人物仍要继续的日常或行动中选择一项缺席、习惯改变或未竟承诺，让失去有后果而非只靠哭诉。",
+        "aliases": [],
+        "method": {
+          "title": "失落的生活留痕",
+          "instruction": "损失发生后，从人物仍要继续的日常或行动中选择一项缺席、习惯改变或未竟承诺，让失去有后果而非只靠哭诉。\n正例：同伴离去后主角仍多盛一碗饭，随后把那碗饭交给新来的孤儿。\n反例：重复遗言和哭泣，不改变任何关系或行动。",
+          "boundary": "只在作品确有损失时使用，不为套方法制造死亡；动作可克制，不规定必须走出悲伤。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "chain",
+            "chapter",
+            "prose"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      }
+    },
+    {
+      "identity": "r209-c4/reveal-echo",
+      "payload": {
+        "assetKind": "method",
+        "schemaVersion": 1,
+        "name": "揭晓后的认知回响",
+        "shortPhrase": "揭晓后的认知回响",
+        "summary": "答案揭晓后挑选一个前文已出现的细节，使其意义发生变化；人物据此重新判断关系或行动，不完整复述谜底。",
+        "aliases": [],
+        "method": {
+          "title": "揭晓后的认知回响",
+          "instruction": "答案揭晓后挑选一个前文已出现的细节，使其意义发生变化；人物据此重新判断关系或行动，不完整复述谜底。\n正例：得知敌人曾暗中救人后，主角重新理解他一直佩戴的旧徽章，却仍须处理其现实威胁。\n反例：揭晓后旁白逐项重复全部线索，或用一个秘密洗掉全部责任。",
+          "boundary": "新解释需与已发生事实兼容，不回填不存在的线索。",
+          "usageTree": "信息因果",
+          "applicableLayers": [
+            "chain",
+            "chapter"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      }
+    },
+    {
+      "identity": "r209-c4/payoff-focus",
+      "payload": {
+        "assetKind": "method",
+        "schemaVersion": 1,
+        "name": "释放时聚拢焦点",
+        "shortPhrase": "释放时聚拢焦点",
+        "summary": "关键兑现时聚焦最重要的行动、感知和回应，暂缓无关设定说明与支线插入，使读者感受这个结果对当事人的意义。",
+        "aliases": [],
+        "method": {
+          "title": "释放时聚拢焦点",
+          "instruction": "关键兑现时聚焦最重要的行动、感知和回应，暂缓无关设定说明与支线插入，使读者感受这个结果对当事人的意义。\n正例：久别重逢先写认出彼此的迟疑和靠近，再交代途中经历。\n反例：刚见面便插入数页交通制度介绍，或用大量形容词宣布感动。",
+          "boundary": "聚焦不等于拖长；群像可以切换视角，但每次切换需增加不同意义。",
+          "usageTree": "情绪回报",
+          "applicableLayers": [
+            "chapter",
+            "prose"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      }
+    },
+    {
+      "identity": "r209-c4/aftermath-handoff",
+      "payload": {
+        "assetKind": "method",
+        "schemaVersion": 1,
+        "name": "让余韵带出行动",
+        "shortPhrase": "让余韵带出行动",
+        "summary": "让结果的自然后果、人物的新选择或关系变化引出下一段；保留真实成果，避免靠立刻清零胜利维持刺激。",
+        "aliases": [],
+        "method": {
+          "title": "让余韵带出行动",
+          "instruction": "让结果的自然后果、人物的新选择或关系变化引出下一段；保留真实成果，避免靠立刻清零胜利维持刺激。\n正例：平反后获得调查权，主角决定查清被牵连者的去向，上一段的意义成为下一段动力。\n反例：胜利后一秒被新敌打回原点，所有成长和人际变化消失。",
+          "boundary": "可以出现新危机，但须有因果并保留前事影响；终局不强行引出续集。",
+          "usageTree": "承接转场",
+          "applicableLayers": [
+            "volume",
+            "chain",
+            "chapter"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      }
+    },
+    {
+      "identity": "r209-c4/intensity-space",
+      "payload": {
+        "assetKind": "method",
+        "schemaVersion": 1,
+        "name": "情绪强度留出对比",
+        "shortPhrase": "情绪强度留出对比",
+        "summary": "识别相邻情节是否在重复同一种高强度刺激，用较轻的行动、局部兑现、关系互动或新的问题改变体验，不机械插入休息章。",
+        "aliases": [],
+        "method": {
+          "title": "情绪强度留出对比",
+          "instruction": "识别相邻情节是否在重复同一种高强度刺激，用较轻的行动、局部兑现、关系互动或新的问题改变体验，不机械插入休息章。\n正例：连续逃亡后获得短暂安全，让人物修补装备与关系，再因新判断主动出发。\n反例：每章都靠濒死或羞辱加码，或突然与全书无关地闲聊数章。",
+          "boundary": "快节奏仍须有实质行动和可辨进展，不以降强度为灌水理由。",
+          "usageTree": "情绪节奏",
+          "applicableLayers": [
+            "volume",
+            "chain"
+          ],
+          "relatedPurposes": [],
+          "conditionalUses": [],
+          "methodKind": "technique",
+          "aliases": []
+        }
+      }
+    }
+  ]
+}

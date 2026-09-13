@@ -1,0 +1,393 @@
+{
+  "model": "deepseek-v4-pro",
+  "fixtures": [
+    {
+      "id": "three-kingdoms",
+      "stage": "opening",
+      "source": "作者想写轻松热血的《三国送外卖：曹操催单了》。主角陈默是现代外卖员，穿越到三国，配送能力能在乱世解决特殊需求。开局跑单是入口，作者希望看到与名将相识、卷入战争、个人影响力扩大，不要求后宫或争霸。需要方法帮助判断核心吸引力与持续情绪回报，别把职业限制当成全书边界。",
+      "selection": {
+        "revision": "creative-r209-de-1",
+        "releaseId": "635c30c0-430a-495c-83ff-f5073c703304",
+        "selected": [
+          {
+            "id": "法350",
+            "revision": 2,
+            "application": "用曹操催单这一代表性行动检验核心吸引力：主角送什么、怎么送、结果如何不同，确保开篇即见外卖能力改变三国事件。",
+            "content": {
+              "id": "法350",
+              "revision": 2,
+              "hash": "f35ad45006336bc4e7e12e826fd675250a3a539107bed98b59f6c2aea80ef7ad",
+              "name": "卖点行动验证",
+              "summary": "用一件代表性行动检验卖点：主角具体做什么，读者会看到什么不同结果。",
+              "instruction": "用一件代表性行动检验卖点：主角具体做什么，读者会看到什么不同结果。",
+              "boundary": "使用条件：介绍很热闹但不知道正文能写什么有趣事件。\n误用边界：例子是候选，不提前强制章纲；与角色公开证明能力不是同一用途。",
+              "primaryStages": [
+                "opening",
+                "book"
+              ],
+              "conditionalUse": []
+            }
+          },
+          {
+            "id": "法351",
+            "revision": 2,
+            "application": "判断卖点可发展维度，从送单对象、规模、关系、责任、代价中选会变化的维度，让职业不成为边界而成为持续卷入战争的入口。",
+            "content": {
+              "id": "法351",
+              "revision": 2,
+              "hash": "258945eb368005ffae3e6a10987326702cbc78fbc3ac437ea13fdc6256e5cf5c",
+              "name": "卖点发展维度",
+              "summary": "从对象、规模、关系、责任或代价中选择真正会变化的维度，让同一卖点产生不同故事。",
+              "instruction": "从对象、规模、关系、责任或代价中选择真正会变化的维度，让同一卖点产生不同故事。",
+              "boundary": "使用条件：职业或金手指只有重复任务，长篇发展空间不足。\n误用边界：不要求全部维度不断扩大，允许深挖、小规模和日常回报。",
+              "primaryStages": [
+                "opening",
+                "book"
+              ],
+              "conditionalUse": []
+            }
+          },
+          {
+            "id": "参194",
+            "revision": 1,
+            "application": "开篇兑现想追看的变化，让读者尽早看到主角因配送能力与名将相识、卷入战争，建立轻松热血的情绪预期。",
+            "content": {
+              "id": "参194",
+              "revision": 1,
+              "hash": "cfad15b45727facb0b37365b2ec24f69d1b2348f89671fda6f20c2c7ca198612",
+              "assetKind": "reference",
+              "name": "开篇兑现看点",
+              "shortPhrase": "开篇兑现看点",
+              "summary": "尽早展示想追看的变化",
+              "aliases": [],
+              "reference": {
+                "kind": "development",
+                "facets": {
+                  "genres": [],
+                  "mechanisms": [],
+                  "experiences": [],
+                  "purposes": [
+                    "核心吸引力"
+                  ]
+                },
+                "stages": [
+                  "opening",
+                  "setting",
+                  "book",
+                  "volume",
+                  "chain"
+                ],
+                "useWhen": [
+                  "当前任务需要处理“开篇兑现看点”时参考。"
+                ],
+                "questions": [
+                  "第一段行动能否展示差异和处境？"
+                ],
+                "possibilities": [
+                  "让卖点参与事件，建立期待并给小回报。"
+                ],
+                "imbalanceChecks": [
+                  "抓人不等于强制爆炸反杀或统一字数高潮。"
+                ],
+                "examples": [],
+                "relatedCards": [],
+                "methodRefs": [],
+                "evidence": {
+                  "kind": "editorial_heuristic",
+                  "refs": [],
+                  "limitations": "编辑候选；不是对所有读者欲望的判断，待独立内容复核。"
+                }
+              }
+            }
+          }
+        ],
+        "note": "已按用途查询并选择"
+      },
+      "output": "{\n  \"设计要点\": [\n    \"核心吸引力不是外卖职业本身，而是配送能力在乱世中改变事件结果：曹操催单成为检验卖点的代表性行动，主角送什么、怎么送、结果如何不同，开篇即见能力价值。\",\n    \"职业是入口而非边界：配送对象从个人到军队，配送内容从食物到军情、人才、物资，配送规模从单点到跨战区，关系从跑腿到被各方需要，责任从完成订单到影响战局。\",\n    \"轻松热血来自主角用现代服务思维解决三国难题，不靠权谋厚黑，而是靠准时、守信、路线规划、客户沟通，让名将和势力因实际受益而改变态度。\",\n    \"情绪回报分三层：单次订单完成的即时爽感、与名将建立信任的关系回报、个人影响力扩大后能参与更大事件的成长回报。\",\n    \"不写后宫不写争霸，主角追求是活下去、把单送好、在乱世建立自己的配送网络和信用，影响力扩大是结果而非目标。\"\n  ],\n  \"具体事件\": \"曹操在兖州整军时急需一批伤药和几封军情信送到前线夏侯惇处，正常路程三日，但军情紧急。陈默接单后利用对地形的熟悉和现代路线规划，避开山匪与泥沼，一日半送达。夏侯惇验货时发现药包外裹着防潮油布，军情信按紧急程度分色标注，随口问陈默能否再送一批箭矢到东线。陈默没有立刻答应，而是先报出路线风险与所需时间，夏侯惇因此认真对待这个送外卖的。\",\n  \"人物选择\": \"陈默选择先完成曹操的订单，但在交付时主动说明路线风险与时间成本，不卑不亢。理由：他需要建立信用，但不想被当成可随意使唤的小卒。现代外卖员的职业习惯让他习惯先确认需求、评估可行性、再报价，这种专业感反而让夏侯惇和曹操意识到他的价值不止于跑腿。\",\n  \"情绪余韵\": \"事件结束后不立刻接新危机。陈默在军营外休息，摸到怀里曹操给的赏钱，又看到夏侯惇派人送来的一壶水和半块干饼，意识到自己第一次在乱世不是因为武力或出身被尊重，而是因为把一件事准时做好。他想起现代的外卖评分，笑了一下，把干饼掰开泡水吃。下一段承接他决定在附近找个落脚点，因为夏侯惇说'东线可能还有单'，但没催他。\",\n  \"方法应用\": [\n    {\n      \"编号\": \"法350\",\n      \"如何体现\": \"用曹操催单这一代表性行动检验核心吸引力：陈默送的不是普通食物，而是伤药与军情信，结果不是简单签收，而是因防潮包装、分色标注、路线规划让夏侯惇主动追加需求，直接展示配送能力改变三国事件。\"\n    },\n    {\n      \"编号\": \"法351\",\n      \"如何体现\": \"从送单对象、规模、关系三个维度展示发展空间：对象从曹操到夏侯惇，规模从单次送药到可能送箭矢到东线，关系从完成订单到被认真对待，让职业成为持续卷入战争的入口而非重复任务。\"\n    },\n    {\n      \"编号\": \"参194\",\n      \"如何体现\": \"开篇兑现看点：陈默在第一次重要订单中就与名将夏侯惇相识，因专业能力被记住，并卷入曹操军的战时需求，建立轻松热血的情绪预期，同时给出即时回报（赏钱、尊重、后续可能）。\"\n    }\n  ],\n  \"自查\": [\n    \"作者原意：轻松热血、不后宫不争霸、职业是入口，设计未偏离。\",\n    \"事实来源：参考方法仅用于判断卖点与回报，未把参考内容当本书事实。\",\n    \"人物动机：陈默先评估风险再报价，符合现代外卖员习惯，也符合乱世求生逻辑。\",\n    \"因果：曹操催单→陈默送达→夏侯惇认可→追加需求，链条清晰。\",\n    \"期待兑现：开篇即见配送能力改变事件，读者看到名将因专业能力重视主角。\",\n    \"情绪释放：余韵用休息、赏钱、干饼、笑一下完成释放，不拖沓不冲淡。\",\n    \"余韵与承接：余韵后自然承接落脚点和东线可能，不立刻新危机。\"\n  ]\n}"
+    },
+    {
+      "id": "aftermath",
+      "stage": "book",
+      "source": "玄幻修理工林舟刚用机甲救下被宗门抛弃的工匠群体，大家终于承认无灵根者的价值。但同伴为救人失去一只手，胜利不能抹掉损失。作者希望热血又温暖，有真实人物选择；不要立刻用更大灾难冲淡本次胜利，也不要连写几页哭泣感谢。需要方法设计兑现后的情绪释放与余韵，再自然接入合作建工坊。",
+      "selection": {
+        "revision": "creative-r209-de-1",
+        "releaseId": "635c30c0-430a-495c-83ff-f5073c703304",
+        "selected": [
+          {
+            "id": "参172",
+            "revision": 1,
+            "application": "用安全与安宁设计余韵：胜利后先落回可感知的日常细节，如工匠们第一次安心修理、有人主动守夜，让‘今天更安全’通过具体行动而非感谢呈现。",
+            "content": {
+              "id": "参172",
+              "revision": 1,
+              "hash": "c5176a00faa4d721eacd0c10fb465b33f07ff0941c57b0dc5200884db398d5a6",
+              "assetKind": "reference",
+              "name": "安全与安宁",
+              "shortPhrase": "安全与安宁",
+              "summary": "建立可以放心生活的地方",
+              "aliases": [],
+              "reference": {
+                "kind": "experience",
+                "facets": {
+                  "genres": [],
+                  "mechanisms": [],
+                  "experiences": [
+                    "安全与安宁"
+                  ],
+                  "purposes": [
+                    "情绪回报"
+                  ]
+                },
+                "stages": [
+                  "opening",
+                  "setting",
+                  "book",
+                  "volume",
+                  "chain"
+                ],
+                "useWhen": [
+                  "当前任务需要处理“安全与安宁”时参考。"
+                ],
+                "questions": [
+                  "怎样知道今天更安全？"
+                ],
+                "possibilities": [
+                  "物资、边界、可靠关系或稳定日常形成成果。"
+                ],
+                "imbalanceChecks": [
+                  "安全不只囤货，不必不断毁掉成果。"
+                ],
+                "examples": [],
+                "relatedCards": [],
+                "methodRefs": [],
+                "evidence": {
+                  "kind": "editorial_heuristic",
+                  "refs": [],
+                  "limitations": "编辑候选；不是对所有读者欲望的判断，待独立内容复核。"
+                }
+              }
+            }
+          },
+          {
+            "id": "参180",
+            "revision": 1,
+            "application": "用成就与影响设计兑现：不让胜利停留在口号，让工匠们开始把救下的机甲零件改造成建工坊的第一批工具，使情绪释放转化为可见的集体成果。",
+            "content": {
+              "id": "参180",
+              "revision": 1,
+              "hash": "a98c7841552e2bc823ff968b2888618d2b3bc27cd85eff1f8d8c0f91a514dec9",
+              "assetKind": "reference",
+              "name": "成就与影响",
+              "shortPhrase": "成就与影响",
+              "summary": "努力改变更大处境",
+              "aliases": [],
+              "reference": {
+                "kind": "experience",
+                "facets": {
+                  "genres": [],
+                  "mechanisms": [],
+                  "experiences": [
+                    "成就与影响"
+                  ],
+                  "purposes": [
+                    "情绪回报"
+                  ]
+                },
+                "stages": [
+                  "opening",
+                  "setting",
+                  "book",
+                  "volume",
+                  "chain"
+                ],
+                "useWhen": [
+                  "当前任务需要处理“成就与影响”时参考。"
+                ],
+                "questions": [
+                  "影响扩大后要为谁负责？"
+                ],
+                "possibilities": [
+                  "成果逐步改变团队、行业或局势。"
+                ],
+                "imbalanceChecks": [
+                  "规模扩大不是唯一成长。"
+                ],
+                "examples": [],
+                "relatedCards": [],
+                "methodRefs": [],
+                "evidence": {
+                  "kind": "editorial_heuristic",
+                  "refs": [],
+                  "limitations": "编辑候选；不是对所有读者欲望的判断，待独立内容复核。"
+                }
+              }
+            }
+          },
+          {
+            "id": "法352",
+            "revision": 2,
+            "application": "用阅读回报匹配控制节奏：选择尊严与安宁作为本次主要回报，同伴失手用一句克制的承诺或一个动作带过，不展开哭泣感谢，直接接入合作建工坊的转场。",
+            "content": {
+              "id": "法352",
+              "revision": 2,
+              "hash": "2d80a11ea04f0493092270527b4ed0f84fa39bb8b75258f3187eb39b9286e674",
+              "name": "阅读回报匹配",
+              "summary": "结合作者味道，选择能力、尊严、关系、安宁、智力参与等可选体验，并给出具体兑现方式。",
+              "instruction": "结合作者味道，选择能力、尊严、关系、安宁、智力参与等可选体验，并给出具体兑现方式。",
+              "boundary": "使用条件：有题材标签但缺少读者能感受到的回报。\n误用边界：不能推断所有读者都有同一种欲望；不强制打脸、恋爱或复仇。",
+              "primaryStages": [
+                "opening",
+                "book"
+              ],
+              "conditionalUse": []
+            }
+          }
+        ],
+        "note": "已按用途查询并选择"
+      },
+      "output": "{\n  \"设计要点\": [\n    \"胜利不靠口号收束，而是落回工匠们第一次能安心动手修理的具体细节\",\n    \"同伴失去一只手不展开悲情，用克制承诺和共同行动带过，保留真实损失感\",\n    \"情绪释放转化为可见的集体成果：救下的机甲零件被改造成建工坊的第一批工具\",\n    \"余韵以安全与安宁为主，不立刻引入更大灾难，也不连写感谢\",\n    \"自然接入合作建工坊，让林舟与工匠群体的关系从被救者转为共建者\"\n  ],\n  \"具体事件\": \"林舟把救回的机甲残骸拖进临时营地，没有宣布什么。几个老工匠沉默地拆下还能用的关节件和动力管，开始改装成可移动的修理台。有人主动在营地外圈埋下简易预警桩，不是感谢，只是说'今晚能睡实一点'。林舟去看断手的同伴，对方用剩下那只手把一块磨好的夹板推给他，说'下次别替我挡，工坊还指望你修东西'。\",\n  \"人物选择\": \"林舟选择不发表胜利宣言，而是先确认同伴伤势和营地安全，把'被承认'的激动压成行动；断手同伴选择用交还工具的方式回应，不诉苦、不索要补偿，表明他更在意工坊能继续建起来。理由：这符合林舟作为修理工的务实底色，也让工匠群体的尊严通过'继续干活'而非'被拯救后的感激'来体现。\",\n  \"情绪余韵\": \"本次阶段用安全与安宁收束：胜利后先落回可感知的日常细节，如工匠们第一次安心修理、有人主动守夜，让'今天更安全'通过具体行动而非感谢呈现。同伴失手用一句克制承诺和一个动作带过，不展开哭泣感谢。情绪释放后直接接入合作建工坊的转场，不立刻用新危机冲淡。\",\n  \"方法应用\": [\n    {\n      \"编号\": \"参172\",\n      \"如何体现\": \"用于余韵处理：工匠们开始安心拆解机甲零件、有人主动埋预警桩守夜，通过具体行动呈现'今天更安全'，不写感谢和哭泣。\"\n    },\n    {\n      \"编号\": \"参180\",\n      \"如何体现\": \"用于兑现胜利成果：救下的机甲零件被改造成建工坊的第一批修理工具，让情绪释放转化为可见的集体成果。\"\n    },\n    {\n      \"编号\": \"法352\",\n      \"如何体现\": \"用于节奏控制：选择尊严与安宁作为本次主要回报，同伴断手用一句'下次别替我挡，工坊还指望你修东西'带过，直接接入合作建工坊的转场。\"\n    }\n  ],\n  \"自查\": [\n    \"作者原意：热血又温暖、有真实人物选择，未偏离\",\n    \"事实来源：未把参考方法当本书事实，只作为设计思路\",\n    \"人物动机：林舟务实、工匠群体以继续干活维护尊严，断手同伴不诉苦符合群体性格\",\n    \"因果：胜利带来安全余韵，安全余韵催生建工坊合作，链条自然\",\n    \"期待兑现：读者看到'被承认价值'通过安心修理和共建工坊兑现，而非口号\",\n    \"情绪释放：有克制承诺和具体行动，不拖泥带水\",\n    \"余韵与承接：安全与安宁收束后自然接入建工坊，无新危机冲淡\"\n  ]\n}"
+    }
+  ],
+  "calls": [
+    {
+      "requestId": "c4-probe-1314f845-4b65-430f-99aa-86d1cb9f4183",
+      "caseId": "three-kingdoms",
+      "step": 0,
+      "inputChars": 1169,
+      "state": "succeeded",
+      "model": "deepseek-v4-pro",
+      "inputTokens": 487,
+      "outputTokens": 25
+    },
+    {
+      "requestId": "c4-probe-666f9fff-2032-431d-8f51-a5f4b415038b",
+      "caseId": "three-kingdoms",
+      "step": 1,
+      "inputChars": 2434,
+      "state": "succeeded",
+      "model": "deepseek-v4-pro",
+      "inputTokens": 937,
+      "outputTokens": 18
+    },
+    {
+      "requestId": "c4-probe-36bd28ec-20ec-46e5-abdb-7e1374a9ac48",
+      "caseId": "three-kingdoms",
+      "step": 2,
+      "inputChars": 3299,
+      "state": "succeeded",
+      "model": "deepseek-v4-pro",
+      "inputTokens": 1285,
+      "outputTokens": 22
+    },
+    {
+      "requestId": "c4-probe-50e3ef59-28e3-4a55-9644-0cd63c883dd7",
+      "caseId": "three-kingdoms",
+      "step": 3,
+      "inputChars": 2293,
+      "state": "succeeded",
+      "model": "deepseek-v4-pro",
+      "inputTokens": 854,
+      "outputTokens": 12
+    },
+    {
+      "requestId": "c4-probe-c5116196-9dc5-4d36-a674-139836875bca",
+      "caseId": "three-kingdoms",
+      "step": 4,
+      "inputChars": 2101,
+      "state": "succeeded",
+      "model": "deepseek-v4-pro",
+      "inputTokens": 838,
+      "outputTokens": 22
+    },
+    {
+      "requestId": "c4-probe-3ad16f13-b377-450f-8662-3994b84408ee",
+      "caseId": "three-kingdoms",
+      "step": 5,
+      "inputChars": 2460,
+      "state": "succeeded",
+      "model": "deepseek-v4-pro",
+      "inputTokens": 947,
+      "outputTokens": 133
+    },
+    {
+      "requestId": "c4-probe-23c5398c-76ab-4fef-a29f-cc2aa7a2b105",
+      "caseId": "three-kingdoms",
+      "step": "design",
+      "inputChars": 2826,
+      "state": "succeeded",
+      "model": "deepseek-v4-pro",
+      "inputTokens": 1185,
+      "outputTokens": 984
+    },
+    {
+      "requestId": "c4-probe-e02121c4-21a0-44b0-8e0b-8ea87c9d7f0b",
+      "caseId": "aftermath",
+      "step": 0,
+      "inputChars": 1169,
+      "state": "succeeded",
+      "model": "deepseek-v4-pro",
+      "inputTokens": 490,
+      "outputTokens": 30
+    },
+    {
+      "requestId": "c4-probe-c69c803e-8333-4fc6-86d2-bc912123946b",
+      "caseId": "aftermath",
+      "step": 1,
+      "inputChars": 2275,
+      "state": "succeeded",
+      "model": "deepseek-v4-pro",
+      "inputTokens": 850,
+      "outputTokens": 15
+    },
+    {
+      "requestId": "c4-probe-18616440-124b-4eef-b362-1139235afb25",
+      "caseId": "aftermath",
+      "step": 2,
+      "inputChars": 2831,
+      "state": "succeeded",
+      "model": "deepseek-v4-pro",
+      "inputTokens": 1087,
+      "outputTokens": 27
+    },
+    {
+      "requestId": "c4-probe-189841e3-e402-4612-bcd0-170f85c2fc51",
+      "caseId": "aftermath",
+      "step": 3,
+      "inputChars": 1276,
+      "state": "succeeded",
+      "model": "deepseek-v4-pro",
+      "inputTokens": 521,
+      "outputTokens": 26
+    },
+    {
+      "requestId": "c4-probe-13cdcb2b-36ef-49b5-b354-2ec838d1ff31",
+      "caseId": "aftermath",
+      "step": 4,
+      "inputChars": 2292,
+      "state": "succeeded",
+      "model": "deepseek-v4-pro",
+      "inputTokens": 856,
+      "outputTokens": 15
+    },
+    {
+      "requestId": "c4-probe-b4170f5d-c00b-495b-9972-891275121b7b",
+      "caseId": "aftermath",
+      "step": 5,
+      "inputChars": 3196,
+      "state": "succeeded",
+      "model": "deepseek-v4-pro",
+      "inputTokens": 1159,
+      "outputTokens": 161
+    },
+    {
+      "requestId": "c4-probe-59a05426-73e3-46aa-bf5c-d6d870de537e",
+      "caseId": "aftermath",
+      "step": "design",
+      "inputChars": 3228,
+      "state": "succeeded",
+      "model": "deepseek-v4-pro",
+      "inputTokens": 1302,
+      "outputTokens": 761
+    }
+  ]
+}

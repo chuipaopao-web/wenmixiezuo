@@ -4,7 +4,7 @@ export class SettingContextPreparationError extends Error {}
 
 // Real Chinese selection calls used more tokens than the legacy char/2.5 estimate.
 // Keep substantial headroom for governance, serialization and the model response.
-export const SETTING_SELECTION_PROMPT_LIMIT = 18_000;
+export const SETTING_SELECTION_PROMPT_LIMIT = 8_000;
 
 export function settingOpeningSelection(text: string, required: readonly string[] = []): { prefix: string; anchor: string; facts: SettingSelectionFact[] } {
   if (Array.from(text).length <= 4_000) return { prefix: text, anchor: text, facts: [] };

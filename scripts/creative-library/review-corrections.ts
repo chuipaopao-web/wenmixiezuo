@@ -1,0 +1,26 @@
+/** Codex adjudication of independent GLM review. Each key is an existing source, not a new method. */
+export const reviewCorrections:Record<string,{condition:string;use:string;boundary:string;instruction?:string}>={
+ 'multi-line-convergence':{condition:'几条已展开的线需要因同一件事产生交汇',use:'选定参与汇合的线及共同因果，说明相遇怎样改变各自目标',boundary:'不要求全书所有支线汇合，也不要求平均戏份；参与本次汇合的线必须有共同因果。'},
+ 'frame-story':{condition:'本卷需要通过外层讲述解释内层故事，或反过来改变外层理解',use:'安排内外层信息的出现时机与互相解释的作用',boundary:'框架不是普通多线切换，不为套结构增加无作用的讲述者。'},
+ 'story-spine':{condition:'需要把故事从日常变化串成因果脊柱',use:'从原有状态、触发变化、连续后果到新状态检查缺口',boundary:'句式只帮助检查因果，不要求正文逐句照写。',instruction:'从前—每天—直到某天—因此不断—最后—从此：从原有日常出发，让一次变化引发连续后果，最终形成新的状态。'},
+ 'circular-chronology':{condition:'希望通过回到相似情境凸显人物变化',use:'对照回环处的人物选择、理解或处境差异',boundary:'回环可以按事实时间顺叙，不等于时间循环，也不要求人物回到原状。'},
+ 'parallel-simultaneous-time':{condition:'同一时间段内需切换不同地点或人物的行动',use:'核对各线的时间压力、行动进度和相互影响',boundary:'可以按时间顺序切换，不以交错叙述制造事实时间矛盾。'},
+ 'direct-opposition':{condition:'双方主动争取互不相容的结果',use:'明确双方行动如何阻碍对方目标，并保留各自合理的信息范围',boundary:'不是单方面两难；对手不必全程在场，也不必全知。'},
+ 'antagonist-counterplan':{condition:'对手需要对主角行动作出观察和调整',use:'依据对手已知信息设计反制，再判断它怎样迫使主角变招',boundary:'不能让对手凭作者知道的信息行动，也不要求每次反制都成功。'},
+ 'internal-external-bind':{condition:'外部困难会触动人物内在问题，而内在问题影响行动',use:'说明两者如何通过具体选择互相作用',boundary:'不强制每个事件都有心理创伤或内在缺陷，人物可以有稳定信念。'},
+ 'false-victory-defeat':{condition:'阶段结果的表面成败与真实意义不同',use:'分别呈现表面结果和实际收获、损失或后续影响',boundary:'差异必须有依据，不为反转撤销已经成立的事实。'},
+ 'scene-sequel-cycle':{condition:'行动后需要人物消化结果并决定下一步',use:'安排必要的反应、判断和再决定，可与其他行动同时发生',boundary:'不强制每次行动后插入完整反应段，不重复复述刚发生的事。'},
+ 'reaction-dilemma-decision':{condition:'结果影响人物追求，需要权衡后行动',use:'从人物在乎的差别和可行选择出发形成决定',boundary:'不强制痛苦、两难或牺牲；权衡服从人物动机。'},
+ 'corruption-arc':{condition:'人物通过连续妥协逐渐背离原先坚持',use:'展示每次妥协的理由与累积变化，而不是突然换性格',boundary:'可以保留某些信念；核心原则的背离须可见，不强制彻底堕落或死亡。'},
+ 'disillusionment-arc':{condition:'人物发现曾相信的答案不成立',use:'展示什么证据动摇原认识，以及人物如何重新判断和行动',boundary:'祛魅不等于否定一切，允许保留其他信念或建立新的希望。'},
+ 'crosscutting-pressure':{condition:'同时发生的行动互相影响，需要借切换形成压力',use:'选择切换点，核对时间压力、信息差和行动关联',boundary:'不把普通详略压缩叫交叉剪辑，切换不应仅打断读者。'},
+ 'montage-compression':{condition:'一段过程适合由共同方向的短片段表现',use:'挑选能够表现同一变化趋势的片段，确定组接方向',boundary:'不能省掉结果成立必需的因果，不把无关片段拼贴当推进。'},
+ 'strategic-pause':{condition:'重要信息或决定前后需要短暂感受与判断空间',use:'选择停顿位置和承载它的观察、选择或关系行动',boundary:'停顿应增加理解或感受，不机械插入闲聊或重复内心独白。'},
+ 'recovery-window':{condition:'高强度事件后需要恢复与关系推进',use:'安排修补、日常和互动，呈现前事影响并维持必要进展',boundary:'恢复不必引出新危机，不用固定休息章数，也不把日常当无关填充。'},
+ 'recap-through-consequence':{condition:'读者需要想起影响当前行动的前情',use:'通过当前后果或行为提醒必要前情，避免角色互相复述已知信息',boundary:'只提示当前相关的前情，不能借复述改写过去事实。'},
+ 'recruitment-selection':{condition:'组织与个人相互挑选、检验匹配，或名额有限需要取舍',use:'设计双方的标准、表现与选择后果',boundary:'允许不录取或主动退出，不把选拔写成所有人无条件加入。'},
+ 'unreliable-intelligence':{condition:'人物需要在信息缺失、过时或可能被操纵时行动',use:'区分已知、猜测和误导，设计验证及错误判断的后果',boundary:'信息不完整不是作者任意改答案的借口，人物不知道不等于读者必须不知道。'},
+ 'foreshadow-seed':{condition:'当前事件适合留下后续会触发的线索或问题',use:'明确留下什么可回查的细节，以及未来触发的可能条件',boundary:'只记录计划伏笔，不冒充正文已埋；终局不强制留续集钩子。'},
+ 'sensory-point-of-view':{condition:'本场景的关键体验需要由人物感官关注表现',use:'标记该人物会注意的关键细节及作用，章纲不扩写景物语言',boundary:'不堆全部感官，不让视角人物感知其接触不到的信息。'},
+ 'comic-incongruity':{condition:'身份、预期与实际反应的落差可以形成趣味',use:'标记落差设置与后续回响位置，章纲不提前写满笑点台词',boundary:'不强迫所有人物降智，不靠重复同一包袱维持趣味。'}
+};

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPENING_EVALUATION_REPORT } from '@wenmi/agent-catalog';
+import {seedCreativeLibrary} from '../../helpers/creative-library.js';
 import type { ModelAdapter, ModelRequest, ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import { ModelAdapterError } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
@@ -422,6 +423,12 @@ describe('V7开书Agent平台接入', () => {
         expect(member.model).toMatchObject({ plan: 'coding', provider: 'volcengine-ark-coding-plan' });
       }
     }
+  });
+
+  it('开书真正读取已发布方法并将详情送入生成上下文',async()=>{
+    context=createTestContext('creative-opening-');const {id}=seedCreativeLibrary(context.database);const base=new ScriptedResolver();let tools=0;const prompts:string[]=[];
+    const resolver:V7OpeningModelAdapterResolver={resolve(provider,modelId,purpose){const original=base.resolve(provider,modelId,purpose);return {...original,async generate(request){prompts.push(request.prompt);if(request.prompt.includes('当前仅选取创作参考'))return {provider,modelId,state:'succeeded',cashCostCny:0,inputTokens:20,outputTokens:20,output:JSON.stringify([{action:'search',purpose:'阶段回报',query:'',conditional:false,cursor:0},{action:'read',ids:[id]},{action:'ready',selected:[{id,application:'让主角的修理成果改善身边人的生活'}]}][tools++])};return original.generate(request);}};}};
+    const app=await createServer(context.config,context.database,{v7OpeningModelAdapters:resolver});try{const cookie=await register(app,'creative-opening@example.com','方法测试','strong-pass-123');const started=await app.inject({method:'POST',url:'/api/v1/v7/opening-agent/tasks',headers:{...BROWSER_HEADERS,cookie},payload:{idea:'张三穿越三国成为修理工，希望逐渐改变身边人的生活。',idempotencyKey:'creative-opening-one'}});expect(started.statusCode).toBe(200);const taskId=started.json().data.taskId;await poll(app,cookie,taskId,['awaiting_author_confirmation']);expect(tools).toBe(3);const final=prompts.find(p=>p.includes('creativeReference')&&p.includes('用实际变化表现回报'));expect(final).toContain('不反复复述结果');expect(final).toContain('修理成果改善');expect(prompts.every(p=>JSON.stringify({messages:[{role:'user',content:p}]}).length<=15000)).toBe(true);}finally{await app.close();}
   });
 
   it('账号隔离、幂等执行、追加候选，并严格按成员使用Coding Plan和Agent Plan', async () => {
@@ -917,12 +924,12 @@ describe('V7开书Agent平台接入', () => {
       const reservation = context.database.prepare(`
         SELECT reserved_tokens FROM v7_opening_agent_model_calls WHERE task_id = ?
       `).get(taskId) as { reserved_tokens: number };
-      expect(reservation.reserved_tokens).toBeGreaterThan(20_000);
+      expect(reservation.reserved_tokens).toBeGreaterThan(8_000);
       expect(membershipGenerationBlockReason(
         context.database,
         owner.owner_id,
         new Date().toISOString(),
-        80_000
+        100_000 - reservation.reserved_tokens + 1
       )).toBe('quota-exhausted');
     } finally {
       await app.close();
@@ -1500,7 +1507,7 @@ class ScriptedResolver implements V7OpeningModelAdapterResolver {
         };
         const operation = prompt.operation;
         const output = operation === 'v7_opening_package_review_v1'
-            ? JSON.stringify(this.mode === 'decision' && (prompt.currentCandidates?.openingPackage?.authorInstructions?.length ?? 0) === 0 ? DECISION_REVIEW : REVIEW)
+            ? JSON.stringify(this.mode === 'decision' && (prompt.authorAdjustment?.instructions?.length ?? 0) === 0 ? DECISION_REVIEW : REVIEW)
             : operation === 'v7_opening_package_revision_v1'
               ? JSON.stringify(prompt.currentCandidates?.openingPackage ?? PACKAGE)
               : JSON.stringify(packageForIdea(prompt.authorSource?.originalIdea ?? ''));

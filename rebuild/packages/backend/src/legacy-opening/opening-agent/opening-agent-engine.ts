@@ -171,7 +171,7 @@ export class OpeningAgentEngine {
             openingPackage: packageCandidate.content, review: null, taxonomy: this.taxonomy, validationRepair,
             memberInstruction: member.promptInstruction
           })),
-          [modelSignatureForCandidate(packageCandidate, input.memberRoster ?? DEFAULT_OPENING_ROSTER)]
+          await this.designModelSignatures(state, packageCandidate, input.memberRoster ?? DEFAULT_OPENING_ROSTER)
         );
         const review = generated.generation.content;
         if (review.verdict === 'pass') {
@@ -432,6 +432,18 @@ export class OpeningAgentEngine {
     });
     if (saved.candidateId !== candidateId) throw new Error('候选提交返回了不一致的标识');
     return nextState;
+  }
+
+  private async designModelSignatures(state: OpeningAgentTaskState, candidate: OpeningSavedCandidate, roster: readonly V7OpeningMemberDefinition[]): Promise<string[]> {
+    const pending=[candidate],seen=new Set<string>(),models=new Set<string>();
+    while(pending.length){
+      const item=pending.shift()!;if(seen.has(item.candidateId))continue;seen.add(item.candidateId);
+      if(item.kind!=='opening_package')continue;
+      if(item.createdByMemberKey!=='author'){models.add(modelSignatureForCandidate(item,roster));continue;}
+      for(const id of item.sourceCandidateIds)pending.push(await this.toolGateway.readCandidate(state.ownerId,state.taskId,id));
+    }
+    if(!models.size)throw new OpeningAgentModelError('无法追溯作者修改稿的设计来源，不能进行独立审查','provider_unavailable');
+    return [...models];
   }
 
   private async requireCandidate<T extends OpeningCandidateContent>(

@@ -1,0 +1,3815 @@
+{
+  "sourceHash": "7c9aa9099e380701a7c2b20b7f03d3fc1099fd95ae4755d2be05ee9ac44e9333",
+  "model": "glm-5.3",
+  "provider": "volcengine-ark-coding-plan",
+  "batches": [
+    {
+      "state": "done",
+      "requestId": "c4-review-6f36effe-0cb5-4c5e-b76c-348e4202e461",
+      "model": "glm-5.3",
+      "hash": "61fe294283bc356b9a200e29b7e9c9c9a0276e96261cc66d5a85381a83191d6f",
+      "items": [
+        {
+          "identity": "r209-c1/method-single-core-line",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "390a8fcdc59115bcc76e95de2a73451237bfd9ef0fbf069b21646e61f7eaacb2"
+        },
+        {
+          "identity": "r209-c1/method-dual-lead-braid",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "469977aa939bfae08f133c2ed9b24615dfcffc134240ca8dc5d143976ff4d385"
+        },
+        {
+          "identity": "r209-c1/method-multi-line-network",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "06a2606cb4ea8460972d3403fd7fe140712685c2aeb8caa1618438d7177f6f15"
+        },
+        {
+          "identity": "r209-c1/method-multi-line-convergence",
+          "pass": false,
+          "issues": [
+            "误用边界写“不要求平均戏份或全部汇合”，与本方法核心定义“在关键阶段因同一件事汇合”直接矛盾。建议改为“汇合需有共同因果支撑，不要求平均戏份或提前汇合”。"
+          ],
+          "payloadHash": "1334def0a75c9325c24eca9cae38e19e7b87f080eda5a0f714c3a21facffda83"
+        },
+        {
+          "identity": "r209-c1/method-episodic-spine",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "72a9734f5b9c5fd8a9f07a543a1c3777ea948c687b29de88eb7e0a1c4d5c703d"
+        },
+        {
+          "identity": "r209-c1/method-ensemble-network",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c64e79ac7bc81cf8fa2dcafb371a2650d5927c69a97a3b2bc53ad706e1a16327"
+        },
+        {
+          "identity": "r209-c1/method-frame-story",
+          "pass": false,
+          "issues": [
+            "conditionalUses 中“本卷有多线交织或独立单元，需确定关注顺序→仅安排本卷相关线的交汇与回访”与框架故事（内外两层叙述互相解释）的用途不符，疑为多线方法的条件用法误植。建议改为与内外层时间/信息揭示顺序相关的卷级条件用法。"
+          ],
+          "payloadHash": "bf5c9b3dc2b66d70e3d9264113b9e2554b9de4d8ce3d4c19f6002f5abf496476"
+        },
+        {
+          "identity": "r209-c1/method-parallel-contrast-structure",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "5efd47cc78d0f8f57670d995093d31344142ab470ff75fa29710157b1876cc0a"
+        },
+        {
+          "identity": "r209-c1/method-linked-anthology",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "47bdd02ea7201d531b54b6a2e3aa4972a3e69be4d2c2eb2aa596994c45b49df5"
+        },
+        {
+          "identity": "r209-c1/method-nested-thread-weave",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "04b4f15efe23436cc005b4b0f7bcfa55b0cac575a93461af70a799475a4822de"
+        },
+        {
+          "identity": "r209-c1/method-mosaic-network",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ff483ea7eed4bde50115f47bc9dd3baef47ab6962605b62dd39648409c4625fb"
+        },
+        {
+          "identity": "r209-c1/method-story-completeness",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "71b40c0b3b9b0be03d5edc93389b8540990e97792159ba87b79d871c58fc47c8"
+        },
+        {
+          "identity": "r209-c1/method-three-act",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b8dc87cf57f5016e2f2ee8b4e3e36f52a880f456e5f01a46c26172b3d396f6d5"
+        },
+        {
+          "identity": "r209-c1/method-four-act",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "16d5cf18c0e9420c9147311ec3ea4e85947588b8ce031a42ff937dd2d24d2665"
+        },
+        {
+          "identity": "r209-c1/method-five-act",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "657d9c20e664085709aadec51fd11d2ec7d58913e449ced608e0926318bef49f"
+        }
+      ],
+      "inputTokens": 4355,
+      "outputTokens": 1068
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-0869683e-387b-4673-81e0-233393dce554",
+      "model": "glm-5.3",
+      "hash": "87890c5e36a5c661161c333601fdb8ee77628d08d052aae43c40dc24fceb07ae",
+      "items": [
+        {
+          "identity": "r209-c1/method-six-act",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "78d4d14935b8d928f449055b81b78f99ec2bb345968477c59aa465921714f3c5"
+        },
+        {
+          "identity": "r209-c1/method-hero-journey",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a5964ac467b8c86587c922f02ec7e9a038b8ed9122d86f7efe3356c64fe8c342"
+        },
+        {
+          "identity": "r209-c1/method-eight-sequence",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a66768ffb05b815ce60bb201a281045ffdc1f41dee1264e12ccb20d19a43b83f"
+        },
+        {
+          "identity": "r209-c1/method-seven-point",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3a1ad3597f4cfc9b77801415ed35da4016b168b3f61720948daa59a56fb193d4"
+        },
+        {
+          "identity": "r209-c1/method-story-circle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "322b7dc6d5afc62974ee807e1248b32f00ab62d4a25422c95b1a9b5774d87e10"
+        },
+        {
+          "identity": "r209-c1/method-save-the-cat",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e34b1cc6c7477fee908d3e767fb28671a20b84364f0f886a368a7eddd280c844"
+        },
+        {
+          "identity": "r209-c1/method-truby-22",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "2cf6b5a19c1158bb67512251756d44c41e7ce938da0a2bf9a9467ef5341d302b"
+        },
+        {
+          "identity": "r209-c1/method-field-paradigm",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "da37b85badc35c15f8e6bf5027bcb69584f89983ad13fd852d6e71406d9cf482"
+        },
+        {
+          "identity": "r209-c1/method-fichtean-curve",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "100ed979a81cdfdf8e6423a2cded19cdf051f9a9569b0b1446e31b1e2e2e603d"
+        },
+        {
+          "identity": "r209-c1/method-kishotenketsu",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "37c25f07276e281a273a004db008abfb92713f1676e65c539afd448a022ec5fe"
+        },
+        {
+          "identity": "r209-c1/method-story-spine",
+          "pass": false,
+          "issues": [
+            "故事脊柱的标准句式首句是“从前/每天”（Once upon a time / Every day），而“原来如此”意为恍然领悟，与开场建立日常的环节不符，会误导使用者把开头写成顿悟。建议将首句改为“从前—每天—直到某天—因此不断—最后—从此”。"
+          ],
+          "payloadHash": "678b8bf78e5e3ac0a8e7ff54a1efd58fba02eab81e6205a4a0412915e152c8ff"
+        },
+        {
+          "identity": "r209-c1/method-linear-chronology",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "177cf0edfb34b6a2f37bafa40c7d0b2c4fe3601994ea2df846b4649eea2753bf"
+        },
+        {
+          "identity": "r209-c1/method-reverse-opening-backfill",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a2f4a604262a51ea847060a784e03d3a368a27695824da3b8b15e4ca326951c9"
+        },
+        {
+          "identity": "r209-c1/method-flashback-insertion",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b9cb589650f3203230247af23407af9bb1d4f880fbf066111cbcb3e484b1d44e"
+        },
+        {
+          "identity": "r209-c1/method-dual-timeline",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6bceb2f8163b83819d798397ddf04222bb1fe4bc9d851fbefcd759e342ead580"
+        }
+      ],
+      "inputTokens": 4306,
+      "outputTokens": 701
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-f208a053-26d3-4599-8e5f-29fb34ba1885",
+      "model": "glm-5.3",
+      "hash": "1e500d8bd60afb0dee865c1fc73f67c6a579a3c512fc683c1a2d868a4f52608f",
+      "items": [
+        {
+          "identity": "r209-c1/method-nonlinear-mosaic",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "82baa42df6ac2ea8dc7f8be9583a4397e586fba022a171078d38efdae7bd5b73"
+        },
+        {
+          "identity": "r209-c1/method-circular-chronology",
+          "pass": false,
+          "issues": [
+            "使用条件与条件用途照搬非线性拼图的表述，与本方法不符：循环时间结构的核心是故事回到类似起点而人物状态已变，其呈现顺序可以与事实时间一致，不必然'能改变读者理解'，也不必然满足'正文呈现顺序与事实时间不同'。建议改写为如'故事需要通过回到相似情境凸显人物变化时考虑此方法'，条件用途相应调整为检查回环处的选择、理解或代价差异。"
+          ],
+          "payloadHash": "1c19355a0edf3efb36a872dc6850221bdc87ea56d4062adff05a32a833d5f707"
+        },
+        {
+          "identity": "r209-c1/method-in-medias-res",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "012f42175153d40466738c7f5abc5ff0b151d7df2de0a5cadb88a53814777f2c"
+        },
+        {
+          "identity": "r209-c1/method-reverse-chronology",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9ac40bb17b97107a3736c21ce1b32ac0f51baa866673e2bd7aa6405b6b486830"
+        },
+        {
+          "identity": "r209-c1/method-flashforward-prolepsis",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e853e55f53cceae9f4d95a94b91576a6eaa3078a24a85c44b0e1660681925a4b"
+        },
+        {
+          "identity": "r209-c1/method-parallel-simultaneous-time",
+          "pass": false,
+          "issues": [
+            "条件用途'正文呈现顺序与事实时间不同'与本方法不符：同时空平行推进可以完全按时间顺序切换不同地点/人物线，不要求呈现顺序偏离事实时间。建议条件改为'同一时间段内需要切换多条地点或人物线'，用途改为核查切换时各线的时间压力与互相影响。"
+          ],
+          "payloadHash": "23b8bd6b9767c2e29288bc29faeff10dce9ec70cc243912c4d878a8a5e7b3408"
+        },
+        {
+          "identity": "r209-c1/method-time-ellipsis",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "faf4c31768b32a2a9059d37de815104ce14a3def18170d0bc6c6b91fb5f9d3cf"
+        },
+        {
+          "identity": "r209-c1/method-goal-action-consequence",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6619999691f6dd89dbe8e2fc46e45afd98252226c5b7baf229545d38ecfc9805"
+        },
+        {
+          "identity": "r209-c1/method-causal-chain",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a87b2bed498193a2656a57d0c69dddfd0d4c9b9464d32323faa5b20dc0bde090"
+        },
+        {
+          "identity": "r209-c1/method-escalation-ladder",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a7762a0e7a4d31877a3af71bda6d9eed0ce4eb3bbaff6934b491b1d870fadb82"
+        },
+        {
+          "identity": "r209-c1/method-consequence-reversal",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "be8d7f975dbe559e01715932a31ad638b17e837cf7bf5b75144cfbed1188870d"
+        },
+        {
+          "identity": "r209-c1/method-mckee-causality",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7e33d3054804d05c988c83e981b5fbf8a0619a2b05498cd7791a4a6e56c9bb4b"
+        },
+        {
+          "identity": "r209-c1/method-try-fail-cycle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "728895efe34bfef3898b48af6d11eb29754faf49ae37cc4ed2492b71c0792bc9"
+        },
+        {
+          "identity": "r209-c1/method-yes-but-no-and",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "318e55f56660d0e3da8ce40fb84b1d6b84c89197f1530f83bff4a1934bfb0f0d"
+        }
+      ],
+      "inputTokens": 4115,
+      "outputTokens": 846
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-a0cc1cac-7cb6-45a5-b542-28452e6bcf0c",
+      "model": "glm-5.3",
+      "hash": "18de0701016a9ca32f13f593e0ce281200121c3b520d0d9c3d41af9f3ca36d7a",
+      "items": [
+        {
+          "identity": "r209-c1/method-consequence-propagation",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "34428f413da55ac31289ae92b767c3da3ed143564f17cb41b5d0b50ecda61946"
+        },
+        {
+          "identity": "r209-c1/method-forced-decision-fork",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9ac0727ac2d16f0c72a51df25965bc41e1455188a36038d45f43d06b29281fd6"
+        },
+        {
+          "identity": "r209-c1/method-direct-opposition",
+          "pass": false,
+          "issues": [
+            "boundary与method含义不符：使用条件写“目标被资源、利益、规则或责任限制，需要形成有意义的取舍”，这是从“逼迫式选择分岔”复制的取舍框架；而“目标对冲”讲的是双方主动争取互不相容的结果，核心是双向对抗而非单方取舍。建议改为“需要让双方都主动追求互不相容的目标、形成持续对抗时考虑本方法”。误用边界“不把压迫、两难和永久损失强加”也与双向对抗主题不对应，建议改为不强制对手全程在场、允许阶段性无直接对抗。"
+          ],
+          "payloadHash": "9bdbcaf47ead39366c608dd8980ff6e6a4ed24a954259ec1da30b1f8a881e5e5"
+        },
+        {
+          "identity": "r209-c1/method-antagonist-counterplan",
+          "pass": false,
+          "issues": [
+            "boundary与method含义不符：使用条件是“需要形成有意义的取舍”的取舍框架，与“对手观察、调整策略、利用弱点”的方法内容无关，明显是从“逼迫式选择分岔”复制的。建议改为“需要让对手对主角行动作出可信的观察与调整时考虑本方法”。误用边界同样不匹配，建议改为不要求对手全知全能、调整需基于对手可获取的信息。"
+          ],
+          "payloadHash": "36c8d5110ecfde0f49c186512b43e21ab664d60498f0d0bc48d418bc572d1953"
+        },
+        {
+          "identity": "r209-c1/method-internal-external-bind",
+          "pass": false,
+          "issues": [
+            "boundary与method含义不符：使用条件是取舍框架（“目标被资源、利益、规则或责任限制，需要形成有意义的取舍”），而本方法讲的是外部难题与内在缺口的相互咬合，不是取舍问题。建议改为“需要让外部冲突击中人物内在缺口、且内在问题反过来影响外部局面时考虑本方法”。误用边界“不把压迫、两难和永久损失强加”也不对应，建议改为不强制每个外部事件都对应内在缺口。"
+          ],
+          "payloadHash": "afa108253ba4e7ac81136aa664bab0becdd8a55d9f4f37947012d5f3a9b03177"
+        },
+        {
+          "identity": "r209-c1/method-true-dilemma",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "86b200e115cda9484913a7f947ccc725cfb492a737597edc222a2e7c144b9a92"
+        },
+        {
+          "identity": "r209-c1/method-ticking-clock",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "159e3695f6c7fc3087576a1def2bc05b1930d99ea2a5fea834af4e8870883127"
+        },
+        {
+          "identity": "r209-c1/method-resource-squeeze",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6e0f8866a268f9c1eb8e7b19737b35d9ff16786e62224fe86e43016a25b50505"
+        },
+        {
+          "identity": "r209-c1/method-multi-front-pressure",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a1c3c662443156b858622a304a874c6e68c08420ebb5714af8860786645099fd"
+        },
+        {
+          "identity": "r209-c1/method-false-victory-defeat",
+          "pass": false,
+          "issues": [
+            "conditionalUses与method不匹配：本方法属“事件发展”树，讲阶段结果表面与真实意义不同，但条件用法写“需要确立贯穿本卷的阻力及关键选择”，这是“阻力选择”组的模板文案，与本方法的用途不符。建议改为“卷或链的阶段节点需要让结果具有双重意义时，检查表面结果与真实代价/收获是否分层”。"
+          ],
+          "payloadHash": "08121dedeff6915baec6059a24fb3a27030c16a225fb5b9826a0d8656294cb3b"
+        },
+        {
+          "identity": "r209-c1/method-scene-goal-conflict-turn-result",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "353eac4b69d0dd3f495f6a5e18d62094b41fbbcc0c3ff34aaa4ab6c6c377a9c8"
+        },
+        {
+          "identity": "r209-c1/method-scene-sequel-cycle",
+          "pass": false,
+          "issues": [
+            "boundary与method含义不符：使用条件“一场具体行动需要明确参与者、变化和结果”是从“场景目标—冲突—转折—结果”复制的；本方法讲的是高行动之后安排反应、判断和决定的节奏，不是明确参与者与结果。建议改为“高强度行动之后需要安排人物反应与再决定的空间时考虑本方法”。误用边界“不要求每场都有激烈冲突；省略无关动作”也与本方法不对应，建议改为不强制每次行动后都有完整反应段、反应可与行动并行。"
+          ],
+          "payloadHash": "315dd1256c15d67d6efbc3cad78cadd3bd5b2a9151763cae0c3d8878d30a17ac"
+        },
+        {
+          "identity": "r209-c1/method-reaction-dilemma-decision",
+          "pass": false,
+          "issues": [
+            "boundary与method含义不符：使用条件“一场具体行动需要明确参与者、变化和结果”是从“场景目标—冲突—转折—结果”复制的；本方法讲的是人物承受结果、权衡选项、作出决定的过程。建议改为“行动结果落地后需要呈现人物的反应、权衡与决定时考虑本方法”。误用边界“不要求每场都有激烈冲突；省略无关动作”也不对应，建议改为不强制每次决定都伴随痛苦或牺牲、权衡需基于人物动机。"
+          ],
+          "payloadHash": "f3bb9c1cd6545115b967df0e278eacc399a68abb8e2bf774466e4952fafd74d9"
+        },
+        {
+          "identity": "r209-c1/method-scene-value-shift",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f03f41de5e142097c8c9b9164c593ecb244d5167ada24427290f1486f47eca6d"
+        }
+      ],
+      "inputTokens": 4410,
+      "outputTokens": 1593
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-80b44eb1-5ffc-4087-8c45-13dc400bf7a9",
+      "model": "glm-5.3",
+      "hash": "6570206f1b7d6d3cd0af9c0d201c5fc28dd76bd4730d295a5691b17f8852c4fe",
+      "items": [
+        {
+          "identity": "r209-c1/method-enter-late-exit-early",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c09021ed903058226b35d19890101b918ce9920935e3b6d3d02681d53192f95e"
+        },
+        {
+          "identity": "r209-c1/method-motivation-reaction-unit",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "dec40f29d3744be32e8ec59b423ecbfceadf403526847d4f6e7dba80d87c47d5"
+        },
+        {
+          "identity": "r209-c1/method-scene-question-turn",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6345d9d33120728d59c81edd6d806e775d10b8fe128961a68b5dc3d330c4763f"
+        },
+        {
+          "identity": "r209-c1/method-action-reaction-balance",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ba893cf3ff93d345cb4d6de5466e70177868d219579cfe1f14c947e8aa45355b"
+        },
+        {
+          "identity": "r209-c1/method-positive-growth-arc",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ab60cdc1bae9a0ebc89e5a201a81d0e67060cfd9a5e0084a4a0c3eafb413990b"
+        },
+        {
+          "identity": "r209-c1/method-steadfast-arc",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "70113a3259a7e9636db5d126d010c4709ad5856decea59f19ed568a77c2c0f02"
+        },
+        {
+          "identity": "r209-c1/method-corruption-arc",
+          "pass": false,
+          "issues": [
+            "误用边界“人物可以不改变信念”与方法含义矛盾：腐化弧线的核心正是人物通过连续妥协最终成为自己曾经反对的人，即信念已发生实质改变。建议改为如“腐化是渐进过程，不必一步到位，也不强制以彻底堕落或死亡收场”。"
+          ],
+          "payloadHash": "996fd7ce91b71f400706b3401c4d2d951b949f08be7850c619ee5d0d3d4cfb2c"
+        },
+        {
+          "identity": "r209-c1/method-tragic-fall-arc",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9b433b91c418b9abb389099fc77bd1381f882bc5525ad177cfba25159a0650ef"
+        },
+        {
+          "identity": "r209-c1/method-redemption-arc",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6597d8303abfc2b514eb92806cc4c6bc42c051dc642b13e03e9a17e43b83a915"
+        },
+        {
+          "identity": "r209-c1/method-circular-character-arc",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e621594ce24e95864856e7b26eb88a18947b0e11a7223c50ca209c66152527c7"
+        },
+        {
+          "identity": "r209-c1/method-disillusionment-arc",
+          "pass": false,
+          "issues": [
+            "误用边界“人物可以不改变信念”与方法含义矛盾：祛魅弧线的定义就是人物失去一个曾经相信的错误答案，即信念发生改变。建议改为如“祛魅不等于彻底绝望，人物可以保留其他信念，也不强制走向悲剧”。"
+          ],
+          "payloadHash": "8b3aeaf23f372a217b4e2d48fd7c8a3704c3c8a25ccacb6bf43f8c6b3aa96e37"
+        },
+        {
+          "identity": "r209-c1/method-want-need-gap",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6b3914fba1810af6ee2f1127e2c4a13cc3bf57cdf4a2904806b0b2bcd61259db"
+        },
+        {
+          "identity": "r209-c1/method-lie-truth-transition",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "5dd11880f60100b60bdc2e9d50590c4fabbc014881da7be9dbf433dc7f6bab2d"
+        },
+        {
+          "identity": "r209-c1/method-wound-defense-choice",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "97063166840d76bfd6b8702108b650038084c5fba52ba9e3e2e83b2faa6e677a"
+        }
+      ],
+      "inputTokens": 4160,
+      "outputTokens": 832
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-fbd37f81-9ea8-4b9a-9f46-66b1ce8d52ae",
+      "model": "glm-5.3",
+      "hash": "cab78c4c31f9d26977dd0af6dd1bbf4166ef98eb8da5f4cf68d2ed13fa62c977",
+      "items": [
+        {
+          "identity": "r209-c1/method-trust-ladder",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "0164cdb85b439228fd3562998d954a59d295863d75087e3515a61bcab0cc5b50"
+        },
+        {
+          "identity": "r209-c1/method-attraction-obstacle-commitment",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "fcc9d5525ab6855b600affc7b3258d74f8a42721b45503ad2262683f4f416100"
+        },
+        {
+          "identity": "r209-c1/method-rivalry-respect-arc",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "caa118a3fe083bd9fab17353b972c9af9bdec58c0a3c74dc2554cb391aec8bc9"
+        },
+        {
+          "identity": "r209-c1/method-alliance-under-pressure",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "495da5337d9585f2a4984ca24d4859be1987d6caff28098c91a4cc8e7b9fa0cb"
+        },
+        {
+          "identity": "r209-c1/method-betrayal-repair-arc",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c8efdff79ccdcefefae0b5832b9c6a304ed656672dcdc9510b45407f21af6b1a"
+        },
+        {
+          "identity": "r209-c1/method-mentor-inheritance-arc",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "24bf1225bf323a088f89a10a5fae8a6f5e3c851b5b050e8e47699a1b406878d9"
+        },
+        {
+          "identity": "r209-c1/method-family-repair-boundary",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ae9ce7ee4835b586688d2491f03b93bd8a95345484867b3ab9a6dbd28eadb81b"
+        },
+        {
+          "identity": "r209-c1/method-shared-mystery",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ec0b8b2a01c753c120b2f239a397829bbd9fc3bfe1da88338176546783a3422c"
+        },
+        {
+          "identity": "r209-c1/method-withheld-secret",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b3d794eaeaf904e916f84a243337b6389b3b22b7dcb75221e15aa0d2d5f56ef0"
+        },
+        {
+          "identity": "r209-c1/method-dramatic-irony",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8b504ed2d8ea123796ab7f8660706a86b32ad05a7b39159b1dcc806c4b8086d6"
+        },
+        {
+          "identity": "r209-c1/method-information-asymmetry",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "177e6e3ca33581db54da787f9e62f6e598152444b8bd9bebb31e64f277cb7bde"
+        },
+        {
+          "identity": "r209-c1/method-progressive-reveal",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "93f6ba100f2d9ac1f6a81130b3d4efdff921dfe741d43cd7e58da45ae2b87afe"
+        },
+        {
+          "identity": "r209-c1/method-suspense-pressure",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "990671987eb584af8865dd92afdbb5e8ad7304bc334e2b1e00b55ce4b6940951"
+        },
+        {
+          "identity": "r209-c1/method-central-dramatic-question",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8cf2b073793226f2eb82437d626a8984cd6ba3b465c9f4539f891c91c9f40c82"
+        }
+      ],
+      "inputTokens": 4162,
+      "outputTokens": 494
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-32cbf4df-cfa2-43fe-a815-44e705990551",
+      "model": "glm-5.3",
+      "hash": "2226ccdf0e3fb4df6754b41a58fc1f7e26cbc69e05d0715491c9ae9c05ee2bfb",
+      "items": [
+        {
+          "identity": "r209-c1/method-fair-play-clue-chain",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4303174b892e274db86d8e1c7d59134e91caf144a7015769d12711728d14b7e1"
+        },
+        {
+          "identity": "r209-c1/method-red-herring-control",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "11af3eff5e4be301f09ebce674fd51006e122ec357046bc4d8171d4d4ddd7618"
+        },
+        {
+          "identity": "r209-c1/method-setup-payoff",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3edb59fe5a5074cba7a22724a0ea4c748219cef18e4deb43f7a6a5adb05709b5"
+        },
+        {
+          "identity": "r209-c1/method-delayed-context-reframe",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "188b0556e6a9ee66a6060dd8cb14f0a13d95d54440bf7d714632e57ccb4401d7"
+        },
+        {
+          "identity": "r209-c1/method-anticipation-pressure-release",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "d92a1eb019320c3b8f096d911bc1424210dde08dc2ceb7a48fbb79339bb25ebc"
+        },
+        {
+          "identity": "r209-c1/method-tension-relief",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "142b791710bc5df5eb1584c07169c516de9a5f8ae986db0e7e203e66455830a4"
+        },
+        {
+          "identity": "r209-c1/method-hope-despair-cycle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "291999bd73e043f585d60c516e66baedc9247405cd665995e51723e19dfc4ef3"
+        },
+        {
+          "identity": "r209-c1/method-emotional-staircase",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "863c1df02386973c945b708a127228329998a77d651c1507fb74816ed3a359a2"
+        },
+        {
+          "identity": "r209-c1/method-payoff-afterglow",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a80d6e8fb1df65b26c7ada98da3e7a5e5a2dfe6a26c2a22e6629ceabdc7f6700"
+        },
+        {
+          "identity": "r209-c1/method-emotional-contrast",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "34c1abab8299b7b97f84557f88efee60ea969632828a67dc27a1ea3d6987c3cb"
+        },
+        {
+          "identity": "r209-c1/method-cathartic-release",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "30ba80a44c93c0ec76d92d4e1f178093c45dbb197624ca7518ad89dfdfe22987"
+        },
+        {
+          "identity": "r209-c1/method-dread-accumulation",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4c6b1b277971179286f4897bb5e896cd816ecbe0df05ccfa7eeef5bf57c6cdf7"
+        },
+        {
+          "identity": "r209-c1/method-comic-relief",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "75c47b7f5481d0f5378c249ee8721f84500a5a65ca298207e1f954852496a2fa"
+        },
+        {
+          "identity": "r209-c1/method-scene-summary-balance",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "735ffa20111bcb404497f44c10278e25317e512bdfbdd9a6a56e7e9781f4892f"
+        }
+      ],
+      "inputTokens": 4353,
+      "outputTokens": 460
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-d7598219-508f-4861-9d94-3998d72fe328",
+      "model": "glm-5.3",
+      "hash": "92d4ed3c6eeafe7f39403d784b0164cde51173f05cbfe81c63ae97879718d14d",
+      "items": [
+        {
+          "identity": "r209-c1/method-narrative-compression",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "548362f5024f348712ea300d49ba337b43117be7f606012c30056a066f60633c"
+        },
+        {
+          "identity": "r209-c1/method-dramatic-expansion",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "776c538e33ef5b1668a83a494a631d41d1607091161d63e2ebb3fbae390f460d"
+        },
+        {
+          "identity": "r209-c1/method-acceleration-deceleration",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "0f12747121c3a1f564c0dde62d178e688615574943f7337cd6b018329fbdc5ed"
+        },
+        {
+          "identity": "r209-c1/method-crosscutting-pressure",
+          "pass": false,
+          "issues": [
+            "conditionalUses 的用法描述（“确定哪些结果要展开、哪些过程可概述，不写句子节奏”）属于详略取舍，与交叉剪辑推进的核心做法（在同时发生且彼此影响的行动之间切换）不符，疑似从叙事压缩复制而来。建议改为与切换线索、时间压力和信息差相关的卷级用法，或删除该条件用法。"
+          ],
+          "payloadHash": "9194bd8f46b22a40b65f113c026e60c3c878a8aa3d401403cf9aaf7d758e602a"
+        },
+        {
+          "identity": "r209-c1/method-montage-compression",
+          "pass": false,
+          "issues": [
+            "conditionalUses 的用法描述（“确定哪些结果要展开、哪些过程可概述，不写句子节奏”）是详略规划，与蒙太奇式组接（用一组有共同方向的短片段快速表现过程）不对应。建议改为与短片段选取和组接方向相关的用法，或删除该条件用法。"
+          ],
+          "payloadHash": "8465fdbf9eb98df720b44a76d8ec9298001639fc22412f2b2326eac212466456"
+        },
+        {
+          "identity": "r209-c1/method-strategic-pause",
+          "pass": false,
+          "issues": [
+            "conditionalUses 的用法描述（“确定哪些结果要展开、哪些过程可概述，不写句子节奏”）与有意义的停顿（在重大信息或决定前后短暂停下）不匹配，疑似复制自叙事压缩。建议改为与停顿位置和停顿内容（观察、选择或关系）相关的用法，或删除该条件用法。"
+          ],
+          "payloadHash": "4b2936c2546bb332c089e54a005a1dcb198d03bd5566e08f4a452e1c6665f0aa"
+        },
+        {
+          "identity": "r209-c1/method-opening-promise",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "143529f57b3b43ad96d85aa4c4dcf353cb9f0a1fcd90e8199992e87b1ae0eb61"
+        },
+        {
+          "identity": "r209-c1/method-progression-loop",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c6a68020f82350aed385f9d535707951dec53b0348406977f3d29d5fd5cad24c"
+        },
+        {
+          "identity": "r209-c1/method-pressure-payoff-loop",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ced05bd750dbd3f12aab197f98838b2e036e99d809285d596259143662d1afc8"
+        },
+        {
+          "identity": "r209-c1/method-promise-progress-payoff",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3233fc4307e8a0588a12e71c376fac87791eddd90b397b9117291e318e9a67f8"
+        },
+        {
+          "identity": "r209-c1/method-arc-close-next-open",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "57f109596cb585f49cb537aff641be48275ad5384648e23de89445ebe5aac075"
+        },
+        {
+          "identity": "r209-c1/method-recovery-window",
+          "pass": false,
+          "issues": [
+            "conditionalUses 的用法描述（“用当前结果产生后续问题，最终卷不再引出下一卷”）属于阶段收束与下一期待（法111）的内容，与恢复与关系窗口（安排恢复、日常和关系推进）不符，疑似复制错误。建议改为与卷末/跨卷处安排恢复窗口相关的用法，或删除该条件用法。"
+          ],
+          "payloadHash": "3310074e398157cb5df71dc931d46acdfd522397ea941025f69f65f1c89fd6d0"
+        },
+        {
+          "identity": "r209-c1/method-chapter-micro-arc",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f8a23730a08e626cea8e976851ac1f759426741f18a912523e42324326a6c2ee"
+        },
+        {
+          "identity": "r209-c1/method-partial-answer-new-question",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "06bca4c88ddf0ff925c7dd52031004f7e63fdb0e7876dd442248a865468f2848"
+        }
+      ],
+      "inputTokens": 4236,
+      "outputTokens": 1046
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-b46fabcb-3dd4-4059-aa31-6be5862f9b69",
+      "model": "glm-5.3",
+      "hash": "bac5d47ea403a3f2e78915a77029992f8a043dec8f7fe329f929c703842d1abe",
+      "items": [
+        {
+          "identity": "r209-c1/method-cliffhanger-spectrum",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a63a0c9f208864adad7bd95f533aaab50fd449b4840c4bcba1a6bbff7cf58eb6"
+        },
+        {
+          "identity": "r209-c1/method-open-loop-budget",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "038072fd804cdcf5370a15d704867d3b667bf1d654d58da5b46bb38bda2e82a4"
+        },
+        {
+          "identity": "r209-c1/method-recap-through-consequence",
+          "pass": false,
+          "issues": [
+            "boundary与conditionalUses与该方法含义不符：误用边界“当前责任先落定；最终卷不再强制引出下一卷”和条件用“用当前结果产生后续问题，最终卷不再引出下一卷”是章尾钩子/跨卷承接的内容，与“以后果代替复述前情”的方法不匹配，疑为从法115复制错位。建议改为与复述相关的边界，如“复述仅提示读者已遗忘的关键前情，不借机重新解释人物已知信息”，条件用改为“检查前情提醒是否通过当前后果呈现，而非角色对话复述”。"
+          ],
+          "payloadHash": "33eba388fff721d54a5f33ded4bb4de53c01dbf297f4632e5ff13d4e114e0b86"
+        },
+        {
+          "identity": "r209-c1/method-limited-viewpoint",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "70c9604953eb17ff39dfac4fc7248e46054214b68586aacbdb36b66cb8f86071"
+        },
+        {
+          "identity": "r209-c1/method-multi-viewpoint",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "39d666e9b60791fd167998117b8124b60913bc33501ea3aa92085797ad955a4f"
+        },
+        {
+          "identity": "r209-c1/method-omniscient-viewpoint",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ad0d046f360feaede3d5a49155977187ce47e65b8ada4dbcd697369af4223605"
+        },
+        {
+          "identity": "r209-c1/method-unreliable-narrator",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "dfb7d002e8d872262e8ccab2bb0bbd10bab35fed867e3d97af9d3a0fd47aeec2"
+        },
+        {
+          "identity": "r209-c1/method-objective-camera-viewpoint",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c53b529c3d29c95a56c33bfd661022cd0323db94376a87ce0eadda6e6738feef"
+        },
+        {
+          "identity": "r209-c1/method-first-person-voice",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8e9248f37b7430458a1620fb6b16549e8a9b89fd64632cee1ae76f84c4e6f3d2"
+        },
+        {
+          "identity": "r209-c1/method-second-person-address",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9a3135edebcf9b5edb3414c624165e6b8854b311b95700772c69ff093409fc6c"
+        },
+        {
+          "identity": "r209-c1/method-free-indirect-discourse",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "54c822296ac7a17f91b66bfd60a9887c51c1a5bfb47524b9e96951603e0d9628"
+        },
+        {
+          "identity": "r209-c1/method-documentary-narrative",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e9a66aa7d55200405ddd3d3d7224ee66cdb9f8e7ce9a9f514290a0607faf7551"
+        },
+        {
+          "identity": "r209-c1/method-meta-narrative",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "865d26c4f3bb35484be66ba67131106c75861075c3882a17d5ca20556dc87d9f"
+        },
+        {
+          "identity": "r209-c1/method-symbolic-motif",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a1cd85efd1a794790d7b2232bf637ab25c5492f7472853f6d0a0273d776a2f54"
+        }
+      ],
+      "inputTokens": 4175,
+      "outputTokens": 705
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-e540efc0-87c6-4886-8f35-5a88498c3e40",
+      "model": "glm-5.3",
+      "hash": "fb399ae07dfa06b2eaabfc973f269b1e17ecaf3887cc5b6b4c6b10ba811f5636",
+      "items": [
+        {
+          "identity": "r209-c1/method-stream-of-consciousness",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ab6f61b9d5940d445990179a2938ea01a29f1361eeede5425ed1c6c0b2ba5b79"
+        },
+        {
+          "identity": "r209-c1/method-interior-monologue",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a17b4994f712174bb3e9d39729e3312c31204c3fd7b8f37ecb882ebbf3f0c177"
+        },
+        {
+          "identity": "r209-c1/method-counterpoint-juxtaposition",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "d4df63be40e6b5f4f781eb8784d203e989e162c3f067a19af7129622683623d3"
+        },
+        {
+          "identity": "r209-c1/method-defamiliarization",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4e2d88b0d20170c2bdf67b3edd6571b59c4e59c5d9d4cb5d7efd5caf82f5ecbd"
+        },
+        {
+          "identity": "r209-c1/method-thematic-question",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "d527157f11ff349f0d7d44ade7fd951bb418aaa75b15461757b6748689c8ebce"
+        },
+        {
+          "identity": "r209-c1/method-value-opposition",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "d27a14370613246831da63951e4ee90f1eba01c46104fa4d15fc875e15f503d5"
+        },
+        {
+          "identity": "r209-c1/method-foil-character",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "135bed73c9bc54051ce5d922938e4f6062e785812572fd91391f234f8f3c362a"
+        },
+        {
+          "identity": "r209-c1/method-counterargument-character",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "cb2abc4bcc635f14392e95aa3b1d70b2d7028b6b6f18661488d790508811341a"
+        },
+        {
+          "identity": "r209-c1/method-moral-choice-proof",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7a3876604d4d7a7525ab247042a21ebf549084a71902accf379595040bc4e613"
+        },
+        {
+          "identity": "r209-c1/method-closed-ending",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3f2cf63f48b61fdef4913b8000594d82ced841f7503144c673c8e7c38bcff9f9"
+        },
+        {
+          "identity": "r209-c1/method-open-ending",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "5315596bcf88f325b061bb70568977c5cf4b8c20bcc6f53d0ebcd0c910be5421"
+        },
+        {
+          "identity": "r209-c1/method-mirror-structure",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "913931142a542de78dbb5a0f10e7b7f11fe6a83d366e811610b2fa30db026f4b"
+        },
+        {
+          "identity": "r209-c1/method-bittersweet-ending",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "976bb83264f3b888b10a8bf9debc4c072ad6a4027fa6775aed136b4091739b74"
+        },
+        {
+          "identity": "r209-c1/method-twist-ending",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7c7238795fb0272c2e7750806bad4d49634028b9c688973517c4654ef27ba155"
+        },
+        {
+          "identity": "r209-c1/method-denouement",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "fa05f0093c4bcde61249e1dec37d43bfa6ddf55bc8fa86e003184d8021075936"
+        }
+      ],
+      "inputTokens": 4268,
+      "outputTokens": 480
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-47ea817e-a456-4ab5-b75b-ddc04876c98e",
+      "model": "glm-5.3",
+      "hash": "b289f0857e633b74caf857990517f8db117d20a5d124718ac99a5d1b7bcd53a0",
+      "items": [
+        {
+          "identity": "r209-c1/method-epilogue",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "36f730fc3f92bcfa8a13cf03399d9f5c0a3f8c8c4aa6f71f9efc13b72f10f549"
+        },
+        {
+          "identity": "r209-c1/method-closure-hierarchy",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "2abd9f37f09d1714da66b42735d1088f3d60b492caf809ce3df9049f673875a0"
+        },
+        {
+          "identity": "r209-c1/method-mission-chain",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "10d3132ec93961f9e511b5061fc8d093a287b47907fb505abfd2ae115d57b6d4"
+        },
+        {
+          "identity": "r209-c1/method-dungeon-expedition",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4badd765b3c96fc67667744103c82da251f9b119411030194388376d773da641"
+        },
+        {
+          "identity": "r209-c1/method-tournament-bracket",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "183d4612301a9df659607fb900a93c4370842e9986617e414826527bd4afab87"
+        },
+        {
+          "identity": "r209-c1/method-qualification-trial",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "019b6463438b8e2de01ff136e787e1736ad8c621a6d18a3845bcecfa56dadf26"
+        },
+        {
+          "identity": "r209-c1/method-academy-assessment",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "55472f445b9df95508aba81f0b84fa6583ca77673b3e232b0bb4440f92b71b5d"
+        },
+        {
+          "identity": "r209-c1/method-workplace-project",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ccb96366f86c472cdaa6aa28ecc636833b8fbc8282a63a18e89e3a2d3f972174"
+        },
+        {
+          "identity": "r209-c1/method-commercial-bidding-war",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f18f44a0efda322bba1208dbdb51fb9f1fd161565a6a9b1754c75fbe51412355"
+        },
+        {
+          "identity": "r209-c1/method-public-performance",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "36b2fb110c5507826c426c7840bbcca6752f25607e69c14e45c9467d5b04b6ee"
+        },
+        {
+          "identity": "r209-c1/method-sports-match",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8c2a6288266b8c5bd63f9cb23fea5c808dc2ad6c1f26bd03c6553157f87d1314"
+        },
+        {
+          "identity": "r209-c1/method-military-campaign",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e0b6bc0a93e6bafc97e1cf38f5c9d1e3de952571d7eebf7a9e6490a141c6a00a"
+        },
+        {
+          "identity": "r209-c1/method-siege-defense",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "0b2033a12d1dc378ba72ba4dc0ea81741864d5a77d22e27681639c56b51ae56e"
+        },
+        {
+          "identity": "r209-c1/method-infiltration-operation",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e18267840724164fd2d1961421a16521ca553d20e69e92ad8bf892092dcd1ebd"
+        },
+        {
+          "identity": "r209-c1/method-undercover-assignment",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f0a618c57acb864d9b8cf4e07e113972ca83d31ebfe9ae7e7adddb1c42eeedee"
+        }
+      ],
+      "inputTokens": 4238,
+      "outputTokens": 334
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-9bb8fffe-785c-4d8e-bcad-8bf3f36d9ace",
+      "model": "glm-5.3",
+      "hash": "e1e38c5788803c1e03f8a90dcd2c83f69fc4f1258b57481917e4f511f7f36fa4",
+      "items": [
+        {
+          "identity": "r209-c1/method-heist-operation",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a428e9177b4c5d46547d6b58cab6c874a73907560089b91c6d5ff11edd837bcc"
+        },
+        {
+          "identity": "r209-c1/method-escort-mission",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "60a830bd67f0c052bc45baa0aaa1fc4a5dd24700435f60bf977fbff7bde97dac"
+        },
+        {
+          "identity": "r209-c1/method-rescue-operation",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "589e23b9188259b482c62750e8b1040fcbbc664d32029ee1edc09c9ce30902c9"
+        },
+        {
+          "identity": "r209-c1/method-pursuit-escape",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a6067e9944bb3d1296adbaa37482fb095f81d6837e040ab9ac3f8e5a4c4a8105"
+        },
+        {
+          "identity": "r209-c1/method-survival-shelter",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "bb2a4db79dc1ba96e24a61b985f69f272c6f3d7903f8baadbbfb2de55307d1d1"
+        },
+        {
+          "identity": "r209-c1/method-disaster-response",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "0e08b6b1a4ef87e5d838b75efe32f7e47fd97bec8f23296b47d6d979bcb9ba58"
+        },
+        {
+          "identity": "r209-c1/method-investigation-case",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3233e95f51c5366fa71d4b26c08748f11dc2172adf36be3a5e15040e65d5e042"
+        },
+        {
+          "identity": "r209-c1/method-closed-circle-case",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ae8bd2c8cf2bb987706fd4b35d8d2fdd677caee75c0da4f0409353e7bc43191c"
+        },
+        {
+          "identity": "r209-c1/method-treasure-hunt",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "952c3811e0373d843be67be1f5989037ee4dd3dc32b7ca86f5caa04bda1d95d1"
+        },
+        {
+          "identity": "r209-c1/method-frontier-expedition",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8847184f6a3c97bac6c6f283d8dd1d8af5706651d93fd808074364fda3f74c5f"
+        },
+        {
+          "identity": "r209-c1/method-lost-realm-exploration",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b9d364298b6108a7dca7d0c38ddbf9c2055a94b10db326bc893aab6e50f61dc0"
+        },
+        {
+          "identity": "r209-c1/method-road-journey",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "24ba6ed4c4e48b3bad962644d9c93493ee68954a62bfe29af642c460dfb03191"
+        },
+        {
+          "identity": "r209-c1/method-migration-exodus",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "fc6c516f6b6adec54095cdb89436da23166feb0e3be9fbca355e4be6e97401da"
+        },
+        {
+          "identity": "r209-c1/method-rebellion-uprising",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "54d603d7111f6b9304149b494f708b692bc4944174383eb20cb6223a12c11d14"
+        },
+        {
+          "identity": "r209-c1/method-succession-contest",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "23d19f99a036bfe245e11106ebe4690f4bc8672563a4b8c2e9b0ae6833f71793"
+        }
+      ],
+      "inputTokens": 4337,
+      "outputTokens": 357
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-db9ad7ce-5e8c-4cff-9b3a-79acd64302c2",
+      "model": "glm-5.3",
+      "hash": "dc10443ea78d8c7eb64a7fc99b082fbe483aa72f2ed523870ea0b6d87d04077b",
+      "items": [
+        {
+          "identity": "r209-c1/method-court-debate",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "54f30bb6f0aa195f5a70695ce9eb07f79f8619555697975d0d2b8a9224d25c31"
+        },
+        {
+          "identity": "r209-c1/method-institutional-purge",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "212cb149587ac5e420860cfbe83c8702c738601f906b6e37a5910e080cc25758"
+        },
+        {
+          "identity": "r209-c1/method-negotiation-summit",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b36c10a0ec34b62c7695463ec99dc0b2c406a6c244f351f2d62a22d983788ca9"
+        },
+        {
+          "identity": "r209-c1/method-trial-courtroom",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c87bb019b982020e1544f188d91e57ac76ccd312863adafe3b696ddac3ef87d8"
+        },
+        {
+          "identity": "r209-c1/method-reform-pilot",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f3c7d21d6ecdfdc61af799e94a9ad64ffe8d6264cdf7321158b724ab635c23de"
+        },
+        {
+          "identity": "r209-c1/method-territory-development",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "80ed9f82cc517f4f1ba023f41fb1b16b1d60239957d5e49267d7b87a5a2a3154"
+        },
+        {
+          "identity": "r209-c1/method-settlement-building",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "58b22d235348a4e30edd267238c87b113af06156040add9c6617fea273b33f98"
+        },
+        {
+          "identity": "r209-c1/method-production-crisis",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ea73c5dcfe0e1e434673b06a88955baf7a7fed4a698d2e0634a7702b2b6bfc1e"
+        },
+        {
+          "identity": "r209-c1/method-auction-trade-fair",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "301d13e06ebe42ba0a649f3faf870f4bf017df7adfa01687e45837da7384f7cc"
+        },
+        {
+          "identity": "r209-c1/method-banquet-social-game",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a1d25f97416432f627caecb5c46a324065c61408725e1d8ae83b757e1decfdd8"
+        },
+        {
+          "identity": "r209-c1/method-wedding-ceremony",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6fd36ee922697067eaf7391f8a92aec2a1bde576e11b980b9eb854ca6ecc7abf"
+        },
+        {
+          "identity": "r209-c1/method-family-gathering",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "fc4160fa2e3c562ec568cc10db566adb22f396cd289c01ba617e2273a6f74032"
+        },
+        {
+          "identity": "r209-c1/method-reunion-return",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "626f9ff620a9b9c1b81e3bbe4cb0af38c4bb57dd10227e85977049f379396871"
+        },
+        {
+          "identity": "r209-c1/method-relationship-crossroads",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "714f99ee6601cf6178887a92a4e697f98b28ac52573522e4e308f14ae8e69a20"
+        },
+        {
+          "identity": "r209-c1/method-caregiving-period",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "255837a684952c42c450d8fea63a88bcedc3978a9e45101b2fd6d9c8662c2b38"
+        }
+      ],
+      "inputTokens": 4332,
+      "outputTokens": 325
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-2e85b978-2405-4d4a-ac07-00e8d11f1fc4",
+      "model": "glm-5.3",
+      "hash": "73c1cf30026f4810701eeb1f04a8195d6fa81baa6764bf93b5b6d173faec75ad",
+      "items": [
+        {
+          "identity": "r209-c1/method-mentorship-apprenticeship",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "53bb3c05ecd33f346cc5549ea55b2ec1fe73c2931c68ff46baeb5377b2ad6182"
+        },
+        {
+          "identity": "r209-c1/method-team-formation",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "98fa0e11f69462e0ec3a414916befa7fda0ccb791156080924afb5d67b1fbfae"
+        },
+        {
+          "identity": "r209-c1/method-recruitment-selection",
+          "pass": false,
+          "issues": [
+            "使用条件与含义不符：'招募选拔'的核心是有限名额下的双向选择与匹配检验，而使用条件'不同目标的人需要竞争、协作或重新协商边界时'是照搬'团队组建'的条件，未体现选拔与相互评估的特征。建议改为'组织与个人需要相互挑选、检验匹配度或名额有限需要取舍时'。"
+          ],
+          "payloadHash": "c1e1d312d36844e4f332b6479158666095e34defce448bceca10480168d0e591"
+        },
+        {
+          "identity": "r209-c1/method-ritual-festival",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "cc2e43d6e81af1256c7e9e78fac478bbbc7e677fff60aed151325be7607179be"
+        },
+        {
+          "identity": "r209-c1/method-time-loop-scenario",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "363b93cddcc4b7c0d5558731ef8b8a4cb877f0ff7dbbbde1c440e7b3ab32d995"
+        },
+        {
+          "identity": "r209-c1/method-conceal-capability",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "87423fb034bcb38a8e8322c7edb7befab718f519310ac0b985c1f38486e2fd42"
+        },
+        {
+          "identity": "r209-c1/method-disguise-identity",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9ed66b793d344611126c45a6952fcf29fb22f7850a837343297b31257cfc1e62"
+        },
+        {
+          "identity": "r209-c1/method-embed-and-observe",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "212cb3e5625883eac0dd585ed0b9d063e5c7d241640c4b73dc2b3dfd6814eb97"
+        },
+        {
+          "identity": "r209-c1/method-bait-and-catch",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c72a20de7bd11026e4f4473d03d036521d970952aeb7ecd790a5b40c450a97d8"
+        },
+        {
+          "identity": "r209-c1/method-feint-and-shift",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b73d35a24adee1047b76259f1f0bfdcb9c2e9e1b65af7b6a123c70e134d86c2b"
+        },
+        {
+          "identity": "r209-c1/method-divide-coalition",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c657d63b375a4e55e5c876020ff83fee0f53326127ed40adaf1e94b03b5eaf12"
+        },
+        {
+          "identity": "r209-c1/method-borrow-power",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "53a828ddf74bb802117b15b1bc061d22f77c9aba8cee3d4d2ffefbe566fbedb1"
+        },
+        {
+          "identity": "r209-c1/method-information-arbitrage",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "2139b6b0441bf18a4b1a2274fbecf59fcffd57cf3cedebf06279e4df0b68f1bc"
+        },
+        {
+          "identity": "r209-c1/method-negotiated-exchange",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "d6b8da636559dc33c36a4febcff8694d5034ac13780da84ca91c7de119f43b44"
+        },
+        {
+          "identity": "r209-c1/method-exploit-rules",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "82c015fd1ad15bbbeecc195099007244e19297e910699a4400f8fc53e1a7129b"
+        }
+      ],
+      "inputTokens": 4165,
+      "outputTokens": 786
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-d7406aae-c73f-4867-a4bf-42017d952b0e",
+      "model": "glm-5.3",
+      "hash": "bdb7f68ccf4d2ed979096b11f8aadfb2ed7fb65dd53b5ae660314ff59201b32e",
+      "items": [
+        {
+          "identity": "r209-c1/method-build-alliance",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ed066edb6e7d668c7e71e5588648359e02c5bf66d83e4363ba8df175bfc09a30"
+        },
+        {
+          "identity": "r209-c1/method-turn-opponent",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8c6e709cf5a36836b2997de32caa2abdfd66495bf4534c9051c28db149e53a38"
+        },
+        {
+          "identity": "r209-c1/method-sacrifice-short-term",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "79113c307959536ab4070796bb826747fdfbdf443fdf9fa639d90e2b42c2a1af"
+        },
+        {
+          "identity": "r209-c1/method-strategic-retreat",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "65a4bff06e40ee2d1d09f29f110b91259977cb1545ea66a15a2d0b93c6acd439"
+        },
+        {
+          "identity": "r209-c1/method-proxy-contest",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4c4690c57f762372ecc5df0796bf99811d8fab4e3b3a4aabe20f9cd96b232401"
+        },
+        {
+          "identity": "r209-c1/method-parallel-plans",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "43f46e52a2e994df85c17337324e40b718fd3ffb0330abaf61539b49eae6903d"
+        },
+        {
+          "identity": "r209-c1/method-countertrap",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9e384998663ee43bbf4bf83b4f6c3005de16b755c2dba5d6199c917df22cee92"
+        },
+        {
+          "identity": "r209-c1/method-public-demonstration",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8a7f2c9553c8195ce47d27a0acffc21c25497f2d0a6ea48caa5ba0b6f7b7f374"
+        },
+        {
+          "identity": "r209-c1/method-evidence-sting",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a103b84e7205494afdade81340bbd32c50edbec25b4b0d729b4dbdcc736d05cb"
+        },
+        {
+          "identity": "r209-c1/method-controlled-disclosure",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "cc1a5e5f1d611c3e460d28d4bc33e59ea2ffd44100e7ae0f77d057b4c541fceb"
+        },
+        {
+          "identity": "r209-c1/method-empathy-repair",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "826b64fdc881466d3195df94e7ea3f0831fe10538703437de29853e6fed1775f"
+        },
+        {
+          "identity": "r209-c1/method-learn-by-apprenticeship",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "87ad040d9bb29e764d9a9a1c3f9dce79d3d4378a70a84206b18213e2f0219113"
+        },
+        {
+          "identity": "r209-c1/method-team-specialization",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3245bf1dc18d6b08cb171e9cdf76276f6ba0e46d5f7891ddb7997977694b17b8"
+        },
+        {
+          "identity": "r209-c1/method-innovation-breakthrough",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c512076a93594c55cfae57bcc05c9342469b6b54b66cbe45f2f881dfbc96db43"
+        },
+        {
+          "identity": "r209-c1/method-overwhelming-opponent",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6ed231271e0f0845e8134e6a2657bf375355b039d4cac2120ab3aeae6a70065f"
+        }
+      ],
+      "inputTokens": 4128,
+      "outputTokens": 761
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-0de6ee27-07a7-4115-87d9-1b0e77e82c66",
+      "model": "glm-5.3",
+      "hash": "32f6c349ff58eb61441aaaaa0fc6382cdc791a1714f5adab8617ba4c140e1334",
+      "items": [
+        {
+          "identity": "r209-c1/method-public-scrutiny",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "32cbd1765bef3cc3485dd158268488d4dbfdc01766ab57fab02d041360310862"
+        },
+        {
+          "identity": "r209-c1/method-reputation-risk",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "beb7346c19c4c663da6407f12151319730a5c2ba86de9110833c2c6fe2792152"
+        },
+        {
+          "identity": "r209-c1/method-hierarchy-pressure",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "1d74a314ad3708a8e208f1daf452f0895e8fad5e4a5d17ea6ddeacbc7b35c38a"
+        },
+        {
+          "identity": "r209-c1/method-institutional-constraint",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "03220b357a9777f8500f5faf35fd5341814000e94c5c76bb934c34c0f839f66a"
+        },
+        {
+          "identity": "r209-c1/method-hostage-bind",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "310cf68ac1f8feada65522efe2c631407f60d2a5a7ff292c884325635fb6ae60"
+        },
+        {
+          "identity": "r209-c1/method-collateral-risk",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "fc39f7adbb0a1950c0d463eb405ec9f1344289821cfcc769d8631cabd7b854a4"
+        },
+        {
+          "identity": "r209-c1/method-injury-illness",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "07a4d3a4baebceb8e2d10dcc74ea559245f494ff611451b2337b9f920da60a1a"
+        },
+        {
+          "identity": "r209-c1/method-hostile-environment",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6fda78a06d9c1b4e39c84e04c2d53eb0e34a1cc02c1e7aef76bb720d1014bddd"
+        },
+        {
+          "identity": "r209-c1/method-isolation-pressure",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "222d5554eb42980f930a9afe50e1f9eb592428afaa18549959522c153f584856"
+        },
+        {
+          "identity": "r209-c1/method-persistent-pursuit",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "aa501d094518bc4de72cfba90fa32a70869f91fc1c0fdf45b793f79d0cb452d0"
+        },
+        {
+          "identity": "r209-c1/method-betrayal-suspicion",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b7fa0b5ba9093573584d7d68a54c8b97491c9e2c03a7a2437ae547d4d21cc971"
+        },
+        {
+          "identity": "r209-c1/method-internal-faction-split",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "59c742bcac88aac442dcc5381538e86f9a8acfa1af1bd3039929984297791f3f"
+        },
+        {
+          "identity": "r209-c1/method-secret-exposure",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "894a8516944dab9fa61a315cd0c51aef25ad85d58d707f84533387d871f6f64c"
+        },
+        {
+          "identity": "r209-c1/method-debt-obligation",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "2c5f3515abf368ad6af604f7c92a8a4e1ca50ced8c9abecf65722d9e5907e035"
+        },
+        {
+          "identity": "r209-c1/method-responsibility-expansion",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7ff64d2cdb7a3bf3a4fc2602139ceeb06caff9d3e9cc8c3636d60dc0ea5e0c17"
+        }
+      ],
+      "inputTokens": 4190,
+      "outputTokens": 330
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-6a395be9-b909-4b41-86b3-3b370bccdc9c",
+      "model": "glm-5.3",
+      "hash": "51239e04a1e30d0cbcc9a837bb1248a21f70880e6d6e36daa10e96183c558d3e",
+      "items": [
+        {
+          "identity": "r209-c1/method-conflicting-objectives",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f967cab4e51a9874a66680047f1eb4aaa902bfac40cbd487d5eabcdba8ef8d09"
+        },
+        {
+          "identity": "r209-c1/method-unreliable-intelligence",
+          "pass": false,
+          "issues": [
+            "使用条件与该方法含义不符：'目标被资源、利益、规则或责任限制，需要形成有意义的取舍'是双重目标冲突的触发条件，而'情报不完整'的核心是信息缺失、过时或被操纵，与资源/利益/规则/责任限制无直接对应。建议改为：'人物需要在信息不完整或可能失真的情况下做出判断和行动时，考虑情报不完整'。"
+          ],
+          "payloadHash": "ae3e9c98a2ea19ee3031a4c4569d9e29e0342629e52012d2f8944cc0fcadbbb5"
+        },
+        {
+          "identity": "r209-c1/method-rule-trap",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e13896b6302a57554223ec80cfd136efae353d02affc56447c0f23d3ed914a4d"
+        },
+        {
+          "identity": "r209-c1/method-repeated-failure",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "73eb3f34e6ca3da0ad6dd4f875c115bd18f01fe04560b9abbe434fa02c2b6c9c"
+        },
+        {
+          "identity": "r209-c1/method-irreversible-loss",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a262c2a41d5ba5bcec21bc58f85edb434cd86877cff05d1d1ec5d531f0abc852"
+        },
+        {
+          "identity": "r209-c1/method-false-victory",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ced0b49f6ba75e15d8cc90781d379a7fd88441d6d3af5e0de8a903d4487fe468"
+        },
+        {
+          "identity": "r209-c1/method-false-defeat",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "cc45d976948b72b1ae00314b757f24847ce535fe0eda46d0d7dc6d83ccf03af8"
+        },
+        {
+          "identity": "r209-c1/method-identity-reveal",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "201408ea03e338c82b878de430107fac20a32a8962534cc11c52b8f90032db76"
+        },
+        {
+          "identity": "r209-c1/method-ally-betrayal",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "bed3f0f1f9ddfb340ab7a72f1fe07a7240aaca0eae91ffd02a7eeb3f62e2b690"
+        },
+        {
+          "identity": "r209-c1/method-enemy-cooperation",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "be7a8444f67093c497323325a7d7ef1c897d3745ec94fa39b0f3fc56388fbc0e"
+        },
+        {
+          "identity": "r209-c1/method-goal-redefinition",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "589f93c03c2a337ed6f72fdf3624972c4e27ed1cad438dc78a031b94286cae1b"
+        },
+        {
+          "identity": "r209-c1/method-hidden-cost-reveal",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9340b1f8c49a208550f61096daa48085f9ee48b00a770917173bb6ab3b93767d"
+        },
+        {
+          "identity": "r209-c1/method-evidence-reframed",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "66d6744c21cbad7c6ee940a494ce969d880dda31c1852b5bc3c5facb127c7c29"
+        },
+        {
+          "identity": "r209-c1/method-rule-reinterpreted",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "af0b81095ddd3505438cc96e2468d67c1b13bad77caddf9152a94920b278e0c0"
+        },
+        {
+          "identity": "r209-c1/method-status-reversal",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "638ec40658d6f89f1647ccd8df9d950235a2584d610ae017b6fda18b7407673b"
+        }
+      ],
+      "inputTokens": 4175,
+      "outputTokens": 882
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-f9a0f3da-022d-4181-963a-97fa1213b407",
+      "model": "glm-5.3",
+      "hash": "a99aee5b1bbfd07978a889ee582712a4996dbc6ed16c74d4de8e70f4cd24e5bb",
+      "items": [
+        {
+          "identity": "r209-c1/method-location-becomes-trap",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "671715f9207c1ed9e923a0bd07821025f87ecaacc0500de2027017d41d006fe4"
+        },
+        {
+          "identity": "r209-c1/method-loop-clue-breakthrough",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ea91d2bde895396317db84af04e7fd3eb0633e62e1725ebc610b260bc98f8033"
+        },
+        {
+          "identity": "r209-c1/method-presumed-dead-return",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "585181efcc46d391bfe7c54219ade3d728499d5bae8ca2d900796af67fd93626"
+        },
+        {
+          "identity": "r209-c1/method-legacy-inheritance-reveal",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a03e3f3e061c1463f296c8e9be0bfb96f7227ba63d3cf904e7be5faf686b3c10"
+        },
+        {
+          "identity": "r209-c1/method-culprit-reversal",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "efcf9239c1fc3c715701f9b8466d9c0e4078b51cadf547712701c815a518350b"
+        },
+        {
+          "identity": "r209-c1/method-third-force-intervention",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "0418e76e2a2650e5f65161e28e0738d051153544688bc9ff7d3912ad682a8b90"
+        },
+        {
+          "identity": "r209-c1/method-success-triggers-crisis",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "da6efbc1bad84062f0d0de87ab73497ee506a9b8f153f630f3e44775aeba616e"
+        },
+        {
+          "identity": "r209-c1/method-sacrifice-shifts-balance",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "575727eb7d31b5e2f7942478b2c6442fa5f5d9b7ad260f3308304b8846fe8f84"
+        },
+        {
+          "identity": "r209-c1/method-misunderstanding-clarified",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9c47fce54486138174cae5998773c001b62572871787c093d789c6d980371a0b"
+        },
+        {
+          "identity": "r209-c1/method-plan-within-plan-exposed",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7b296cd268346b8bf9fb5f314786a65a002a6cf23dbf9bb3376bf5f601ec5f56"
+        },
+        {
+          "identity": "r209-c1/method-public-vindication",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "1c17b16a8f38449569ed19a9138e76108ed5430a938bb232812e2d2c15b04fd1"
+        },
+        {
+          "identity": "r209-c1/method-capability-breakthrough",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7d56a66d96e52fe3a92248cc39c84d64fed19107fc3375f61c26400f6f88b1ad"
+        },
+        {
+          "identity": "r209-c1/method-rank-promotion",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6d8087d77cddd34b48c818675c346d98de8f2b296491343e87b2a0cfabfc6c29"
+        },
+        {
+          "identity": "r209-c1/method-resource-acquisition",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7e4ef562d484c1c9b18966f5c7153716f16d81053aa2cf5e9b3bc428a9d87b7d"
+        },
+        {
+          "identity": "r209-c1/method-rescue-completed",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ec432f5cd67b86131fff6051fa0b479c53903cf1b818e74aaa7ea6f983b2c8e7"
+        }
+      ],
+      "inputTokens": 4292,
+      "outputTokens": 631
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-533dddb4-987a-43bc-9782-01591d9490db",
+      "model": "glm-5.3",
+      "hash": "eb7806f3c43974eafe90237ef21163556349e566886d522130a3f81db02a49e9",
+      "items": [
+        {
+          "identity": "r209-c1/method-escape-secured",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b0f9eecbd81a28579dca69be6534170929480989003b0b0585fd9982b198e277"
+        },
+        {
+          "identity": "r209-c1/method-truth-revealed",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "59eccaceac45ca1c7407b7cc71fa65ce3af2c807c05a5473a20ad7172eb6ad1c"
+        },
+        {
+          "identity": "r209-c1/method-justice-enforced",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "1328dd5bf2c498202cead78a701e07338d908a182661a96d001ea650ed494239"
+        },
+        {
+          "identity": "r209-c1/method-revenge-stage-settled",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "17dfb6ec293ce9d5f12e01d1064254b79f8a730ae4668240d69e86e0a8c57345"
+        },
+        {
+          "identity": "r209-c1/method-relationship-confirmed",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8d25a2baa69c3864b8a558285621bfb6f3d95ee63e7a53a21403e59941617b16"
+        },
+        {
+          "identity": "r209-c1/method-trust-repaired",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "df1e1ae715aa9aeee061305ca3ae6291097f6dc7dd2bfc240a7f1e69d756fe5f"
+        },
+        {
+          "identity": "r209-c1/method-family-reconciled",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b44ccc97dfc105a4d6d1511a57c8fb73a3c1b68d5443f217f187100976789b04"
+        },
+        {
+          "identity": "r209-c1/method-team-cohesion",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b691de7f80d7690741413bce0151a5c2d41c0cea1d7706999b4d5ad90ddc4f79"
+        },
+        {
+          "identity": "r209-c1/method-territory-gained",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "d1d45701f2836a8bfb9233d466b8120cd24ea05f83dd24b0642c82c44c69d7ac"
+        },
+        {
+          "identity": "r209-c1/method-institution-changed",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4ee155b77ccd09074ae9d34603f8334932df81f0a2e080447a93d772e9747def"
+        },
+        {
+          "identity": "r209-c1/method-championship-result",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "01cf0cdda195fe3d70dd4dd19dc5d9ed353b155d54a71cffbb619420428df31f"
+        },
+        {
+          "identity": "r209-c1/method-commercial-win",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9f83d0637466350712cfbeb1809f8fd216912ce7bd2a975d644a8f0a34955278"
+        },
+        {
+          "identity": "r209-c1/method-artistic-recognition",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c203b83b5d5eae8eeaee46cf51dad2c57eda970b4a55ca13832dfb4d03869549"
+        },
+        {
+          "identity": "r209-c1/method-survival-secured",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e46c1afd817480968cd787fa5bd654a1e497897a9907ad82627b1bcf03a92bf1"
+        },
+        {
+          "identity": "r209-c1/method-secret-protected",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "555b6683dc45ecff94c78cf10a82d74b9609db94094d2f11664f88466097d1f3"
+        }
+      ],
+      "inputTokens": 4233,
+      "outputTokens": 540
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-31efe16d-7d45-4cf0-a414-e41d4ba791f0",
+      "model": "glm-5.3",
+      "hash": "319c32cb8f07beb374213a621854991662fe63886420c05d71ee7aa1694980ff",
+      "items": [
+        {
+          "identity": "r209-c1/method-moral-victory",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e76df05b4820551220a03cfc1fd6989db51cec6442c27164879a6f737895ab75"
+        },
+        {
+          "identity": "r209-c1/method-tragic-sacrifice",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "1c61fb6061d9d0c42f999f9e9bc287d894b0169ce9c24e068cea7f2f94a45b44"
+        },
+        {
+          "identity": "r209-c1/method-bittersweet-exchange",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "2db1e6e702a30581dbc428f8f1726c280a1f8b1a0d7ca61717e3cab63f95d0e4"
+        },
+        {
+          "identity": "r209-c1/method-new-world-opened",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "bb66005b1fdd2273ac71cce0d486d04e3c4950aadaf708ca2daa5a847dda8a6c"
+        },
+        {
+          "identity": "r209-c1/method-recovery-period",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "65f0da4c769af0f92e07f6383f56ea7d4523d3ef26eafa03ec177da93cd9b35f"
+        },
+        {
+          "identity": "r209-c1/method-daily-life-window",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "2013df036fec3525ad331a8a8bccb3775cea18025b5a4b00ef165a975dc88934"
+        },
+        {
+          "identity": "r209-c1/method-training-consolidation",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "080cdfdf50c852c0877781eb334d1b31d1d239a751a85f063b55f786944ec1ad"
+        },
+        {
+          "identity": "r209-c1/method-travel-transition",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "15e65463582154169af3c00b91914c282345923f0b9c8cdc4ab3f1713fe31b91"
+        },
+        {
+          "identity": "r209-c1/method-investigation-followup",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4421fd407aec3e6a69a7df3521decc7d8a4115bb0fcacf82e737f5014a80a9c5"
+        },
+        {
+          "identity": "r209-c1/method-resource-settlement",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "d8ba19938400895641e111be70d314a6a30746deedc812a6e976afb1a80f1918"
+        },
+        {
+          "identity": "r209-c1/method-relationship-aftercare",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7e8136d0322f960920f607147cc1bbcff8287a9601219603f7a48f7976f5c8a8"
+        },
+        {
+          "identity": "r209-c1/method-mourning-ritual",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "43c5b3fd4feff1520f3b72519a17d76dae0488c9d531cf44683b0f0c2d31d4df"
+        },
+        {
+          "identity": "r209-c1/method-celebration-window",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "20416d2daca75c2fb6fcd25574db7396bdc6af4ef297fe7d377f6b0590652290"
+        },
+        {
+          "identity": "r209-c1/method-political-aftermath",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "5a14accabbed54594605c30f203bd237be20d4fce372d7347a10af52fb9524cd"
+        },
+        {
+          "identity": "r209-c1/method-career-market-aftermath",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "66957b229f76d6eda27f7a8a35c518ae41c35d7eb895e83ebdf081ee84e9afe9"
+        }
+      ],
+      "inputTokens": 4220,
+      "outputTokens": 615
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-0ad59318-b590-4a29-a1d9-e824b190ef37",
+      "model": "glm-5.3",
+      "hash": "c8ef505d8c936c84fbc126a242ffff0b90810746f7dd482cc34e15d8317fe415",
+      "items": [
+        {
+          "identity": "r209-c1/method-world-reaction",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e072edd05fa23311138348bdbc8156f284fc47cc50ae66d8a80a3b7238427194"
+        },
+        {
+          "identity": "r209-c1/method-foreshadow-seed",
+          "pass": false,
+          "issues": [
+            "conditionalUses 的卷级用法“明确本卷已完成的责任与仍待推进的线”与该方法含义不符：埋下后续触发的卷末用途应是留下待揭示的线索或问题，而非交代已完成责任。建议改为与伏笔/悬念相关的用法描述。"
+          ],
+          "payloadHash": "002ac832c07fd2d710229674e56bf73da3d478c70adad4c785102768b8c66dda"
+        },
+        {
+          "identity": "r209-c1/method-next-mission-intake",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4752cc966c3b767d81fa42ffd51e020be1322e3a18d5acc4936d0787f8eb2872"
+        },
+        {
+          "identity": "r209-c1/method-perspective-handoff",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "86518b5d583311663a835abf1a63f76e936d6e731679e1dc465148c4dc739f3f"
+        },
+        {
+          "identity": "r209-c1/method-grow-into-responsibility",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "62c8468eac7ede74e3644f7a73ac26edfbbc94e983f8bc8bf341ffc3c3d4c7aa"
+        },
+        {
+          "identity": "r209-c1/method-loss-and-rebuild",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "fd8d6e9be275e8f3f47a62d7b8d79b37a50d0fd3f9d0892426bef97c16aa47b4"
+        },
+        {
+          "identity": "r209-c1/method-escalating-consequences",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "fe7a480801ad406a451344e7ad19ea464cb427757ed778e8df4b0913db4d9b50"
+        },
+        {
+          "identity": "r209-c1/method-layered-truth",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b7ad28b08e0888acbc82fc8d0ebabd611e0be37ff02941cc30dfd83dad108ec0"
+        },
+        {
+          "identity": "r209-c1/method-balance-of-power",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9f3d8624a1e751de8e8e7812e8ad18ae7a602c857943436cad691be5c61e3452"
+        },
+        {
+          "identity": "r209-c1/method-relationship-redefines-goal",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "0c0f1fbcc3954c325762d2ad903c9e2072c7cfba977b8b189ffaaf31398ad224"
+        },
+        {
+          "identity": "r209-c1/method-accumulate-and-stress-test",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ed3ee698087ec392818560f02e94460ead640f5f862c25adfa1f15200117d826"
+        },
+        {
+          "identity": "r209-c1/method-trigger-and-response",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "5a8d15594e0c5e5c28b51db06dc4c68414a56ca75611d728958bf88005d4ee2d"
+        },
+        {
+          "identity": "r209-c1/method-capability-under-pressure",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "799bbdc4e7e3648a898471b36cba6dadd1272d7f903003069bcb3814b0eedfca"
+        },
+        {
+          "identity": "r209-c1/method-victory-with-cost",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "dd1e3df5f5d925dcbb56e2120f357256e9221a500baacce42e30c89d78488f43"
+        },
+        {
+          "identity": "r209-c1/method-failure-to-breakthrough",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "dee3ee82157b323e6548d24f5b391b37a19c2f93099ad26190003f4c9ba229fa"
+        }
+      ],
+      "inputTokens": 4251,
+      "outputTokens": 619
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-c31d650c-3f9f-489b-adff-d169b397e7ea",
+      "model": "glm-5.3",
+      "hash": "7f5066a4754c949273e58a9387bbfeb46c09468c42239983f132ccd97bc307b0",
+      "items": [
+        {
+          "identity": "r209-c1/method-clues-reframe-understanding",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "2a19d46c4acba812360c115bf7bbcde87cd7b5226fa4d2479c69457caf79756a"
+        },
+        {
+          "identity": "r209-c1/method-factions-change-sides",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e525a271c6e28dd0b0fcd24f8fdcd428316f47900bae1a68c481761984259fb8"
+        },
+        {
+          "identity": "r209-c1/method-relationship-forces-choice",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "50e5ea01f85efd81d0ea3a7a9cfe78a1efe17b98544c218ecb137ca4ddc8d94f"
+        },
+        {
+          "identity": "r209-c1/method-hope-loss-choice",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e2d0843309a19f167bf1b7bcb4e436296fcf67fdaae247b5439cdd7498da8199"
+        },
+        {
+          "identity": "r209-c1/method-dungeon-expedition-run",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "5f568dfdfab8a76aba340c823b2fb5e33f83fdfbe98e96ec8c8f1a00d27ea78d"
+        },
+        {
+          "identity": "r209-c1/method-tournament-run",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e2c45dc5bc2d276106c2abc2e4f051f30d8eb8ea6a87dbb613a0d20624232fbc"
+        },
+        {
+          "identity": "r209-c1/method-academy-growth-cycle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "573c5b0d6dffac8c6930164c8aebe120aeb061dc523b98387448ee618763131a"
+        },
+        {
+          "identity": "r209-c1/method-staged-revenge",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c3898e93e3ea96790982429e03554d59389036c574da6e7b57066e3417e73503"
+        },
+        {
+          "identity": "r209-c1/method-fair-case-investigation",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "2d293f339ad22e27c4f8511e7a9f8ef52060bde482b4b42a2241baaaa2bd2ee4"
+        },
+        {
+          "identity": "r209-c1/method-infiltration-and-extraction",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e5a452d0804b6c622d82f35d8d11d317e811d6475ba6552c1f87e35d24b04b3d"
+        },
+        {
+          "identity": "r209-c1/method-countdown-rescue",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b4f9a8066a00712883f6df55768b367ed4de839b464608a467412a0a71b30c0a"
+        },
+        {
+          "identity": "r209-c1/method-survival-collapse-rebuild",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "cd595c22a14db483c102c7974747e9cda643e07fecd8e20f3827c405e797977f"
+        },
+        {
+          "identity": "r209-c1/method-campaign-to-aftermath",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "19c16ef182301f2cba37a2b8aa7470bec03829d7955670c2ca7d3597880fb524"
+        },
+        {
+          "identity": "r209-c1/method-court-power-struggle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9c15d7df1c8faf03d9b5860d6618e88cd0871d4f5a95483e8d363fdc89709d24"
+        }
+      ],
+      "inputTokens": 4190,
+      "outputTokens": 331
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-900f95b5-ab59-4953-ba81-5012f7e891ac",
+      "model": "glm-5.3",
+      "hash": "8698922913f2c518971497ec8c77141ec5a29a14d0fa1074c20e825a32716578",
+      "items": [
+        {
+          "identity": "r209-c1/method-kingdom-building-cycle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "deb7fbbd0f0714363a9433bc5bb947a61a35c656b856ba8f620daccf01b50d8f"
+        },
+        {
+          "identity": "r209-c1/method-business-war-cycle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7374a63fa438b9e41012dec1861aadae8c1519d2cb27401cf4c7a634874ad737"
+        },
+        {
+          "identity": "r209-c1/method-workplace-project-cycle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "327727b8d2805a05f54671d6b773293f60e47a90e0016f0e548cbb968b410a2a"
+        },
+        {
+          "identity": "r209-c1/method-entertainment-rise-cycle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "16afc5e4b07568aa640e2efef0ce9b4f89a142c7502990c25bd5cbd846118449"
+        },
+        {
+          "identity": "r209-c1/method-sports-championship-cycle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "d226ea0fcaf27c6d42052568ba3a259ae3ec39436eab24120e15756b80f351ab"
+        },
+        {
+          "identity": "r209-c1/method-romance-commitment-cycle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b4ea61c6ebdd3dfbd48765f90a707d7041ea56218ff2e8c3f91624ae70615a0b"
+        },
+        {
+          "identity": "r209-c1/method-marriage-crisis-repair",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "677316744f81a1e83c64878305bcab17d7e29c6c59c42ae3bdc31c6deb3f3e39"
+        },
+        {
+          "identity": "r209-c1/method-family-legacy-cycle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "04d0a4a43b45f8688a8779635714eba51c2bac89fef8a018550057db2f395214"
+        },
+        {
+          "identity": "r209-c1/method-science-discovery-cycle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "569c2a41d711b4620a9024b7b35914b39858f23b593c7308b22e6fef512f502a"
+        },
+        {
+          "identity": "r209-c1/method-apocalypse-refuge-cycle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9a7928a53ef8dea59d9051242f3e323bc9ab645e61ea63336552648726df4646"
+        },
+        {
+          "identity": "r209-c1/method-infinite-instance-cycle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "430c9ed4a807efa9a42dfd6c600eab1b52133d03d154f9d8a8594b735021a567"
+        },
+        {
+          "identity": "r209-c1/method-dialogue-objectives",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a2b9a48bd44b923c95bc26d0a4ec9ff4bc251136a50876ee627712b88cde2bd6"
+        },
+        {
+          "identity": "r209-c1/method-subtext-through-action",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "fe8b83a4b6c515164880bfd50c9c179f616beacd74fd170bfa3700e4646ae376"
+        },
+        {
+          "identity": "r209-c1/method-character-speech-signature",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4618de076be648564293144c2e8be1de7da08fcd8b22d0e506d798b532877acb"
+        }
+      ],
+      "inputTokens": 4222,
+      "outputTokens": 315
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-0fe8b3bd-39e3-4889-a2d4-ea1a9c323d15",
+      "model": "glm-5.3",
+      "hash": "3de718121c469d77b2ef2723d4bb23ea83e524c301406b8d8921bcb1a7eb8fc9",
+      "items": [
+        {
+          "identity": "r209-c1/method-action-spatial-clarity",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "20899ae3940701337a39cf5804076d42a7e5e02f05683358a5d4bb02c184cb3d"
+        },
+        {
+          "identity": "r209-c1/method-sensory-point-of-view",
+          "pass": false,
+          "issues": [
+            "conditionalUses 与方法含义不符：该方法关注“当前人物会注意到的感官细节”，但条件用途写“只记录行动目的和变化，不扩写语言表现”，属于行动类方法的用途，与感官细节选择无对应关系，疑似复制错误。建议改为与感官细节相关的章纲层用途，如“只标记本场景需突出的关键感官关注点，不在章纲层扩写景物描写”。"
+          ],
+          "payloadHash": "299ccb7e861ccac1f16677fec73af3914ea85d50d5095973ced1765997d90adb"
+        },
+        {
+          "identity": "r209-c1/method-comic-incongruity",
+          "pass": false,
+          "issues": [
+            "conditionalUses 与方法含义不符：该方法关注错位落差与笑点延续，但条件用途写“只记录行动目的和变化，不扩写语言表现”，与笑点设计无关，疑似复制错误。建议改为与错位和回响相关的章纲层用途，如“只记录落差设置与后续回响位置，不在章纲层写笑点台词”。"
+          ],
+          "payloadHash": "883704a4dff51e50bdeb6963f54f786de8bccf2bcc8555675f385866a673c413"
+        },
+        {
+          "identity": "r209-c1/method-ensemble-focus-rotation",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "41e451066f4e5914b16d41d56edadd19ed8b8aea203044e7ea95e454f198668d"
+        },
+        {
+          "identity": "r209-c1/method-relationship-micro-moments",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "1435c1dc4d043565ad9de73cbb3d14cea7ad41f3779386591bcf84c1686db0b0"
+        },
+        {
+          "identity": "r209-c2/c2-premise-recombination",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "2f8b17b69dc004c62f378f2f8e271e71a8e8fc7947e2f96c53c4fa2f10d61f1c"
+        },
+        {
+          "identity": "r209-c2/c2-fusion-stress-test",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "75f6770b5079cba81016d45eeb95469a4b551e3bc22becdf927dee20b1962262"
+        },
+        {
+          "identity": "r209-c2/c2-premise-counterfactual",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "2eae3fcfaf11120de2d4e996d33c055bfcae0aa3c14892bf610b6afa3aab91c3"
+        },
+        {
+          "identity": "r209-c2/c2-appeal-action-test",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "047d751e79d280e1e5c3fe3e1d084dc2d441bdad897fd25ad5a7d4f0a86bc082"
+        },
+        {
+          "identity": "r209-c2/c2-appeal-growth-matrix",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9c12c93f9301aae2c600b7550d87f0ae3dd7087a948606fd8031e14d19d9ec6e"
+        },
+        {
+          "identity": "r209-c2/c2-reader-reward-fit",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c939191c44791ef50f6bd718d8f4e88089e3cd375f6a93089e63269c243bcc70"
+        },
+        {
+          "identity": "r209-c2/c2-premise-intent-check",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "628132c5e670fe23d7f3db966f201f7e20005cee67b41567aacfead14116407f"
+        },
+        {
+          "identity": "r209-c2/c2-story-capacity-test",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "0e52d0306df9ec5582696bb62a4470cd7bf7a30173213d34ba704273436c68d1"
+        },
+        {
+          "identity": "r209-c3/reward-proof",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c02ae76a2e1dd2d42dc52e652f44e252f13102ab9484e2bda724236287001797"
+        },
+        {
+          "identity": "r209-c3/reward-stagger",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "495a123be5b959c2986cbf42a9734dedef41aa43ef2f0779a662d78a91b941d2"
+        }
+      ],
+      "inputTokens": 4494,
+      "outputTokens": 1056
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-d90dbf63-d22c-4cd2-9aa9-e7b52e56a759",
+      "model": "glm-5.3",
+      "hash": "fd6e3a821f495ac9fcb347d1a542553e427890469a9ae2090935e0a6107e5253",
+      "items": [
+        {
+          "identity": "r209-c3/reward-variety",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "0d733a580fc457a745034fe00b91201cadac7a38ad8942d91ebc8672c4e9901b"
+        },
+        {
+          "identity": "r209-c3/expectation-track",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "cb2584ec5154c6fe978dea496f27be82a887c0b6ccbe1f65e3733cbb2e4527e0"
+        },
+        {
+          "identity": "r209-c3/fusion-choice",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "95b191c3a71412dfde9b1dc2b19e76f320197e768919419a61b4c28db70ed219"
+        },
+        {
+          "identity": "r209-c3/fact-source",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a932ca29daea7d285e47de0b8bb83c452bd09de9307f0827f615f57ff424c25d"
+        },
+        {
+          "identity": "r209-c3/knowledge-audit",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6b88108a8cbe917a156eb989d02de27692a5c4290f5a3dfa0b17d276b304ff62"
+        },
+        {
+          "identity": "r209-c3/state-audit",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "055f71aae3754e40232657b23d7f9319c7d35027cd82b34acb9f1eda39da91bc"
+        },
+        {
+          "identity": "r209-c3/time-audit",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c1469d3860d614063663cb6ed8c6a6ce0a1828507b41c8a0a3d05e3999163abb"
+        },
+        {
+          "identity": "r209-c3/repeat-edit",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b02872a940e1d06f63985a008201178dbe0548a91a9cac70c52212935e5c8637"
+        },
+        {
+          "identity": "r209-c3/voice-edit",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "30c717dc8ca7794fc38a3239f6ac76ffdf02c947600b74a5119d00ab9cf6c57a"
+        },
+        {
+          "identity": "r209-c3/causal-gap",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a78eccf5332b37fa161f7ebc65f0fa87ff24ed494c84176725c77abf2e07928e"
+        },
+        {
+          "identity": "r209-c1/creative-G001",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3663a8dd1d3bfe833694113db6b273393e1b91d5c89591e24d3cb36701d87492"
+        },
+        {
+          "identity": "r209-c1/creative-G002",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "19660427ab2f528c6131988778f213b8a114fadc302c5f57bc390da3fc482a26"
+        },
+        {
+          "identity": "r209-c1/creative-G003",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b495265093cf2989b9eadb63796fe3ff25310d6d9cc1fb7844c7bca6460961c7"
+        },
+        {
+          "identity": "r209-c1/creative-G004",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7cc46482e5e010a092cd4f2d1562e97f829dc4cfe712f89b835caf87a93c04ae"
+        },
+        {
+          "identity": "r209-c1/creative-G005",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7f4e52426af9012b5068f7230b13ed9a1da40c91e359d4b6da6896588cfc21a1"
+        },
+        {
+          "identity": "r209-c1/creative-G006",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a5aee6be336c23a97570ff6aa85eba87a68ecf224f3cccb16080a019708c1efa"
+        },
+        {
+          "identity": "r209-c1/creative-G007",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "445167cc6d959e543934b0b89c3d13c6da5e5932f0a591d83c1b73c8bc0d779e"
+        }
+      ],
+      "inputTokens": 4360,
+      "outputTokens": 399
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-9c263fc6-c658-40d7-9774-4e581421b040",
+      "model": "glm-5.3",
+      "hash": "1f99d6141f292ad35f8661dba23a2ab39504324d152cfcc346c95a0dfff1c6ba",
+      "items": [
+        {
+          "identity": "r209-c1/creative-G008",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4c99068677650ea24db15988e35fcfe936eaf012b342443a37377e2370170695"
+        },
+        {
+          "identity": "r209-c1/creative-G009",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3ddcaa016bf7acdd416642f97388b968e7a9a66eef51cccb16719165788f195e"
+        },
+        {
+          "identity": "r209-c1/creative-G010",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4aac5385b43a04a3d77a21b40a132a257b193f6d02eab6f91ad5c1675ad10390"
+        },
+        {
+          "identity": "r209-c1/creative-G011",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "855ca42825543f5043a534eafce8a5ae1e0816aaabfb939527e03fc6fffe61a2"
+        },
+        {
+          "identity": "r209-c1/creative-G012",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c9fc4d717ec72430325b74243b8d4b6de615a3e59c2f65df6e395b23cd7903a4"
+        },
+        {
+          "identity": "r209-c1/creative-G013",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c4c97bc72ab3861014393b5c239b7beaaf3bc62579247afb053f5a4b1bbf8573"
+        },
+        {
+          "identity": "r209-c1/creative-G014",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7d8d12690ddec5e592e1d2f7a5f7522f7fee30952a4a4709fd7025e0faa0b2d3"
+        },
+        {
+          "identity": "r209-c1/creative-G015",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "844b1015f965c83c7200a5cbd3b9ec7e0d6d4348daa1ab7f7edc33e4e9552428"
+        },
+        {
+          "identity": "r209-c1/creative-G016",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "d55522922a0cc4902f38e138b5d3a09e385f5d736faca97c7ca1e7ff900e5b46"
+        },
+        {
+          "identity": "r209-c1/creative-G017",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e5b2d76eb18db068ad447791bb766ae03d4cc632b8baa54638b849b190d16893"
+        },
+        {
+          "identity": "r209-c1/creative-G018",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "32eb9eaad22febb0d4f604bcd52f44b0f6bcfda5eb080511cacfd98871a1be8d"
+        },
+        {
+          "identity": "r209-c1/creative-G019",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3e9cf83adb495e953ed292b18cc226d17ed36e9681a0c35bef0f327a1e9caca1"
+        },
+        {
+          "identity": "r209-c1/creative-G020",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "940982a47de2c9ddae5f2f70e31f0d8d7d95eab5b334fa31d2f513d670ad0db9"
+        },
+        {
+          "identity": "r209-c1/creative-G021",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "0a4aebd6596ba0ae6a116fc14797024d72474e157d1f4970b0336a501ff12b70"
+        },
+        {
+          "identity": "r209-c1/creative-G022",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "42b0e946b770a09dce607ae2f774675719e3d2ce2535b8797dd0f02422f2e59c"
+        }
+      ],
+      "inputTokens": 4040,
+      "outputTokens": 321
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-89e81bb5-8ad3-4608-8396-cf1c08789f64",
+      "model": "glm-5.3",
+      "hash": "04a9bf86c0977114e8ebe8a467ccfa81b90cb964a5b3336955b063818d77a05e",
+      "items": [
+        {
+          "identity": "r209-c1/creative-G023",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "1e72dd12cb1a0e2b24fd3402cdb0ff87112ff131d86390fe9bec305311632f06"
+        },
+        {
+          "identity": "r209-c1/creative-G024",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f6105f87990e6f9195e6008b83ee92468aac83840cad8a71101c38adb2d94a3c"
+        },
+        {
+          "identity": "r209-c1/creative-G025",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ab5e59988cef451144160d8cfa6152c630d87c32786651a8d33b5bf8df538e1d"
+        },
+        {
+          "identity": "r209-c1/creative-G026",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "14bdcaed0f7162fb238f241fbd007f30ccaa084b580a3d48db89fd3fc354477e"
+        },
+        {
+          "identity": "r209-c1/creative-G027",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e5623ac355a8dfe9f6a51566a9aed12f41e6bbf4b043ff8bb5819c4d8ce8a681"
+        },
+        {
+          "identity": "r209-c1/creative-G028",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "710e7a326aaced5a24751310a3ad7cedc9b48e75b47001cb1d336f6532578d85"
+        },
+        {
+          "identity": "r209-c1/creative-G029",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "35569a102fe00f05f2d71e40573bad10175d67ba8a53e087a112370ee93c44b6"
+        },
+        {
+          "identity": "r209-c1/creative-G030",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "dcbf7f206458d7e2d22bfa85aac5bdc44fa4dac040081f054a5997af167ba6bf"
+        },
+        {
+          "identity": "r209-c1/creative-G031",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "2dbf0f70a0acf95a2ac382971c5a1aa9f7fbc7c974ca81135727bae36bde99a7"
+        },
+        {
+          "identity": "r209-c1/creative-G032",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ca4bb2bdebebc0d0def557b2f42bef90788a5f25a9c91b4ab6286300aa9239b5"
+        },
+        {
+          "identity": "r209-c1/creative-G033",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7ad4e00b1f6a087d2101447ab399c427daa7a3e7edc98564fe3749f319f20042"
+        },
+        {
+          "identity": "r209-c1/creative-G034",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e18e7ab684658e6ed72ad3e3607d3868c48ace2964f7c6f1b41c5036b0b460ad"
+        },
+        {
+          "identity": "r209-c1/creative-G035",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4cc89e4d88c8073f4a7467b46db4e41e72fbd67a37f1d3aa693e301e4921acd2"
+        },
+        {
+          "identity": "r209-c1/creative-G036",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a0ec709e46984a219cf823758bd8a0c2b3b3b6ffa1fcf210a519a13dd318b6cf"
+        },
+        {
+          "identity": "r209-c1/creative-G037",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c8d8a24f40fe0dcd6735f6f1c47f526b8d3e4c9f3ab04839b4001b41a42ab9a4"
+        }
+      ],
+      "inputTokens": 4041,
+      "outputTokens": 321
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-f88ba809-c5c0-4d54-ac60-ef72ee196ed7",
+      "model": "glm-5.3",
+      "hash": "86eedf66e3d511f69d5184bae5a7539f7362e0cd118a8a633ed44d8b4f9223a3",
+      "items": [
+        {
+          "identity": "r209-c1/creative-G038",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7c37f5082ccc8ea8aae839e1fd5d66f3c841f7c25451c07e7aa94fa97e4766ee"
+        },
+        {
+          "identity": "r209-c1/creative-G039",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8b9c6b0eeb7273cdf782b6be1abac7aee7dba1be33cb39798af6644294f0580a"
+        },
+        {
+          "identity": "r209-c1/creative-G040",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e952e4679f975e356c6e999aba71a66a259e8da2560df9f2194ffcc0c88251ae"
+        },
+        {
+          "identity": "r209-c1/creative-C001",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "60a5f51f9e5731477f0475b524a5f2b82d5b5336de0a421342f1ffdea764771d"
+        },
+        {
+          "identity": "r209-c1/creative-C002",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "18040373d937e573f1e39ee205f6e2618dbf17cafbf5c9feddae8c0c670cb9da"
+        },
+        {
+          "identity": "r209-c1/creative-C003",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f08a6322ed96fdb6de0551fb75bea22e2d5e58dc744cc3854bec162e16ba52d9"
+        },
+        {
+          "identity": "r209-c1/creative-C004",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "89d9a3fc985adf6b5a7d5fbb455d1bbefef8db375c1c907135e025d98ce74d8b"
+        },
+        {
+          "identity": "r209-c1/creative-C005",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9bc8cd04468ede0df8b9723971d78e2a2789229e458d0ecf05f1ff5398084a8c"
+        },
+        {
+          "identity": "r209-c1/creative-C006",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ada492a74036de775a28d7eaab0bcb762a170c77a8384ce16611ae03ac0519dc"
+        },
+        {
+          "identity": "r209-c1/creative-C007",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "32b327d84b7183896b4f6dc1eed46f8c24412665f34c7b30b031d36968d529f9"
+        },
+        {
+          "identity": "r209-c1/creative-C008",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "93c105705da4493109bae92bccda9ccd2d995e603e5feef6a7c335acad011140"
+        },
+        {
+          "identity": "r209-c1/creative-C009",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "802dfbe3317935f2d9362f41f6614fbe4341e350a6cfeff831597ba346569a4e"
+        },
+        {
+          "identity": "r209-c1/creative-C010",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3b9f3b00f23d6538c334ca1466e33160912c0be9187b514f7477629564ea6119"
+        },
+        {
+          "identity": "r209-c1/creative-C011",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e78e864283c5f5ed0b37bf3ded7cbb4c97913ebab1a9683a3da784db02914e69"
+        },
+        {
+          "identity": "r209-c1/creative-C012",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f47e3d15cb6248732f68c47f2a60d10f36845470b11c66347e45a58b22d09f33"
+        }
+      ],
+      "inputTokens": 4138,
+      "outputTokens": 318
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-51ef4b04-ad46-4aad-af37-3882b72e85b0",
+      "model": "glm-5.3",
+      "hash": "28084047e3f8f56ce27b40de5bdfaade7901240fd91ba98d24f676f7b2150774",
+      "items": [
+        {
+          "identity": "r209-c1/creative-C013",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "0a2875533bd2d0af02a2af1300618f14079bd6c8a7e4a98ddd2baf8a6a81c924"
+        },
+        {
+          "identity": "r209-c1/creative-C014",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a836a8b413a75e8ecebfa21fd0b33a7684573997d4f73754056c412b1072bf50"
+        },
+        {
+          "identity": "r209-c1/creative-C015",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "43525224f591f39bc0c8914af47911ea6b504962f40ae2a4e160dd5d5785760d"
+        },
+        {
+          "identity": "r209-c1/creative-C016",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8903f254a08fdd8e2e0967849a7f2b17dbaac32f121d7d6f7b80c3da32f0857c"
+        },
+        {
+          "identity": "r209-c1/creative-C017",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "04e16335e3e22d84adca70093c5d1e3f66fc491eb8b0213516dd584c2fc56413"
+        },
+        {
+          "identity": "r209-c1/creative-C018",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f61cd51fab63eb8faac62d7af58698ddf7fccdcf42035bb2f4e86127ea0287ac"
+        },
+        {
+          "identity": "r209-c1/creative-C019",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "852221e47c04a26b5aae4bd58add0d9ff6a733109fff12fa1b7052be7ac7fe69"
+        },
+        {
+          "identity": "r209-c1/creative-C020",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "119ca470b605687d0ec6222608a02b68e600f2eaca15f3c02274487d7d7fd4ed"
+        },
+        {
+          "identity": "r209-c1/creative-W001",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "eaf9c1acd73aa10bd86f3d3d6c40dc767f80ca2121a7390b6cd80ad1172e5769"
+        },
+        {
+          "identity": "r209-c1/creative-W002",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "78a1063d42a93162fa83657b14cff983391e46da84c0e300cc71e21b55d6cff2"
+        },
+        {
+          "identity": "r209-c1/creative-W003",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "1b300ea9d8e17a3ce31bc76b012c04313fb27c21efd5b26a85bc242c71f94253"
+        },
+        {
+          "identity": "r209-c1/creative-W004",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8df1e162eec2d1f5db176eda369326d9424b154f33cb39e1869f4e663f5a5363"
+        },
+        {
+          "identity": "r209-c1/creative-W005",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "aa941a50e67996604e2cb5813c4ec39af26207fd90b2fe74aae120ae1c614cc6"
+        },
+        {
+          "identity": "r209-c1/creative-W006",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ffb52e874c03e9326da4c5e1b63bd07ed03d2e4f06505818d65f08b3ec461efa"
+        },
+        {
+          "identity": "r209-c1/creative-W007",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "166d20922a983c9576a08f7b922057a64498576aa70ab95f1753657144e03e4a"
+        }
+      ],
+      "inputTokens": 4065,
+      "outputTokens": 318
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-c31fa01e-cc8e-41b0-9a46-91da988fe841",
+      "model": "glm-5.3",
+      "hash": "005b80e2e0f86c23dc1e4bd458ea7461b692518137748c4abb06bf0a6932e28a",
+      "items": [
+        {
+          "identity": "r209-c1/creative-W008",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9483b3f6dbf6be6a153efaa02fd96ed4ba236eedb89b540de08af5abcfb18f26"
+        },
+        {
+          "identity": "r209-c1/creative-W009",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "54b88108fe944bcb5bb26c0e8bb494a8c4d10e2d8426382ef087cffda759c04d"
+        },
+        {
+          "identity": "r209-c1/creative-W010",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "152aacf2892149f43d3eae777c47da9690b76b29f555a842e66e84f16b045f2b"
+        },
+        {
+          "identity": "r209-c1/creative-W011",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9fababbda2d616e7800ef835371a94b92a4f3fd26082bb9ad85606d20fea56a2"
+        },
+        {
+          "identity": "r209-c1/creative-W012",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "44e4d0375f7e31d96e46c8eeb79670a81dacdc63c67888e2ef441ac1569c46de"
+        },
+        {
+          "identity": "r209-c1/creative-W013",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a5e4ac5a36bdd3898a705ec46b1320c976bebc0ffc370a97ff5237b3f7e30dc8"
+        },
+        {
+          "identity": "r209-c1/creative-W014",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c0577d341ab251b1b3d90fe4450f0a6222cea6ccdc30d2d5ad7365479602e0e3"
+        },
+        {
+          "identity": "r209-c1/creative-W015",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "2557958441bcc8601a7b8a764358fa9b119ad85cebab37ca58397573a5ddcf3f"
+        },
+        {
+          "identity": "r209-c1/creative-W016",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ca498e06ba5f44328a865a2a98e3090d8b395d485835b04caa79d01fbeef0b09"
+        },
+        {
+          "identity": "r209-c1/creative-W017",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8c516982f9afab4ba1d91fffb8fa8675a88034ef50236cfce0d9a231189f330b"
+        },
+        {
+          "identity": "r209-c1/creative-W018",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "5024daf32adb55ef53aae554a2879de6d32e63175408048eee8476c56f4979d8"
+        },
+        {
+          "identity": "r209-c1/creative-W019",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "2963820f37bc8f5d3b5c408b3efc92953d91fe2e3d335ed1343fa5373c3b8c84"
+        },
+        {
+          "identity": "r209-c1/creative-W020",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ef226e4e7417a45cd37d50312f61c2012d4c1a3d39bd3a72474e38f24189eedc"
+        },
+        {
+          "identity": "r209-c1/creative-H001",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "fa93a9c7680ac9c6aa48dd5517df487e7c0631c827565616e2906fdf591c339a"
+        },
+        {
+          "identity": "r209-c1/creative-H002",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9c8090e68a6b6813f732c6038c7bd9c712c3de3196e4cf8ceffeece2bd947eac"
+        }
+      ],
+      "inputTokens": 4056,
+      "outputTokens": 302
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-e65dfd62-5da4-4f74-9ad9-93a8d9d99319",
+      "model": "glm-5.3",
+      "hash": "f22c4c9d13ccce8f318ace32374b9019ef1b72cf1dcb5b011ffcc7e0e5b505f8",
+      "items": [
+        {
+          "identity": "r209-c1/creative-H003",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3af7ff5fbc64be5a294574643eb892b27124d65e8ca2ad7f9da4c66f830ed735"
+        },
+        {
+          "identity": "r209-c1/creative-H004",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6908e3a2cd416015940be804d4fd89ba1d07f8a3680f23372eeeb7def0f372b0"
+        },
+        {
+          "identity": "r209-c1/creative-H005",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "24649cf42efdf3fdbb3df5f3b12e7079ddb280f9550418fe06c96086f2563e8b"
+        },
+        {
+          "identity": "r209-c1/creative-H006",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "823825500ff9492822830243ab09c6ed4c4588fd9ba04b4ab53fc59f84bd03d5"
+        },
+        {
+          "identity": "r209-c1/creative-H007",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "be1c40961adce9f756f47ca78e53456c5116fd5827e195a561f23ffe6c9050d5"
+        },
+        {
+          "identity": "r209-c1/creative-H008",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "35c97b8b63b744cea3742a6647aaf66e8c5fcded21e2b1f6931b833fd5e97706"
+        },
+        {
+          "identity": "r209-c1/creative-H009",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c04e795f0732d478c1d93a51d9a2e4ecd99bac1c4a7a846770c4c3ef60b76fd4"
+        },
+        {
+          "identity": "r209-c1/creative-H010",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c839298dc1d1d7278e7d797b9a2549b2e9ef51a6cdf05d78e308ec18ebdf4802"
+        },
+        {
+          "identity": "r209-c1/creative-H011",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "aadd87827c09d597613e17e560ee41879bc759665c6b8fd2068ac9bc3b080d79"
+        },
+        {
+          "identity": "r209-c1/creative-H012",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6a6081eae737e7504b6804759c13e8ad1c220e4488928ef224df761cdb37cafd"
+        },
+        {
+          "identity": "r209-c1/creative-H013",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "5b701f95da8a9613613a30cd093232010c7bb7594123c7fdc7af134894cf9482"
+        },
+        {
+          "identity": "r209-c1/creative-H014",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "cbdd8cff9056579fae190f665adafe0b56388cb1b3ce3d519e95b450471a0c3a"
+        },
+        {
+          "identity": "r209-c1/creative-H015",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8ab81ddee928ee3b9dc8e82239cf98de404a26150904bec0c9c943f809aade94"
+        },
+        {
+          "identity": "r209-c1/creative-H016",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "53f09e0831fa4a60797512dc73a6787ba42be3f0d0e8b5335d07cd92b5e11a34"
+        },
+        {
+          "identity": "r209-c1/creative-H017",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "bb510fa32ebcb5930e8672871751e3e214eab5e267c454c699287ded4d6d7aec"
+        }
+      ],
+      "inputTokens": 4029,
+      "outputTokens": 320
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-8d3bb206-8146-47f7-88ec-e02b0a048b3e",
+      "model": "glm-5.3",
+      "hash": "2373768252bd894ac62e05ec3f82930d52543ec2ad0d2d33933ac511c1176c63",
+      "items": [
+        {
+          "identity": "r209-c1/creative-H018",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "18368b764f892718c1d7be6bbf6be73bf29d90ed37528246b61e9632ad015cf0"
+        },
+        {
+          "identity": "r209-c1/creative-H019",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "67f693e32aed5c76f0dfb33943c52d7625ff2c1997c9d57c11751f851fff19fe"
+        },
+        {
+          "identity": "r209-c1/creative-H020",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "bc190647ba41751c226c7d3262f01b4d724af24d92c06fd4337ea06c2b9cb3b2"
+        },
+        {
+          "identity": "r209-c1/creative-R001",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ffe3ebf7488a6c39c8828336a416b2c07397a475f944ae27ee515de1eae368da"
+        },
+        {
+          "identity": "r209-c1/creative-R002",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b463a665bfbc3e5ef0cf62876be7a3aed2854f3385c395bc659a7ed777c090f8"
+        },
+        {
+          "identity": "r209-c1/creative-R003",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f1f94ba39eff2be77c7f2daf24262c21a5903bebe9f44478b6abd9b4fa54078c"
+        },
+        {
+          "identity": "r209-c1/creative-R004",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "84c9b05b593d968a5cc2bdcb0b2f46c2fbb2ee9873211688ae7789c88622730c"
+        },
+        {
+          "identity": "r209-c1/creative-R005",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "99b5a46a9e8f4464a45abbdbb12b003fa4345629d3009a32efec10b11914799a"
+        },
+        {
+          "identity": "r209-c1/creative-R006",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a86ab26dfec433929bca9e55d73697d3b0d5b150cd951c21e4d23ed2147c1831"
+        },
+        {
+          "identity": "r209-c1/creative-R007",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3bfcd503d98eac172427a2fa729f758e986ee5d9c5382705b0baa1f477c35476"
+        },
+        {
+          "identity": "r209-c1/creative-R008",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c48e78d86f073ccef335839f5fec6eb5fbe549db27d92e40b9c2621b0b4ed0fa"
+        },
+        {
+          "identity": "r209-c1/creative-R009",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "674d03c20c9cc15f9bc8cd2b1fb54e140d1c20a6f003335e21623fc38c9b4208"
+        },
+        {
+          "identity": "r209-c1/creative-R010",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "19f3716cd1d5a8d6ef345d5cdc6396a56e0e89aaa002b097893cd6fb21e3526e"
+        },
+        {
+          "identity": "r209-c1/creative-R011",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "13f16180f35c89c6b45517813d6df226060598258577915ac64c08e9915f234b"
+        },
+        {
+          "identity": "r209-c1/creative-R012",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4bff498ac2e337ff60c0f067dd8be06ccd34590c437bc038f9423392206e7498"
+        }
+      ],
+      "inputTokens": 3996,
+      "outputTokens": 301
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-11815348-7b53-416e-b31a-547036978e8f",
+      "model": "glm-5.3",
+      "hash": "1b2c596f12c6fcae1c792eff9e87221f4ad9e006e908a7a541c85a6ec54ccea1",
+      "items": [
+        {
+          "identity": "r209-c1/creative-R013",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "38d6edbeaf525123524e15b6b2de9cde1dc6488c372e1356c33734bc699e3aa3"
+        },
+        {
+          "identity": "r209-c1/creative-R014",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "06c8363a1d71f5306346a904bd57fa780098c6816ef813259fbabca048fab210"
+        },
+        {
+          "identity": "r209-c1/creative-V001",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "87873a4ae4de7990cd9c5491aaefa2ae45ffe22b8db96cb271771dfb2c4ba7dd"
+        },
+        {
+          "identity": "r209-c1/creative-V002",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "d457724d4e4f36bb4593c40b3b5eba6322fc6d17a3925d9c01e804628961a72b"
+        },
+        {
+          "identity": "r209-c1/creative-V003",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3055a95b20c364f1371a56ed76d485abe84f6d946a5eecee92fec378e0967fa5"
+        },
+        {
+          "identity": "r209-c1/creative-V004",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4eacfbd9653e1539b6a3c05bce3ecd48bef0b442de7a57b55fbfe07c3be76f17"
+        },
+        {
+          "identity": "r209-c1/creative-V005",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e7d65ab1d204ae2c9daa9ce366998472720cfb5fef3d491e76a858b4ed933f8c"
+        },
+        {
+          "identity": "r209-c1/creative-V006",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "bf69595ba5721cb42beaa765dc14c9c51deade120ca8bdd5accfbdc2f46420f3"
+        },
+        {
+          "identity": "r209-c1/creative-V007",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3a7cede3962fb6b73a91aaaca277dda49858eb5293cfc5e4211d392eb52307b2"
+        },
+        {
+          "identity": "r209-c1/creative-V008",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a0e9370bd53cfae035ae7f64a8f812246089dee92169ca89cbec61179d410a1e"
+        },
+        {
+          "identity": "r209-c1/creative-V009",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3299d8ad5b555d43067e64766cd105b248dfac547f58256eaf21c343c73b1da7"
+        },
+        {
+          "identity": "r209-c1/creative-V010",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b4bc4c4a93541f70128a279661e2db2932934f77e7944a9a36d4ad549111a202"
+        },
+        {
+          "identity": "r209-c1/creative-V011",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f25ced01a736aaf29966bb3de825a8338f54a9fa9d14577eae252d142d880de7"
+        },
+        {
+          "identity": "r209-c1/creative-V012",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a52eabcd7029848c78e973f84777cd3495738947eb349b2eb4b573c32ad1b2da"
+        },
+        {
+          "identity": "r209-c1/creative-V013",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "d280b7a96951654cca4b039251d79c596b0e786b01d770293a4da461d9b6d22e"
+        }
+      ],
+      "inputTokens": 3967,
+      "outputTokens": 301
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-1256b48a-16bf-4f2d-876a-a26107e7d712",
+      "model": "glm-5.3",
+      "hash": "3ad6075926bb7c8433c75ae3b15f969c10116b6cd6b565119514db3fe175300b",
+      "items": [
+        {
+          "identity": "r209-c1/creative-V014",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3c1211b8ac896aa4792709270623800475062b3167f469cb550a9b9a239714f6"
+        },
+        {
+          "identity": "r209-c1/genre-eastern-fantasy",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b9bed16fe7b7e67b657082ac7199bb7395e573c1e1fd6b4eaf092f08c3da10ef"
+        },
+        {
+          "identity": "r209-c1/genre-cultivation",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a5e2d00233ef7569c402f771bb24001f9d82144a4c2ed1999e80c0a8e3aeb0d2"
+        },
+        {
+          "identity": "r209-c1/genre-western-fantasy",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6ef683cef451f06de0e80dda91bf9475ced7abb6a1b73327b4854a691151b68a"
+        },
+        {
+          "identity": "r209-c1/genre-myth",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "db08fd3d5d0499011f2505cc105aa80a1372ed671d40b546ae7e3afc6f352fc4"
+        },
+        {
+          "identity": "r209-c1/genre-martial",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "660d168ae46f4942be072e02179261fbf37757802cf3fd1eeb1635a388e57dbb"
+        },
+        {
+          "identity": "r209-c1/genre-historical-life",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "222c0e420ae2ed5a1cfb0a44bcf120c8ff454fee26711ee59cf8456e7ecd1653"
+        },
+        {
+          "identity": "r209-c1/genre-historical-struggle",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9ccaa7183f23fb8e3306395fa3beabef3c1b3cf16fe0b48b35470036c2fdbdad"
+        },
+        {
+          "identity": "r209-c1/genre-alternate-history",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ab05f93dd52ca159a08e16d5358bc95b333e16c49be590b8e5f84bb315fdcc7f"
+        },
+        {
+          "identity": "r209-c1/genre-war",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9b2ea5fa1fdb68316b07312b943f60bde64295ff7a38084ee5a06066c8805db4"
+        },
+        {
+          "identity": "r209-c1/genre-urban-life",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "0720dde3d70c5d9370fa4fcb957cca3062a11f9d1f8c49d22e617210494fec90"
+        },
+        {
+          "identity": "r209-c1/genre-profession",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a3c7a5cbedec7629fc336bcf21afd1cb1762191bd23d441e41a4487159c6d390"
+        }
+      ],
+      "inputTokens": 3942,
+      "outputTokens": 283
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-59793fc7-f360-4533-8ad4-12a297a37226",
+      "model": "glm-5.3",
+      "hash": "03d7b570273b55bdd1bf5066e7a42ff9cbe16a1977fffb26175678e02450f96b",
+      "items": [
+        {
+          "identity": "r209-c1/genre-business",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9f4448bb76791c14be44f3e95d68485f0b3df59d90f5a44232c2856b6b3c6ce5"
+        },
+        {
+          "identity": "r209-c1/genre-realism",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "15cdc2a93a717da398769fb5d634def6542288e012c31c24e0d881d91780808c"
+        },
+        {
+          "identity": "r209-c1/genre-family",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "509287bcbebb0f0e8b81a6945c65954ada6f11416cb04903735bc9e90cb36707"
+        },
+        {
+          "identity": "r209-c1/genre-era",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7c6b73f93a467c39b668fa4102d8257f251317d37d38d6c606f892b4ff6d805c"
+        },
+        {
+          "identity": "r209-c1/genre-rural",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "03442bdc7b92c5a3d22bfb32ca1096c7683dbad1feacb773c96815059be9c45f"
+        },
+        {
+          "identity": "r209-c1/genre-youth",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "19f6576795d0296d401ee4d0fdc8de068f99e4bacffc66716360b244a56e4efc"
+        },
+        {
+          "identity": "r209-c1/genre-modern-romance",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "d7ca74326461eb7352ff40dbecba7dd173c745c4aefc2e1e5fd405aa1e36d256"
+        },
+        {
+          "identity": "r209-c1/genre-historical-romance",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "fc1c260fc420a87eb3c3b5aba88def8d235520c25cca84b883a8d529cdefa726"
+        },
+        {
+          "identity": "r209-c1/genre-fantasy-romance",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c83a0ded96d963ef61b8f2622505ef32e583c9ecc8817eb69d34392ea6d20124"
+        },
+        {
+          "identity": "r209-c1/genre-intimacy",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "58f9a247a3b17290933695b5899a26f7affc0d3505dc31831cc9b8139d07eb2b"
+        },
+        {
+          "identity": "r209-c1/genre-mystery",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b140f712eaf42cae8f09740ac010b9a262a16f85304556812be32ec1adb468d7"
+        },
+        {
+          "identity": "r209-c1/genre-crime",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "fc6c164b76eb25e5053c1ad16be82ba1d3de50a25a4a9451d69bde11f463a805"
+        }
+      ],
+      "inputTokens": 3802,
+      "outputTokens": 252
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-be5042d4-defe-4c27-b3a6-ce70868351ea",
+      "model": "glm-5.3",
+      "hash": "793eee091120c11eb3419d59c22fd0f334acfd31eb5ebe9b0116b3a5cf24e35f",
+      "items": [
+        {
+          "identity": "r209-c1/genre-horror",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "5178a65207331d429b674e61263448bd185f3410943afef573441e93c1955d1e"
+        },
+        {
+          "identity": "r209-c1/genre-rules",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "436742a98f1ec7f26e6fdac6aaf2247d6809b424ca1d883faf272779920c6e23"
+        },
+        {
+          "identity": "r209-c1/genre-adventure",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f59b09436ec749f5bf1bd4154a9719293b7c2c3e092918b4fc057e8317fb1408"
+        },
+        {
+          "identity": "r209-c1/genre-apocalypse",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6f6efd0459843477c46460013c5c8ba0f5df41515320cfb3fc3390d2b01a910d"
+        },
+        {
+          "identity": "r209-c1/genre-science",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "beacd23cd8e3f70f84b5e74125b5eb1be202f8b38b1f27accb97273a0c877479"
+        },
+        {
+          "identity": "r209-c1/genre-space",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "0c063989f6a6a521ba736aa24163348e5bc2ed2ab9919da0fc65a9053368e27d"
+        },
+        {
+          "identity": "r209-c1/genre-cyber",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "3414be728857a0420a6905a6ac315495b6a814fe1c9afb60507d153be5f0113a"
+        },
+        {
+          "identity": "r209-c1/genre-game",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "537b34760d7b57a7eccc1b9980ff79f599650c09c9ba838de7aa81a9fdd5c034"
+        },
+        {
+          "identity": "r209-c1/genre-sports",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "1b9f53976bdb9f0165be665fac63f1d3b717c74b42febfff4fca60d0683e6b94"
+        },
+        {
+          "identity": "r209-c1/genre-arts",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e3b17fccc2e3e663d107ac496ff571b9cb5267f1e72602c5b1bd4786f2b1e960"
+        },
+        {
+          "identity": "r209-c1/genre-building",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "83dbb0c15db570edf54aa69ebc4da56a9cae1e205bc12417dbcc25143e4a038d"
+        },
+        {
+          "identity": "r209-c1/genre-cozy",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "aee3e5ed5c210a4a8cd9c9beefe44f08d0b10afff4baaa715210430a684691c0"
+        },
+        {
+          "identity": "r209-c1/genre-satire",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f591d8980ec17b469b58d64837b45786be3099051ac4dce585a07400c2bf23ea"
+        }
+      ],
+      "inputTokens": 4144,
+      "outputTokens": 252
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-2260eeb9-89db-40d6-b261-1886165dd833",
+      "model": "glm-5.3",
+      "hash": "d469d59a0bc2c76d9a414e5ed83ecac806e92fa358e08831822b44f39d6eb3dc",
+      "items": [
+        {
+          "identity": "r209-c1/genre-literary",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "5071368dc7471ef3613852e955d5b55f7ddaede30532dd0a4821c202dc5ace76"
+        },
+        {
+          "identity": "r209-c1/genre-children",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "f97958482b7462394fd61f84594496e0f7d2409d89b0f49ec326e1edc7e1fe22"
+        },
+        {
+          "identity": "r209-c1/focus-mastery",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "26eb7845a290e3bb1f088d07f7e6f390066eca7b6611eefad57b7c733116a6d0"
+        },
+        {
+          "identity": "r209-c1/focus-recognition",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "ab0de29b9f2d5f233468be91bd608e07e6f62c680c778a62f1b513a794e3b629"
+        },
+        {
+          "identity": "r209-c1/focus-fairness",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8afaab69815b14fc4e664f0aca78f24a24b2d01921b2d3f31fbc3086f2c431de"
+        },
+        {
+          "identity": "r209-c1/focus-belonging",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "a779f9fcd30051a98aec2c42951e2e7b8653886b0cb7dc1e50b2b8944d2d12d2"
+        },
+        {
+          "identity": "r209-c1/focus-intimacy",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "5d9cc2d88aa19cd3cdb9ebb35648318632e7bf5fe214232581c249c7016736e5"
+        },
+        {
+          "identity": "r209-c1/focus-security",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "7629230a5fdf642ac2f55d6854b0c0bf6f87a7b4d824bfcadc929857907130c7"
+        },
+        {
+          "identity": "r209-c1/focus-creation",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "5ffa607527beb7ff413933aa1609e7de26b309eca3e94306d74020ed19fe3371"
+        },
+        {
+          "identity": "r209-c1/focus-discovery",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "aa6044e73f6badc62ac9b1dfd6e6f336d21651ae5ebb89938be9489692c98809"
+        },
+        {
+          "identity": "r209-c1/focus-intelligence",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b9da8cc91edea195a9d656896b4f1816ea08e8d5879145a9eee68ec434b9bf41"
+        },
+        {
+          "identity": "r209-c1/focus-risk",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "68e0956c8f9397cccce621e219084cadedff2bd7e32bea6fb834d932bf1248c6"
+        },
+        {
+          "identity": "r209-c1/focus-humor",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9fdc17fb0928115c76c42eca84aea59698344763a11219cb9f5868a468612827"
+        },
+        {
+          "identity": "r209-c1/focus-freedom",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "13075fdb7ba66782164446294a63c4f13fa6670aaa2b6cd6a1d70bc7efed6506"
+        }
+      ],
+      "inputTokens": 3726,
+      "outputTokens": 273
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-2e8a6a82-b4f8-4e9c-8345-e1191425a8bb",
+      "model": "glm-5.3",
+      "hash": "0b435149ebed5a33063d5d05fb8aafd5837911ce7f8ad7691145ccb9f0fe1d91",
+      "items": [
+        {
+          "identity": "r209-c1/focus-healing",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "0767cf48198046c36ed95d5c0c68b83f59f856894aff837b78f9711f98d53532"
+        },
+        {
+          "identity": "r209-c1/focus-ambition",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "1b27de314ce0275474d98801bba56a9006df7a166bc8c3867de12ee94c4aae51"
+        },
+        {
+          "identity": "r209-c1/focus-aesthetic",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "8bd19fff2f67ed63c8ff564a7baaca6e4116eb92480dd9dccab9ae15fa94d4f4"
+        },
+        {
+          "identity": "r209-c1/focus-human",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "702a88f2b609fbcf73c9c76bad059e7bb56c2a9a9a26e09b4d72818366091bb3"
+        },
+        {
+          "identity": "r209-c1/focus-want-need",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "0142c00886803d78cd2b15a4c4d79e1e43b57671cc765fc43255d762a7d7f5ae"
+        },
+        {
+          "identity": "r209-c1/focus-obsession",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "cefc2fa792427d60d850680c4b703664b982257b6fcba5090e67d8885c5858a4"
+        },
+        {
+          "identity": "r209-c1/focus-antagonist",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "c4d7e0d80e2e2e59b3fddbf81313742847016326b2a8d48cef3571f5d95b7e62"
+        },
+        {
+          "identity": "r209-c1/focus-ensemble",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "bce6db361b95e126f801991430ac4f775588766c35366b00c2cd7a552b489bab"
+        },
+        {
+          "identity": "r209-c1/focus-alliance",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "21a12664f03f8954f0e35c65ed1922b941afa899c42ec9cfc55688cf2010fac8"
+        },
+        {
+          "identity": "r209-c1/focus-appeal",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "133d4599f9843923e32e0bf1d0b0e5f1f030ebaf4fb2189dcb74db8fef8fc9cf"
+        },
+        {
+          "identity": "r209-c1/focus-fusion",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "9be39bf7afac6b0e74b4d7576158caf7ec301a7f90641793a850c8ec9a360e7e"
+        },
+        {
+          "identity": "r209-c1/focus-three-kingdoms",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "37c0ca552b19f78188aeed787847a3745d080f0021d84d4b6e4f9cf7b9fea0ae"
+        },
+        {
+          "identity": "r209-c1/focus-promise",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "6b3b21f398a2e730d954d97551eaa7e011de6753d8884ccc1a0d548cc3fbd642"
+        },
+        {
+          "identity": "r209-c1/focus-weaving",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "61976504a7d7f07c5a727451c4056985d56c9606aebd2e8df10d45ffed3fd477"
+        }
+      ],
+      "inputTokens": 3697,
+      "outputTokens": 307
+    },
+    {
+      "state": "done",
+      "requestId": "c4-review-d720f1a5-7c94-46bf-a3a4-c62cb4b56968",
+      "model": "glm-5.3",
+      "hash": "9b87f7bce8f7112f83f02c8b6d61547b5935cfaf6666ad6f3f22c600c2759151",
+      "items": [
+        {
+          "identity": "r209-c1/focus-scope",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "4a17d480e4e5933d65ee50d061c37ad557f8e701d3e16ad1738a73dea73ca342"
+        },
+        {
+          "identity": "r209-c1/focus-opening",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "23a2a4ffce1697e67f42df8d2fc3610a24ec33e4ac4e9ffaf2e5fa2c9b189bee"
+        },
+        {
+          "identity": "r209-c1/focus-intent",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "dd91df23f788b4145180a06416015a02871debae8ae101b78605b788fbdca3fd"
+        },
+        {
+          "identity": "r209-c1/focus-evidence",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "598f68102b9f68692bfa2cc8c64efea716f6d35c976d72462a999a282259ed48"
+        },
+        {
+          "identity": "r209-c4/loss-trace",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "87591efa0b177a41315996d52d1440761f4337da1e8d58d657f73081520350cf"
+        },
+        {
+          "identity": "r209-c4/reveal-echo",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "430dcba5b45626aa4bd3781084ffc51cfcc06a7664a65ebda8514c867e970c05"
+        },
+        {
+          "identity": "r209-c4/payoff-focus",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "e159c355c9d3389011955dec32589405ad4dfe2c31642b70caeca2b8679221a8"
+        },
+        {
+          "identity": "r209-c4/aftermath-handoff",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "cc56bf76ae18ee0f22639ef4bbd848a7c8ead775d094b379eb249aa982ba58a8"
+        },
+        {
+          "identity": "r209-c4/intensity-space",
+          "pass": true,
+          "issues": [],
+          "payloadHash": "b3348f9ab3c163e632e4af779f7a092ee950f7052aef75cb0c4d4fd853471e69"
+        }
+      ],
+      "inputTokens": 2707,
+      "outputTokens": 262
+    }
+  ]
+}

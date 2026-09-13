@@ -20,6 +20,7 @@ import { thinkingTokenAllowance } from './model-runtime-config.js';
 import { resolveV7TaskPolicy } from '../../application/agents/v7-agent-runtime-policy.js';
 import { compileV7RuntimePrompt } from '../../application/agents/v7-runtime-prompt-compiler.js';
 import { V7PromptGovernanceRepository } from '../db/repositories/v7-prompt-governance-repository.js';
+import {CreativeReferenceRuntime,attachCreativeContext} from '../../application/creative-reference/runtime.js';
 
 export interface V7OpeningModelAdapterResolver {
   resolve(provider: string, modelId: string, purpose: ModelPurpose): ModelAdapter;
@@ -50,6 +51,20 @@ export class V7OpeningAgentModelGateway implements OpeningAgentModelGateway {
   ) {}
 
   public async generate(request: OpeningModelRequest): Promise<OpeningModelResult> {
+    this.assertOpeningTaskScope(request.ownerId,request.taskId);
+    if(this.row(request.requestId)!==undefined)return this.generateDirect(request);
+    if(request.taskKind==='opening_design'&&request.operationMode!=='repair'){
+      let source=request.prompt;
+      try{const p=JSON.parse(source);source=JSON.stringify({author:p.authorSource,adjustment:p.authorAdjustment,direction:p.creativeDirection,candidate:p.currentCandidates});}catch{}
+      const selection=await new CreativeReferenceRuntime(this.database).select({ownerId:request.ownerId,bookId:`v7-prebook:${request.taskId}`,sessionId:request.requestId,stage:'opening',source},async(step,prompt)=>{
+        const result=await this.generateDirect({...request,requestId:`${request.requestId}:creative:${step}`,prompt,maxOutputTokens:1200});return result.output;
+      });
+      return this.generateDirect({...request,prompt:attachCreativeContext(request.prompt,selection)});
+    }
+    return this.generateDirect({...request,prompt:attachCreativeContext(request.prompt)});
+  }
+
+  private async generateDirect(request: OpeningModelRequest): Promise<OpeningModelResult> {
     const policyErrors = validateMemberModelPolicy(request.member);
     if (policyErrors.length > 0) throw new OpeningAgentModelError(policyErrors.join('；'), 'credential_unavailable');
     this.assertOpeningTaskScope(request.ownerId, request.taskId);
@@ -76,6 +91,7 @@ export class V7OpeningAgentModelGateway implements OpeningAgentModelGateway {
       basedOnTaskId: request.basedOnTaskId,
       sourcePrompt: request.prompt,
       sourceTraces: request.sourceTraces,
+      skillKeys: [], // This stage supplies its complete design/review rules once.
       promptAssets: promptGovernance.publishedAssets(),
       governanceRevision: promptGovernance.summary().revision,
       temperature: runtimePolicy.temperature,
@@ -87,7 +103,10 @@ export class V7OpeningAgentModelGateway implements OpeningAgentModelGateway {
       request.maxOutputTokens,
       compiled.manifest.compiledPrompt.length
     );
-    const reservedTokens = Math.max(8_000, compiled.manifest.compiledPrompt.length + request.maxOutputTokens + reasoningTokens);
+    const inputAdapter=this.adapters.resolve(request.member.model.provider,request.member.model.modelId,'structured_planning');
+    const wholeInput=inputAdapter.inputContext?.({prompt:compiled.manifest.compiledPrompt,...(request.taskKind==='opening_design'?{executionKind:'opening_design' as const}:{})})??JSON.stringify({messages:[{role:'user',content:compiled.manifest.compiledPrompt}]});
+    if(wholeInput.length>15000)throw new OpeningAgentModelError('完整上下文超过15000字符，请精简本次资料后重试，尚未发送模型。','budget_exhausted');
+    const reservedTokens = Math.max(8_000, wholeInput.length + request.maxOutputTokens + reasoningTokens);
     try {
       assertMembershipAllowsGeneration(this.database, request.ownerId, now, reservedTokens);
     } catch (error) {

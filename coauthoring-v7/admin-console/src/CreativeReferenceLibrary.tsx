@@ -161,7 +161,7 @@ export function CreativeReferenceLibrary(): React.JSX.Element {
     <header className="crl-heading">
       <div>
         <h1>创作库</h1>
-        <p>方法卡与创作参考卡的稳定编号、审核与整库发布。AI检索接入待后续批次。</p>
+        <p>按用途和阶段管理方法。已审核发布的版本供开书、设定、故事线与全书方向按需检索；草稿不进入成员上下文。</p>
       </div>
       <div className="crl-heading-actions">
         <button type="button" onClick={() => setView('releases')}>发布历史</button>
@@ -937,7 +937,7 @@ function PublishPanel({ onBack }: { onBack: () => void }): React.JSX.Element {
   if (phase === 'done') return <div className="crl-page crl-publish-done">
     <h1>{replayed ? '该发布请求已存在（幂等重放）' : '发布成功'}</h1>
     <p>新版本号：{publishedId}</p>
-    <p className="crl-hint">“库已发布”表示可供后续接入读取；AI检索接入待后续批次。</p>
+    <p className="crl-hint">发布后用于新任务；进行中的任务继续使用启动时的版本。成员只读取选中的参考，作品事实以本书正式资料为准。</p>
     <button type="button" onClick={onBack}>返回列表</button>
   </div>;
 

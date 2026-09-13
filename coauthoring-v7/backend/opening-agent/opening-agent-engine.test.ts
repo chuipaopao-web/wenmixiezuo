@@ -137,9 +137,9 @@ const prompt = buildOpeningAgentPrompt({
 });
 assert.match(prompt, /张三穿越到三国乱世/u);
 assert.match(prompt, /opening-core-boundary@1/u);
-assert.match(prompt, /save_opening_candidate/u);
+assert.match(prompt, /候选/u);
 assert.doesNotMatch(prompt, /chief-kimi-k3|screenwriter-kimi-k3|思维链步骤/u);
-assert.ok(JSON.parse(prompt).internalReferences.items.length <= 6);
+assert.equal(JSON.parse(prompt).internalReferences, null);
 assert.deepEqual(JSON.parse(prompt).taskContract, {
   taskKind: 'opening_design',
   workstationKey: 'opening',
@@ -156,22 +156,22 @@ const packagePrompt = JSON.parse(buildOpeningAgentPrompt({
   publishingPlatform: 'fanqie', validationRepair: '频道必须是male、female或general',
   memberInstruction: '书名优先突出主角身份差和强冲突。'
 })) as {
-  outputJsonSchema: { required: string[]; properties: Record<string, { type?: string; properties?: Record<string, unknown>; items?: unknown }> };
+  outputTemplate: Record<string, any>;
   finalInstructions: string[];
 };
-assert.deepEqual(packagePrompt.outputJsonSchema.required, [
+assert.deepEqual(Object.keys(packagePrompt.outputTemplate), [
   'title', 'positioning', 'backgrounds', 'protagonists',
   'longTermDirection', 'possibleEnding', 'mustFollow', 'authorInstructions'
 ]);
-assert.equal(packagePrompt.outputJsonSchema.properties.positioning?.type, 'object');
-assert.equal(packagePrompt.outputJsonSchema.properties.protagonists?.type, 'array');
-assert.equal(packagePrompt.outputJsonSchema.properties.possibleEnding?.type, 'object');
-assert.equal(packagePrompt.outputJsonSchema.properties.opening, undefined);
-assert.match(packagePrompt.finalInstructions.join('\n'), /outputJsonSchema/u);
-assert.match(packagePrompt.finalInstructions.join('\n'), /当前困境和开局剧情不属于开书资料/u);
-assert.match(packagePrompt.finalInstructions.join('\n'), /protagonists\.goal.*旧接口兼容空位/u);
-assert.match(packagePrompt.finalInstructions.join('\n'), /简短中文标签，用顿号连接/u);
-assert.match(packagePrompt.finalInstructions.join('\n'), /没有提出限制时返回\["无额外限制"\]/u);
+assert.equal(typeof packagePrompt.outputTemplate.positioning, 'object');
+assert.ok(packagePrompt.outputTemplate.protagonists.数组元素);
+assert.equal(typeof packagePrompt.outputTemplate.possibleEnding, 'object');
+assert.equal(packagePrompt.outputTemplate.opening, undefined);
+assert.match(packagePrompt.finalInstructions.join('\n'), /outputTemplate/u);
+assert.match(packagePrompt.finalInstructions.join('\n'), /designLater留待后续/u);
+assert.match(packagePrompt.finalInstructions.join('\n'), /旧兼容空位goal\/dilemma/u);
+assert.match(packagePrompt.finalInstructions.join('\n'), /简短标签，以顿号连接/u);
+assert.match(packagePrompt.finalInstructions.join('\n'), /无限制时返回\["无额外限制"\]/u);
 assert.match(JSON.stringify(packagePrompt), /番茄小说/u);
 assert.match(JSON.stringify(packagePrompt), /成员补充要求/u);
 assert.match(JSON.stringify(packagePrompt), /A穿越或重生到某处，遇到B/u);
@@ -213,15 +213,11 @@ const catalogPrompt = JSON.parse(buildOpeningAgentPrompt({
   },
   publishingPlatform: 'fanqie', validationRepair: null, memberInstruction: ''
 })) as {
-  outputJsonSchema: { properties: { positioning: { properties: {
-    category: { enum?: string[] };
-    genres: { items?: { enum?: string[] } };
-    tags: { items?: { enum?: string[] } };
-  } } } };
+  openingTaxonomy: {categories:{male:string[];female:string[]};subjects:string[];tagSuggestions:string[]};
 };
-assert.deepEqual(catalogPrompt.outputJsonSchema.properties.positioning.properties.category.enum, ['历史脑洞']);
-assert.deepEqual(catalogPrompt.outputJsonSchema.properties.positioning.properties.genres.items?.enum, ['秦汉三国', '穿越']);
-assert.deepEqual(catalogPrompt.outputJsonSchema.properties.positioning.properties.tags.items?.enum, ['成长', '权谋', '智商在线']);
+assert.deepEqual(catalogPrompt.openingTaxonomy.categories.male, ['历史脑洞']);
+assert.deepEqual(catalogPrompt.openingTaxonomy.subjects, ['秦汉三国', '穿越']);
+assert.deepEqual(catalogPrompt.openingTaxonomy.tagSuggestions, ['成长', '权谋', '智商在线']);
 
 async function normalFlow(): Promise<void> {
   const tools = new MemoryTools(IDEA);

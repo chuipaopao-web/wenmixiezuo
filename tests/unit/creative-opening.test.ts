@@ -1,15 +1,16 @@
 import { describe,it,expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { CREATIVE_ASSETS, normalizeCreativeProfile, creativeDirective } from '@wenmi/agent-catalog';
+import { normalizeCreativeProfile, creativeDirective } from '@wenmi/agent-catalog';
 import { buildOpeningAgentPrompt } from '../../rebuild/packages/backend/src/legacy-opening/opening-agent/opening-prompt-compiler.js';
 import { withBookCreativeProfile } from '../../apps/api/src/application/agents/book-creative-context.js';
 
 describe('创意方向跨节点传递',()=>{
- it('全库由设计成员选择，审查不重复搬运，原始作者意图独立保留',()=>{
+ it('不再全量注入旧库，统一检索运行时按需补充，原始作者意图独立保留',()=>{
   const base={taskId:'creative-test',nodeKey:'opening_package_design' as const,roleKey:'screenwriter' as const,taskKind:'opening_design' as const,workstationKey:'opening' as const,operationMode:'fresh' as const,operation:'v7_opening_package_design_v1' as const,basedOnTaskId:null,authorIdea:'张三在仙侠世界开坦克。',publishingPlatform:'fanqie' as const,ideaVersion:1,referencePack:{references:[],excludedReason:'没有额外参考'},openingPackage:null,review:null,taxonomy:null,validationRepair:null,memberInstruction:'',creativeProfile:normalizeCreativeProfile({scale:5,styles:['沙雕搞怪','猎奇新鲜']})};
   const design=JSON.parse(buildOpeningAgentPrompt(base));
-  expect(design.creativeAssets.cards).toHaveLength(CREATIVE_ASSETS.length);
-  expect(new Set(design.creativeAssets.cards.map((card:string[])=>card[0])).size).toBe(CREATIVE_ASSETS.length);
+  expect(design.creativeAssets).toBeNull();
+  expect(design.internalReferences).toBeNull();
+  expect(design.outputTemplate).toHaveProperty('title');
   expect(design.authorSource.originalIdea).toBe(base.authorIdea);
   expect(design.creativeDirection.review).toContain('不因不现实');
   const review=JSON.parse(buildOpeningAgentPrompt({...base,nodeKey:'opening_package_review',roleKey:'chief_editor',taskKind:'opening_review',operation:'v7_opening_package_review_v1'}));

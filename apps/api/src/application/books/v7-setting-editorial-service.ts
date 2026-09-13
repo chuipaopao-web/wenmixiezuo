@@ -96,7 +96,7 @@ const SETTING_RECOMMENDATION_CONTRACT_VERSION = 3;
 // 改好。版本 2 会把受影响条目分成小资料包，再交给同一位主编真正
 // 写回候选正文；旧结果保留审计，但不会被当前页面继续复用。
 const SETTING_FINAL_REVIEW_CONTRACT_VERSION = 3;
-const FINAL_REVIEW_PATCH_PROMPT_LIMIT = 12_000;
+const FINAL_REVIEW_PATCH_PROMPT_LIMIT = 8_000;
 const FINAL_REVIEW_PATCH_GROUP_SIZE = 4;
 
 type BatchRow = V7SettingBatchRow;
@@ -1610,7 +1610,7 @@ export class V7SettingEditorialService {
       try {
         const conciseReview = (state.excludedModelIds?.length ?? 0) > 0;
         const projections = this.currentSettingProjections(task.owner_id, task.book_id, items);
-        const reviewPrompt = compileBatchFinalReviewPrompt(profile, items, projections, conciseReview ? 11_000 : 12_000);
+        const reviewPrompt = compileBatchFinalReviewPrompt(profile, items, projections, 10_000);
         const reviewTokens = conciseReview ? 6_000 : 12_000;
         const checkPatches = (patches: FinalReviewPatch[]): FinalReviewPatch[] => {
           for (const patch of patches) assertConciseSetting({
@@ -1685,7 +1685,7 @@ export class V7SettingEditorialService {
         if ((!reviewPrompt.allowPatches && detectedReview.conflicts.length > 0) || mergeKeys.length > 0) {
           const patchPrompts = compileBatchFinalReviewPatchPrompts(profile, items,
             reviewPrompt.allowPatches ? { ...detectedReview, conflicts: [] } : detectedReview,
-            conciseReview ? 11_000 : 12_000, mergeKeys);
+            8_000, mergeKeys);
           for (const [index, patchPrompt] of patchPrompts.entries()) {
             patchPrompt.prompt = compactReviewPrompt(patchPrompt.prompt);
             const patchItemKey = `__batch_final_review_patch__:${index + 1}`;
@@ -2911,6 +2911,15 @@ export class V7SettingEditorialService {
   }
 
   private async model(ownerId: string, bookId: string, batchId: string, itemKey: string, nodeKey: string, member: ModelMember, prompt: string, maxOutputTokens: number, temperature: number, logicalTaskId: string, invocation: SettingModelInvocation): Promise<string> {
+    if(invocation.taskKind==='setting_design'&&invocation.operationMode!=='repair'&&invocation.technicalRetryTaskId===null&&!this.repository.modelCallForLogicalTask(ownerId,bookId,logicalTaskId)){
+      const {CreativeReferenceRuntime,attachCreativeContext}=await import('../creative-reference/runtime.js');
+      const selection=await new CreativeReferenceRuntime(this.database).select({ownerId,bookId,sessionId:logicalTaskId,stage:'setting',source:prompt},(step,toolPrompt)=>this.modelDirect(ownerId,bookId,batchId,itemKey,nodeKey,member,toolPrompt,1200,temperature,`${logicalTaskId}:creative:${step}`,invocation));
+      prompt=attachCreativeContext(prompt,selection);
+    }
+    return this.modelDirect(ownerId,bookId,batchId,itemKey,nodeKey,member,prompt,maxOutputTokens,temperature,logicalTaskId,invocation);
+  }
+
+  private async modelDirect(ownerId: string, bookId: string, batchId: string, itemKey: string, nodeKey: string, member: ModelMember, prompt: string, maxOutputTokens: number, temperature: number, logicalTaskId: string, invocation: SettingModelInvocation): Promise<string> {
     const technicalRetry = invocation.technicalRetryTaskId !== null;
     const taskId = invocation.technicalRetryTaskId ?? logicalTaskId;
     const existing = this.repository.modelCallForLogicalTask(ownerId, bookId, taskId);
@@ -2956,6 +2965,7 @@ export class V7SettingEditorialService {
       authorInstructionVersion: invocation.authorInstructionVersion,
       basedOnTaskId: invocation.basedOnTaskId,
       sourceTraces: invocation.sourceTraces,
+      skillKeys: [], // The setting task already carries its complete scoped rules.
       sourcePrompt: withBookCreativeProfile(this.database, ownerId, bookId, frozenPrompt, 'setting'),
       promptAssets: promptGovernance.publishedAssets(),
       genreProfile: promptGovernance.activeBookGenreProfile(ownerId, bookId),
@@ -2965,6 +2975,9 @@ export class V7SettingEditorialService {
       createdAt: now,
       ...(retrySnapshot === null ? {} : { retrySnapshot })
     });
+    const budgetAdapter=this.adapters.resolve(compiled.manifest.provider,compiled.manifest.modelId,invocation.taskKind==='setting_review'?'novel_reviewer':'structured_planning');
+    const wholeInput=budgetAdapter.inputContext?.({prompt:compiled.manifest.compiledPrompt})??JSON.stringify({messages:[{role:'user',content:compiled.manifest.compiledPrompt}]});
+    if(wholeInput.length>15000)throw new SettingModelCallError('完整上下文超过15000字符，尚未发送模型；需精简当前资料。');
     promptGovernance.saveRuntimeBundle(compiled);
     const executionRequestId = `${taskId}:execution:${this.ids.next()}`;
     const reserved = Math.max(8_000, compiled.manifest.compiledPrompt.length + compiled.manifest.maxOutputTokens + 2_000);
@@ -3680,7 +3693,7 @@ function compileBatchFinalReviewPrompt(
   profile: BookProfileView,
   items: readonly V7SettingItemView[],
   projections: readonly ReturnType<typeof confirmedSettingProjection>[],
-  budgetChars = 12_000
+  budgetChars = 8_000
 ): { prompt: string; allowPatches: boolean } {
   const common = {
     operation: 'v7_setting_batch_final_review_v1',
@@ -3768,8 +3781,8 @@ function compileBatchFinalReviewPrompt(
   const compactPrompt = JSON.stringify(compactPayload);
   const compactCharacters = Array.from(compactPrompt).length;
   if (compactCharacters > budgetChars) {
-    // 语义索引仍超限时按固定上限缩短每条语义摘要并去掉待决定问题附件，
-    // 全部条目标识、分组与解析合同保持不变。本轮继续禁止改原文。
+    // Use complete stored fact entries instead of cutting a generated summary mid-sentence.
+    // Revision identifiers stay in the frozen task sources; this pass cannot rewrite originals.
     const minimalPayload = {
       ...compactPayload,
       responsibility: `${common.responsibility} 当前条目极多，本轮只读取每条目的一句话索引，分组摘要在下方提供。`,
@@ -3785,17 +3798,15 @@ function compileBatchFinalReviewPrompt(
           itemKey: item.itemKey,
           label: item.label,
           groupTitle: item.groupTitle,
-          revision: item.revision,
-          contextSummary: boundIndexText(projection.contextSummary, 48),
-          authority: settingReviewAuthority(item),
-          factCount: projection.factEntries.length
+          contextSummary: projection.factEntries.join('；'),
+          authority: settingReviewAuthority(item)
         };
       })
     };
     const minimalPrompt = JSON.stringify(minimalPayload);
     const minimalCharacters = Array.from(minimalPrompt).length;
     if (minimalCharacters > budgetChars) {
-      throw new Error(`设定总审最小条目索引仍有${minimalCharacters}字，超过12000字安全范围`);
+      throw new Error(`设定总审最小条目索引仍有${minimalCharacters}字，超过${budgetChars}字安全范围`);
     }
     return { prompt: minimalPrompt, allowPatches: false };
   }

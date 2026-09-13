@@ -1,0 +1,73 @@
+{
+  "model": "glm-5.3",
+  "fixtures": [],
+  "calls": [
+    {
+      "requestId": "c4-probe-d38d4d19-47cc-4e6a-9801-cd28744a29c6",
+      "caseId": "three-kingdoms",
+      "step": 0,
+      "inputChars": 1074,
+      "state": "succeeded",
+      "model": "glm-5.3",
+      "inputTokens": 437,
+      "outputTokens": 748
+    },
+    {
+      "requestId": "c4-probe-e57dc1ce-5385-4031-a977-001278a52915",
+      "caseId": "three-kingdoms",
+      "step": 1,
+      "inputChars": 1110,
+      "state": "succeeded",
+      "model": "glm-5.3",
+      "inputTokens": 448,
+      "outputTokens": 542
+    },
+    {
+      "requestId": "c4-probe-1a018b87-0e70-4bec-ac4b-5d4d5ce34ed3",
+      "caseId": "three-kingdoms",
+      "step": 2,
+      "inputChars": 1110,
+      "state": "succeeded",
+      "model": "glm-5.3",
+      "inputTokens": 448,
+      "outputTokens": 984
+    },
+    {
+      "requestId": "c4-probe-02efeb2b-c37b-413f-97e1-ce9894fa4e05",
+      "caseId": "three-kingdoms",
+      "step": 3,
+      "inputChars": 1110,
+      "state": "succeeded",
+      "model": "glm-5.3",
+      "inputTokens": 448,
+      "outputTokens": 3980
+    },
+    {
+      "requestId": "c4-probe-d734ca7b-af57-4013-8336-3a0ab4d1da1e",
+      "caseId": "three-kingdoms",
+      "step": 4,
+      "inputChars": 1696,
+      "state": "succeeded",
+      "model": "glm-5.3",
+      "inputTokens": 654,
+      "outputTokens": 1845
+    },
+    {
+      "requestId": "c4-probe-beac122a-4969-4571-9858-ca8b8f14c735",
+      "caseId": "three-kingdoms",
+      "step": 5,
+      "inputChars": 1098,
+      "state": "succeeded",
+      "model": "glm-5.3",
+      "inputTokens": 448,
+      "outputTokens": 1582
+    },
+    {
+      "requestId": "c4-probe-8a75571a-b5fc-4268-a8b2-5bebdd4aa40e",
+      "caseId": "three-kingdoms",
+      "step": "design",
+      "inputChars": 961,
+      "state": "unknown"
+    }
+  ]
+}

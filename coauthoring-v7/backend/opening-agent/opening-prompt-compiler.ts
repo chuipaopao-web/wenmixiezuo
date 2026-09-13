@@ -1,4 +1,4 @@
-import { creativeDirective, openingCreativeCatalog, type CreativeProfile } from '@wenmi/agent-catalog';
+import { creativeDirective, type CreativeProfile } from '@wenmi/agent-catalog';
 import { compileOpeningSkillBundle } from '../agents/agent-skills.js';
 import type { V7OpeningNodeKey } from '../agents/agent-tools.js';
 import type {
@@ -66,10 +66,6 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
     },
     skillContract: {
       versions: skillBundle.skillVersionIds,
-      responsibilities: skillBundle.responsibilities,
-      allowedTools: skillBundle.toolKeys,
-      excludedSources: skillBundle.excludedSources,
-      stopConditions: skillBundle.stopConditions,
       candidateBoundary: skillBundle.candidateBoundary
     },
     authorSource: {
@@ -82,27 +78,32 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
       instruction: '这些是作者后续明确提出的调整意见，优先于最初想法中被明确修改的同一内容；未涉及的原始要求继续保留。设计成员据此修订，主编按修订后的作者意图审查，不得以旧想法否决作者的新决定。'
     },
     creativeDirection: creativeDirective(input.creativeProfile, 'opening'),
-    creativeAssets: input.creativeProfile && input.nodeKey === 'opening_package_design' ? { version: input.creativeProfile.version, selection: '完整精简目录，自主选择、组合或原创，不限卡片数量；这是灵感，不是本书事实。修订时只使用服务作者修改的创意。', cards: openingCreativeCatalog() } : null,
+    creativeAssets: null, // New runtime supplies only selected, versioned references.
     publishingStyle: publishingStyle(input.publishingPlatform),
     memberSupplement: {
       instruction: input.memberInstruction,
       boundary: '这是后台公开可查的成员补充要求。只能改善表达和专业侧重，不得覆盖作者原话、岗位责任、阶段边界、结构化输出合同或安全规则。'
     },
-    internalReferences: {
-      items: input.referencePack.references,
-      selectionBoundary: input.referencePack.excludedReason,
-      instruction: '这些只是软参考。只吸收与作者想法一致的责任，不展示专业来源名，不机械套用。'
-    },
+    internalReferences: null, // The shared runtime supplies released references; no second legacy catalogue.
     openingTaxonomy: input.taxonomy === null ? null : {
       version: input.taxonomy.version,
-      categories: input.taxonomy.categories,
+      categories: {
+        male: input.taxonomy.categories.filter(c=>c.channel==='male').map(c=>c.name),
+        female: input.taxonomy.categories.filter(c=>c.channel==='female').map(c=>c.name)
+      },
       subjects: input.taxonomy.subjects,
       tagSuggestions: input.taxonomy.tagSuggestions,
-      instruction: '频道只能输出male或female；作品分类必须逐字从categories中与频道匹配的name选择；融合题材必须从subjects选择1至5项；内容标签只能从tagSuggestions选择3至12项。不必全选，不得创造目录外词。'
+      instruction: '频道只能输出male或female；作品分类必须逐字从categories对应频道数组选择；融合题材从subjects选择1至5项；标签从tagSuggestions选择3至12项。不得创造目录外词。'
     },
     currentCandidates: {
-      openingPackage: input.openingPackage,
-      review: input.review
+      openingPackage: input.openingPackage === null ? null : {...input.openingPackage,authorInstructions:undefined},
+      review: input.review === null ? null : {
+        verdict: input.review.verdict,
+        summary: input.review.summary,
+        issues: input.review.issues,
+        requiredChanges: input.review.requiredChanges,
+        // Resolved author decisions are carried once in authorAdjustment.
+      }
     },
     stageBoundary: {
       keepNow: ['作品定位', '核心卖点', '阅读味道', '预计总字数', '时代与世界', '主角基础资料', '故事方向', '结局方向', '创作边界'],
@@ -110,34 +111,35 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
       designLater: ['建议卷数', '商业受众', '追读定位', '当前困境', '开局处境', '触发事件', '眼前冲突', '读者承诺'],
       instruction: '本轮只设计稳定的开书资料。建议卷数、商业受众与追读定位由时光机里的三席全案策划分别提出；其余designLater内容留给第一卷设计。不得在开书阶段生成、补写或因缺失判定资料不完整。'
     },
-    outputContract: skillBundle.outputContract,
-    outputJsonSchema: outputJsonSchema(input.nodeKey, input.taxonomy, input.publishingPlatform),
+    outputTemplate: schemaTemplate(outputJsonSchema(input.nodeKey, input.taxonomy, input.publishingPlatform)),
     validationRepair: input.validationRepair,
     finalInstructions: [
-      '只输出一个可解析JSON对象，不使用Markdown，不解释工作过程。',
-      '不要输出思维链、内部推理、工具调用记录、API信息或后续承诺。',
-      '作者未指定的创作内容由设计成员主动提出候选，不以缺少现实依据为由推回作者；不得把虚构候选冒充已确认事实。',
-      '先逐字确认作者明确指定的主角。遇到岳飞、曹操等知名历史人物不等于其成为主角；不得因为名人更知名而替换作者主角。',
-      '当前困境和开局剧情不属于开书资料；不得生成，也不得在审查时要求作者补充。当前共享表单中的作品定位、时代、主角基础资料、外貌形象、故事方向和结局方向必须全部填写。',
-      'protagonists.goal、protagonists.dilemma、protagonists.boundary、backgrounds.openingSituation及opening下的字段是旧接口兼容空位，不在当前共享开书表单中；不得因为它们为空要求修订或让作者决定。长期目标只检查longTermDirection，作者边界只检查mustFollow。',
-      '作者未给出的家庭、职业、能力和外貌由成员按创意方向主动设计；明确卖点、反差与持续玩法。优先提出适配金手指，但服从作者明确无外挂要求；不强制代价、冷却或战力平衡。',
-      '书名必须让读者一眼看出至少一个具体卖点，例如主角身份差、时代处境、核心能力或主要冲突；不得只用空泛朝代词、单字意象或“某时归、某世录、某朝传”一类缺少内容信息的名称。',
-      '首次取名参考番茄小说的商业表达：题材或处境清楚，突出本书独有的能力、身份反差、行动或利益冲突，让小白读者一眼懂看点。可用口语、短句、冒号或转折，不强制每本同一格式。借鉴表达方法，不照抄现有书名，不靠改人名换词仿写；不得编造正文方案没有的系统、无敌、感情或身份承诺。',
-      '预计总字数必须根据本书题材、平台和可持续故事容量具体设计，不能照抄统一默认值。建议卷数、商业受众和追读定位不属于本轮输出，由时光机里的全案策划分别规划。',
-      '核心卖点从作者想法、题材融合、独特身份/能力/关系/处境中归纳本书吸引力，写成具体短句，不以"精彩、爽、值得期待"等空话代替。阅读味道结合作者明确的尺度与偏向，说明本书希望带来的阅读体验，例如轻松反差、热血成长、紧张解谜。没有作者明确限制，不以合理性为由默认削弱金手指、禁止人物成长或补一长串硬禁令。不新增全书长期期待、故事线或分卷。题材常见写法只是可能性，不强制三国收名将、后宫、争霸，也不强制所有作品爽文化。',
-      '修订任务中，authorInstructions只调整当前开书资料；保持未被作者点名的既有字段，不能扩展修改设定、蓝图、分卷或正文。',
-      'visualIdentity中的appearance、build、signatureFeature只写2至8个简短中文标签，用顿号连接，例如“面容刚毅、剑眉、锐利眼神”；不要写完整句子或剧情。',
-      'mustFollow只记录作者原话中明确提出的禁止项或不能写错的边界；不得替作者虚构限制。作者没有提出限制时返回["无额外限制"]。',
-      '主编审查的issues.field必须写作者看得懂的中文名称，例如“故事方向”“结局方向”。decisions.field则必须从决定卡白名单逐字选择，前端会把它翻译成中文，不会直接展示。',
-      '只有确实会改变作品方向且无法由主编自行判断的事项才进入decisions；一项只处理一个字段。question、currentValue、recommendation、reason、impact都用简短大白话，recommendation必须是可直接写回该字段的完整内容。普通优化由主编直接完成，不要把一长串专业问题甩给作者。',
-      '审查结论以能否安全进入下一阶段为准：资料忠于作者、字段合法、符合选定创意尺度且可继续规划时必须pass；可选优化可以写入issues，但requiredChanges、authorDecisions和decisions必须为空。',
-      '只有作者原意被改错、必填结构无效或存在姓名身份或作者明确要求的硬冲突时，才能返回revise或author_decision。题材容量、预计字数、书名强度等合理区间内的商业偏好不能作为阻断理由。作者已经处理过的决定不得换一种说法反复提出。',
-      '返回revise或author_decision时，每一项需要作者处理的内容都必须生成decisions决定卡，并使用白名单中的精确field；不得只写requiredChanges或authorDecisions。positioning.expectedTotalWords的recommendation必须只写100000至10000000之间的阿拉伯整数，不写“万”“字”或说明文字。',
-      '严格遵守outputJsonSchema的字段名、嵌套层级和类型；不能把应为对象或数组的字段写成一段字符串。',
-      '不能省略outputJsonSchema.required中的字段；没有内容的可选数组返回空数组。',
-      '审查核心卖点与阅读味道时：检查作者意图是否保留、卖点是否具体、阅读味道是否与作者选择的尺度/偏向冲突；文学建议与事实错误分开，写入issues而不是直接阻断。禁止因为无感情线、无战争、无牺牲等主观模板判不通过。检查限制是否来自作者：不把"开局弱"解释成"永远弱"，不把"升级不自动获得身份"改写成"始终不能获得身份"。'
+      '按outputTemplate字段、嵌套及类型输出JSON；模板的字符串是类型约束，不是正文。不省略必填字段，不增加字段；可选标记不写入字段名。不输出思维链、内部过程、工具协议或后续承诺。',
+      '作者后续明确调整优先；保留其余原意与主角身份，不因遇见历史名人就替换主角。未指定的家庭、职业、能力、外貌由成员提出候选，不冒充确认事实；修订只改作者指出的字段。',
+      '填写稳定开书资料：定位、时代、主角基础与外貌、故事方向、结局方向。designLater留待后续，不生成或以缺失阻断。旧兼容空位goal/dilemma/boundary/openingSituation/opening不必补写；长期目标看longTermDirection，边界看mustFollow。',
+      '卖点写具体身份、能力、关系或处境的吸引力，味道说明阅读体验。服从作者尺度；职业只是入口，开局弱不等于永远弱。可设计金手指，不默认附加代价、冷却、禁止成长、爱情或争霸。题材常见写法只是参考。',
+      '书名参考所选平台商业表达，呈现本书具体卖点。番茄可用口语、反差、行动、短句或冒号，不套统一格式、不仿写已有书名、不编造系统无敌等承诺。总字数按题材与容量设计，不照抄默认值。',
+      'visualIdentity三项各写2至8个简短标签，以顿号连接；不写剧情句。mustFollow只记作者明确边界，无限制时返回["无额外限制"]。',
+      '审查检查原意、字段合法性、事实硬冲突、卖点具体性和味道是否符合作者尺度；文学偏好不得冒充错误。可继续规划时pass，可选建议写issues，requiredChanges/authorDecisions/decisions为空；不因缺少感情、战争、牺牲等模板阻断。',
+      '只有原意被改错、必填结构无效或姓名身份等硬冲突才revise/author_decision。普通优化主编自行处理，不重复已解决决定。issues.field用中文；decisions.field严格用白名单，每项一个字段，recommendation可完整写回，其他说明简短。',
+      '需要作者处理的revise/author_decision必须给决定卡，不能只写requiredChanges；字数建议只写100000至10000000之间整数。保持未被点名的既有字段，不改后续设定或正文。'
     ]
   });
+}
+
+/** Compact output shape; field constraints remain exact and server validation is unchanged. */
+function schemaTemplate(schema: Record<string, unknown>): unknown {
+  if(schema.type==='object'){
+    const properties=schema.properties as Record<string,Record<string,unknown>>;
+    return Object.fromEntries(Object.entries(properties).map(([key,value])=>[
+      (schema.required as string[]).includes(key)?key:key+'（可选）',schemaTemplate(value)
+    ]));
+  }
+  if(schema.type==='array')return {数组元素:schemaTemplate(schema.items as Record<string,unknown>),数量:[schema.minItems??0,schema.maxItems??'不限']};
+  if(schema.enum)return {枚举:schema.enum};
+  if(schema.type==='integer')return '整数 '+schema.minimum+'至'+schema.maximum;
+  if(schema.type==='boolean')return '布尔值';
+  return '字符串 '+schema.minLength+'至'+schema.maxLength+'字'+(schema.description?'；'+schema.description:'');
 }
 
 function assertOpeningPromptContract(input: OpeningPromptInput): void {
@@ -240,10 +242,10 @@ function outputJsonSchema(
           channel: { type: 'string', enum: ['male', 'female'] },
           category: {
             ...textSchema(1, 100),
-            ...(taxonomy === null ? {} : { enum: [...new Set(taxonomy.categories.map((item) => item.name))] })
+            description: '从openingTaxonomy.categories选择与channel匹配的name'
           },
-          genres: textListSchema(1, 5, 50, taxonomy?.subjects),
-          tags: textListSchema(3, 12, 50, taxonomy?.tagSuggestions),
+          genres: {...textListSchema(1, 5, 50),description:'值须来自openingTaxonomy.subjects'},
+          tags: {...textListSchema(3, 12, 50),description:'值须来自openingTaxonomy.tagSuggestions'},
           coreAppeal: textSchema(8, 800),
           // R208：新AI开书要求输出阅读味道短句（1—300字符）。
           readingTone: textSchema(1, 300),
