@@ -28,7 +28,8 @@ CREATE TABLE creative_reference_aliases (
   internal_id TEXT NOT NULL REFERENCES creative_reference_cards(internal_id),
   namespace TEXT NOT NULL,
   alias_key TEXT NOT NULL,
-  alias_version INTEGER,
+  -- 0=无版本哨兵：SQLite UNIQUE不把NULL视为相等，规范化为0后唯一约束真实生效。
+  alias_version INTEGER NOT NULL DEFAULT 0,
   source_view TEXT NOT NULL,
   created_at TEXT NOT NULL,
   UNIQUE (namespace, alias_key, alias_version)

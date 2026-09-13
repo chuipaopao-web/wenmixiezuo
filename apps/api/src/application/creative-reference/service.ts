@@ -64,20 +64,26 @@ export class CreativeReferenceService {
     return this.repository.setAvailability(internalId, availability, now);
   }
 
-  /** 发布：清单内revision须reviewed；发布即打published；乐观锁保护active指针。 */
+  /**
+   * 发布：清单内revision须reviewed；退役卡拒绝；发布即打published。
+   * 调用者必须显式提供其读取的expectedActiveReleaseId（乐观锁）；服务不自动读最新掩盖陈旧编辑。
+   */
   public async publish(entries: ReadonlyArray<{ internalId: string; revision: number }>,
     relations: ReadonlyArray<{ fromId: string; fromRevision: number; toId: string; toRevision: number; relationType: 'supplement' | 'fusion' | 'synonym' | 'replacement' | 'related_method' }>,
-    context: ActorContext, now: string): Promise<ReleaseSnapshot> {
+    context: ActorContext, expectedActiveReleaseId: string | null, now: string): Promise<ReleaseSnapshot> {
     this.requireManager(context);
-    const active = await this.repository.getActiveRelease();
-    return this.repository.publishRelease({ entries, relations, publishedBy: context.actorId, expectedActiveReleaseId: active === null ? null : active.releaseId }, now);
+    return this.repository.publishRelease({ entries, relations, publishedBy: context.actorId, expectedActiveReleaseId }, now);
   }
 
-  /** 测试辅助：显式指定期望active（验证乐观锁）；生产入口走publish自动读取当前active。 */
-  public async publishWithStaleActive(entries: ReadonlyArray<{ internalId: string; revision: number }>,
-    relations: ReadonlyArray<{ fromId: string; fromRevision: number; toId: string; toRevision: number; relationType: 'supplement' | 'fusion' | 'synonym' | 'replacement' | 'related_method' }>,
-    now: string, expectedActiveReleaseId: string | null): Promise<ReleaseSnapshot> {
-    return this.repository.publishRelease({ entries, relations, publishedBy: 'stale-active-probe', expectedActiveReleaseId }, now);
+  /** 成员按冻结release分页读取清单条目：cursor绑定releaseId，不随active指针变化。 */
+  public async memberListRelease(releaseId: string | undefined, cursor: { lastInternalId: string } | null, limit: number, context: ActorContext): Promise<Array<{ internalId: string; revision: number }>> {
+    if (context.role !== 'member' || context.actorId.trim().length === 0 || !this.authorization.canReadAsMember(context)) {
+      throw new AuthorizationError('成员读取需要有效的成员上下文。');
+    }
+    if (releaseId === undefined || releaseId.trim().length === 0) {
+      throw new AuthorizationError('成员读取必须传冻结release，不允许默认读最新。');
+    }
+    return this.repository.listReleaseEntries(releaseId, cursor, Math.min(Math.max(limit, 1), 100));
   }
 
   public async adminReadExact(key: ExactKey, options: ExactReadOptions, context: ActorContext): Promise<LookupResult> {

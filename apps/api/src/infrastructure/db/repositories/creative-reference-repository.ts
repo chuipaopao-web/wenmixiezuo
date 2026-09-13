@@ -53,7 +53,7 @@ function fingerprintCreate(input: CreateCardInput): string {
 function toCard(row: CardRow): CardRecord {
   return {
     internalId: row.internal_id, assetKind: row.asset_kind, displayCode: row.display_code,
-    legacy: row.legacy_namespace === null ? null : { namespace: row.legacy_namespace, key: row.legacy_key!, ...(row.legacy_version === null ? {} : { version: row.legacy_version }) },
+    legacy: row.legacy_namespace === null ? null : { namespace: row.legacy_namespace, key: row.legacy_key!, ...((row.legacy_version === null || row.legacy_version === 0) ? {} : { version: row.legacy_version }) },
     currentRevision: row.current_revision, availability: row.status,
     createdAt: row.created_at, updatedAt: row.updated_at
   };
@@ -107,7 +107,7 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
         (internal_id, asset_kind, display_code, legacy_namespace, legacy_key, legacy_version, current_revision, status, idempotency_key, create_request_fingerprint, created_at, updated_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
         .run(internalId, input.assetKind, displayCode,
-          input.legacy?.namespace ?? null, input.legacy?.key ?? null, input.legacy?.version ?? null,
+          input.legacy?.namespace ?? null, input.legacy?.key ?? null, this.aliasVersionValue(input.legacy?.version),
           1, 'draft', input.idempotencyKey, fingerprint, now, now);
       this.insertRevisionRow(revision);
       this.database.exec('COMMIT');
@@ -146,12 +146,11 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
 
   public async findCardsByLegacy(legacy: LegacyRef): Promise<CardRecord[]> {
     validateLegacyRef(legacy);
-    const versionClause = legacy.version === undefined ? 'IS' : '=';
-    const params = legacy.version === undefined ? [legacy.namespace, legacy.key] : [legacy.namespace, legacy.key, legacy.version];
-    const main = this.database.prepare(`SELECT * FROM creative_reference_cards
-      WHERE legacy_namespace=? AND legacy_key=? AND legacy_version ${versionClause} ?`).all(...(legacy.version === undefined ? [...params.slice(0, 2), null] : params)) as CardRow[];
-    const aliasRows = this.database.prepare(`SELECT internal_id FROM creative_reference_aliases
-      WHERE namespace=? AND alias_key=? AND alias_version ${versionClause} ?`).all(...(legacy.version === undefined ? [legacy.namespace, legacy.key, null] : params)) as Array<{ internal_id: string }>;
+    const versionValue = this.aliasVersionValue(legacy.version);
+    const main = this.database.prepare('SELECT * FROM creative_reference_cards WHERE legacy_namespace=? AND legacy_key=? AND legacy_version=?')
+      .all(legacy.namespace, legacy.key, versionValue) as CardRow[];
+    const aliasRows = this.database.prepare('SELECT internal_id FROM creative_reference_aliases WHERE namespace=? AND alias_key=? AND alias_version=?')
+      .all(legacy.namespace, legacy.key, versionValue) as Array<{ internal_id: string }>;
     const byId = new Map<string, CardRow>();
     for (const row of main) byId.set(row.internal_id, row);
     for (const alias of aliasRows) {
@@ -208,13 +207,16 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
   public async reviewRevision(input: ReviewInput, now: string): Promise<RevisionRecord> {
     const revision = await this.getRevision(input.internalId, input.expectedRevision);
     if (revision === null) throw new NotFoundError(`revision ${input.expectedRevision} 不存在。`);
+    const card = await this.requireCard(input.internalId);
+    if (card.availability === 'retired') throw new ConflictError('已退役条目不能审核（不允许隐式复活进新发布）。');
     if (revision.status === 'published') throw new ConflictError('已发布revision不可变更。');
     if (revision.status === 'reviewed') throw new ConflictError('该revision已审核。');
     const guard = this.database.prepare(`UPDATE creative_reference_revisions SET status='reviewed', review_actor=?, created_at=?
       WHERE internal_id=? AND revision=? AND status='draft'`).run(input.reviewActor, now, input.internalId, input.expectedRevision);
     if (guard.changes !== 1) throw new ConflictError('审核并发冲突：revision已不是draft。');
-    this.database.prepare('UPDATE creative_reference_cards SET status=?, updated_at=? WHERE internal_id=? AND current_revision=?')
-      .run('reviewed', now, input.internalId, input.expectedRevision);
+    // 退役卡不允许隐式恢复：只有非退役卡才同步卡可用状态。
+    this.database.prepare(`UPDATE creative_reference_cards SET status='reviewed', updated_at=? WHERE internal_id=? AND current_revision=? AND status <> 'retired'`)
+      .run(now, input.internalId, input.expectedRevision);
     return (await this.getRevision(input.internalId, input.expectedRevision))!;
   }
 
@@ -277,22 +279,25 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
 
   public async publishRelease(input: PublishReleaseInput, now: string): Promise<ReleaseSnapshot> {
     if (input.entries.length === 0) throw new ValidationError('发布清单不能为空。');
-    // 条目去重与revision冲突预检
+    // 条目去重预检
     const seen = new Set<string>();
     for (const entry of input.entries) {
-      const key = entry.internalId;
-      if (seen.has(key)) throw new ValidationError(`清单条目重复：${key}。`);
-      seen.add(key);
+      if (seen.has(entry.internalId)) throw new ValidationError(`清单条目重复：${entry.internalId}。`);
+      seen.add(entry.internalId);
     }
     this.database.exec('BEGIN IMMEDIATE');
     try {
-      // 乐观锁：active指针必须匹配预期，否则并发发布冲突。
+      // 乐观锁：active指针必须匹配调用者显式提供的预期；不自动读取最新掩盖陈旧编辑。
       const active = this.database.prepare('SELECT release_id FROM creative_reference_releases WHERE active=1').get() as { release_id: string } | undefined;
       const currentActiveId = active === undefined ? null : active.release_id;
       if (currentActiveId !== input.expectedActiveReleaseId) {
         throw new ConflictError(`active指针与预期不符：期望${input.expectedActiveReleaseId ?? '无active'}，实际${currentActiveId ?? '无active'}。`);
       }
       for (const entry of input.entries) {
+        const card = await this.findCardByInternalId(entry.internalId);
+        if (card === null) throw new NotFoundError(`清单卡不存在：${entry.internalId}`);
+        // 退役卡禁止进入新release（旧release冻结资格不受影响）。
+        if (card.availability === 'retired') throw new ValidationError(`退役条目不能发布进新release：${card.displayCode}。`);
         const rev = await this.getRevision(entry.internalId, entry.revision);
         if (rev === null) throw new NotFoundError(`清单引用不存在：${entry.internalId}@${entry.revision}`);
         // reviewed=首次发布；published=已发布内容进入新release（合法重发布）。draft不可发布。
@@ -300,12 +305,16 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
           throw new ValidationError(`清单包含未审核revision：${rev.displayCode}@${rev.revision}（status=${rev.status}，须先reviewed）`);
         }
       }
-      // 关系两端必须都在本release内
-      const entryIds = new Set(input.entries.map((e) => e.internalId));
+      // 关系按(internalId,revision)成对校验：端点revision必须存在于清单且真实存在。
+      const entryPairs = new Set(input.entries.map((e) => `${e.internalId}@${e.revision}`));
+      const seenEdges = new Set<string>();
       for (const rel of input.relations) {
-        if (!entryIds.has(rel.fromId) || !entryIds.has(rel.toId)) {
-          throw new ValidationError('关系两端必须都在本release清单内。');
+        if (!entryPairs.has(`${rel.fromId}@${rel.fromRevision}`) || !entryPairs.has(`${rel.toId}@${rel.toRevision}`)) {
+          throw new ValidationError('关系两端(internalId,revision)必须成对存在于本release清单内。');
         }
+        const edgeKey = `${rel.fromId}@${rel.fromRevision}->${rel.toId}@${rel.toRevision}:${rel.relationType}`;
+        if (seenEdges.has(edgeKey)) throw new ValidationError(`关系清单内重复边：${edgeKey}。`);
+        seenEdges.add(edgeKey);
       }
       // 发布即把清单内reviewed revision打为published（审核完成→发布的证据）；已published保持不变。
       for (const entry of input.entries) {
@@ -326,10 +335,13 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
       const releaseId = randomUUID();
       this.database.prepare('UPDATE creative_reference_releases SET active=0 WHERE active=1').run();
       for (const rel of canonicalRelations) {
-        const relationId = randomUUID();
-        this.database.prepare(`INSERT INTO creative_reference_relations(relation_id, from_id, from_revision, to_id, to_revision, relation_type, created_at)
-          VALUES (?,?,?,?,?,?,?)`).run(relationId, rel.fromId, rel.fromRevision, rel.toId, rel.toRevision, rel.relationType, now);
-        this.database.prepare(`INSERT INTO creative_reference_release_relations(release_id, relation_id) VALUES (?,?)`).run(releaseId, relationId);
+        // 不可变边跨release复用：同(from,to,revision,type)边已存在则只建立release关联，不重复插入。
+        this.database.prepare(`INSERT OR IGNORE INTO creative_reference_relations(relation_id, from_id, from_revision, to_id, to_revision, relation_type, created_at)
+          VALUES (?,?,?,?,?,?,?)`).run(randomUUID(), rel.fromId, rel.fromRevision, rel.toId, rel.toRevision, rel.relationType, now);
+        const edge = this.database.prepare(`SELECT relation_id FROM creative_reference_relations
+          WHERE from_id=? AND from_revision=? AND to_id=? AND to_revision=? AND relation_type=?`)
+          .get(rel.fromId, rel.fromRevision, rel.toId, rel.toRevision, rel.relationType) as { relation_id: string };
+        this.database.prepare(`INSERT INTO creative_reference_release_relations(release_id, relation_id) VALUES (?,?)`).run(releaseId, edge.relation_id);
       }
       this.database.prepare(`INSERT INTO creative_reference_releases(release_id, canonical_manifest, manifest_hash, manifest_json, active, created_at, published_by)
         VALUES (?,?,?,?,?,?,?)`).run(releaseId, canonicalJson, manifestHash, canonicalJson, 1, now, input.publishedBy);
@@ -376,52 +388,67 @@ export class SqliteCreativeReferenceRepository implements CreativeReferenceRepos
     return rows.map((row) => ({ relationId: row.relation_id, fromId: row.from_id, fromRevision: row.from_revision, toId: row.to_id, toRevision: row.to_revision, relationType: row.relation_type, createdAt: row.created_at }));
   }
 
+  /**
+   * 冻结release分页：按manifest条目序（internalId排序）遍历，cursor绑定releaseId；
+   * 不随active指针变化——旧release清单是不可变的。
+   */
+  public async listReleaseEntries(releaseId: string, cursor: { lastInternalId: string } | null, limit: number): Promise<Array<{ internalId: string; revision: number }>> {
+    const release = await this.getRelease(releaseId);
+    if (release === null) throw new NotFoundError(`release不存在：${releaseId}。`);
+    const sorted = [...release.entries].sort((a, b) => (a.internalId < b.internalId ? -1 : a.internalId > b.internalId ? 1 : 0));
+    const start = cursor === null ? 0 : sorted.findIndex((e) => e.internalId > cursor.lastInternalId);
+    return sorted.slice(start < 0 ? sorted.length : start, (start < 0 ? sorted.length : start) + limit);
+  }
+
   public async listRelations(cardId: string): Promise<RelationRecord[]> {
     const rows = this.database.prepare('SELECT * FROM creative_reference_relations WHERE from_id=? OR to_id=? ORDER BY created_at').all(cardId, cardId) as Array<{ relation_id: string; from_id: string; from_revision: number; to_id: string; to_revision: number; relation_type: RelationRecord['relationType']; created_at: string }>;
     return rows.map((row) => ({ relationId: row.relation_id, fromId: row.from_id, fromRevision: row.from_revision, toId: row.to_id, toRevision: row.to_revision, relationType: row.relation_type, createdAt: row.created_at }));
   }
 
+  /** NULL版本规范化为0哨兵（SQLite UNIQUE不把NULL视为相等）。 */
+  private aliasVersionValue(version: number | undefined): number {
+    return version ?? 0;
+  }
+
   public async attachAlias(internalId: string, legacy: LegacyRef, sourceView: string, now: string): Promise<void> {
     await this.requireCard(internalId);
     validateLegacyRef(legacy);
+    const versionValue = this.aliasVersionValue(legacy.version);
+    const existing = this.database.prepare('SELECT internal_id FROM creative_reference_aliases WHERE namespace=? AND alias_key=? AND alias_version=?')
+      .get(legacy.namespace, legacy.key, versionValue) as { internal_id: string } | undefined;
+    if (existing !== undefined) {
+      // 已有alias：目标一致=幂等成功；目标不同=冲突，不静默改绑（保护已明确旧引用含义）。
+      if (existing.internal_id !== internalId) {
+        throw new ConflictError(`别名${legacy.namespace}:${legacy.key}${legacy.version === undefined ? '' : `@${legacy.version}`}已映射到其他条目（${existing.internal_id}），不能改绑到${internalId}。`);
+      }
+      return;
+    }
     this.database.prepare(`INSERT INTO creative_reference_aliases(alias_id, internal_id, namespace, alias_key, alias_version, source_view, created_at)
-      VALUES (?,?,?,?,?,?,?)`).run(randomUUID(), internalId, legacy.namespace, legacy.key, legacy.version ?? null, sourceView, now);
+      VALUES (?,?,?,?,?,?,?)`).run(randomUUID(), internalId, legacy.namespace, legacy.key, versionValue, sourceView, now);
   }
 
   public async listAliases(internalId: string): Promise<Array<{ legacy: LegacyRef; sourceView: string }>> {
     const rows = this.database.prepare('SELECT namespace, alias_key, alias_version, source_view FROM creative_reference_aliases WHERE internal_id=?').all(internalId) as AliasRow[];
-    return rows.map((row) => ({ legacy: { namespace: row.namespace, key: row.alias_key, ...(row.alias_version === null ? {} : { version: row.alias_version }) }, sourceView: row.source_view }));
+    return rows.map((row) => ({ legacy: { namespace: row.namespace, key: row.alias_key, ...(row.alias_version === 0 || row.alias_version === null ? {} : { version: row.alias_version }) }, sourceView: row.source_view }));
   }
 
   public async importLegacyMapping(entries: ReadonlyArray<LegacyMappingEntry>, idempotencyPrefix: string, actor: string, now: string): Promise<CardRecord[]> {
     const result: CardRecord[] = [];
     for (const entry of entries) {
-      const idempotencyKey = `${idempotencyPrefix}:${entry.sourceView}:${entry.legacy.namespace}:${entry.legacy.key}`;
       if (entry.canonicalInternalId !== undefined) {
         // 显式canonical：别名挂到既有目标卡，不建新卡不占新号。
-        await this.requireCard(entry.canonicalInternalId);
-        const alreadyRun = await this.findByIdempotencyKey(entry.payload.assetKind, idempotencyKey);
-        if (alreadyRun === null) {
-          // 记录幂等标记但不落卡：写入一个仅作重放判定的"空记录"不可行（cards表即实体），
-          // 改为以alias表存在性判定重放：alias已挂即幂等成功。
-          const existingAlias = this.database.prepare('SELECT 1 FROM creative_reference_aliases WHERE namespace=? AND alias_key=? AND alias_version IS ?')
-            .get(entry.legacy.namespace, entry.legacy.key, entry.legacy.version ?? null);
-          if (existingAlias === undefined) {
-            await this.attachAlias(entry.canonicalInternalId, entry.legacy, entry.sourceView, now);
-          }
-        }
+        // attachAlias内部做目标冲突检测：同目标=幂等，异目标=ConflictError（返回值与重新读取一致）。
+        await this.attachAlias(entry.canonicalInternalId, entry.legacy, entry.sourceView, now);
         result.push((await this.findCardByInternalId(entry.canonicalInternalId))!);
         continue;
       }
+      // 无canonical：建卡后挂alias（attachAlias自带幂等/冲突语义；同alias已挂他卡时此处报冲突）。
+      const idempotencyKey = `${idempotencyPrefix}:${entry.sourceView}:${entry.legacy.namespace}:${entry.legacy.key}`;
       const card = await this.createCard(
         { assetKind: entry.payload.assetKind, payload: entry.payload, legacy: null, idempotencyKey, authorActor: actor },
         now
       );
-      const existingAlias = this.database.prepare('SELECT 1 FROM creative_reference_aliases WHERE namespace=? AND alias_key=? AND alias_version IS ?')
-        .get(entry.legacy.namespace, entry.legacy.key, entry.legacy.version ?? null);
-      if (existingAlias === undefined) {
-        await this.attachAlias(card.internalId, entry.legacy, entry.sourceView, now);
-      }
+      await this.attachAlias(card.internalId, entry.legacy, entry.sourceView, now);
       result.push(card);
     }
     return result;

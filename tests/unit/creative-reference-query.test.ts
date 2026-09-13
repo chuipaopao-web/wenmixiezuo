@@ -113,7 +113,7 @@ describe('B1r 精确查询与过滤（返修）', () => {
     const ctx = setup();
     const a = await ctx.service.createCard({ payload: methodPayload(), legacy: null, idempotencyKey: 'frz-1' }, manager, NOW);
     await ctx.service.reviewRevision(a.internalId, 1, reviewer, NOW);
-    const r1 = await ctx.service.publish([{ internalId: a.internalId, revision: 1 }], [], manager, NOW);
+    const r1 = await ctx.service.publish([{ internalId: a.internalId, revision: 1 }], [], manager, null, NOW);
     // 新revision（draft）：不进旧release
     await ctx.service.updateCard({ internalId: a.internalId, expectedRevision: 1, payload: methodPayload({ name: '第2版' }) }, manager, NOW);
     const projection = await ctx.service.memberProject({ by: 'displayCode', displayCode: a.displayCode }, r1.releaseId, 'citation', member);

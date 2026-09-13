@@ -63,6 +63,8 @@ export interface CreativeReferenceRepository {
   getRevisionInRelease(releaseId: string, internalId: string): Promise<RevisionRecord | null>;
   /** release内冻结图谱。 */
   listRelationsInRelease(releaseId: string): Promise<RelationRecord[]>;
+  /** 冻结release分页：manifest条目序，cursor绑定releaseId，不随active变化。 */
+  listReleaseEntries(releaseId: string, cursor: { lastInternalId: string } | null, limit: number): Promise<Array<{ internalId: string; revision: number }>>;
   listRelations(cardId: string): Promise<RelationRecord[]>;
   /** 同实体多别名挂同一canonical卡；确认同实体一个编号。 */
   attachAlias(internalId: string, legacy: LegacyRef, sourceView: string, now: string): Promise<void>;
