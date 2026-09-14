@@ -34,6 +34,23 @@ fi
 case "$OUT" in
   /opt/wenmi/|/opt/wenmi/*) echo "ERROR: 拒绝在生产目录输出"; exit 1 ;;
 esac
+# 现网实际位于 /opt/wenmi-releases/<release>/source（由 /opt/wenmi/* 符号链接解析指向），
+# 仅拒绝 /opt/wenmi 前缀不够；SRC（构建期会被重定向@wenmi链接）与OUT都必须与
+# 现网每个符号链接的 realpath 做双向包含比对。
+SRC_REAL=$(readlink -f "$SRC") || { echo "ERROR: 无法解析SRC真实路径"; exit 1; }
+OUT_REAL=$(readlink -f "$(dirname "$OUT")")/$(basename "$OUT")
+for prod_link in /opt/wenmi/*; do
+  [ -L "$prod_link" ] || continue
+  prod_real=$(readlink -f "$prod_link") || continue
+  for target in "$SRC_REAL" "$OUT_REAL"; do
+    case "$target" in
+      "$prod_real"|"$prod_real"/*) echo "ERROR: 拒绝生产路径: $target ≈ 现网 $prod_real"; exit 1 ;;
+    esac
+    case "$prod_real" in
+      "$target"/*) echo "ERROR: 拒绝现网上级路径: $target 包含现网 $prod_real"; exit 1 ;;
+    esac
+  done
+done
 
 TSC="node $SRC/node_modules/typescript/bin/tsc"
 TMP=$(mktemp -d /tmp/auth-rb-build-XXXXXX)

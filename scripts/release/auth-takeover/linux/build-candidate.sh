@@ -15,9 +15,22 @@ fi
 if ! grep -q '"wenmi-writing"' "$SRC/package.json" 2>/dev/null && ! grep -q '"name"' "$SRC/package.json" 2>/dev/null; then
   echo "ERROR: $SRC/package.json 不含项目名"; exit 1
 fi
-if [ -f "$SRC/.wenmi-prod-marker" ] || [[ "$SRC" == /opt/wenmi/* ]]; then
-  echo "ERROR: 拒绝在生产目录上构建"; exit 1
+if [ -f "$SRC/.wenmi-prod-marker" ]; then
+  echo "ERROR: 拒绝在生产目录上构建（prod-marker）"; exit 1
 fi
+# 现网实际位于 /opt/wenmi-releases/<release>/source（由 /opt/wenmi/* 符号链接解析指向），
+# 只拒绝 /opt/wenmi 前缀不够；必须对现网每个符号链接的 realpath 做双向包含比对。
+SRC_REAL=$(readlink -f "$SRC") || { echo "ERROR: 无法解析SRC真实路径"; exit 1; }
+for prod_link in /opt/wenmi/*; do
+  [ -L "$prod_link" ] || continue
+  prod_real=$(readlink -f "$prod_link") || continue
+  case "$SRC_REAL" in
+    "$prod_real"|"$prod_real"/*) echo "ERROR: 拒绝在生产目录上构建: $SRC_REAL 解析为现网 $prod_real"; exit 1 ;;
+  esac
+  case "$prod_real" in
+    "$SRC_REAL"/*) echo "ERROR: 拒绝在现网上级目录构建: $SRC_REAL 包含现网 $prod_real"; exit 1 ;;
+  esac
+done
 
 TSC="node $SRC/node_modules/typescript/bin/tsc"
 LOG="$SRC/.local/build-candidate.log"
