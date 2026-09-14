@@ -1,5 +1,7 @@
 # 文秘写作当前交接
 
+2026-09-14 AUTH-TAKEOVER-01返工1 c7f2fdd3复验仍未通过，未合入/部署。已确认凭据并发覆盖和last_login_at修好，8项局部测试通过；但第二次哈希窗口停用仍发新会话、退出中的改密仍成功、已知账号校验绕过有界hash队列，所谓回滚仅复制并测试本次自身版本。证据outbox/task-auth-takeover-01.codex-review-2.md及codex-revision1-probe.mjs；让GLM执行inbox/task-auth-takeover-01-revision-2.md，保留前轮成果集中返工。
+
 2026-09-14 AUTH-TAKEOVER-01 GLM提交281e1749已由Codex审查，未通过，未合入/未部署：入口主要为旧装配改名，完整身份接管未完成；独立内存探针确认密码升级后旧代码回退登录失败、并发凭据修改被旧登录升级覆盖、last_login_at未落库。审查`.local/dispatch/outbox/task-auth-takeover-01.codex-review.md`，返工`.local/dispatch/inbox/task-auth-takeover-01-revision-1.md`。保留GLM分支及自测，不以其“已开发/验证”宣称完整通过；老板触发GLM继续返工。
 
 2026-09-14 AUTH-TAKEOVER-01执行任务书已备，待老板手动交GLM5.3：`.local/dispatch/inbox/task-auth-takeover-01.md`。目标为新身份/权限/运行入口实际接管及本地已替代死代码清理；GLM连续完成开发与验证，不仅审计。隔离分支交付Codex验收，本批不部署。不能把当前使用中的开书/设定、@wenmi/v7-backend或rebuild/legacy-opening按名称删除；不能把C6准备代码回退到生产C5。结果入口`.local/dispatch/outbox/task-auth-takeover-01.result.md`。
