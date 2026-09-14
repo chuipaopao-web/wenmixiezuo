@@ -4,6 +4,7 @@ import {SqlPlanRepository,StepRepository,digest,parseCard,parseCandidate,type Ca
 import {TimeMachineModelGateway,TimeMachineCallError} from '../../infrastructure/models/time-machine-model-gateway.js';
 import {snapshotTimeMachine,manifestSourcesSignature,type TimeMachineSnapshot} from './time-machine-sources.js';
 import {validateStorylineSelection,selectionRequestHash,canonicalRecommendationHash,type StorylineSelectionInput} from './storyline-selection.js';
+import {StorylineSelectionRepository} from '../../infrastructure/db/repositories/storyline-selection-repository.js';
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
 import {timeMachineReviewChecks} from './time-machine-review.js';
 import {applyTimeMachineCardEdits} from './time-machine-card-edits.js';
@@ -57,25 +58,34 @@ export class TimeMachineDesignService {
   catch(e){if(this.db.isTransaction)this.db.exec('ROLLBACK');throw e;}
  }
  /** 三套方案一轮：独立编剧、独立状态与失败恢复；同一轮共享资料短卡与作者确认的结构化选择（S1-A）。
-  * 唯一受控设计入口：来源读取/推荐与版本校验/快照构建/createRun在同一BEGIN IMMEDIATE事务内完成；
-  * 幂等先按owner/book/round_key读取已有轮比较规范requestHash（同键同请求返回原轮、同键不同选择409），
-  * 新键才校验当前来源并创建；无selection的设计一律拒绝，不留第二条绕过确认的路径。 */
- startDesignRound(scope:Scope,selection:StorylineSelectionInput,key:string,currentPreparationVersion:string|null):{id:string;scheme:string}[]{
+  * 唯一受控设计入口。6ad621dd修正：
+  *  - 就绪/版本读取移入事务内（新轮分支经prerequisiteReader()读取服务端事实，不接受客户端版本作为当前事实）；
+  *  - 已有同键规范请求在归属核查后直接回放，不要求重新就绪（响应丢失后上游变化不重开任务）；
+  *  - 快照一致性：先用只含上游签名的空intent快照校验来源，得到规范intent后在同一事务内以最终intent重建完整快照
+  *    （manifest的intent哈希、documents的intent正文与保存文本一致，不再只改单字段）。 */
+ startDesignRound(scope:Scope,selection:StorylineSelectionInput,key:string,_clientVersionHint?:string|null):{id:string;scheme:string}[]{
   if(typeof key!=='string'||!key.trim()||key.length>160)throw Error('请求参数错误');
+  const selections=new StorylineSelectionRepository(this.db);
+  const prerequisiteReader=(this as unknown as {_prerequisiteReader?:(s:Scope)=>{ready:boolean;message:string;version:string|null}|null})._prerequisiteReader?.bind(this)??null;
   this.db.exec('BEGIN IMMEDIATE');try{
-   const prior=this.db.prepare('SELECT id,scheme,snapshot_json FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND kind=\'design\' AND round_key=? ORDER BY scheme LIMIT 1').get(scope.ownerId,scope.bookId,key) as {id:string;scheme:string;snapshot_json:string}|undefined;
+   const prior=selections.findDesignRoundByRoundKey(scope.ownerId,scope.bookId,key);
    if(prior){
     let stored:string|undefined;
     try{stored=(JSON.parse(prior.snapshot_json) as {selection?:{requestHash?:string}}).selection?.requestHash;}catch{stored=undefined;}
     if(stored===undefined)throw Error('该操作对应的历史设计无法核对本词选择，请发起新设计');
     if(stored!==selectionRequestHash(selection))throw Error('同一操作编号已对应其他故事线选择，请刷新页面查看当次设计');
-    const rows=this.db.prepare('SELECT id,scheme FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND kind=\'design\' AND round_key=? ORDER BY scheme').all(scope.ownerId,scope.bookId,key) as {id:string;scheme:string}[];
+    const rows=selections.listDesignRoundSchemes(scope.ownerId,scope.bookId,key);
     this.db.exec('COMMIT');
     return rows.map(row=>({id:row.id,scheme:row.scheme}));
    }
-   const base=snapshotTimeMachine(this.db,scope,'',this.windowTokens);
-   const {intent,selectionSnapshot}=validateStorylineSelection(this.db,scope,selection,currentPreparationVersion,manifestSourcesSignature(base.manifest));
-   base.intent=intent;
+   // 新轮：就绪/版本读取在事务内（路由不再传服务端版本作为参数）；不就绪即拒绝
+   const readiness=prerequisiteReader!==null?prerequisiteReader(scope):{ready:true,message:'已确认',version:_clientVersionHint??null};
+   if(!readiness||!readiness.ready||readiness.version===null)throw Error(readiness?.message??'请先完成设定确认与主编统一整理');
+   // 第一遍：空intent快照仅用于上游来源签名校验
+   const probe=snapshotTimeMachine(this.db,scope,'',this.windowTokens);
+   const {intent,selectionSnapshot}=validateStorylineSelection(selections,scope,selection,readiness.version,manifestSourcesSignature(probe.manifest));
+   // 第二遍：以最终intent在同一事务内重建完整快照——manifest intent哈希/documents/正文全部一致
+   const base=snapshotTimeMachine(this.db,scope,intent,this.windowTokens);
    const writers=base.writers.slice(0,3);
    if(!writers.length)throw Error('成员岗位尚未配置：planning_writer');
    const schemes=['A','B','C'].slice(0,writers.length) as string[];

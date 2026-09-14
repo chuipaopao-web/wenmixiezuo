@@ -8,6 +8,7 @@ import {
   startTimeMachineDesignRound,
   startTimeMachineRecommendation,
   timeMachineRunBusy,
+  type StorylineSelectionRequest,
   type TimeMachineDesignResultView,
   type TimeMachinePlanView,
   type TimeMachineRecommendationView,
@@ -70,6 +71,14 @@ function isRecommendation(value: unknown): value is TimeMachineRecommendationVie
   return value !== null && typeof value === 'object' && 'greeting' in value && 'lines' in value;
 }
 
+/**
+ * 服务端明确拒绝（4xx且不可重试）：结果确定、未创建设计轮，未决请求就此终结。
+ * 网络/超时/5xx被request包装为retryable或status=0——结果未知，未决记录必须保留等原键重试。
+ */
+function definitiveFailure(error: unknown): boolean {
+  return error instanceof AuthorApiError && error.status >= 400 && error.status < 500 && !error.retryable;
+}
+
 /** 时光机入口：重构后只保留新版全书方向（老板决定：旧版UI删除，全部走新后端）。 */
 export function TimeMachineDirectionEntry({ bookId, onOpenSettings }: { bookId: string; onOpenSettings?: (() => void) | undefined }): React.JSX.Element {
   return <TimeMachineDirectionPage key={bookId} bookId={bookId} onOpenSettings={onOpenSettings} />;
@@ -95,6 +104,14 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const recommendStarted = useRef(false);
   const initializedRecommendation = useRef<string | null>(null);
   const addDialogRef = useRef<HTMLDialogElement | null>(null);
+  // 账号隔离：sessionStorage键绑定当前账号+书籍，退出/切换账号后不会读到另一账号的未决草稿
+  const ownerIdRef = useRef<string>('');
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('wenmi:session-owner');
+      if (raw !== null) ownerIdRef.current = JSON.parse(raw) as string;
+    } catch { /* 无本地会话记录时退化为仅书籍隔离 */ }
+  }, []);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -144,25 +161,39 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const roundActive = roundRuns.some(timeMachineRunBusy);
   const recommendBusy = recommendRun !== null && timeMachineRunBusy(recommendRun);
   // S1-A：刷新恢复——当轮设计已保存作者的实际选择；从最小投影恢复勾选/自添/备注，
-  // 不把推荐里recommended的线重新当成作者已选。恢复先于推荐默认初始化执行。
+  // 不把推荐里recommended的线重新当成作者已选。6ad621dd修正：
+  //  - 恢复只做一次：按bookId+roundKey标记已恢复；作者dirty后不再重灌（后台轮询新建对象不再触发覆盖）
+  //  - 来源一致性：旧设计的recommendationRunId不在当前推荐中时不把旧ID套到新推荐
   const restoredSelection = useMemo(() => {
     const withSelection = designRuns.filter(run => run.selection != null && run.roundKey === latestRoundKey);
     return withSelection.length > 0 ? withSelection[0]!.selection! : null;
   }, [designRuns, latestRoundKey]);
   const restoredRecommendation = useMemo(() => {
     if (restoredSelection?.recommendationRunId == null) return null;
-    return runs.find(run => run.id === restoredSelection.recommendationRunId && run.kind === 'recommend') ?? null;
-  }, [runs, restoredSelection]);
+    const run = runs.find(r => r.id === restoredSelection.recommendationRunId && r.kind === 'recommend');
+    // 旧设计来源与新推荐不一致时不把旧ID当作新推荐（保留自添/备注，勾选留待作者重新核对）
+    return run != null && run.id === recommendRun?.id ? run : null;
+  }, [runs, restoredSelection, recommendRun?.id]);
+  const restoredRound = useRef<string | null>(null);
+  const authorDirty = useRef(false);
   useEffect(() => {
-    if (restoredSelection !== null && restoredRecommendation !== null) {
-      initializedRecommendation.current = initializedRecommendation.current ?? restoredRecommendation.id;
-      setSelectedLineIds(restoredSelection.selectedLineIds);
-      setAddedLines(restoredSelection.addedLines.map(line => ({ id: `restored-${line.title}`, title: line.title, description: line.description })));
-      setAuthorNote(restoredSelection.authorNote);
-      setShape(restoredSelection.shape);
-      setEnsemble(restoredSelection.ensemble);
-    }
-  }, [restoredSelection, restoredRecommendation]);
+    if (restoredSelection === null || restoredRecommendation === null || latestRoundKey === null) return;
+    const mark = `${bookId}:${latestRoundKey}`;
+    if (restoredRound.current === mark || authorDirty.current) return;
+    restoredRound.current = mark;
+    initializedRecommendation.current = initializedRecommendation.current ?? restoredRecommendation.id;
+    setSelectedLineIds(restoredSelection.selectedLineIds);
+    setAddedLines(restoredSelection.addedLines.map(line => ({ id: `restored-${line.title}`, title: line.title, description: line.description })));
+    setAuthorNote(restoredSelection.authorNote);
+    setShape(restoredSelection.shape);
+    setEnsemble(restoredSelection.ensemble);
+  }, [restoredSelection, restoredRecommendation, latestRoundKey, bookId]);
+  // 作者编辑即置dirty（恢复不得覆盖正在编辑的输入）
+  useEffect(() => {
+    const handler = () => { authorDirty.current = true; };
+    window.addEventListener('input', handler, { capture: true });
+    return () => window.removeEventListener('input', handler, { capture: true });
+  }, []);
   useEffect(()=>{recommendStarted.current=false;},[state?.preparation?.version]);
 
   useEffect(() => {
@@ -209,14 +240,79 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   };
 
   // S1-A：结构化确认——键在一次提交开始时冻结，网络结果未知重试同请求同键；作者修改选择后才新键。
+  // 6ad621dd修正F4：未决请求（完整selection+key）在发送前持久化到按账号/书籍隔离的sessionStorage；
+  // 刷新/响应丢失后回填作者输入并用原请求原键重试；state中出现对应roundKey=确定成功，清除待发送记录。
+  type PendingDesignRecord = { key: string; signature: string; selection: StorylineSelectionRequest };
   const designKey = useRef<string | null>(null);
   const designKeySignature = useRef<string | null>(null);
+  const pendingDesign = useRef<StorylineSelectionRequest | null>(null);
+  const pendingRetryDone = useRef(false);
+  const pendingRestored = useRef(false);
   const selectionSignature = useCallback((): string | null => {
     if (recommendRun === null || recommendationHashRef.current === null || state?.preparation?.version == null) return null;
     return JSON.stringify([recommendRun.id, recommendationHashRef.current, state.preparation.version, selectedLineIds, addedLines.map(line => [line.title, line.description]), shape, ensemble, authorNote.trim()]);
   }, [recommendRun, selectedLineIds, addedLines, shape, ensemble, authorNote, state?.preparation?.version]);
   const recommendationHashRef = useRef<string | null>(null);
   useEffect(() => { recommendationHashRef.current = recommendRun?.recommendationHash ?? null; }, [recommendRun]);
+  // 账号+书籍隔离的未决记录键；无会话账号时不落存储（退化为会话内useRef防重，不跨账号共享草稿）
+  const pendingStorageKey = useCallback((): string | null => {
+    return ownerIdRef.current === '' ? null : `wenmi:design-pending:${ownerIdRef.current}:${bookId}`;
+  }, [bookId]);
+  const clearPendingRecord = useCallback(() => {
+    const storageKey = pendingStorageKey();
+    if (storageKey === null) return;
+    try { window.sessionStorage.removeItem(storageKey); } catch { /* 清理失败不影响功能 */ }
+  }, [pendingStorageKey]);
+  // state中出现对应roundKey的设计轮=确定成功，清除待发送记录
+  useEffect(() => {
+    if (designKey.current === null) return;
+    if (designRuns.some(run => run.roundKey === designKey.current)) clearPendingRecord();
+  }, [designRuns, clearPendingRecord]);
+  // 刷新后恢复未决请求：服务端已有该轮=确定成功只清理；否则回填作者输入（不触发input事件、不计dirty）
+  useEffect(() => {
+    if (pendingRestored.current || state === null) return;
+    pendingRestored.current = true;
+    if (designKey.current !== null) return;
+    const storageKey = pendingStorageKey();
+    if (storageKey === null) return;
+    let pending: PendingDesignRecord;
+    try {
+      const raw = window.sessionStorage.getItem(storageKey);
+      if (raw === null) return;
+      pending = JSON.parse(raw) as PendingDesignRecord;
+    } catch { return; /* 损坏的待发送记录按无未决处理 */ }
+    if (typeof pending?.key !== 'string' || pending.key === '' || pending?.selection == null) return;
+    designKey.current = pending.key;
+    designKeySignature.current = pending.signature;
+    if (state.runs.some(run => run.kind === 'design' && run.roundKey === pending.key)) {
+      clearPendingRecord();
+      return;
+    }
+    pendingDesign.current = pending.selection;
+    initializedRecommendation.current = initializedRecommendation.current ?? pending.selection.recommendationRunId;
+    setSelectedLineIds(pending.selection.selectedLineIds);
+    setAddedLines(pending.selection.addedLines.map(line => ({ id: `pending-${line.title}`, title: line.title, description: line.description })));
+    setAuthorNote(pending.selection.authorNote);
+    setShape(pending.selection.shape);
+    setEnsemble(pending.selection.ensemble);
+    setFeedback({ tone: 'info', text: '上次确认的结果未收到，已恢复你的选择并将用原请求重试，不会重复开任务。' });
+  }, [state, pendingStorageKey, clearPendingRecord]);
+  // 未决请求自动重试一次：来源仍一致且作者未修改时用原请求原键重发；收到明确失败回执则终结未决记录
+  useEffect(() => {
+    if (pendingDesign.current === null || pendingRetryDone.current || state === null || busy || anyBusy) return;
+    if (authorDirty.current) return; // 作者已改选择：等其再次确认，签名不同自然另起新键新请求
+    const selection = pendingDesign.current;
+    const sourceValid = recommendRun !== null && recommendRun.id === selection.recommendationRunId
+      && recommendRun.recommendationHash === selection.recommendationHash
+      && state.preparation?.version === selection.preparationVersion
+      && isRecommendation(recommendRun.result);
+    if (!sourceValid) return; // 来源过期：保留自添/备注待作者重新核对，不自动替作者确认新推荐
+    pendingRetryDone.current = true;
+    void runAction(() => startTimeMachineDesignRound(bookId, selection, designKey.current!).then(() => setSection('plan')).catch((error: unknown) => {
+      if (definitiveFailure(error)) { pendingDesign.current = null; clearPendingRecord(); }
+      throw error; // 网络结果未知：保留未决记录，刷新或再点确认仍用原键原请求
+    }));
+  }, [state, busy, anyBusy, recommendRun, bookId, clearPendingRecord]);
 
   const startDesign = () => {
     if (recommendation === null || anyBusy || busy) return;
@@ -224,7 +320,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
       setFeedback({ tone: 'error', text: '推荐来源尚未就绪，请稍候或刷新页面后重试。' });
       return;
     }
-    const selection = {
+    const selection: StorylineSelectionRequest = {
       recommendationRunId: recommendRun.id,
       recommendationHash: recommendRun.recommendationHash,
       preparationVersion: state.preparation.version,
@@ -235,12 +331,26 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
       authorNote: authorNote.trim()
     };
     const signature = selectionSignature();
+    if (signature === null) {
+      setFeedback({ tone: 'error', text: '推荐来源尚未就绪，请稍候或刷新页面后重试。' });
+      return;
+    }
     if (designKey.current === null || designKeySignature.current !== signature) {
       designKey.current = `design:${bookId}:${Date.now()}`;
       designKeySignature.current = signature;
     }
+    pendingDesign.current = null;
+    pendingRetryDone.current = true; // 手动提交由本次交互反馈，不走挂载自动重试路径
+    // 发送前持久化未决请求（完整选择+键，账号+书籍隔离；响应未知/刷新后按原请求原键重试）
+    const storageKey = pendingStorageKey();
+    if (storageKey !== null) {
+      try { window.sessionStorage.setItem(storageKey, JSON.stringify({ key: designKey.current, signature, selection } satisfies PendingDesignRecord)); } catch { /* 存储不可用时退化为会话内useRef防重 */ }
+    }
     setSelectedScheme(null);
-    void runAction(() => startTimeMachineDesignRound(bookId, selection, designKey.current!).then(() => setSection('plan')));
+    void runAction(() => startTimeMachineDesignRound(bookId, selection, designKey.current!).then(() => setSection('plan')).catch((error: unknown) => {
+      if (definitiveFailure(error)) clearPendingRecord(); // 服务端明确拒绝（4xx不可重试）：未决请求终结，不自动重试
+      throw error;
+    }));
   };
 
   const retryRun = (runId: string) => { void runAction(() => retryTimeMachineRun(bookId, runId)); };

@@ -1,9 +1,10 @@
-import {describe,it,expect,afterEach} from 'vitest';
+﻿import {describe,it,expect,afterEach} from 'vitest';
 import {createTestContext,type TestContext} from '../../helpers/test-context.js';
 import {BookRepository} from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import {TimeMachineDesignService} from '../../../apps/api/src/application/books/time-machine-design-service.js';
 import {TimeMachineModelGateway} from '../../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
 import {canonicalRecommendationHash,parseStorylineSelectionInput,selectionRequestHash,validateStorylineSelection,type StorylineSelectionInput} from '../../../apps/api/src/application/books/storyline-selection.js';
+import {StorylineSelectionRepository} from '../../../apps/api/src/infrastructure/db/repositories/storyline-selection-repository.js';
 import {snapshotTimeMachine,manifestSourcesSignature} from '../../../apps/api/src/application/books/time-machine-sources.js';
 // S1-A：结构化故事线确认——来源校验、防重、同轮三方案共享selection、事务原子性。
 // 与s1-setting-baseline-gate（HTTP门禁）互补；设定状态机由部门套件覆盖。
@@ -58,15 +59,15 @@ describe('S1-A structured storyline selection',()=>{
    const rec=await succeededRecommend(service,scope,'rec-1');
    const sig=manifestSourcesSignature(snapshotTimeMachine(c.database,scope,'',64000).manifest);
    const sel=selectionFor(rec,'pv-1');
-   const {intent,selectionSnapshot}=validateStorylineSelection(c.database,scope,sel,'pv-1',sig);
+   const {intent,selectionSnapshot}=validateStorylineSelection(new StorylineSelectionRepository(c.database),scope,sel,'pv-1',sig);
    expect(intent).toContain('主线·成长线（建立工坊）');
    expect(selectionSnapshot.requestHash).toBe(selectionRequestHash(sel));
-   expect(()=>validateStorylineSelection(c.database,scope,selectionFor(rec,'pv-1',{selectedLineIds:['nope']}),'pv-1',sig)).toThrow('不在本次推荐');
-   expect(()=>validateStorylineSelection(c.database,scope,selectionFor(rec,'pv-1',{recommendationHash:'bad'}),'pv-1',sig)).toThrow('已更新');
-   expect(()=>validateStorylineSelection(c.database,scope,selectionFor(rec,'pv-1'),'pv-2',sig)).toThrow('设定资料已变化');
-   expect(()=>validateStorylineSelection(c.database,scope,selectionFor(rec,'pv-1'),'pv-1','different-signature')).toThrow('资料已变化');
+   expect(()=>validateStorylineSelection(new StorylineSelectionRepository(c.database),scope,selectionFor(rec,'pv-1',{selectedLineIds:['nope']}),'pv-1',sig)).toThrow('不在本次推荐');
+   expect(()=>validateStorylineSelection(new StorylineSelectionRepository(c.database),scope,selectionFor(rec,'pv-1',{recommendationHash:'bad'}),'pv-1',sig)).toThrow('已更新');
+   expect(()=>validateStorylineSelection(new StorylineSelectionRepository(c.database),scope,selectionFor(rec,'pv-1'),'pv-2',sig)).toThrow('设定资料已变化');
+   expect(()=>validateStorylineSelection(new StorylineSelectionRepository(c.database),scope,selectionFor(rec,'pv-1'),'pv-1','different-signature')).toThrow('资料已变化');
    c.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run('other-owner','他人','2026-09-15','2026-09-15');
-   expect(()=>validateStorylineSelection(c.database,{ownerId:'other-owner',bookId:'s1a-book'},sel,'pv-1',sig)).toThrow('推荐不存在');
+   expect(()=>validateStorylineSelection(new StorylineSelectionRepository(c.database),{ownerId:'other-owner',bookId:'s1a-book'},sel,'pv-1',sig)).toThrow('推荐不存在');
  });
  it('startDesignRound: one round shared across A/B/C with same selection; same key+selection idempotent; same key different selection rejected; upstream change rejected for old request',async()=>{
    const {c,scope,service}=setup();

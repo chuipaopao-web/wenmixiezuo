@@ -1,11 +1,12 @@
-import type {DatabaseSync} from 'node:sqlite';
 import {digest} from '@wenmi/time-machine-core';
 import {DomainError,errorCodes} from '../../domain/errors.js';
 import {manifestSourcesSignature,type StorylineSelectionSnapshot} from './time-machine-sources.js';
+import {StorylineSelectionRepository} from '../../infrastructure/db/repositories/storyline-selection-repository.js';
 
 /** S1-A：故事线结构化确认的请求解析、来源校验、规范哈希与供生成intent的构建。
  * 请求边界（不是文学建议）：选择ID≤30、自添线≤20、标题≤80字符、描述≤500、authorNote≤1000、最终intent≤4000。
- * 超限明确提示精简、不截断；名称/描述/role取服务端推荐，不接受客户端改写既有推荐内容。 */
+ * 超限明确提示精简、不截断；名称/描述/role取服务端推荐，不接受客户端改写既有推荐内容。
+ * 6ad621dd修正：authorNote非字符串直接拒绝（不静默转空串）；DB查询已提取到StorylineSelectionRepository。 */
 
 export interface StorylineSelectionInput {
   recommendationRunId: string;
@@ -35,6 +36,7 @@ function asTrimmedString(value: unknown, label: string, max: number): string {
 export function parseStorylineSelectionInput(body: unknown): {idempotencyKey: string; selection: StorylineSelectionInput} {
   if (body === null || typeof body !== 'object') throw bad('提交格式不正确');
   const record = body as Record<string, unknown>;
+  if (typeof record.idempotempotencyKey === 'string') throw bad('提交格式不正确');
   if (typeof record.idempotencyKey !== 'string' || !record.idempotencyKey.trim() || record.idempotencyKey.length > 160) throw bad('操作编号无效');
   const raw = record.selection;
   if (raw === null || typeof raw !== 'object') throw bad('请刷新页面后重新确认故事线');
@@ -62,7 +64,9 @@ export function parseStorylineSelectionInput(body: unknown): {idempotencyKey: st
   if (addedLines.length > SELECTION_LIMITS.addedLines) throw bad(`自添故事线最多${SELECTION_LIMITS.addedLines}条，请精简后再确认`);
   if (!['auto', 'single', 'multiple'].includes(String(s.shape))) throw bad('提交格式不正确');
   if (typeof s.ensemble !== 'boolean') throw bad('提交格式不正确');
-  const authorNote = typeof s.authorNote === 'string' ? s.authorNote.trim() : '';
+  // 严格字符串：authorNote必须始终为字符串（缺失/非字符串都拒绝，不静默丢作者输入）
+  if (typeof s.authorNote !== 'string') throw bad('作者补充格式不正确');
+  const authorNote = s.authorNote.trim();
   if (authorNote.length > SELECTION_LIMITS.authorNote) throw bad(`作者补充最多${SELECTION_LIMITS.authorNote}字，请精简后再确认`);
   if (selectedLineIds.length + addedLines.length === 0) throw bad('请至少选择或添加一条故事线');
   return {idempotencyKey: record.idempotencyKey, selection: {recommendationRunId: s.recommendationRunId, recommendationHash: s.recommendationHash, preparationVersion: s.preparationVersion, selectedLineIds, addedLines, shape: s.shape as StorylineSelectionInput['shape'], ensemble: s.ensemble, authorNote}};
@@ -109,10 +113,11 @@ export function selectionRequestHash(selection: StorylineSelectionInput): string
   ]));
 }
 
-/** 校验选择来源并构建供生成的intent与规范requestHash。全部为确定性检查，不调用模型。 */
-export function validateStorylineSelection(db: DatabaseSync, scope: {ownerId: string; bookId: string}, selection: StorylineSelectionInput, currentPreparationVersion: string | null, currentManifestSignature: string): {intent: string; selectionSnapshot: StorylineSelectionSnapshot} {
+/** 校验选择来源并构建供生成的intent与规范requestHash。全部为确定性检查，不调用模型。
+ * DB读取经StorylineSelectionRepository（6ad621dd第6项）。 */
+export function validateStorylineSelection(repository: StorylineSelectionRepository, scope: {ownerId: string; bookId: string}, selection: StorylineSelectionInput, currentPreparationVersion: string | null, currentManifestSignature: string): {intent: string; selectionSnapshot: StorylineSelectionSnapshot} {
   const requestHash = selectionRequestHash(selection);
-  const row = db.prepare("SELECT owner_id, book_id, kind, state, result_json, snapshot_json FROM tm2_design_runs WHERE id=?").get(selection.recommendationRunId) as {owner_id: string; book_id: string; kind: string; state: string; result_json: string | null; snapshot_json: string} | undefined;
+  const row = repository.findRecommendationRun(selection.recommendationRunId);
   if (!row || row.owner_id !== scope.ownerId || row.book_id !== scope.bookId) throw bad('推荐不存在或尚未完成，请刷新后重新确认', 404);
   if (row.kind !== 'recommend' || row.state !== 'succeeded' || row.result_json === null) throw bad('推荐尚未完成，请先等待主编完成推荐', 409);
   if (canonicalRecommendationHash(row.result_json) !== selection.recommendationHash) throw bad('推荐结果已更新，请刷新页面后重新确认故事线', 409);

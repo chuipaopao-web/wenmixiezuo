@@ -86,14 +86,15 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
   const run=service.state(s).find(item=>item.id===id);reply.code(run?.state==='queued'||run?.state==='working'?202:200);return success({id,state:run?.state??'unknown'},request.id);
  });
  // 一轮设计同时建立A/B/C三套方案：独立编剧、独立状态与失败恢复（第23.12节阶段二）。
- // S1-A：请求合同改为结构化故事线确认——服务端验证推荐归属/哈希/设定版本/来源一致后才建轮；
- // 旧intent-only请求不再有启动后门，返回400并提示刷新（旧结果仍可读取，不回填旧书）。
+ // S1-A：请求合同改为结构化故事线确认。6ad621dd修正：就绪/版本读取移入startDesignRound事务内
+ // （路由注入prerequisiteReader作为服务端事实来源；客户端preparationVersion只作回显比对，不作事实）。
+ (service as unknown as {_prerequisiteReader?:(s:{ownerId:string;bookId:string})=>{ready:boolean;message:string;version:string|null}})._prerequisiteReader=(s:{ownerId:string;bookId:string})=>prerequisite(s);
  app.post<{Params:{bookId:string};Body:{idempotencyKey?:unknown;intent?:unknown;selection?:unknown}}>('/api/time-machine/books/:bookId/design-runs',async(request,reply)=>{
   const s=scope(request,request.params.bookId);const body=request.body??{};
   requirePrepared(s);
   if(typeof body.intent==='string'&&body.intent.length>0)throw new DomainError(errorCodes.validation,'页面已更新：请刷新后重新确认故事线，再开始设计。',{},false,400);
   const {idempotencyKey,selection}=parseStorylineSelectionInput(body);
-  const created=guard(()=>service.startDesignRound(s,selection,idempotencyKey,prerequisite(s).version));
+  const created=guard(()=>service.startDesignRound(s,selection,idempotencyKey));
   const states=service.state(s);const runs=created.map(item=>({id:item.id,scheme:item.scheme,state:states.find(row=>row.id===item.id)?.state??'unknown'}));
   reply.code(runs.some(run=>run.state==='queued'||run.state==='working')?202:200);return success({runs},request.id);
  });

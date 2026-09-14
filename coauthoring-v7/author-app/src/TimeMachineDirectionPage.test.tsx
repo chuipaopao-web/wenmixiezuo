@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, cleanup, act } from '@testing-library/react';
 import { TimeMachineDirectionEntry } from './TimeMachineDirectionPage';
 import type { TimeMachineStateView } from './time-machine-direction-api';
 
@@ -299,5 +299,124 @@ describe('time machine direction page', () => {
     expect(await screen.findByText(/已采用 · 红玉 的方案/)).toBeVisible();
     expect(screen.getByText(/卷A、卷B；主线1、支线1/)).toBeVisible();
     expect(screen.getByRole('button', { name: '重新设计全书方向' })).toBeEnabled();
+  }, 20000);
+
+  // 6ad621dd F3：重新设计页编辑自添/备注后，两次后台刷新（每次state都是新对象）不覆盖作者输入
+  it('keeps author-added lines and note on the redesign page across two background refreshes', async () => {
+    vi.useFakeTimers();
+    try {
+      let refreshes = 0;
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/state')) {
+          // 每次轮询都返回全新state对象：restoredSelection/restoredRecommendation身份每次都变
+          refreshes += 1;
+          return response(stateFixture({ runs: [recommendRun('succeeded'), { ...designRun('A', 'succeeded', '红玉', '候选A'), selection: { recommendationRunId: 'rec-1', selectedLineIds: ['growth'], addedLines: [], shape: 'auto', ensemble: true, authorNote: '' } }] }));
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }));
+      render(<TimeMachineDirectionEntry bookId="bk-1" />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(refreshes).toBe(1);
+      // 已有设计轮先进方案页，再回故事线确认（重新设计）
+      fireEvent.click(screen.getByRole('button', { name: '故事线' }));
+      expect(screen.getByText('老板，我们来设计全书骨架。')).toBeVisible();
+      expect(screen.getByText('已选 1 条故事线')).toBeVisible();
+      // 作者编辑：真实输入事件（置dirty）+自添一条预设线
+      fireEvent.input(screen.getByLabelText('故事线补充要求'), { target: { value: '希望更热血' } });
+      fireEvent.click(screen.getByRole('button', { name: '＋ 添加其他故事线' }));
+      fireEvent.click(screen.getByRole('button', { name: /感情线/ }));
+      expect(screen.getByText('已选 2 条故事线')).toBeVisible();
+      // 两次后台刷新（非进行中15秒周期）
+      await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+      expect(refreshes).toBe(3);
+      // 作者输入仍在：恢复effect不因新对象重灌
+      expect(screen.getByText('已选 2 条故事线')).toBeVisible();
+      expect((screen.getByLabelText('故事线补充要求') as HTMLTextAreaElement).value).toBe('希望更热血');
+    } finally { vi.useRealTimers(); }
+  }, 20000);
+
+  // 6ad621dd F4：服务端已创建但响应丢失→刷新→不重复开任务；state中roundKey即可确定成功并清除未决记录
+  it('treats an existing round after a lost design response as confirmed success without resending', async () => {
+    window.localStorage.setItem('wenmi:session-owner', JSON.stringify('owner-1'));
+    try {
+      let state = stateFixture({ runs: [recommendRun('succeeded')] });
+      const designPosts: string[] = [];
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/state')) return response(state);
+        if (url.endsWith('/design-runs')) {
+          const key = (JSON.parse(String(init?.body)) as { idempotencyKey: string }).idempotencyKey;
+          designPosts.push(key);
+          if (designPosts.length === 1) {
+            // 首次提交：服务端已建轮（三方案共享该roundKey），响应在网络中丢失
+            const round = [{ ...designRun('A', 'working', '红玉', 'x'), roundKey: key, selection: { recommendationRunId: 'rec-1', selectedLineIds: ['growth'], addedLines: [], shape: 'auto', ensemble: true, authorNote: '' } }, { ...designRun('B', 'working', '幼薇', 'x'), roundKey: key }, { ...designRun('C', 'working', '苏映棠', 'x'), roundKey: key }];
+            state = stateFixture({ runs: [recommendRun('succeeded'), ...round] });
+            throw new TypeError('network went away');
+          }
+          return response({ runs: [{ id: 'design-A', scheme: 'A', state: 'queued' }] });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }));
+      render(<TimeMachineDirectionEntry bookId="bk-1" />);
+      await screen.findByText('已选 1 条故事线');
+      fireEvent.click(screen.getByRole('button', { name: '确认故事线，设计全书方向' }));
+      await waitFor(() => { expect(designPosts).toHaveLength(1); });
+      // 作者刷新页面：sessionStorage未决记录仍在，但state已含该轮=确定成功
+      cleanup();
+      render(<TimeMachineDirectionEntry bookId="bk-1" />);
+      expect(await screen.findByText('方案A')).toBeVisible();
+      expect(screen.getByText('方案B')).toBeVisible();
+      expect(screen.getByText('方案C')).toBeVisible();
+      await new Promise(resolve => { setTimeout(resolve, 50); });
+      // 不自动重发：实际提交仍只有一次（服务端一轮三方案，任务数仍一轮）
+      expect(designPosts).toHaveLength(1);
+      expect(window.sessionStorage.getItem('wenmi:design-pending:owner-1:bk-1')).toBeNull();
+    } finally { window.localStorage.removeItem('wenmi:session-owner'); window.sessionStorage.clear(); }
+  }, 20000);
+
+  // 6ad621dd F4：请求未到达服务端→刷新→回填作者输入并用原请求原键重试一次，不要求重新填字
+  it('restores the pending selection after refresh and retries the same request with the same key', async () => {
+    window.localStorage.setItem('wenmi:session-owner', JSON.stringify('owner-2'));
+    try {
+      let state = stateFixture({ runs: [recommendRun('succeeded')] });
+      const designPosts: { key: string; body: string }[] = [];
+      let releaseRetry: ((value: Response) => void) | null = null;
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/state')) return response(state);
+        if (url.endsWith('/design-runs')) {
+          const raw = String(init?.body);
+          designPosts.push({ key: (JSON.parse(raw) as { idempotencyKey: string }).idempotencyKey, body: raw });
+          if (designPosts.length === 1) throw new TypeError('network went away'); // 首次请求根本没到服务端
+          const key = designPosts[1]!.key;
+          state = stateFixture({ runs: [recommendRun('succeeded'), { ...designRun('A', 'working', '红玉', 'x'), roundKey: key }, { ...designRun('B', 'working', '幼薇', 'x'), roundKey: key }, { ...designRun('C', 'working', '苏映棠', 'x'), roundKey: key }] });
+          // 挂起重试响应：先断言回填的作者输入，再放行成功回执
+          return new Promise<Response>(resolve => { releaseRetry = resolve; });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }));
+      render(<TimeMachineDirectionEntry bookId="bk-1" />);
+      await screen.findByText('已选 1 条故事线');
+      fireEvent.input(screen.getByLabelText('故事线补充要求'), { target: { value: '希望更热血' } });
+      fireEvent.click(screen.getByRole('button', { name: '＋ 添加其他故事线' }));
+      fireEvent.click(screen.getByRole('button', { name: /感情线/ }));
+      expect(await screen.findByText('已选 2 条故事线')).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: '确认故事线，设计全书方向' }));
+      await waitFor(() => { expect(designPosts).toHaveLength(1); });
+      const first = designPosts[0]!;
+      // 刷新：未决记录回填作者输入（无需重新填字），自动用原请求原键重试一次
+      cleanup();
+      render(<TimeMachineDirectionEntry bookId="bk-1" />);
+      expect(await screen.findByText('已选 2 条故事线')).toBeVisible();
+      expect((screen.getByLabelText('故事线补充要求') as HTMLTextAreaElement).value).toBe('希望更热血');
+      await waitFor(() => { expect(designPosts).toHaveLength(2); });
+      expect(designPosts[1]!.key).toBe(first.key);
+      expect(designPosts[1]!.body).toBe(first.body);
+      // 放行成功回执：state出现该轮=确定成功，清除未决记录
+      releaseRetry!(response({ runs: [{ id: 'design-A', scheme: 'A', state: 'queued' }, { id: 'design-B', scheme: 'B', state: 'queued' }, { id: 'design-C', scheme: 'C', state: 'queued' }] }));
+      await waitFor(() => { expect(window.sessionStorage.getItem('wenmi:design-pending:owner-2:bk-1')).toBeNull(); });
+    } finally { window.localStorage.removeItem('wenmi:session-owner'); window.sessionStorage.clear(); }
   }, 20000);
 });
