@@ -1,18 +1,27 @@
 /**
  * AUTH-TAKEOVER-01 身份域应用服务：产品唯一身份权威（SQLite存储）。
  * 域层（passwords/tokens）逐行复用rebuild域实现并以parity测试锁定；
- * 登录/改密在异步哈希后按 credential_version + password_hash CAS 写入，
- * 并发改密/停用/撤销不会被旧登录覆盖；凭据记录只接受支持的精确参数组合（fail closed）。
- * owner映射（首账号admin+legacy收编+青铜体验金）、cookie合同（wenmi_session/14天）与现行产品一致。
+ * 所有哈希（已知/未知账号验证、升级、改密）统一走域有界队列（并发上限2+等待上限16，
+ * 超限503可重试），无第二条裸调scrypt路径（R2-4）。
+ *
+ * CAS与最终写入屏障（R2-1/R2-2，返工2）：
+ * - login/changePassword 的全部异步哈希完成后，最终写入是一个同步BEGIN IMMEDIATE事务，
+ *   事务内重新读取账号并核验 status='active' + credential_version + password_hash 三重条件，
+ *   任一不符即回滚并有界重试/拒绝——第二次await期间发生的停用/改密不会被绕过；
+ * - changePassword 最终事务内还重查发起会话（存在、同账号、未撤销、未过期），已退出/被撤销/
+ *   过期的会话不能完成改密；
+ * - 会话签发（INSERT）、审计、凭据/last_login写入全部在同一事务内，无中间可见状态。
+ *
+ * 凭据升级→credential_version+1；改密→credential_version+1并撤销其他会话；
+ * 停用→撤销全部会话（状态屏障，不依赖版本）；恢复→旧会话已撤销不可复活，需重新登录。
  */
-import { randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { DomainError } from '../domain/errors.js';
 import { grantDefaultBronze } from '../infrastructure/security/membership-service.js';
 import { accountUsageTotals } from '../infrastructure/security/account-usage-service.js';
 import {
-  hashNewPassword, hashVerifiedPassword, isSupportedPasswordRecord,
-  shouldUpgradePassword, verifyUnknownAccountPassword
+  hashVerifiedPassword, isSupportedPasswordRecord, shouldUpgradePassword, verifyPassword, verifyUnknownAccountPassword
 } from './domain/passwords.js';
 import { SESSION_COOKIE, SESSION_TTL_SECONDS, issueRandomToken, hashToken, readCookie } from './domain/tokens.js';
 import type { AccountRole, AccountStatus, AuthContext, IssuedSession, PasswordRecord, PublicAccount } from './domain/types.js';
@@ -68,6 +77,14 @@ function constantTimeHexMatches(actual: string, expected: string): boolean {
   return left.length === right.length && left.length > 0 && timingSafeEqual(left, right);
 }
 
+/** 最终事务内的账号状态守卫：active+凭据版本+哈希三重一致（R2-1）。 */
+function guardAccountState(current: AccountRow | undefined, baseline: AccountRow): boolean {
+  if (current === undefined) return false;
+  return current.status === 'active'
+    && current.credential_version === baseline.credential_version
+    && current.password_hash === baseline.password_hash;
+}
+
 export class IdentityService {
   public constructor(
     private readonly database: DatabaseSync,
@@ -80,7 +97,7 @@ export class IdentityService {
     const email = normalizeEmail(input.email);
     const password = validatePasswordPolicy(input.password);
     const displayName = normalizeDisplayName(input.displayName, email);
-    const record = await hashNewPassword(password);
+    const record = await hashVerifiedPassword(password);
     const now = new Date().toISOString();
     const userId = randomUUID();
     const generatedOwnerId = randomUUID();
@@ -127,17 +144,19 @@ export class IdentityService {
       `).run(userId, ownerId, email, displayName, record.salt, record.hash, record.format, record.n, record.r, record.p, role, now, now, now);
       if (role === 'user') grantDefaultBronze(this.database, userId, ownerId, now);
       this.recordAudit('register', userId, email, userId, now, { role, adoptedLegacyData: legacyOwner !== undefined });
+      const issued = this.insertSession(this.requireAccountById(userId), now);
       this.database.exec('COMMIT');
+      return issued;
     } catch (error) {
       this.database.exec('ROLLBACK');
       throw error;
     }
-    return this.issueSession(this.requireAccountById(userId), now);
   }
 
   /**
-   * 登录（CAS安全）：异步派生后重读账号，凭据版本或哈希变化即有界重试；
-   * 升级/last_login在同一CAS UPDATE落库；停用在重读后判定——并发改密/停用不会被旧登录绕过或覆盖。
+   * 登录（CAS安全，R2-1返工2）：验证派生与（如需）升级哈希全部在事务外完成后，
+   * 最终写入是一个同步事务：重读账号→三重校验（active+版本+哈希）→CAS写入→审计→签发会话。
+   * 任何await窗口内发生的停用/改密都会在事务内被拦截。
    */
   public async login(input: { email: string; password: string }): Promise<IssuedSession> {
     const email = normalizeEmail(input.email);
@@ -146,7 +165,7 @@ export class IdentityService {
     for (let attempt = 0; attempt < MAX_LOGIN_ATTEMPTS; attempt += 1) {
       const row = this.findAccountByEmail(email);
       if (row === undefined) {
-        // 未知账号按最贵支持参数（v2）派生一次：枚举计时不弱于已知v2账号路径。
+        // 未知账号按最贵支持参数（v2）经域有界队列派生一次：枚举计时不弱于已知v2账号路径。
         await verifyUnknownAccountPassword(password);
         this.recordAudit('login_failed', null, email, null, now, {});
         throw invalidCredentials();
@@ -157,37 +176,58 @@ export class IdentityService {
         this.recordAudit('login_failed', row.user_id, email, null, now, { reason: 'credential_record_unsupported' });
         throw invalidCredentials();
       }
-      const supplied = await deriveWithRecord(password, record);
-      // 异步边界后重读：凭据/状态必须与派生时一致，否则有界重试（并发改密）。
-      const current = this.findAccountByEmail(email);
-      if (current === undefined) continue;
-      if (current.credential_version !== row.credential_version || current.password_hash !== row.password_hash) continue;
-      const matches = password.length <= MAX_PASSWORD_LENGTH && constantTimeHexMatches(supplied, record.hash);
-      if (!matches) {
-        this.recordAudit('login_failed', row.user_id, email, null, now, {});
-        throw invalidCredentials();
+      // R2-4：已知账号验证走域verifyPassword（有界哈希队列），无裸scrypt路径。
+      const matches = password.length <= MAX_PASSWORD_LENGTH && await verifyPassword(password, record);
+      // 升级哈希（如需）同样在事务外完成，走域有界队列。
+      const upgraded = matches && shouldUpgradePassword(record) ? await hashNewPasswordFrom(password) : null;
+
+      // ── 最终同步事务：三重校验+CAS写入+审计+签发会话，原子完成 ──
+      this.database.exec('BEGIN IMMEDIATE');
+      let issued: IssuedSession | null = null;
+      try {
+        const current = this.findAccountByEmail(email);
+        if (current === undefined || !guardAccountState(current, row)) {
+          this.database.exec('ROLLBACK');
+          if (current !== undefined && current.status !== 'active') {
+            this.recordAudit('login_rejected', current.user_id, email, null, now, { reason: 'account_status' });
+            throw new DomainError('ACCOUNT_SUSPENDED', '这个账号已暂停使用，请联系管理员', {}, false, 403);
+          }
+          continue; // 凭据并发变化或账号消失：按新状态有界重试
+        }
+        const active = current;
+        if (!matches) {
+          this.recordAudit('login_failed', row.user_id, email, null, now, {});
+          this.database.exec('ROLLBACK');
+          throw invalidCredentials();
+        }
+        if (upgraded !== null) {
+          const changed = this.database.prepare(`
+            UPDATE user_accounts
+            SET password_salt = ?, password_hash = ?, password_format = ?, password_n = ?, password_r = ?, password_p = ?,
+                credential_version = credential_version + 1, last_login_at = ?, updated_at = ?
+            WHERE user_id = ? AND credential_version = ? AND password_hash = ?
+          `).run(upgraded.salt, upgraded.hash, upgraded.format, upgraded.n, upgraded.r, upgraded.p, now, now, active.user_id, row.credential_version, row.password_hash);
+          if (changed.changes !== 1) {
+            this.database.exec('ROLLBACK');
+            continue;
+          }
+        } else {
+          const touched = this.database.prepare(
+            'UPDATE user_accounts SET last_login_at = ?, updated_at = ? WHERE user_id = ? AND credential_version = ? AND password_hash = ?'
+          ).run(now, now, active.user_id, row.credential_version, row.password_hash);
+          if (touched.changes !== 1) {
+            this.database.exec('ROLLBACK');
+            continue;
+          }
+        }
+        this.recordAudit('login_success', active.user_id, email, current.user_id, now, {});
+        issued = this.insertSession({ ...active, last_login_at: now }, now);
+        this.database.exec('COMMIT');
+        return issued;
+      } catch (error) {
+        try { this.database.exec('ROLLBACK'); } catch { /* 已回滚 */ }
+        throw error;
       }
-      if (current.status !== 'active') {
-        this.recordAudit('login_rejected', current.user_id, email, null, now, { reason: 'account_status' });
-        throw new DomainError('ACCOUNT_SUSPENDED', '这个账号已暂停使用，请联系管理员', {}, false, 403);
-      }
-      if (shouldUpgradePassword(record)) {
-        const upgraded = await hashVerifiedPassword(password);
-        const changed = this.database.prepare(`
-          UPDATE user_accounts
-          SET password_salt = ?, password_hash = ?, password_format = ?, password_n = ?, password_r = ?, password_p = ?,
-              credential_version = credential_version + 1, last_login_at = ?, updated_at = ?
-          WHERE user_id = ? AND credential_version = ?
-        `).run(upgraded.salt, upgraded.hash, upgraded.format, upgraded.n, upgraded.r, upgraded.p, now, now, current.user_id, current.credential_version);
-        if (changed.changes !== 1) continue; // 并发写凭据：丢弃本次结果，按新状态重试
-      } else {
-        const touched = this.database.prepare(
-          'UPDATE user_accounts SET last_login_at = ?, updated_at = ? WHERE user_id = ? AND credential_version = ?'
-        ).run(now, now, current.user_id, current.credential_version);
-        if (touched.changes !== 1) continue;
-      }
-      this.recordAudit('login_success', current.user_id, email, current.user_id, now, {});
-      return this.issueSession(this.requireAccountById(current.user_id), now);
     }
     throw new DomainError('LOGIN_STATE_CONFLICT', '登录时账号状态发生变化，请重试', {}, true, 409);
   }
@@ -225,7 +265,11 @@ export class IdentityService {
     return this.clearCookie();
   }
 
-  /** 改密：验证当前密码（同CAS语义）→ 写v2并递增版本 → 撤销其他全部会话（保留当前）。 */
+  /**
+   * 改密（R2-2返工2）：当前密码验证与新密码哈希全部在事务外完成后，
+   * 最终同步事务内核查：账号三重校验 + 发起会话有效性（存在/同账号/未撤销/未过期），
+   * 通过才CAS写新凭据（版本+1）并撤销其他会话——已退出/被撤销的会话不能完成改密。
+   */
   public async changePassword(input: { context: AuthContext; currentPassword: string; nextPassword: string }): Promise<{ changed: true; revokedSessions: number }> {
     const nextPasswordValid = validatePasswordPolicy(input.nextPassword);
     const now = new Date().toISOString();
@@ -236,24 +280,40 @@ export class IdentityService {
         this.recordAudit('password_change_failed', row.user_id, row.email_normalized, input.context.userId, now, { reason: 'credential_record_unsupported' });
         throw invalidCredentials();
       }
-      const supplied = await deriveWithRecord(input.currentPassword, record);
-      const current = this.requireAccountById(input.context.userId);
-      if (current.credential_version !== row.credential_version || current.password_hash !== row.password_hash) continue;
-      if (!constantTimeHexMatches(supplied, record.hash)) {
-        this.recordAudit('password_change_failed', row.user_id, row.email_normalized, input.context.userId, now, {});
-        throw invalidCredentials();
-      }
-      if (current.status !== 'active') throw new DomainError('ACCOUNT_SUSPENDED', '这个账号已暂停使用', {}, false, 403);
-      const next = await hashVerifiedPassword(nextPasswordValid);
-      let revoked = 0;
+      // R2-4：当前密码验证与新密码派生均走域有界队列。
+      const matches = await verifyPassword(input.currentPassword, record);
+      const next = await hashNewPasswordFrom(nextPasswordValid);
+
+      // ── 最终同步事务：账号三重校验+发起会话核查+CAS写入+撤销+审计，原子完成 ──
       this.database.exec('BEGIN IMMEDIATE');
       try {
+        const current = this.requireAccountById(input.context.userId);
+        if (!guardAccountState(current, row)) {
+          this.database.exec('ROLLBACK');
+          if (current.status !== 'active') {
+            throw new DomainError('ACCOUNT_SUSPENDED', '这个账号已暂停使用', {}, false, 403);
+          }
+          continue;
+        }
+        if (!matches) {
+          this.recordAudit('password_change_failed', current.user_id, current.email_normalized, input.context.userId, now, {});
+          this.database.exec('ROLLBACK');
+          throw invalidCredentials();
+        }
+        // R2-2：发起会话必须在写入时刻仍然有效（存在、同账号、未撤销、未过期）。
+        const session = this.database.prepare(
+          'SELECT expires_at FROM auth_sessions WHERE session_id = ? AND user_id = ? AND revoked_at IS NULL'
+        ).get(input.context.sessionId, current.user_id) as { expires_at: string } | undefined;
+        if (session === undefined || Date.parse(session.expires_at) <= Date.now()) {
+          this.database.exec('ROLLBACK');
+          throw new DomainError('AUTHENTICATION_REQUIRED', '登录状态已失效，请重新登录后再修改密码', {}, false, 401);
+        }
         const updated = this.database.prepare(`
           UPDATE user_accounts
           SET password_salt = ?, password_hash = ?, password_format = ?, password_n = ?, password_r = ?, password_p = ?,
               credential_version = credential_version + 1, updated_at = ?
-          WHERE user_id = ? AND credential_version = ?
-        `).run(next.salt, next.hash, next.format, next.n, next.r, next.p, now, current.user_id, current.credential_version);
+          WHERE user_id = ? AND credential_version = ? AND password_hash = ?
+        `).run(next.salt, next.hash, next.format, next.n, next.r, next.p, now, current.user_id, row.credential_version, row.password_hash);
         if (updated.changes !== 1) {
           this.database.exec('ROLLBACK');
           continue;
@@ -261,26 +321,41 @@ export class IdentityService {
         const revoke = this.database.prepare(
           'UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL AND session_id <> ?'
         ).run(now, current.user_id, input.context.sessionId);
-        revoked = Number(revoke.changes);
+        const revoked = Number(revoke.changes);
         this.recordAudit('password_changed', current.user_id, current.email_normalized, input.context.userId, now, { revokedSessions: revoked });
         this.database.exec('COMMIT');
+        return { changed: true, revokedSessions: revoked };
       } catch (error) {
-        this.database.exec('ROLLBACK');
+        try { this.database.exec('ROLLBACK'); } catch { /* 已回滚 */ }
         throw error;
       }
-      return { changed: true, revokedSessions: revoked };
     }
     throw new DomainError('LOGIN_STATE_CONFLICT', '账号状态发生变化，请重试', {}, true, 409);
   }
 
-  /** 撤销除当前外的全部会话（“退出其他设备”）。 */
+  /** 撤销除当前外的全部会话（“退出其他设备”）；当前会话也须仍有效。 */
   public revokeOtherSessions(context: AuthContext): { revoked: number } {
     const now = new Date().toISOString();
-    const revoke = this.database.prepare(
-      'UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL AND session_id <> ?'
-    ).run(now, context.userId, context.sessionId);
-    this.recordAudit('sessions_revoked', context.userId, context.email, context.userId, now, { revoked: Number(revoke.changes) });
-    return { revoked: Number(revoke.changes) };
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const session = this.database.prepare(
+        'SELECT expires_at FROM auth_sessions WHERE session_id = ? AND user_id = ? AND revoked_at IS NULL'
+      ).get(context.sessionId, context.userId) as { expires_at: string } | undefined;
+      if (session === undefined || Date.parse(session.expires_at) <= Date.now()) {
+        this.database.exec('ROLLBACK');
+        throw new DomainError('AUTHENTICATION_REQUIRED', '登录状态已失效，请重新登录', {}, false, 401);
+      }
+      const revoke = this.database.prepare(
+        'UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL AND session_id <> ?'
+      ).run(now, context.userId, context.sessionId);
+      const revoked = Number(revoke.changes);
+      this.recordAudit('sessions_revoked', context.userId, context.email, context.userId, now, { revoked });
+      this.database.exec('COMMIT');
+      return { revoked };
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   public overview(): { totalUsers: number; activeUsers: number; suspendedUsers: number; totalBooks: number; totalTokens: number } {
@@ -359,7 +434,8 @@ export class IdentityService {
     return this.database.prepare('SELECT * FROM user_accounts WHERE email_normalized = ?').get(email) as AccountRow | undefined;
   }
 
-  private issueSession(account: AccountRow, nowIso: string): IssuedSession {
+  /** 事务内签发会话（INSERT，无独立可见窗口）。 */
+  private insertSession(account: AccountRow, nowIso: string): IssuedSession {
     const token = issueRandomToken();
     const sessionId = randomUUID();
     const expiresAt = new Date(Date.parse(nowIso) + this.ttlSeconds * 1_000).toISOString();
@@ -403,13 +479,9 @@ function invalidCredentials(): DomainError {
   return new DomainError('INVALID_CREDENTIALS', '邮箱或密码不正确', {}, false, 401);
 }
 
-async function deriveWithRecord(password: string, record: PasswordRecord): Promise<string> {
-  return await new Promise((resolve, reject) => {
-    scrypt(password, record.salt, record.keyLength, { N: record.n, r: record.r, p: record.p, maxmem: 64 * 1024 * 1024 }, (error, derived) => {
-      if (error !== null) reject(error);
-      else resolve(Buffer.from(derived).toString('hex'));
-    });
-  });
+/** 升级/改密的新凭据派生：走域有界队列（密码策略已在入口校验）。 */
+async function hashNewPasswordFrom(password: string): Promise<PasswordRecord> {
+  return hashVerifiedPassword(password);
 }
 
 function normalizeEmail(raw: string): string {
