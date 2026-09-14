@@ -1,12 +1,12 @@
 # REBUILD-CLOSEOUT-01：整体重构连续执行
 
-状态：2026-09-15调整为总体路线，不再作为S0—S6整包连续开发指令。S0部分通过；S1尚需负责人完成具体代码定位与实施方案。没有自动派工通道。
+状态：2026-09-15总体路线保留，当前仅下方S1-A具体实施合同可执行。Codex已核对9d24ffdf代码入口；S0不继续返修，S2—S6不在本次派工内。没有自动派工通道。
 
 ## 当前执行边界（覆盖下方旧的整包接续要求）
 
 按docs/DEVELOPMENT_WORKFLOW.md第2.1节派工。保留已验收成果和现有差异；维护脚本暂禁生产复用，其返修要求保留在s0.codex-review.md供需要时处理，当前停止围绕它继续消耗。不要重跑生产维护，不以工具暂未关闭阻断产品开发。
 
-下一产品目标仅为S1：新书设定确认→总清单→资料包→故事线确认→全书基线。方案负责人须先在本任务S1段补齐真实文件/函数/路由、已复现缺口、修改方案、相关测试命令及通过条件，然后才标为可实施并交执行者。当前S1是待具体定位，不能把下方功能要求冒充完成了代码定位；本次仅规则/方案文档调整，未开发S1。
+下一产品目标为S1：新书设定确认→总清单→资料包→故事线确认→全书基线。先执行S1-A“故事线确认与基线启动”，具体如下。代码缺口已由静态调用链确认，运行反例由本批先建立；本任务文档更新不等于产品修复已完成。
 
 S2—S6保留总体范围和依赖，不作为当前执行者自行扩展的授权指令。后续成熟批次可以连续执行，不需老板逐批确认；不能让执行者读整套历史推断下一批的产品与技术方案。已在执行的工作先保存差异/证据和准确下一步，不覆盖或回退。
 
@@ -39,6 +39,50 @@ S2—S6保留总体范围和依赖，不作为当前执行者自行扩展的授�
 S0成果保留；当前优先由负责人补齐S1实施方案，不再由执行者从粗路线自行开展全面侦察或设计。
 
 ## S1：先完成新书到全书基线
+
+### S1-A 当前可实施合同：结构化故事线确认与基线启动
+
+**结果**：作者仍在现有故事线页勾选/添加后点一次确认；后端保存准确选择与来源版本，才建立基线设计任务。不能仅凭设定就绪直接绕过故事线，不因刷新/超时丢选择或重复开三套任务。不增加独立确认弹窗或新页面。
+
+**基准**：使用现有auth-release隔离工作树，先核对9d24ffdf及之后是否有他人提交；保留54f249a6工具改动但不执行。主区e9800b9d是派工规则更新，请按该提交的本任务最新版本阅读，不盲合整套脏主区。允许本批隔离提交；完成后交Codex一次集中验收，本批先不生产发布（API请求合同变更需协调前后端发布）。不要重复S0、全部RB盘点或身份测试。
+
+**已核实代码与缺口**（路径相对仓库根）：
+
+| 入口 | 当前行为与本批动作 |
+|---|---|
+| apps/api/src/application/books/v7-setting-editorial-service.ts：timeMachinePrerequisite，约224行 | 已有设定批次/全部confirmed/总清单结果门禁。保留；用真实持久化状态验证，不先改正确实现。enqueueSettingHandoff在确认/最终整理成功处已有调用 |
+| apps/api/src/application/books/setting-time-machine-handoff.ts：dispatchSettingHandoffs | 已有版本化pending交接及recommend-initial键。保留自动推荐；本批不重写调度器 |
+| apps/api/src/http/time-machine-routes.ts：POST design-runs，约87行 | 当前只requirePrepared+字符串参数检查，即调用startDesignRound；未核对推荐是否成功及作者确认来源。增加结构化请求校验和业务冲突响应 |
+| apps/api/src/application/books/time-machine-design-service.ts：startDesignRound/createRun，约58/71行 | 当前接受自由intent，snapshot在事务外生成；createRun用snapshot哈希防重。将确认来源校验、选择冻结与三方案创建纳入同一同步事务；保留原执行器/审查/用量机制 |
+| apps/api/src/application/books/time-machine-sources.ts：TimeMachineSnapshot/snapshotTimeMachine | 当前仅记录intent文字及开书/设定manifest。新增可选selection快照元数据，设计轮保存经验证的结构化选择；不建第二套事实库 |
+| coauthoring-v7/author-app/src/TimeMachineDirectionPage.tsx：startDesign，约191行 | 当前将勾选拼成自由文字，每点击生成Date.now键；改发结构化来源和选择，同一未决操作保持键，已保存选择可从state恢复 |
+| coauthoring-v7/author-app/src/time-machine-direction-api.ts | 同步请求/响应类型；普通作者只收到必要选择信息，不回传完整snapshot/内部成员配置 |
+| tests/integration/domain/s1-setting-baseline-gate.test.ts | 新增测试目前ready为mock且前后payload不同；补真实状态与同payload对照，保留现有拒绝断言 |
+
+**请求与存储决定（已定，不让执行者重新选架构）**：
+
+1. POST design-runs保留现有URL，Body改为 `{idempotencyKey, selection:{recommendationRunId, recommendationHash, preparationVersion, selectedLineIds, addedLines:[{title,description}], shape:'auto'|'single'|'multiple', ensemble:boolean, authorNote:string}}`。前端的shape实际值先按现有枚举做明确映射。服务端不给旧intent-only请求继续启动的后门，返回400并提示刷新页面；旧结果仍能读取，不回填/修旧书。
+2. state的成功推荐投影增加服务端计算的recommendationHash（对实际推荐result_json规范摘要）和对应preparationVersion；不可用前端伪造这些来源。服务端确认推荐为本owner/book、kind=recommend、state=succeeded、有合法lines，开书/已确认设定manifest与当前一致，preparationVersion匹配；跨owner/book按现有404合同，不泄漏对象。
+3. selectedLineIds去重且必须存在于该推荐；名称/description/role取服务端推荐，不能接受客户端改写既有推荐内容。自添线独立存title/description。允许全自添但总选择至少一条；未知ID拒绝，不能静默丢弃。shape/ensemble/authorNote严格校验，保留作者文字含义。
+4. 选择ID≤30、自添线≤20、标题≤80字符、描述≤500、authorNote≤1000；最终供生成的intent沿现有格式构建且≤4000字符。超限明确提示精简、不截断；这是请求边界不是文学章数/故事线数建议。运行反例覆盖中文、空白和超限。
+5. 经校验的selection连同来源ID/hash/version与规范requestHash写入每个设计run的snapshot_json（可选字段，旧快照仍可读）。所有A/B/C共享同一selection；已有snapshot列足够，本批不新增数据库表/迁移，不修改已合并迁移。与建立设计轮同事务，失败无半轮；不使用文字关键词反解析选择。
+6. 幂等先按owner/book/round_key读取已有轮，比较已存规范requestHash：同键同请求返回原轮，响应丢失后不因后来配置变化新开任务；同键不同选择409。新键才校验当前来源并创建。旧轮无此元数据不能猜测匹配，不为旧书做迁移。上游改变后原轮可读，不允许旧请求当新请求创建或采用过期结果；保留现有采用时manifest校验。
+7. 事务只有一个所有者：在startDesignRound内BEGIN IMMEDIATE后完成来源读取/版本检查/快照构建/createRun/COMMIT；路由不嵌套事务。不在事务中调用模型/网络；现有start(scope,'design',...)若可绕过确认需改为内部受控入口或拒绝无selection的新设计，更新直接调用测试，不留第二条漏校验路径。
+8. 页面保留现有“确认并设计”动作。生成键在一次提交开始时冻结，网络结果未知重试同请求同键；作者明确修改选择后才新键。state仅投影设计轮selection必要字段，刷新可查看当次实际选择；不要把结果默认recommended列表重新当作者已选。来源过期保留用户自添/补充并提示重新核对，不自动替作者确认新推荐。
+
+**阅读边界与保留项**：只读上表文件、相关同目录类型/既有fixtures、time-machine-design/schemes/handoff测试、TimeMachineDirectionPage测试，规格第23节相关确认/版本段及R209当前上下文限制。已通过身份/维护测试不读不跑；不改模型目录、15000预算、创作库内容、提示词文学规则、VP-01及卷链章页面。真实模型调用仍复用现有资料包/检索/审查；本批未发现质量缺陷不顺手改prompt。
+
+**执行与验收顺序**：
+
+1. 在现有测试建立失败反例：真实设定已就绪但无selection直接design-runs不得创建任务；以目前实现跑出缺口再修。复用v7-setting-editorial-department.test.ts已有建书/条目确认/最终整理fixture，允许模型响应为夹具但不能mock timeMachinePrerequisite。没有必要从UI重复生成24项设定。
+2. 实现服务端结构化确认、事务、防重、最小state投影；再改前端发送与恢复。相关新测试保留在现有S1测试文件和现有页面测试，不另建测试平台。
+3. 验证真实数据库状态组合：批次未完成、存在未确认项、总清单未完成均409且零design/模型调用；就绪但无/失败/跨书/过期推荐仍拒绝；有效推荐+作者选择成功创建一轮且三方案selection一致；同payload重试同ID，同键不同payload409；模拟部分创建失败回滚；重新启动app后同键仍防重；采用前上游变更拒绝。对照请求payload必须相同，仅状态不同。
+4. 浏览器390/800/1440核验勾选、自添、确认、刷新、响应丢失重试、来源过期反馈；无需重做整站视觉。至少一条真实后端隔离新书推荐→确认→基线→审查→采用链，模型先用已有确定性fixture证明工程流程；真实模型只在工程通过后用一个合成书样本和现有预算做一次完整探针。外部失败保留检查点，不反复付费重跑，不能冒充文学通过。
+5. 定向命令（仓库根）：`npx vitest run --configLoader native tests/integration/domain/s1-setting-baseline-gate.test.ts tests/integration/domain/time-machine-design.test.ts tests/integration/domain/time-machine-schemes.test.ts tests/unit/setting-time-machine-handoff.test.ts tests/integration/security/time-machine-routes.test.ts`；页面：`npm test -w @wenmi/v7-author-app -- TimeMachineDirectionPage.test.tsx`。变更了设定服务才加其部门套件，不为报总数重复跑50项。
+6. 本批改变核心工作流与事务准入，按ACCEPTANCE在定向通过后执行一次`npm run verify:full`。仓库脚本存在已知构建依赖顺序风险：opening-runtime应在v7-backend之前，按已验收build-candidate的拓扑构建；若验证命令实际因此失败，集中修package.json对应构建/校验顺序并记录，禁止靠残留dist造绿或重新审计发布工具。不新增依赖。原始输出落证据文件，只报告摘要。
+7. 在原S1结果文件`.local/dispatch/outbox/task-rebuild-closeout-01-s1.result.md`交付：实际新增行为、修复文件/提交、各证据类型、等待/总耗时、未知用量如实标注、未上线。更新执行文档对应RB-22和HANDOFF当前入口。若无其他修改，不将整套S1报完成，S1-A与其余真实链路分别说明。下一步由Codex核查差异并安排前后端协调发布，不自动开发S2。
+
+该合同的运行风险是请求合同更新、来源过期及幂等语义变化，因此先完成隔离证据再发布；不是重写时光机。发现上述静态判断已被更新代码解决，给出实际符号与反例证据后跳过该已关闭项，不照文档重复开发。
 
 依据docs/TIMEMACHINE_STORY_DESIGN.md第23节、现有开书及时光机实现、R209当前合同核查并补齐。保留已认可绿色视觉和现有功能，修流程而非新造同义入口。
 
