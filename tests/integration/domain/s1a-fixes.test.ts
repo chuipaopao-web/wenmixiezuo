@@ -7,6 +7,9 @@ import {parseStorylineSelectionInput,type StorylineSelectionInput} from '../../.
 import {createAppServer} from '../../../apps/api/src/http/app-server.js';
 import {V7SettingEditorialService} from '../../../apps/api/src/application/books/v7-setting-editorial-service.js';
 import {digest} from '@wenmi/time-machine-core';
+import type {V7OpeningModelAdapterResolver} from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
+import {ModelAdapterError} from '../../../apps/api/src/infrastructure/models/model-adapter.js';
+import {SettingResolver,registerDepartmentAuthor,createDepartmentBook,pollDepartmentBatch,pollDepartmentFinalReview,DEPARTMENT_HEADERS} from '../helpers/setting-department-fixtures.js';
 // S1-A返修（6ad621dd六项）：先建立失败反例再修。
 // 反例F1快照一致性；F2事务门禁+回放；F5 authorNote严格字符串。F3/F4为页面行为在页面测试覆盖；F6由边界门禁对比覆盖。
 const contexts:TestContext[]=[];
@@ -168,4 +171,84 @@ describe('S1-A revision six fixes',()=>{
    spy.mockRestore();
   }finally{vi.restoreAllMocks();await app.close();}
  });
+ // 3a84dc98补齐2：真实持久化设定状态门禁——批次未完/条目未确认/总清单未完分别409且零设计轮；
+ // 确认+总清单完成后同一idempotencyKey的合法请求可创建。设定流走部门夹具与实际service/HTTP推进，
+ // 不mock门禁函数；版本为服务端finalReviewRequestHash（state投影回读），不用手工pv字符串。
+ it('F-gate: real persistent setting states gate design-runs, then the same-key valid request creates after completion',async()=>{
+  const c=createTestContext();contexts.push(c);
+  c.config.modelRuntime.endpoints.coding.apiKey='fixture-only-no-network';
+  c.config.modelRuntime.endpoints.agent.apiKey='fixture-only-no-network';
+  const settingBase=new SettingResolver(false);
+  // 组合resolver：设定阶段提示走部门夹具，其余（时光机全链）走本文件确定性夹具；
+  // failNextGroupDesign模拟一次结果未知的设计成员失败，让批次停在partially_failed（不可自动恢复）
+  const settingMarkers=['v7_setting_group_design_v1','v7_setting_batch_final_review','v7_compile_book_genre_profile_v1','只判断后续设定阶段应该准备哪些条目','你是副编','你是设计成员','你是设定连续性审查员','候选：','上次输出存在空字段'];
+  let failNextGroupDesign=false;
+  const resolver:V7OpeningModelAdapterResolver={resolve(provider,modelId,purpose){
+   const base=settingBase.resolve(provider,modelId,purpose);
+   return {provider,modelId,async generate(request,signal){
+    if(request.prompt.includes('v7_setting_group_design_v1')&&failNextGroupDesign){failNextGroupDesign=false;throw new ModelAdapterError('模拟批次成员结果未知','technical_failure',true,504,true);}
+    if(settingMarkers.some(marker=>request.prompt.includes(marker)))return base.generate(request,signal);
+    return {provider,modelId,output:JSON.stringify(output(request.prompt)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded' as const};
+   }};
+  }};
+  const app=await createAppServer(c.config,c.database,{timeMachineWindowTokens:64000,v7OpeningModelAdapters:resolver});
+  try{
+   const cookie=await registerDepartmentAuthor(app,'gate@example.test','门禁作者','strong-pass-gate');
+   const designCount=(bookId:string)=>Number((c.database.prepare("SELECT COUNT(*) AS n FROM tm2_design_runs WHERE book_id=? AND kind='design'").get(bookId) as {n:number}).n);
+   // 同一键的规范请求：三个受阻阶段与最终成功共用（受阻阶段在门禁处被拒，不进入校验）
+   const gatePayload={idempotencyKey:'gate-round',selection:{recommendationRunId:'pending-recommendation',recommendationHash:'pending-hash',preparationVersion:'pending-version',selectedLineIds:['growth'],addedLines:[],shape:'auto' as const,ensemble:true,authorNote:''}};
+   const attemptDesign=async(bookId:string)=>app.inject({method:'POST',url:`/api/time-machine/books/${bookId}/design-runs`,headers:{...DEPARTMENT_HEADERS,cookie},payload:gatePayload});
+   // 阶段一：批次未完成（设计成员结果未知→partially_failed，不可自动恢复）
+   const bookA=await createDepartmentBook(app,cookie,'门禁批次书','gate-book-a','历史脑洞');
+   failNextGroupDesign=true;
+   const batchA=await app.inject({method:'POST',url:`/api/v1/v7/books/${bookA}/setting-batches`,headers:{...DEPARTMENT_HEADERS,cookie},payload:{selectedItemKeys:['world-stage'],designMemberKey:'planner-deepseek-v4-pro',idempotencyKey:'gate-batch-a'}});
+   expect(batchA.statusCode,batchA.body).toBe(200);
+   const batchAView=await pollDepartmentBatch(app,cookie,bookA,batchA.json().data.batchId as string);
+   expect(['partially_failed','failed']).toContain(batchAView.status);
+   const blockedA=await attemptDesign(bookA);
+   expect(blockedA.statusCode).toBe(409);expect(JSON.parse(blockedA.body).error.message).toContain('请先完成设定设计');
+   expect(designCount(bookA)).toBe(0);
+   // 阶段二+三：批次完成但条目未确认；确认后总清单未完
+   const bookB=await createDepartmentBook(app,cookie,'门禁链路书','gate-book-b','历史脑洞');
+   const batchB=await app.inject({method:'POST',url:`/api/v1/v7/books/${bookB}/setting-batches`,headers:{...DEPARTMENT_HEADERS,cookie},payload:{selectedItemKeys:['world-stage'],designMemberKey:'planner-deepseek-v4-pro',idempotencyKey:'gate-batch-b'}});
+   expect(batchB.statusCode,batchB.body).toBe(200);
+   const completed=await pollDepartmentBatch(app,cookie,bookB,batchB.json().data.batchId as string);
+   expect(completed.status,JSON.stringify(completed)).toBe('awaiting_author');
+   const blockedB=await attemptDesign(bookB);
+   expect(blockedB.statusCode).toBe(409);expect(JSON.parse(blockedB.body).error.message).toContain('请先在设定页确认并保存本书设定');
+   expect(designCount(bookB)).toBe(0);
+   const confirmed=await app.inject({method:'POST',url:`/api/v1/v7/books/${bookB}/setting-items/confirm-all`,headers:{...DEPARTMENT_HEADERS,cookie},payload:{items:(completed.items as {itemKey:string;revision:number}[]).map(item=>({itemKey:item.itemKey,expectedRevision:item.revision}))}});
+   expect(confirmed.statusCode,confirmed.body).toBe(200);
+   const blockedC=await attemptDesign(bookB);
+   expect(blockedC.statusCode).toBe(409);expect(JSON.parse(blockedC.body).error.message).toContain('请先由主编完成设定总清单的统一整理');
+   expect(designCount(bookB)).toBe(0);
+   // 总清单完成：真实最终整理（模型为夹具；覆写为无补丁的pass，避免补丁把条目改回待确认）
+   settingBase.finalReviewOutputOverride=JSON.stringify({verdict:'pass',summary:'全部设定跨条目核对一致。',unifiedDecisions:[],conflicts:[],patches:[]});
+   const review=await app.inject({method:'POST',url:`/api/v1/v7/books/${bookB}/setting-final-reviews`,headers:{...DEPARTMENT_HEADERS,cookie},payload:{idempotencyKey:'gate-review'}});
+   expect(review.statusCode,review.body).toBe(200);
+   const reviewed=await pollDepartmentFinalReview(app,cookie,bookB);
+   expect(reviewed.status,JSON.stringify(reviewed)).toBe('ready');
+   // 门禁打开后推荐由交接派工自动建立并执行（真实执行器tick）；超时则显式发起
+   const getState=async()=>(await app.inject({url:`/api/time-machine/books/${bookB}/state`,headers:{...DEPARTMENT_HEADERS,cookie}})).json().data as {preparation?:{ready:boolean;message:string;version:string|null};runs:{id:string;kind:string;state:string;recommendationHash?:string|null;preparationVersion?:string|null}[]};
+   const waitRec=async(check:()=>Promise<boolean>,what:string)=>{const start=Date.now();while(Date.now()-start<25000){if(await check())return;await new Promise(r=>setTimeout(r,250));}const rows=c.database.prepare("SELECT id,kind,state,error_code,error_message,phase FROM tm2_design_runs WHERE book_id=?").all(bookB);const handoffs=c.database.prepare("SELECT source_version,state,error_message FROM setting_time_machine_handoffs WHERE book_id=?").all(bookB);const prep=(await getState()).preparation;throw Error(`等待超时：${what}；prep=${JSON.stringify(prep)}；runs=${JSON.stringify(rows)}；handoffs=${JSON.stringify(handoffs)}`);};
+   const opened=(await getState());
+   expect(opened.preparation?.ready,JSON.stringify(opened.preparation)).toBe(true);
+   expect(opened.preparation?.version).toBeTruthy();
+   await waitRec(async()=>{const d=await getState();if(!d.runs.some(r=>r.kind==='recommend')){await app.inject({method:'POST',url:`/api/time-machine/books/${bookB}/recommendation-runs`,headers:{...DEPARTMENT_HEADERS,cookie},payload:{intent:'',idempotencyKey:'gate-rec-manual'}});return false;}return d.runs.some(r=>r.kind==='recommend'&&r.state==='succeeded');},'推荐完成');
+   const recRun=(await getState()).runs.find(r=>r.kind==='recommend'&&r.state==='succeeded')!;
+   expect(recRun.recommendationHash).toBeTruthy();
+   // 同一键的合法请求：现在可以创建（版本=state投影的服务端真实值）
+   const validPayload={...gatePayload,selection:{...gatePayload.selection,recommendationRunId:recRun.id,recommendationHash:String(recRun.recommendationHash),preparationVersion:String(recRun.preparationVersion)}};
+   const created=await app.inject({method:'POST',url:`/api/time-machine/books/${bookB}/design-runs`,headers:{...DEPARTMENT_HEADERS,cookie},payload:validPayload});
+   expect(created.statusCode,created.body).toBe(202);
+   const runs=(created.json().data.runs as {id:string;scheme:string}[]);
+   expect(runs.map(r=>r.scheme).sort()).toEqual(['A','B','C']);
+   expect(designCount(bookB)).toBe(3);
+   // 同键同请求幂等回放：不新开任务（回放时轮次可能仍在执行，202/200均可）
+   const replay=await app.inject({method:'POST',url:`/api/time-machine/books/${bookB}/design-runs`,headers:{...DEPARTMENT_HEADERS,cookie},payload:validPayload});
+   expect([200,202]).toContain(replay.statusCode);
+   expect(((replay.json().data.runs as {id:string;scheme:string}[]).map(r=>r.id).sort())).toEqual(runs.map(r=>r.id).sort());
+   expect(designCount(bookB)).toBe(3);
+  }finally{await app.close();}
+ },60000);
 });

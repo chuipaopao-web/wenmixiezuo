@@ -1,7 +1,26 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, cleanup, act } from '@testing-library/react';
 import { TimeMachineDirectionEntry } from './TimeMachineDirectionPage';
+import { AuthorAccountSessionProvider, type AuthorAccountSession } from './AuthorAccountBoundary';
 import type { TimeMachineStateView } from './time-machine-direction-api';
+
+// 真实会话Provider（AuthorAccountBoundary导出）+已验证userId；不再伪造localStorage身份键。
+function sessionOf(userId: string): AuthorAccountSession {
+  return {
+    account: { userId, email: `${userId}@example.com`, displayName: '测试作者', role: 'user', status: 'active' },
+    membership: null,
+    membershipState: 'ready',
+    membershipError: null,
+    signingOut: false,
+    sessionNotice: null,
+    refreshMembership: async () => {},
+    signOut: async () => {},
+    requireSignIn: () => {}
+  };
+}
+function renderPage(ui: React.ReactElement, userId = 'author-test'): ReturnType<typeof render> {
+  return render(<AuthorAccountSessionProvider session={sessionOf(userId)}>{ui}</AuthorAccountSessionProvider>);
+}
 
 function response<T>(data: T, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, json: async () => ({ data, meta: { requestId: 'test', version: 1 } }) } as Response;
@@ -78,7 +97,7 @@ HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) { this.
 describe('time machine direction page', () => {
   it('blocks early recommendations until settings are confirmed and consolidated',async()=>{
     const fetcher=vi.fn(async()=>response(stateFixture({preparation:{ready:false,message:'请先完成设定设计',version:null},runs:[recommendRun('succeeded')]})));
-    vi.stubGlobal('fetch',fetcher);const open=vi.fn();render(<TimeMachineDirectionEntry bookId="bk-1" onOpenSettings={open}/>);
+    vi.stubGlobal('fetch',fetcher);const open=vi.fn();renderPage(<TimeMachineDirectionEntry bookId="bk-1" onOpenSettings={open}/>);
     expect(await screen.findByText('先完成本书设定')).toBeVisible();
     expect(screen.queryByText('为本书推荐')).not.toBeInTheDocument();
     expect(fetcher.mock.calls).toHaveLength(1);fireEvent.click(screen.getByRole('button',{name:'返回设定'}));expect(open).toHaveBeenCalledOnce();
@@ -91,7 +110,7 @@ describe('time machine direction page', () => {
       if(String(input).endsWith('/design-runs'))designs++;
       throw Error('Unexpected request');
     }));
-    render(<TimeMachineDirectionEntry bookId="bk-1"/>);
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1"/>);
     expect(await screen.findByText('正在整理本书故事线，请您耐心等待。')).toBeVisible();
     await waitFor(()=>expect(recommendations).toBe(1));expect(designs).toBe(0);
   });
@@ -102,7 +121,7 @@ describe('time machine direction page', () => {
       if(String(input).endsWith('/recommendation-runs')){sent=JSON.parse(String(init?.body)).intent;return response({id:'new'});}
       throw Error('Unexpected request');
     }));
-    render(<TimeMachineDirectionEntry bookId="bk-1"/>);
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1"/>);
     fireEvent.click(await screen.findByRole('button',{name:'＋ 添加其他故事线'}));
     fireEvent.change(screen.getByLabelText('故事线名称'),{target:{value:'重建家园'}});
     fireEvent.change(screen.getByLabelText('想写怎样的故事'),{target:{value:'林舟与伙伴让流民有家可归'}});
@@ -112,7 +131,7 @@ describe('time machine direction page', () => {
     fireEvent.click(screen.getByRole('button',{name:'请主编重新推荐'}));
     await waitFor(()=>expect(sent).toContain('林舟与伙伴让流民有家可归'));expect(sent).toContain('希望更温暖');
   });
-  beforeEach(() => { vi.unstubAllGlobals(); });
+  beforeEach(() => { vi.unstubAllGlobals(); window.sessionStorage.clear(); });
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
   it('allows deselecting every recommendation and sends the structured selection', async () => {
@@ -122,7 +141,7 @@ describe('time machine direction page', () => {
       if(String(input).endsWith('/design-runs')){body=String(init?.body);return response({runs:[]});}
       throw Error('Unexpected request');
     }));
-    render(<TimeMachineDirectionEntry bookId="bk-1"/>);
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1"/>);
     await screen.findByText('已选 1 条故事线');
     const boxes=screen.getAllByRole('checkbox') as HTMLInputElement[];
     const growth=boxes.find(box=>box.closest('label')?.textContent?.includes('成长线'))!;
@@ -147,7 +166,7 @@ describe('time machine direction page', () => {
       if(url.endsWith('/design-runs')){posted++;return response({runs:[]});}
       throw Error('Unexpected request');
     }));
-    render(<TimeMachineDirectionEntry bookId="bk-1"/>);
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1"/>);
     fireEvent.click(await screen.findByText('查看已采用的全书方向'));
     expect(await screen.findByText('主线4')).toBeVisible();expect(screen.getByText('支线7 → 主线4')).toBeVisible();
     expect(screen.getByRole('button',{name:/方案B/})).toBeEnabled();
@@ -173,7 +192,7 @@ describe('time machine direction page', () => {
       if (url.endsWith('/generation-runs/latest')) return response(null);
       throw new Error(`Unexpected request: ${url}`);
     }));
-    render(<TimeMachineDirectionEntry bookId="bk-1" />);
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
     await waitFor(() => { expect(posted.recommend).toBe(1); }, { timeout: 4000 });
     expect(await screen.findByText('老板，我们来设计全书骨架。')).toBeVisible();
     expect(screen.getByText('这是我推荐的故事线，您看看，还想加入哪些？')).toBeVisible();
@@ -220,7 +239,7 @@ describe('time machine direction page', () => {
         if (url.endsWith('/generation-runs/latest')) return response(null);
         throw new Error(`Unexpected request: ${url}`);
       }));
-      render(<TimeMachineDirectionEntry bookId="bk-1" />);
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
     };
     // 失败的重启不掩盖已成功的推荐：欢迎页照常显示，不出现"未完成"大字。
     renderWith();
@@ -247,7 +266,7 @@ describe('time machine direction page', () => {
       if (url.endsWith('/generation-runs/latest')) return response(null);
       throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`);
     }));
-    render(<TimeMachineDirectionEntry bookId="bk-1" />);
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
     // 已有设计轮刷新后恢复到全书方向，避免误以为需要重新选线。
     expect(await screen.findByRole('button', { name: '全书基线' })).toHaveAttribute('aria-pressed','true');
     expect(await screen.findByText('方案A')).toBeVisible();
@@ -283,7 +302,7 @@ describe('time machine direction page', () => {
       if (url.endsWith('/generation-runs/latest')) return response(null);
       throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`);
     }));
-    render(<TimeMachineDirectionEntry bookId="bk-1" />);
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
     await screen.findByRole('button', { name: '全书基线' });
     expect(await screen.findByText(/方案仍有待核对的问题/)).toBeVisible();
     expect(screen.getByRole('button', { name: '采用本方案' })).toBeDisabled();
@@ -315,7 +334,7 @@ describe('time machine direction page', () => {
         }
         throw new Error(`Unexpected request: ${url}`);
       }));
-      render(<TimeMachineDirectionEntry bookId="bk-1" />);
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
       await act(async () => { await vi.advanceTimersByTimeAsync(0); });
       expect(refreshes).toBe(1);
       // 已有设计轮先进方案页，再回故事线确认（重新设计）
@@ -339,7 +358,6 @@ describe('time machine direction page', () => {
 
   // 6ad621dd F4：服务端已创建但响应丢失→刷新→不重复开任务；state中roundKey即可确定成功并清除未决记录
   it('treats an existing round after a lost design response as confirmed success without resending', async () => {
-    window.localStorage.setItem('wenmi:session-owner', JSON.stringify('owner-1'));
     try {
       let state = stateFixture({ runs: [recommendRun('succeeded')] });
       const designPosts: string[] = [];
@@ -359,13 +377,13 @@ describe('time machine direction page', () => {
         }
         throw new Error(`Unexpected request: ${url}`);
       }));
-      render(<TimeMachineDirectionEntry bookId="bk-1" />);
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />, 'owner-1');
       await screen.findByText('已选 1 条故事线');
       fireEvent.click(screen.getByRole('button', { name: '确认故事线，设计全书方向' }));
       await waitFor(() => { expect(designPosts).toHaveLength(1); });
       // 作者刷新页面：sessionStorage未决记录仍在，但state已含该轮=确定成功
       cleanup();
-      render(<TimeMachineDirectionEntry bookId="bk-1" />);
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />, 'owner-1');
       expect(await screen.findByText('方案A')).toBeVisible();
       expect(screen.getByText('方案B')).toBeVisible();
       expect(screen.getByText('方案C')).toBeVisible();
@@ -373,12 +391,11 @@ describe('time machine direction page', () => {
       // 不自动重发：实际提交仍只有一次（服务端一轮三方案，任务数仍一轮）
       expect(designPosts).toHaveLength(1);
       expect(window.sessionStorage.getItem('wenmi:design-pending:owner-1:bk-1')).toBeNull();
-    } finally { window.localStorage.removeItem('wenmi:session-owner'); window.sessionStorage.clear(); }
+    } finally { window.sessionStorage.clear(); }
   }, 20000);
 
   // 6ad621dd F4：请求未到达服务端→刷新→回填作者输入并用原请求原键重试一次，不要求重新填字
   it('restores the pending selection after refresh and retries the same request with the same key', async () => {
-    window.localStorage.setItem('wenmi:session-owner', JSON.stringify('owner-2'));
     try {
       let state = stateFixture({ runs: [recommendRun('succeeded')] });
       const designPosts: { key: string; body: string }[] = [];
@@ -397,7 +414,7 @@ describe('time machine direction page', () => {
         }
         throw new Error(`Unexpected request: ${url}`);
       }));
-      render(<TimeMachineDirectionEntry bookId="bk-1" />);
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />, 'owner-2');
       await screen.findByText('已选 1 条故事线');
       fireEvent.input(screen.getByLabelText('故事线补充要求'), { target: { value: '希望更热血' } });
       fireEvent.click(screen.getByRole('button', { name: '＋ 添加其他故事线' }));
@@ -408,7 +425,7 @@ describe('time machine direction page', () => {
       const first = designPosts[0]!;
       // 刷新：未决记录回填作者输入（无需重新填字），自动用原请求原键重试一次
       cleanup();
-      render(<TimeMachineDirectionEntry bookId="bk-1" />);
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />, 'owner-2');
       expect(await screen.findByText('已选 2 条故事线')).toBeVisible();
       expect((screen.getByLabelText('故事线补充要求') as HTMLTextAreaElement).value).toBe('希望更热血');
       await waitFor(() => { expect(designPosts).toHaveLength(2); });
@@ -417,6 +434,43 @@ describe('time machine direction page', () => {
       // 放行成功回执：state出现该轮=确定成功，清除未决记录
       releaseRetry!(response({ runs: [{ id: 'design-A', scheme: 'A', state: 'queued' }, { id: 'design-B', scheme: 'B', state: 'queued' }, { id: 'design-C', scheme: 'C', state: 'queued' }] }));
       await waitFor(() => { expect(window.sessionStorage.getItem('wenmi:design-pending:owner-2:bk-1')).toBeNull(); });
-    } finally { window.localStorage.removeItem('wenmi:session-owner'); window.sessionStorage.clear(); }
+    } finally { window.sessionStorage.clear(); }
+  }, 20000);
+
+  // 3a84dc98补齐1：切换账号不读另一账号的未决记录——不回填旧输入、不自动重发、旧记录不被误清
+  it('switching accounts does not read or resend another account pending request', async () => {
+    try {
+      const state = stateFixture({ runs: [recommendRun('succeeded')] });
+      const designPosts: { key: string; body: string }[] = [];
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/state')) return response(state);
+        if (url.endsWith('/design-runs')) {
+          const raw = String(init?.body);
+          designPosts.push({ key: (JSON.parse(raw) as { idempotencyKey: string }).idempotencyKey, body: raw });
+          throw new TypeError('network went away'); // 账号A的请求结果未知
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }));
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />, 'owner-a');
+      await screen.findByText('已选 1 条故事线');
+      fireEvent.input(screen.getByLabelText('故事线补充要求'), { target: { value: '账号A的补充' } });
+      fireEvent.click(screen.getByRole('button', { name: '＋ 添加其他故事线' }));
+      fireEvent.click(screen.getByRole('button', { name: /感情线/ }));
+      expect(await screen.findByText('已选 2 条故事线')).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: '确认故事线，设计全书方向' }));
+      await waitFor(() => { expect(designPosts).toHaveLength(1); });
+      // 未决记录已落在账号A+书籍的隔离键下
+      expect(window.sessionStorage.getItem('wenmi:design-pending:owner-a:bk-1')).not.toBeNull();
+      cleanup();
+      // 同一浏览器换账号B登录：不读A的记录——输入回到推荐默认、不自动重发、A的记录不被误清
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />, 'owner-b');
+      expect(await screen.findByText('已选 1 条故事线')).toBeVisible();
+      expect((screen.getByLabelText('故事线补充要求') as HTMLTextAreaElement).value).toBe('');
+      await new Promise(resolve => { setTimeout(resolve, 100); });
+      expect(designPosts).toHaveLength(1);
+      expect(window.sessionStorage.getItem('wenmi:design-pending:owner-a:bk-1')).not.toBeNull();
+      expect(window.sessionStorage.getItem('wenmi:design-pending:owner-b:bk-1')).toBeNull();
+    } finally { window.sessionStorage.clear(); }
   }, 20000);
 });

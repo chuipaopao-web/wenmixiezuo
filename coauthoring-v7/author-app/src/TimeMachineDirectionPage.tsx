@@ -16,6 +16,7 @@ import {
   type TimeMachineVolumeView
 } from './time-machine-direction-api';
 import { AuthorApiError } from './opening-api';
+import { useAuthorAccount } from './AuthorAccountBoundary';
 import { memberAvatarStyle } from './member-avatars';
 import './time-machine-direction.css';
 
@@ -104,14 +105,9 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const recommendStarted = useRef(false);
   const initializedRecommendation = useRef<string | null>(null);
   const addDialogRef = useRef<HTMLDialogElement | null>(null);
-  // 账号隔离：sessionStorage键绑定当前账号+书籍，退出/切换账号后不会读到另一账号的未决草稿
-  const ownerIdRef = useRef<string>('');
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem('wenmi:session-owner');
-      if (raw !== null) ownerIdRef.current = JSON.parse(raw) as string;
-    } catch { /* 无本地会话记录时退化为仅书籍隔离 */ }
-  }, []);
+  // 账号隔离：未决记录键绑定已验证会话账号（AuthorAccountBoundary）+书籍，不读localStorage伪造身份。
+  // 本组件只在AuthorApp（边界内）挂载；useAuthorAccount在无Provider时抛错，防止绕过账号接线。
+  const { account } = useAuthorAccount();
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -254,10 +250,10 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   }, [recommendRun, selectedLineIds, addedLines, shape, ensemble, authorNote, state?.preparation?.version]);
   const recommendationHashRef = useRef<string | null>(null);
   useEffect(() => { recommendationHashRef.current = recommendRun?.recommendationHash ?? null; }, [recommendRun]);
-  // 账号+书籍隔离的未决记录键；无会话账号时不落存储（退化为会话内useRef防重，不跨账号共享草稿）
+  // 账号+书籍隔离的未决记录键；会话账号缺失时不落存储（退化为会话内useRef防重，不跨账号共享草稿）
   const pendingStorageKey = useCallback((): string | null => {
-    return ownerIdRef.current === '' ? null : `wenmi:design-pending:${ownerIdRef.current}:${bookId}`;
-  }, [bookId]);
+    return account.userId === '' ? null : `wenmi:design-pending:${account.userId}:${bookId}`;
+  }, [account.userId, bookId]);
   const clearPendingRecord = useCallback(() => {
     const storageKey = pendingStorageKey();
     if (storageKey === null) return;
@@ -268,13 +264,34 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
     if (designKey.current === null) return;
     if (designRuns.some(run => run.roundKey === designKey.current)) clearPendingRecord();
   }, [designRuns, clearPendingRecord]);
+  // 账号/书籍变化：重置恢复、dirty与未决引用并清空上个身份的输入，绝不重发上个账号/书籍的请求
+  const identityRef = useRef(`${account.userId}:${bookId}`);
+  useEffect(() => {
+    const identity = `${account.userId}:${bookId}`;
+    if (identityRef.current === identity) return;
+    identityRef.current = identity;
+    restoredRound.current = null;
+    authorDirty.current = false;
+    pendingRestored.current = false;
+    pendingRetryDone.current = false;
+    designKey.current = null;
+    designKeySignature.current = null;
+    pendingDesign.current = null;
+    initializedRecommendation.current = null;
+    recommendStarted.current = false;
+    setSelectedLineIds([]);
+    setAddedLines([]);
+    setAuthorNote('');
+    setShape('auto');
+    setEnsemble(true);
+  }, [account.userId, bookId]);
   // 刷新后恢复未决请求：服务端已有该轮=确定成功只清理；否则回填作者输入（不触发input事件、不计dirty）
   useEffect(() => {
     if (pendingRestored.current || state === null) return;
-    pendingRestored.current = true;
-    if (designKey.current !== null) return;
+    if (designKey.current !== null) { pendingRestored.current = true; return; }
     const storageKey = pendingStorageKey();
-    if (storageKey === null) return;
+    if (storageKey === null) return; // 账号未就绪：不标记完成，待账号可用后再恢复
+    pendingRestored.current = true;
     let pending: PendingDesignRecord;
     try {
       const raw = window.sessionStorage.getItem(storageKey);
