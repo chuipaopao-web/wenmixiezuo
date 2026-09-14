@@ -30,7 +30,9 @@ function seedRecommendIfMissing(service:TimeMachineDesignService,scope:{ownerId:
 }
 async function designRun(service:TimeMachineDesignService,scope:{ownerId:string;bookId:string},intent:string,key:string):Promise<string>{
  seedRecommendIfMissing(service,scope);
- const created=service.startDesignRound(scope,buildSelection(service,scope,intent),key,'test-pv');
+ // 服务端版本读取器：startDesignRound只认读取函数，版本不再作为客户端参数传入
+ (service as unknown as {_prerequisiteReader?:(s:{ownerId:string;bookId:string})=>{ready:boolean;message:string;version:string|null}})._prerequisiteReader=()=>({ready:true,message:'已确认',version:'test-pv'});
+ const created=service.startDesignRound(scope,buildSelection(service,scope,intent),key);
  return created[0]!.id;
 }
 import {BookSynopsisService} from '../../../apps/api/src/application/books/book-synopsis-service.js';

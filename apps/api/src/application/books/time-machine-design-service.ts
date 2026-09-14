@@ -63,7 +63,7 @@ export class TimeMachineDesignService {
   *  - 已有同键规范请求在归属核查后直接回放，不要求重新就绪（响应丢失后上游变化不重开任务）；
   *  - 快照一致性：先用只含上游签名的空intent快照校验来源，得到规范intent后在同一事务内以最终intent重建完整快照
   *    （manifest的intent哈希、documents的intent正文与保存文本一致，不再只改单字段）。 */
- startDesignRound(scope:Scope,selection:StorylineSelectionInput,key:string,_clientVersionHint?:string|null):{id:string;scheme:string}[]{
+ startDesignRound(scope:Scope,selection:StorylineSelectionInput,key:string):{id:string;scheme:string}[]{
   if(typeof key!=='string'||!key.trim()||key.length>160)throw Error('请求参数错误');
   const selections=new StorylineSelectionRepository(this.db);
   const prerequisiteReader=(this as unknown as {_prerequisiteReader?:(s:Scope)=>{ready:boolean;message:string;version:string|null}|null})._prerequisiteReader?.bind(this)??null;
@@ -78,9 +78,9 @@ export class TimeMachineDesignService {
     this.db.exec('COMMIT');
     return rows.map(row=>({id:row.id,scheme:row.scheme}));
    }
-   // 新轮：就绪/版本读取在事务内（路由不再传服务端版本作为参数）；不就绪即拒绝
-   const readiness=prerequisiteReader!==null?prerequisiteReader(scope):{ready:true,message:'已确认',version:_clientVersionHint??null};
-   if(!readiness||!readiness.ready||readiness.version===null)throw Error(readiness?.message??'请先完成设定确认与主编统一整理');
+   // 新轮：就绪/版本读取在事务内，只认服务端读取函数；无读取函数时拒绝（fail-closed），不接受客户端版本作为当前事实
+   const readiness=prerequisiteReader!==null?prerequisiteReader(scope):null;
+   if(readiness===null||!readiness.ready||readiness.version===null)throw Error(readiness!==null&&readiness.message?readiness.message:'请先完成设定确认与主编统一整理');
    // 第一遍：空intent快照仅用于上游来源签名校验
    const probe=snapshotTimeMachine(this.db,scope,'',this.windowTokens);
    const {intent,selectionSnapshot}=validateStorylineSelection(selections,scope,selection,readiness.version,manifestSourcesSignature(probe.manifest));

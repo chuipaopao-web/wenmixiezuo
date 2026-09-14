@@ -28,7 +28,10 @@ function setup(){
  new BookRepository(c.database).create(scope,'S1A机甲书','2026-09-15','active');
  c.database.prepare("INSERT INTO book_opening_blueprints VALUES('opening',?,?,1,'v1','male','fantasy','玄幻',?,?,'active','2026-09-15')").run(scope.ownerId,scope.bookId,JSON.stringify({protagonists:['林舟'],storyDirection:'无灵根修理工建立工坊'}),'a'.repeat(64));
  const service=new TimeMachineDesignService(c.database,makeGateway(c),64000);
- return {c,scope,service};
+ // 服务端版本读取器（startDesignRound只认读取函数，不接受客户端版本）；versions.value模拟服务端版本
+ const versions={value:'pv-1'};
+ (service as unknown as {_prerequisiteReader?:(s:{ownerId:string;bookId:string})=>{ready:boolean;message:string;version:string|null}})._prerequisiteReader=()=>({ready:true,message:'已确认',version:versions.value});
+ return {c,scope,service,versions};
 }
 type RecRun={id:string;recommendationHash?:string|null};
 async function succeededRecommend(service:TimeMachineDesignService,scope:{ownerId:string;bookId:string},key:string):Promise<RecRun>{
@@ -70,49 +73,55 @@ describe('S1-A structured storyline selection',()=>{
    expect(()=>validateStorylineSelection(new StorylineSelectionRepository(c.database),{ownerId:'other-owner',bookId:'s1a-book'},sel,'pv-1',sig)).toThrow('推荐不存在');
  });
  it('startDesignRound: one round shared across A/B/C with same selection; same key+selection idempotent; same key different selection rejected; upstream change rejected for old request',async()=>{
-   const {c,scope,service}=setup();
+   const {c,scope,service,versions}=setup();
    const rec=await succeededRecommend(service,scope,'rec-2');
    const sig=manifestSourcesSignature(snapshotTimeMachine(c.database,scope,'',64000).manifest);
+   versions.value='pv-2';
    const sel=selectionFor(rec,'pv-2',{authorNote:'想多一点群像',selectedLineIds:['growth','ally']});
-   const created=service.startDesignRound(scope,sel,'round-1','pv-2');
+   const created=service.startDesignRound(scope,sel,'round-1');
    expect(created.length).toBe(3);
    const snapshots=created.map(item=>JSON.parse(String((c.database.prepare('SELECT snapshot_json FROM tm2_design_runs WHERE id=?').get(item.id) as {snapshot_json:string}).snapshot_json)) as {selection?:{requestHash:string;authorNote:string};members:{writer:{memberKey:string}}});
    for(const snap of snapshots){expect(snap.selection?.requestHash).toBe(selectionRequestHash(sel));expect(snap.selection?.authorNote).toBe('想多一点群像');}
    expect(new Set(snapshots.map(s=>s.members.writer.memberKey)).size).toBeGreaterThan(1);
-   const again=service.startDesignRound(scope,sel,'round-1','pv-2');
+   const again=service.startDesignRound(scope,sel,'round-1');
    expect(again.map(x=>x.id).sort()).toEqual(created.map(x=>x.id).sort());
    expect((c.database.prepare('SELECT COUNT(*) AS n FROM tm2_design_runs WHERE book_id=? AND kind=\'design\'').get(scope.bookId) as {n:number}).n).toBe(3);
-   expect(()=>service.startDesignRound(scope,selectionFor(rec,'pv-2',{authorNote:'改了'}),'round-1','pv-2')).toThrow('其他故事线选择');
-   // 同键同选择：上游版本变化后仍返回原轮（响应丢失不因后来配置变化新开任务）
-   expect(service.startDesignRound(scope,sel,'round-1','pv-3').map(x=>x.id).sort()).toEqual(created.map(x=>x.id).sort());
-   // 新键+过期版本（选择携带旧pv-2，当前已是pv-3）：拒绝创建
-   expect(()=>service.startDesignRound(scope,selectionFor(rec,'pv-2'),'round-1b','pv-3')).toThrow('设定资料已变化');
+   expect(()=>service.startDesignRound(scope,selectionFor(rec,'pv-2',{authorNote:'改了'}),'round-1')).toThrow('其他故事线选择');
+   // 同键同选择：上游版本变化后仍返回原轮（响应丢失不因后来配置变化新开任务；回放不重新就绪）
+   versions.value='pv-3';
+   expect(service.startDesignRound(scope,sel,'round-1').map(x=>x.id).sort()).toEqual(created.map(x=>x.id).sort());
+   // 新键+过期版本（选择携带旧pv-2，服务端当前已是pv-3）：拒绝创建
+   expect(()=>service.startDesignRound(scope,selectionFor(rec,'pv-2'),'round-1b')).toThrow('设定资料已变化');
    // intent-only设计入口被拒（不留第二条绕过确认的路径）
    expect(()=>service.start(scope,'design' as never,'自由文字','k')).toThrow('结构化故事线确认');
  });
  it('replay of a round whose stored snapshot lacks selection metadata is rejected, not guessed; new key still works',async()=>{
-   const {c,scope,service}=setup();
+   const {c,scope,service,versions}=setup();
    const rec=await succeededRecommend(service,scope,'rec-3');
-   const round2=service.startDesignRound(scope,selectionFor(rec,'pv-3'),'round-2','pv-3');
+   versions.value='pv-3';
+   const round2=service.startDesignRound(scope,selectionFor(rec,'pv-3'),'round-2');
    for(const item of round2)await service.process(item.id);
    const firstId=(c.database.prepare('SELECT id FROM tm2_design_runs WHERE book_id=? AND round_key=? LIMIT 1').get(scope.bookId,'round-2') as {id:string}).id;
    c.database.prepare('UPDATE tm2_design_runs SET snapshot_json=\'{"members":{}}\' WHERE id=?').run(firstId);
-   expect(()=>service.startDesignRound(scope,selectionFor(rec,'pv-3'),'round-2','pv-3')).toThrow('无法核对');
-   expect(service.startDesignRound(scope,selectionFor(rec,'pv-3'),'round-3','pv-3').length).toBe(3);
+   expect(()=>service.startDesignRound(scope,selectionFor(rec,'pv-3'),'round-2')).toThrow('无法核对');
+   expect(service.startDesignRound(scope,selectionFor(rec,'pv-3'),'round-3').length).toBe(3);
  });
  it('app restart idempotency: new service instance, same key same selection returns original round',async()=>{
-   const {c,scope,service}=setup();
+   const {c,scope,service,versions}=setup();
    const rec=await succeededRecommend(service,scope,'rec-4');
-   const created=service.startDesignRound(scope,selectionFor(rec,'pv-4'),'round-4','pv-4');
+   versions.value='pv-4';
+   const created=service.startDesignRound(scope,selectionFor(rec,'pv-4'),'round-4');
    const service2=new TimeMachineDesignService(c.database,makeGateway(c),64000);
-   const again=service2.startDesignRound(scope,selectionFor(rec,'pv-4'),'round-4','pv-4');
+   (service2 as unknown as {_prerequisiteReader?:(s:{ownerId:string;bookId:string})=>{ready:boolean;message:string;version:string|null}})._prerequisiteReader=()=>({ready:true,message:'已确认',version:'pv-4'});
+   const again=service2.startDesignRound(scope,selectionFor(rec,'pv-4'),'round-4');
    expect(again.map(x=>x.id).sort()).toEqual(created.map(x=>x.id).sort());
  });
  it('state projects recommendationHash and minimal selection for refresh recovery',async()=>{
-   const {c,scope,service}=setup();
+   const {c,scope,service,versions}=setup();
    const rec=await succeededRecommend(service,scope,'rec-5');
    expect(rec.recommendationHash).toBe(canonicalRecommendationHash(String((c.database.prepare('SELECT result_json FROM tm2_design_runs WHERE id=?').get(rec.id) as {result_json:string}).result_json)));
-   service.startDesignRound(scope,selectionFor(rec,'pv-5',{selectedLineIds:['growth','ally'],addedLines:[{title:'宿敌线',description:'对手改变彼此'}],authorNote:'补充'}),'round-5','pv-5');
+   versions.value='pv-5';
+   service.startDesignRound(scope,selectionFor(rec,'pv-5',{selectedLineIds:['growth','ally'],addedLines:[{title:'宿敌线',description:'对手改变彼此'}],authorNote:'补充'}),'round-5');
    const design=service.state(scope).find(r=>r.kind==='design');
    expect(design?.selection).toMatchObject({selectedLineIds:['growth','ally'],addedLines:[{title:'宿敌线',description:'对手改变彼此'}],authorNote:'补充',shape:'auto',ensemble:true});
  });

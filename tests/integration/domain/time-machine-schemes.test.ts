@@ -30,7 +30,9 @@ function seedRecommendIfMissing(service:TimeMachineDesignService,scope:{ownerId:
 }
 function round(service:TimeMachineDesignService,scope:{ownerId:string;bookId:string},key:string){
  seedRecommendIfMissing(service,scope);
- return service.startDesignRound(scope,buildSelection(service,scope),key,'test-pv');
+ // 服务端版本读取器：startDesignRound只认读取函数，版本不再作为客户端参数传入
+ (service as unknown as {_prerequisiteReader?:(s:{ownerId:string;bookId:string})=>{ready:boolean;message:string;version:string|null}})._prerequisiteReader=()=>({ready:true,message:'已确认',version:'test-pv'});
+ return service.startDesignRound(scope,buildSelection(service,scope),key);
 }
 function setup(){const c=createTestContext();contexts.push(c);const scope={ownerId:c.config.ownerId,bookId:'tm-scheme-book'};c.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run(scope.ownerId,'测试作者','2026-09-11','2026-09-11');new BookRepository(c.database).create(scope,'机甲会修仙','2026-09-11','active');c.database.prepare("INSERT INTO book_opening_blueprints VALUES('opening',?,?,1,'v1','male','fantasy','玄幻',?,?,'active','2026-09-11')").run(scope.ownerId,scope.bookId,JSON.stringify({protagonists:['林舟'],storyDirection:'无灵根修理工建立工坊'}),'a'.repeat(64));return {c,scope};}
 function output(prompt:string,modelId:string):unknown{
@@ -54,7 +56,7 @@ describe('three independent schemes per design round',()=>{
   const writers=schemeWriters(c,scope.bookId);
   expect(new Set(writers.map(w=>w.writer.memberKey)).size).toBe(3);
   expect(new Set(writers.map(w=>w.writer.model.modelId)).size).toBe(3);
-  expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-2','test-pv')).toThrow('已有新时光机任务');
+  expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-2')).toThrow('已有新时光机任务');
   for(const item of created)await service.process(item.id);
   const states=service.state(scope).filter(row=>row.roundKey==='round-1');
   expect(states.filter(row=>row.state==='succeeded')).toHaveLength(3);
@@ -96,6 +98,6 @@ describe('three independent schemes per design round',()=>{
   c.database.prepare("UPDATE tm2_design_runs SET state='failed',error_code='needs_review' WHERE id=?").run(schemeB.id);
   const retriedB=service.retry(scope,schemeB.id);
   expect(service.state(scope).find(row=>row.id===retriedB)?.scheme).toBe('B');
-  expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-blocked','test-pv')).toThrow('已有新时光机任务');
+  expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-blocked')).toThrow('已有新时光机任务');
  });
 });
