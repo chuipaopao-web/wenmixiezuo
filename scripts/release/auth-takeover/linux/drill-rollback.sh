@@ -153,7 +153,7 @@ start_api "$SRC/apps/api/dist/main.js" "$SRC"
 CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 -X POST "$URL/api/v1/auth/login" -H "$H" -H "$EX" -H "$FS" -H "$HD" -d '{"email":"admin@example.com","password":"Admin-Changed-456!"}')
 check "200" "$CODE" "C1 admin(v2)登录"
 
-CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 -X POST "$URL/api/v1/auth/login" -H "$H" -H" $EX" -H "$FS" -H "$HD" -d '{"email":"legacy@example.com","password":"Legacy-Pass-123-456!"}')
+CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 -X POST "$URL/api/v1/auth/login" -H "$H" -H "$EX" -H "$FS" -H "$HD" -d '{"email":"legacy@example.com","password":"Legacy-Pass-123-456!"}')
 check "200" "$CODE" "C2 v1用户登录+透明升级"
 
 FORMAT=$(sqlite3 "$DATA/database/wenmi.sqlite" "SELECT password_format FROM user_accounts WHERE email_normalized='legacy@example.com'")
