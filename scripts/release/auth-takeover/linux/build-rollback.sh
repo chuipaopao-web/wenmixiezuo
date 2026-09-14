@@ -144,7 +144,7 @@ shutil.copy(os.path.join(tmp, 'patch-diff.txt'), os.path.join(out, 'patch-diff.t
 
 # ── RELEASE_ID ──
 with open(os.path.join(out, 'RELEASE_ID'), 'w') as f:
-    f.write('wm-auth-takeover-rb-20260914-120000-5edad171')
+    f.write('wm-auth-takeover-r1-20260914-120000-5eda171')
 
 # ── Manifest（完整hash） ──
 def sha(path):

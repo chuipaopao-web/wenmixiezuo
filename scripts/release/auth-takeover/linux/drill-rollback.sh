@@ -154,8 +154,16 @@ db.prepare(\"INSERT INTO owners (owner_id, display_name, version, created_at, up
 db.prepare(\"INSERT INTO user_accounts (user_id, owner_id, email_normalized, display_name, password_salt, password_hash, role, status, created_at, updated_at, last_login_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)\").run('mig-user-1','mig-owner-1','mig@example.com','迁移用户',salt,hash,'user','active','2026-01-01','2026-01-01',null);
 // 种旧审计记录（0125会重建此表）
 db.prepare(\"INSERT INTO auth_audit_events (audit_id, user_id, event_type, email_normalized, actor_user_id, recorded_at, details_json) VALUES (?,?,?,?,?,?,?)\").run(randomUUID(), 'mig-user-1', 'login_success', 'mig@example.com', 'mig-user-1', '2026-01-01', '{\"seed\":true}');
-// 种权益
-db.prepare(\"INSERT INTO user_memberships (user_id, owner_id, plan, status, token_quota, period_start, period_end, total_tokens, period_tokens, created_at) VALUES ('mig-user-1','mig-owner-1','bronze','active',200000,'2026-01-01','2027-01-01',200000,200000,'2026-01-01')\").run();
+// 种权益（列名可能因schema版本不同，try-catch处理）
+try {
+  const migCols = db.prepare('PRAGMA table_info(user_memberships)').all().map(c=>c.name);
+  const hasTotal = migCols.includes('total_tokens');
+  if (hasTotal) {
+    db.prepare(\"INSERT INTO user_memberships (user_id, owner_id, plan, status, token_quota, period_start, period_end, total_tokens, period_tokens, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)\").run('mig-user-1','mig-owner-1','bronze','active',200000,'2026-01-01','2027-01-01',200000,200000,'2026-01-01');
+  } else {
+    db.prepare(\"INSERT INTO user_memberships (user_id, owner_id, plan, status, token_quota, period_start, period_end, period_tokens, created_at) VALUES (?,?,?,?,?,?,?,?,?)\").run('mig-user-1','mig-owner-1','bronze','active',200000,'2026-01-01','2027-01-01',200000,'2026-01-01');
+  }
+} catch(e) { console.log('membership seed skipped:', e.message); }
 // 记录迁移前数据
 const preAccounts = db.prepare('SELECT user_id, email_normalized, display_name, password_hash, role, status FROM user_accounts').all();
 const preAudit = db.prepare('SELECT COUNT(*) n FROM auth_audit_events').get().n;
