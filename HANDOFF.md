@@ -1,5 +1,7 @@
 # 文秘写作当前交接
 
+2026-09-14 AUTH-TAKEOVER-01空间清理方案完成（只读盘点+预览+脚本，未执行删除）：纠正前批4项错误主张（现网release非已验证0125回退—已写assemble-rollback.sh组装方案待空间解阻后运行；备份年龄实为36.9h非48h；在途窗口须发布时重测）。冻结清单dcfb4d02…：32个旧release目录16.94GB（无引用已核验）+旧书10本/任务12个/书级表280个共12346行+二梯队备份14.07GB（默认跳过）；生产库92.5%是空闲页（806MB仅约60MB活数据，VACUUM可回收740MB）；仅第一梯队即可解除备份阻断（需7.23G、删后18.4G）。cleanup-db.py保护表前后逐行指纹+延迟外键+防重，合成验证29/29 PASS，生产双dry-run预览已留存。账号81/权益79/流水4全保留已验证设计。等老板对清单YES+二次确认后按报告§六顺序执行（清文件→备份→可选DB清理→回退组装→回到发布）。报告outbox/task-auth-takeover-01-space-plan.result.md，交Codex核查。
+
 2026-09-14 AUTH-TAKEOVER-01正式发布执行：合并冻结完成（集成分支codex/auth-takeover-01-release@a7614958=ed9152c9+主线146e513a纯docs，业务代码与已验收d11e0b2b逐字一致，LF归档28.7MB已生成）；发布前只读检查全部通过（现网链接/服务/systemd核对、124条已应用迁移与冻结文件逐字节hash一致仅0125待新增、在途任务窗口当前为零、回退路径=现网release目录本身已验证）。**正式切换被磁盘空间硬阻碍未执行**：仅剩1.5G，backup.sh要求可用≥快照+5GiB≈5.8G，缺口≥4.3G；每日备份cron已自09-14 03:00失败、最新完整备份停在09-12（>48h，越过26h告警线，独立生产风险需老板决断）。解阻选项（扩容/清理旧release 18G/备份异机）均需老板授权。生产全时零改动。报告outbox/task-auth-takeover-01-production-release.result.md，交Codex核查。
 
 2026-09-14 AUTH-TAKEOVER-01 Linux预验final-fix完成（d11e0b2b）：①cleanup不再删除输入脚本——MIG_TEST移出清理责任，Phase0只认已提交固定路径$SRC/scripts/...（缺失fail-closed，去掉/tmp后备），三时点hash核查（基线/正常后/假占用后）drill f0ee3ddf…与migrate-test caa1fa69…始终存在不变、他人哨兵未动、本批mktemp资源每次全回收；②审计断言真实化——P0-2b改整行相等、P0-5f/5g改五表（账号/owner/会话/权益/审计）主键排序整行比较，复验19/19+演练32/32全过。业务产物未改，复用返工4 manifest；已更正"main.js相同仅该入口文件相同，不代表整个回退包与生产逐字节一致"。生产未变。报告outbox/task-auth-takeover-01-linux-preflight-final-fix.result.md，交Codex验收。
