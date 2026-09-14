@@ -76,10 +76,14 @@ build_pkg() {
   fi
 }
 
+# 构建顺序按实际workspace依赖拓扑（各package.json的@wenmi依赖）：
+#   contracts(无依赖) → opening-runtime → time-machine-core →
+#   v7-backend(依赖@wenmi/opening-runtime) → api(依赖contracts/v7-backend/time-machine-core) → worker
+# 顺序错误会在干净环境暴露为TS2307（v7-backend先于opening-runtime时找不到模块）。
 build_pkg apps/contracts contracts required
-build_pkg coauthoring/v7-backend v7-backend required 2>/dev/null || build_pkg coauthoring-v7/backend v7-backend required
 build_pkg rebuild/packages/backend/src/legacy-opening opening-runtime required
 build_pkg rebuild/packages/time-machine-core time-machine-core required
+build_pkg coauthoring-v7/backend v7-backend required
 build_pkg apps/api api required
 build_pkg apps/worker worker required
 
