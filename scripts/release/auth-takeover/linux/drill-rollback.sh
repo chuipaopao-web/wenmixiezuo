@@ -77,8 +77,10 @@ DATA=$(mktemp -d /tmp/auth-drill4-XXXXXX)
 HDR=$(mktemp /tmp/auth-h4-XXXX)
 
 echo "=== 包信息 ==="
-NEW_HASH=$(sha256sum "$SRC/apps/api/dist/main.js" 2>/dev/null | cut -d' ' -f1) || { echo "ERROR: 新包dist不存在"; exit 1; }
-RB_HASH=$(sha256sum "$RB/dist/main.js" 2>/dev/null | cut -d' ' -f1) || { echo "ERROR: 回退包dist不存在"; exit 1; }
+NEW_HASH=$(sha256sum "$SRC/apps/api/dist/main.js" 2>/dev/null | cut -d' ' -f1)
+[ -n "$NEW_HASH" ] || { echo "ERROR: 新包dist不存在或不可读"; exit 1; }
+RB_HASH=$(sha256sum "$RB/dist/main.js" 2>/dev/null | cut -d' ' -f1)
+[ -n "$RB_HASH" ] || { echo "ERROR: 回退包dist不存在或不可读"; exit 1; }
 echo "新包: $NEW_HASH  回退: $RB_HASH"
 
 # ═══════════════ Phase 0: Python迁移测试 ═══════════════
@@ -145,6 +147,7 @@ fi
 if [ "${FOUND_OWN:-1}" != "0" ]; then echo "  [A12列表内容] $(echo "$USER_LIST" | head -c 220)"; fi
 
 OWNER1_PRE=$(sqlite3 "$DATA/database/wenmi.sqlite" "SELECT plan,status,token_quota FROM user_memberships WHERE owner_id=(SELECT owner_id FROM user_accounts WHERE email_normalized='user@example.com')" 2>/dev/null)
+[ -n "$OWNER1_PRE" ] || OWNER1_PRE="SQLITE3_FAIL"
 stop_api
 
 # 种v1历史用户
@@ -158,6 +161,7 @@ INSERT INTO owners (owner_id, display_name, version, created_at, updated_at) VAL
 INSERT INTO user_accounts (user_id, owner_id, email_normalized, display_name, password_salt, password_hash, password_format, password_n, password_r, password_p, credential_version, role, status, created_at, updated_at, last_login_at) VALUES ('legacy-user', 'legacy-owner', 'legacy@example.com', '历史用户', '0123456789abcdef0123456789abcdef', '$V1_HASH', NULL, NULL, NULL, NULL, 0, 'user', 'active', '2026-01-01', '2026-01-01', NULL);
 " || { echo "ERROR: v1用户种子失败"; exit 1; }
 BEFORE_ACCOUNTS=$(sqlite3 "$DATA/database/wenmi.sqlite" "SELECT COUNT(*) FROM user_accounts")
+[ -n "$BEFORE_ACCOUNTS" ] || BEFORE_ACCOUNTS="SQLITE3_FAIL"
 
 # ═══════════════ Phase B: Linux回退包 ═══════════════
 echo "════════ Phase B: Linux回退包 ══════════"
@@ -178,8 +182,10 @@ CODE=$(curl_check -o /dev/null -w '%{http_code}' -X POST "$URL/api/v1/auth/sessi
 check "404" "$CODE" "B7 撤销404"
 stop_api
 AFTER_ACCOUNTS=$(sqlite3 "$DATA/database/wenmi.sqlite" "SELECT COUNT(*) FROM user_accounts")
+[ -n "$AFTER_ACCOUNTS" ] || AFTER_ACCOUNTS="SQLITE3_FAIL"
 check "$BEFORE_ACCOUNTS" "$AFTER_ACCOUNTS" "B8 账号数不变"
 OWNER1_POST=$(sqlite3 "$DATA/database/wenmi.sqlite" "SELECT plan,status,token_quota FROM user_memberships WHERE owner_id=(SELECT owner_id FROM user_accounts WHERE email_normalized='user@example.com')" 2>/dev/null)
+[ -n "$OWNER1_POST" ] || OWNER1_POST="SQLITE3_FAIL"
 check "$OWNER1_PRE" "$OWNER1_POST" "B9 权益逐项保留($OWNER1_PRE→$OWNER1_POST)"
 
 # ═══════════════ Phase C: 新包回切 ═══════════════
