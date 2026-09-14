@@ -2,7 +2,7 @@
 # AUTH-TAKEOVER-01 Linux回退目标构建（返工3修正版：archive输入+OUT拒绝覆盖+失败回收）
 # 用法: SRC=/path/to/candidate BASE_TAR=/path/to/base.tar.gz bash scripts/release/auth-takeover/linux/build-rollback.sh [OUT]
 # SRC=候选源码根；BASE_TAR=git archive 5edad171完整tar.gz；OUT=输出目录（存在则拒绝）
-set -euo pipefail
+set -eu  # 不用pipefail：tar|grep管道可能因SIGPIPE返回非零
 
 SRC="${SRC:?需要SRC=候选源码根}"
 BASE_TAR="${BASE_TAR:?需要BASE_TAR=基准archive}"
