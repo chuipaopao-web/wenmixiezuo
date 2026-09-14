@@ -1,5 +1,7 @@
 # 文秘写作当前交接
 
+2026-09-14 AUTH-TAKEOVER-01 Linux预验返工4完成（b32141a0）：六项修正全部真实运行关闭——Phase0迁移验证19/19（no-such-table真实故障注入+种子审计行存活性）、三阶段演练32/32（含C8c跨owner直读404、双账号taskId交集=0）、假占用fail-closed零请求、生产路径按现网链接realpath拒绝（实测现网source被拒且零副作用）、候选确定性构建（4产物hash重构建前后一致，manifest三方核验）、候选/回退manifest+构建日志已导出本地。回退包main.js=现网main.js（1d340b64逐字节复刻）。第一次运行的注入no-op、C4笔误、Phase0退出码覆盖、A10单次瞬时失败（根因未明，已排除OOM/进程死亡/序列问题，加了响应体捕获）全部修复复验。生产全时未变，服务器无本批残留。报告outbox/task-auth-takeover-01-linux-preflight-revision-4.result.md，停等Codex验收。
+
 2026-09-14 AUTH-TAKEOVER-01 Linux预验补交3完成（返工3）：6项脚本缺陷全部修复（根路径/cleanup精确路径/端口+PID保护/统一archive版/0125独立迁移验证/逐owner权益对比）；29/30项演练通过（唯一失败P0-3为已知测试限制非迁移缺陷）；27/27功能项全绿；生产未变。报告outbox/task-auth-takeover-01-linux-preflight-revision-3.result.md。
 
 2026-09-14 AUTH-TAKEOVER-01 Linux预验返工1完成：干净构建（npm ci+全链tsc+typecheck全通过）、改密超时根因查明（演练脚本cookie提取bug，scrypt实际556ms完全正常）、25/25三阶段回退演练Linux全通过（含v1/v2/旧会话/审计/迁移）、64/64测试干净构建后复验通过。前批“可以发布”结论依据不足已修订。生产未变。报告outbox/task-auth-takeover-01-linux-preflight-revision-1.result.md。
