@@ -2,10 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { success } from '../contracts/api.js';
 import { DomainError } from '../domain/errors.js';
 import { isMembershipPlan, MembershipService, MEMBERSHIP_CATALOG } from '../infrastructure/security/membership-service.js';
-import { AccountAuthService } from '../infrastructure/security/account-auth-service.js';
+import { IdentityService } from '../identity/identity-service.js';
 import { requireAdministrator, requireAuthenticatedAccount, requireAuthenticatedOwner } from '../infrastructure/security/auth-context.js';
 
-export async function registerAccountRoutes(app: FastifyInstance, accounts: AccountAuthService, memberships: MembershipService): Promise<void> {
+export async function registerAccountRoutes(app: FastifyInstance, accounts: IdentityService, memberships: MembershipService): Promise<void> {
   app.post<{
     Body: { email: string; password: string; displayName?: string };
   }>('/api/v1/auth/register', { config: { rateLimit: { max: 3, timeWindow: '5 minutes' } } }, async (request, reply) => {
@@ -69,6 +69,27 @@ export async function registerAccountRoutes(app: FastifyInstance, accounts: Acco
   app.get('/api/v1/membership/me', async (request) => {
     const owner = requireAuthenticatedOwner(request);
     return success({ ...memberships.statusForOwner(owner.ownerId), plans: MEMBERSHIP_CATALOG }, request.id);
+  });
+
+  // 身份域新增能力（AUTH-TAKEOVER-01返工1）：改密（撤销其他会话，保留当前）与退出其他设备。
+  app.post<{
+    Body: { currentPassword?: unknown; nextPassword?: unknown };
+  }>('/api/v1/auth/password/change', async (request) => {
+    const account = requireAuthenticatedAccount(request);
+    if (typeof request.body?.currentPassword !== 'string' || typeof request.body?.nextPassword !== 'string') {
+      throw new DomainError('INVALID_PASSWORD', '请提供当前密码与新密码', {}, false, 400);
+    }
+    const result = await accounts.changePassword({
+      context: account,
+      currentPassword: request.body.currentPassword,
+      nextPassword: request.body.nextPassword
+    });
+    return success(result, request.id);
+  });
+
+  app.post('/api/v1/auth/sessions/revoke-others', async (request) => {
+    const account = requireAuthenticatedAccount(request);
+    return success(accounts.revokeOtherSessions(account), request.id);
   });
 
   app.get<{

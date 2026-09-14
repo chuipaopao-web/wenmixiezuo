@@ -15,7 +15,7 @@ import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-fact
 import type { V7OpeningModelAdapterResolver } from '../infrastructure/models/v7-opening-agent-model-gateway.js';
 import { VolcengineArkImageGateway, type V7CoverImageGateway } from '../infrastructure/models/volcengine-ark-image-gateway.js';
 import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
-import { AccountAuthService } from '../infrastructure/security/account-auth-service.js';
+import { IdentityService } from '../identity/identity-service.js';
 import { MembershipService } from '../infrastructure/security/membership-service.js';
 import { registerRequestPolicy, type RequestPolicyOptions } from '../infrastructure/security/request-policy.js';
 import { projectSerializedAuthorResponse, shouldProjectAuthorResponse } from './author-api-projection.js';
@@ -64,8 +64,8 @@ export async function createAppServer(
   const corsOrigins = config.adminOrigin === null ? config.webOrigin : [config.webOrigin, config.adminOrigin];
   await app.register(cors, { origin: corsOrigins, credentials: true, methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] });
 
-  // 2. 身份权威与请求策略。
-  const accounts = new AccountAuthService(database, config.webOrigin.startsWith('https://'), config.ownerId);
+  // 2. 身份权威与请求策略：身份域（复用rebuild密码/令牌域实现）承担注册/登录/会话/改密/停用。
+  const accounts = new IdentityService(database, config.webOrigin.startsWith('https://'), config.ownerId);
   await registerRequestPolicy(app, config, accounts, options);
 
   // 3. 作者响应脱敏。

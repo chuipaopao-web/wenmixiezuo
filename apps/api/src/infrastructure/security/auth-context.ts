@@ -1,17 +1,9 @@
 import type { FastifyRequest } from 'fastify';
 import { DomainError } from '../../domain/errors.js';
 import type { OwnerScope } from '../../domain/scope.js';
+import type { AuthContext, AccountRole } from '../../identity/domain/types.js';
 
-export type AccountRole = 'admin' | 'user';
-
-export interface AuthContext {
-  userId: string;
-  ownerId: string;
-  email: string;
-  displayName: string;
-  role: AccountRole;
-  sessionId: string;
-}
+export type { AuthContext, AccountRole };
 
 declare module 'fastify' {
   interface FastifyRequest {

@@ -45,7 +45,9 @@
     "verify:runtime-closure": "tsx scripts/quality/verify-v7-runtime-source-closure.ts",
     "verify:capabilities": "tsx scripts/quality/verify-v7-capability-cutover.ts",
     "verify": "npm run verify:runtime-closure && npm run verify:capabilities && npm run typecheck && npm run test:fast && npm run build",
-    "verify:full": "npm run verify:runtime-closure && npm run verify:capabilities && npm run typecheck && npm run test:full && npm run build"
+    "verify:full": "npm run verify:runtime-closure && npm run verify:capabilities && npm run typecheck && npm run test:full && npm run build",
+    "auth:verify-entry": "node scripts/release/auth-takeover/verify-entry-switch.mjs",
+    "auth:prepare-rollback": "node scripts/release/auth-takeover/prepare-rollback-compat.mjs"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "6.9.1",

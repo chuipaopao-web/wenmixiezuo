@@ -1,5 +1,7 @@
 # 文秘写作当前交接
 
+2026-09-14 AUTH-TAKEOVER-01返工1完成待复验：Codex首轮不通过（并发改密覆盖/回滚不兼容/接管深度不足）。修复：登录CAS（credential_version+哈希复核，旧登录不覆盖新凭据）、升级last_login_at落库、fail-closed凭据校验、未知账号v2参数派生；0125扩列credential_version+审计事件重建；新身份域apps/api/src/identity（rebuild密码/令牌域vendored+parity测试）承担注册/登录/会话/改密/撤销他端/停用，新增/auth/password/change与/auth/sessions/revoke-others端点，旧AccountAuthService删除；回滚=本分支兼容构建（读双格式+含0125），prepare-rollback-compat.mjs出包，混合凭据新进程演练通过；PG仍不可达（无docker/无PG安装，命令已记录）。identity-cas 6/6、回滚演练、路由授权矩阵、CAS探针四字段翻正；verify链各步执行，失败均为主树基线（闭包51项C6脚本、边界/迁移/cutover等已在5edad171复现）。
+
 2026-09-14 AUTH-TAKEOVER-01已在隔离分支`codex/auth-takeover-01`开发完成，待Codex验收，未合入未部署：新运行入口`apps/api/src/http/app-server.ts`（createAppServer，11个业务路由模块+请求策略+脱敏+错误封装，零引用已删除的旧v7-server装配）接管main.ts；密码体制收敛rebuild规范（0125迁移：v1兼容验证+登录透明升级scrypt-v2，rebuild域可直接验证）；会话停用/登出/过期即时失效、跨用户隔离、后台登录/登出经真实服务与浏览器验证。身份权威本批仍为SQLite AccountAuthService——PG切换阻断（本地PG 54329不可达、rebuild账号服务缺公开注册/admin/停用能力、无身份迁移证据），rebuild栈保留为生产切换目标。结果与删除清单：`.local/dispatch/outbox/task-auth-takeover-01.result.md`。
 
 2026-09-14 AUTH-TAKEOVER-01执行任务书已备，待老板手动交GLM5.3：`.local/dispatch/inbox/task-auth-takeover-01.md`。目标为新身份/权限/运行入口实际接管及本地已替代死代码清理；GLM连续完成开发与验证，不仅审计。隔离分支交付Codex验收，本批不部署。不能把当前使用中的开书/设定、@wenmi/v7-backend或rebuild/legacy-opening按名称删除；不能把C6准备代码回退到生产C5。结果入口`.local/dispatch/outbox/task-auth-takeover-01.result.md`。

@@ -4,7 +4,7 @@
 
 ## 后续专项：新后端接管登录、权限与运行入口
 
-2026-09-14 AUTH-TAKEOVER-01已在隔离分支codex/auth-takeover-01完成开发，待Codex验收：新运行入口apps/api/src/http/app-server.ts（createAppServer）装配全部11个业务路由模块+请求策略+作者响应脱敏+统一错误封装，main.ts已切换，旧v7-server装配删除；密码域收敛rebuild规范（0125迁移，v1记录兼容验证并登录透明升级scrypt-v2，rebuild verifyPassword可直接验证）；身份权威本批仍为SQLite AccountAuthService（owner映射/admin/停用语义齐全），PG切换列阻断项：本地PG 54329不可达、rebuild账号服务缺公开注册/admin授予/停用能力（需产品决定与发信通道）、无身份迁移演练证据。核心安全/身份套件62/62通过，入口切换检查脚本通过，真实服务与浏览器登录/登出验证通过。下文目标与安全边界继续有效。
+2026-09-14 返工1后状态：Codex首轮验收不通过已修复——登录CAS防并发覆盖、last_login_at落库、fail-closed凭据、未知账号v2派生；身份域apps/api/src/identity（vendored rebuild域+parity）承担注册/登录/会话/改密/撤销他端/停用并新增对应端点，旧AccountAuthService删除；回滚=本分支兼容构建（双格式+0125），prepare-rollback-compat.mjs+新进程混合凭据演练通过；PG切换仍阻断（无本地PG设施）。待Codex复验：新运行入口apps/api/src/http/app-server.ts（createAppServer）装配全部11个业务路由模块+请求策略+作者响应脱敏+统一错误封装，main.ts已切换，旧v7-server装配删除；密码域收敛rebuild规范（0125迁移，v1记录兼容验证并登录透明升级scrypt-v2，rebuild verifyPassword可直接验证）；身份权威本批仍为SQLite AccountAuthService（owner映射/admin/停用语义齐全），PG切换列阻断项：本地PG 54329不可达、rebuild账号服务缺公开注册/admin授予/停用能力（需产品决定与发信通道）、无身份迁移演练证据。核心安全/身份套件62/62通过，入口切换检查脚本通过，真实服务与浏览器登录/登出验证通过。下文目标与安全边界继续有效。
 
 2026-09-13老板明确要求纳入后续开发。状态：待实施，当前B2不扩范围。目标是由新后端承担生产账号、会话、鉴权和路由装配，最终退出旧入口，不以重命名v7-server为完成。
 

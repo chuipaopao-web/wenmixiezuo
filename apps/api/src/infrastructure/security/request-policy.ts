@@ -2,7 +2,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import fastifyRateLimit from '@fastify/rate-limit';
 import { DomainError } from '../../domain/errors.js';
 import type { RuntimeConfig } from '../runtime-config.js';
-import { AccountAuthService, constantTimeTokenMatches } from './account-auth-service.js';
+import { IdentityService } from '../../identity/identity-service.js';
+import { constantTimeTokenMatches } from '../../identity/domain/tokens.js';
 
 export interface RequestPolicyOptions {
   trustedTest?: boolean;
@@ -55,7 +56,7 @@ function allowedHosts(config: RuntimeConfig): Set<string> {
 export async function registerRequestPolicy(
   app: FastifyInstance,
   config: RuntimeConfig,
-  accounts: AccountAuthService,
+  accounts: IdentityService,
   options: RequestPolicyOptions = {}
 ): Promise<void> {
   const hosts = allowedHosts(config);
@@ -84,7 +85,8 @@ export async function registerRequestPolicy(
         email: 'trusted-test@wenmi.local',
         displayName: '测试作者',
         role: 'admin',
-        sessionId: 'trusted-test-session'
+        sessionId: 'trusted-test-session',
+        credentialVersion: 0
       };
       return;
     }

@@ -46,6 +46,8 @@ const OPERATIONAL_ENTRY_DEFINITIONS = [
   { path: 'scripts/quality/verify-v7-capability-cutover.ts', invokedBy: 'package.json#scripts.verify:capabilities' },
   { path: 'scripts/quality/verify-v7-runtime-source-closure.ts', invokedBy: 'package.json#scripts.verify:runtime-closure' },
   { path: 'scripts/release/assemble-v7-static.mjs', invokedBy: 'package.json#scripts.build:v7:static-release' },
+  { path: 'scripts/release/auth-takeover/verify-entry-switch.mjs', invokedBy: 'package.json#scripts.auth:verify-entry' },
+  { path: 'scripts/release/auth-takeover/prepare-rollback-compat.mjs', invokedBy: 'package.json#scripts.auth:prepare-rollback' },
   { path: 'scripts/release/serve-v7-static.mjs', invokedBy: 'scripts/start.mjs' },
   { path: 'scripts/release/verify-v7-static.mjs', invokedBy: 'package.json#scripts.verify:v7:static-release' },
   { path: 'scripts/release/verify-v7-release-module-resolution.ts', invokedBy: 'production preflight/postdeploy' },

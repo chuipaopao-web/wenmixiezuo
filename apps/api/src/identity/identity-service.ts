@@ -1,20 +1,25 @@
-import {
-  createHash,
-  randomBytes,
-  randomUUID,
-  scrypt,
-  timingSafeEqual
-} from 'node:crypto';
+/**
+ * AUTH-TAKEOVER-01 身份域应用服务：产品唯一身份权威（SQLite存储）。
+ * 域层（passwords/tokens）逐行复用rebuild域实现并以parity测试锁定；
+ * 登录/改密在异步哈希后按 credential_version + password_hash CAS 写入，
+ * 并发改密/停用/撤销不会被旧登录覆盖；凭据记录只接受支持的精确参数组合（fail closed）。
+ * owner映射（首账号admin+legacy收编+青铜体验金）、cookie合同（wenmi_session/14天）与现行产品一致。
+ */
+import { randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { DomainError } from '../../domain/errors.js';
-import type { AccountRole, AuthContext } from './auth-context.js';
-import { grantDefaultBronze } from './membership-service.js';
-import { accountUsageTotals } from './account-usage-service.js';
+import { DomainError } from '../domain/errors.js';
+import { grantDefaultBronze } from '../infrastructure/security/membership-service.js';
+import { accountUsageTotals } from '../infrastructure/security/account-usage-service.js';
+import {
+  hashNewPassword, hashVerifiedPassword, isSupportedPasswordRecord,
+  shouldUpgradePassword, verifyUnknownAccountPassword
+} from './domain/passwords.js';
+import { SESSION_COOKIE, SESSION_TTL_SECONDS, issueRandomToken, hashToken, readCookie } from './domain/tokens.js';
+import type { AccountRole, AccountStatus, AuthContext, IssuedSession, PasswordRecord, PublicAccount } from './domain/types.js';
 
-const SESSION_COOKIE = 'wenmi_session';
+const MAX_LOGIN_ATTEMPTS = 3;
 const MIN_PASSWORD_LENGTH = 10;
 const MAX_PASSWORD_LENGTH = 128;
-const SESSION_TTL_SECONDS = 14 * 24 * 60 * 60;
 
 interface AccountRow {
   user_id: string;
@@ -27,62 +32,11 @@ interface AccountRow {
   password_n: number | null;
   password_r: number | null;
   password_p: number | null;
+  credential_version: number;
   role: AccountRole;
-  status: 'active' | 'suspended';
+  status: AccountStatus;
   created_at: string;
   last_login_at: string | null;
-}
-
-/**
- * 密码哈希参数与格式（AUTH-TAKEOVER-01 D2）：与 rebuild backend domain/accounts/passwords.ts 对齐。
- * v1（NULL参数列）=rebuild "scrypt-v1-legacy"，派生式逐字节一致；登录成功透明升级v2，
- * rebuild verifyPassword 可直接验证v2记录，未来PG身份迁移免重哈希。长度政策维持现行10–128。
- */
-const PASSWORD_V2 = { format: 'scrypt-v2', n: 32_768, r: 8, p: 3 } as const;
-const PASSWORD_V1 = { format: 'scrypt-v1-legacy', n: 16_384, r: 8, p: 1 } as const;
-const PASSWORD_KEY_LENGTH = 64;
-const MAX_ACTIVE_HASHES = 2;
-const waitingHashes: Array<() => void> = [];
-let activeHashes = 0;
-
-interface PasswordParams { format: string; n: number; r: number; p: number }
-
-function passwordParams(row: Pick<AccountRow, 'password_format' | 'password_n' | 'password_r' | 'password_p'>): PasswordParams {
-  if (row.password_format === PASSWORD_V2.format && row.password_n !== null && row.password_r !== null && row.password_p !== null) {
-    return { format: PASSWORD_V2.format, n: row.password_n, r: row.password_r, p: row.password_p };
-  }
-  return { ...PASSWORD_V1 };
-}
-
-async function derivePasswordHash(password: string, salt: string, params: PasswordParams): Promise<string> {
-  await acquireHashSlot();
-  try {
-    return await new Promise((resolve, reject) => {
-      scrypt(password, salt, PASSWORD_KEY_LENGTH, { N: params.n, r: params.r, p: params.p, maxmem: 64 * 1024 * 1024 }, (error, derived) => {
-        if (error !== null) reject(error);
-        else resolve(Buffer.from(derived).toString('hex'));
-      });
-    });
-  } finally {
-    releaseHashSlot();
-  }
-}
-
-async function acquireHashSlot(): Promise<void> {
-  if (activeHashes < MAX_ACTIVE_HASHES) {
-    activeHashes += 1;
-    return;
-  }
-  if (waitingHashes.length >= 16) {
-    throw new DomainError('ACCOUNT_PASSWORD_HASH_BUSY', '密码校验暂时繁忙，请稍后重试', {}, true, 503);
-  }
-  await new Promise<void>((resolve) => { waitingHashes.push(() => { activeHashes += 1; resolve(); }); });
-}
-
-function releaseHashSlot(): void {
-  activeHashes -= 1;
-  const next = waitingHashes.shift();
-  if (next !== undefined) next();
 }
 
 interface SessionRow extends AccountRow {
@@ -91,23 +45,30 @@ interface SessionRow extends AccountRow {
   last_seen_at: string;
 }
 
-export interface PublicAccount {
-  userId: string;
-  email: string;
-  displayName: string;
-  role: AccountRole;
-  status: 'active' | 'suspended';
-  createdAt: string;
-  lastLoginAt: string | null;
+/** 行→域凭据记录；NULL格式列=历史v1参数，其余只接受精确支持组合，异常记录fail closed（不降级）。 */
+function passwordRecordOf(row: AccountRow): PasswordRecord | null {
+  const format = row.password_format === null ? 'scrypt-v1-legacy' : row.password_format;
+  const n = row.password_format === null ? 16_384 : row.password_n;
+  const r = row.password_format === null ? 8 : row.password_r;
+  const p = row.password_format === null ? 1 : row.password_p;
+  if (n === null || r === null || p === null) return null;
+  const record: PasswordRecord = {
+    format: format as PasswordRecord['format'],
+    salt: row.password_salt,
+    hash: row.password_hash,
+    n, r, p,
+    keyLength: 64
+  };
+  return isSupportedPasswordRecord(record) ? record : null;
 }
 
-export interface IssuedSession {
-  account: PublicAccount;
-  cookie: string;
-  expiresInSeconds: number;
+function constantTimeHexMatches(actual: string, expected: string): boolean {
+  const left = Buffer.from(actual, 'hex');
+  const right = Buffer.from(expected, 'hex');
+  return left.length === right.length && left.length > 0 && timingSafeEqual(left, right);
 }
 
-export class AccountAuthService {
+export class IdentityService {
   public constructor(
     private readonly database: DatabaseSync,
     private readonly secureCookies: boolean,
@@ -117,10 +78,9 @@ export class AccountAuthService {
 
   public async register(input: { email: string; password: string; displayName?: string }): Promise<IssuedSession> {
     const email = normalizeEmail(input.email);
-    const password = validatePassword(input.password);
+    const password = validatePasswordPolicy(input.password);
     const displayName = normalizeDisplayName(input.displayName, email);
-    const salt = randomBytes(16).toString('hex');
-    const passwordHash = await derivePasswordHash(password, salt, { ...PASSWORD_V2 });
+    const record = await hashNewPassword(password);
     const now = new Date().toISOString();
     const userId = randomUUID();
     const generatedOwnerId = randomUUID();
@@ -161,16 +121,12 @@ export class AccountAuthService {
       this.database.prepare(`
         INSERT INTO user_accounts (
           user_id, owner_id, email_normalized, display_name, password_salt, password_hash,
-          password_format, password_n, password_r, password_p,
+          password_format, password_n, password_r, password_p, credential_version,
           role, status, created_at, updated_at, last_login_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
-      `).run(userId, ownerId, email, displayName, salt, passwordHash, PASSWORD_V2.format, PASSWORD_V2.n, PASSWORD_V2.r, PASSWORD_V2.p, role, now, now, now);
-      // 普通账号注册即发放青铜体验（20万算力值）；首位管理员不受会员门禁限制，无需发放。
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'active', ?, ?, ?)
+      `).run(userId, ownerId, email, displayName, record.salt, record.hash, record.format, record.n, record.r, record.p, role, now, now, now);
       if (role === 'user') grantDefaultBronze(this.database, userId, ownerId, now);
-      this.recordAudit('register', userId, email, userId, now, {
-        role,
-        adoptedLegacyData: legacyOwner !== undefined
-      });
+      this.recordAudit('register', userId, email, userId, now, { role, adoptedLegacyData: legacyOwner !== undefined });
       this.database.exec('COMMIT');
     } catch (error) {
       this.database.exec('ROLLBACK');
@@ -179,43 +135,64 @@ export class AccountAuthService {
     return this.issueSession(this.requireAccountById(userId), now);
   }
 
+  /**
+   * 登录（CAS安全）：异步派生后重读账号，凭据版本或哈希变化即有界重试；
+   * 升级/last_login在同一CAS UPDATE落库；停用在重读后判定——并发改密/停用不会被旧登录绕过或覆盖。
+   */
   public async login(input: { email: string; password: string }): Promise<IssuedSession> {
     const email = normalizeEmail(input.email);
     const password = typeof input.password === 'string' ? input.password : '';
-    const account = this.database.prepare('SELECT * FROM user_accounts WHERE email_normalized = ?').get(email) as AccountRow | undefined;
     const now = new Date().toISOString();
-    // 未知账号同样执行一次派生（常数时间卫生，规范与rebuild verifyUnknownAccountPassword一致）。
-    const verifyRecord = account === undefined
-      ? { ...PASSWORD_V1, salt: '00000000000000000000000000000000' }
-      : { ...passwordParams(account), salt: account.password_salt };
-    const supplied = await derivePasswordHash(password.slice(0, MAX_PASSWORD_LENGTH), verifyRecord.salt, verifyRecord);
-    const valid = password.length <= MAX_PASSWORD_LENGTH
-      && account !== undefined
-      && constantTimeHexMatches(supplied, account.password_hash);
-    if (!valid || account === undefined) {
-      this.recordAudit('login_failed', account?.user_id ?? null, email, null, now, {});
-      throw new DomainError('INVALID_CREDENTIALS', '邮箱或密码不正确', {}, false, 401);
+    for (let attempt = 0; attempt < MAX_LOGIN_ATTEMPTS; attempt += 1) {
+      const row = this.findAccountByEmail(email);
+      if (row === undefined) {
+        // 未知账号按最贵支持参数（v2）派生一次：枚举计时不弱于已知v2账号路径。
+        await verifyUnknownAccountPassword(password);
+        this.recordAudit('login_failed', null, email, null, now, {});
+        throw invalidCredentials();
+      }
+      const record = passwordRecordOf(row);
+      if (record === null) {
+        // fail closed：损坏/不受支持的凭据记录直接拒绝，不降级到任何默认参数。
+        this.recordAudit('login_failed', row.user_id, email, null, now, { reason: 'credential_record_unsupported' });
+        throw invalidCredentials();
+      }
+      const supplied = await deriveWithRecord(password, record);
+      // 异步边界后重读：凭据/状态必须与派生时一致，否则有界重试（并发改密）。
+      const current = this.findAccountByEmail(email);
+      if (current === undefined) continue;
+      if (current.credential_version !== row.credential_version || current.password_hash !== row.password_hash) continue;
+      const matches = password.length <= MAX_PASSWORD_LENGTH && constantTimeHexMatches(supplied, record.hash);
+      if (!matches) {
+        this.recordAudit('login_failed', row.user_id, email, null, now, {});
+        throw invalidCredentials();
+      }
+      if (current.status !== 'active') {
+        this.recordAudit('login_rejected', current.user_id, email, null, now, { reason: 'account_status' });
+        throw new DomainError('ACCOUNT_SUSPENDED', '这个账号已暂停使用，请联系管理员', {}, false, 403);
+      }
+      if (shouldUpgradePassword(record)) {
+        const upgraded = await hashVerifiedPassword(password);
+        const changed = this.database.prepare(`
+          UPDATE user_accounts
+          SET password_salt = ?, password_hash = ?, password_format = ?, password_n = ?, password_r = ?, password_p = ?,
+              credential_version = credential_version + 1, last_login_at = ?, updated_at = ?
+          WHERE user_id = ? AND credential_version = ?
+        `).run(upgraded.salt, upgraded.hash, upgraded.format, upgraded.n, upgraded.r, upgraded.p, now, now, current.user_id, current.credential_version);
+        if (changed.changes !== 1) continue; // 并发写凭据：丢弃本次结果，按新状态重试
+      } else {
+        const touched = this.database.prepare(
+          'UPDATE user_accounts SET last_login_at = ?, updated_at = ? WHERE user_id = ? AND credential_version = ?'
+        ).run(now, now, current.user_id, current.credential_version);
+        if (touched.changes !== 1) continue;
+      }
+      this.recordAudit('login_success', current.user_id, email, current.user_id, now, {});
+      return this.issueSession(this.requireAccountById(current.user_id), now);
     }
-    if (account.status !== 'active') {
-      throw new DomainError('ACCOUNT_SUSPENDED', '这个账号已暂停使用，请联系管理员', {}, false, 403);
-    }
-    // 透明升级：v1（或参数过期）记录在验证成功后重哈希为v2并落参数列。
-    let settled = { ...account, last_login_at: now };
-    if (verifyRecord.format !== PASSWORD_V2.format || verifyRecord.n !== PASSWORD_V2.n || verifyRecord.r !== PASSWORD_V2.r || verifyRecord.p !== PASSWORD_V2.p) {
-      const upgradedSalt = randomBytes(16).toString('hex');
-      const upgradedHash = await derivePasswordHash(password, upgradedSalt, { ...PASSWORD_V2 });
-      this.database.prepare(`
-        UPDATE user_accounts
-        SET password_salt = ?, password_hash = ?, password_format = ?, password_n = ?, password_r = ?, password_p = ?, updated_at = ?
-        WHERE user_id = ?
-      `).run(upgradedSalt, upgradedHash, PASSWORD_V2.format, PASSWORD_V2.n, PASSWORD_V2.r, PASSWORD_V2.p, now, account.user_id);
-    } else {
-      this.database.prepare('UPDATE user_accounts SET last_login_at = ?, updated_at = ? WHERE user_id = ?').run(now, now, account.user_id);
-    }
-    this.recordAudit('login_success', account.user_id, email, account.user_id, now, {});
-    return this.issueSession(settled, now);
+    throw new DomainError('LOGIN_STATE_CONFLICT', '登录时账号状态发生变化，请重试', {}, true, 409);
   }
 
+  /** 会话验证：cookie→token哈希→未撤销会话→active账号→未过期；last_seen节流更新。 */
   public authenticate(cookieHeader: string | undefined, now = new Date()): AuthContext | null {
     const token = readCookie(cookieHeader, SESSION_COOKIE);
     if (token === null || token.length > 512) return null;
@@ -235,7 +212,8 @@ export class AccountAuthService {
       email: row.email_normalized,
       displayName: row.display_name,
       role: row.role,
-      sessionId: row.session_id
+      sessionId: row.session_id,
+      credentialVersion: row.credential_version
     };
   }
 
@@ -245,6 +223,64 @@ export class AccountAuthService {
       .run(now, context.sessionId, context.userId);
     this.recordAudit('logout', context.userId, context.email, context.userId, now, {});
     return this.clearCookie();
+  }
+
+  /** 改密：验证当前密码（同CAS语义）→ 写v2并递增版本 → 撤销其他全部会话（保留当前）。 */
+  public async changePassword(input: { context: AuthContext; currentPassword: string; nextPassword: string }): Promise<{ changed: true; revokedSessions: number }> {
+    const nextPasswordValid = validatePasswordPolicy(input.nextPassword);
+    const now = new Date().toISOString();
+    for (let attempt = 0; attempt < MAX_LOGIN_ATTEMPTS; attempt += 1) {
+      const row = this.requireAccountById(input.context.userId);
+      const record = passwordRecordOf(row);
+      if (record === null) {
+        this.recordAudit('password_change_failed', row.user_id, row.email_normalized, input.context.userId, now, { reason: 'credential_record_unsupported' });
+        throw invalidCredentials();
+      }
+      const supplied = await deriveWithRecord(input.currentPassword, record);
+      const current = this.requireAccountById(input.context.userId);
+      if (current.credential_version !== row.credential_version || current.password_hash !== row.password_hash) continue;
+      if (!constantTimeHexMatches(supplied, record.hash)) {
+        this.recordAudit('password_change_failed', row.user_id, row.email_normalized, input.context.userId, now, {});
+        throw invalidCredentials();
+      }
+      if (current.status !== 'active') throw new DomainError('ACCOUNT_SUSPENDED', '这个账号已暂停使用', {}, false, 403);
+      const next = await hashVerifiedPassword(nextPasswordValid);
+      let revoked = 0;
+      this.database.exec('BEGIN IMMEDIATE');
+      try {
+        const updated = this.database.prepare(`
+          UPDATE user_accounts
+          SET password_salt = ?, password_hash = ?, password_format = ?, password_n = ?, password_r = ?, password_p = ?,
+              credential_version = credential_version + 1, updated_at = ?
+          WHERE user_id = ? AND credential_version = ?
+        `).run(next.salt, next.hash, next.format, next.n, next.r, next.p, now, current.user_id, current.credential_version);
+        if (updated.changes !== 1) {
+          this.database.exec('ROLLBACK');
+          continue;
+        }
+        const revoke = this.database.prepare(
+          'UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL AND session_id <> ?'
+        ).run(now, current.user_id, input.context.sessionId);
+        revoked = Number(revoke.changes);
+        this.recordAudit('password_changed', current.user_id, current.email_normalized, input.context.userId, now, { revokedSessions: revoked });
+        this.database.exec('COMMIT');
+      } catch (error) {
+        this.database.exec('ROLLBACK');
+        throw error;
+      }
+      return { changed: true, revokedSessions: revoked };
+    }
+    throw new DomainError('LOGIN_STATE_CONFLICT', '账号状态发生变化，请重试', {}, true, 409);
+  }
+
+  /** 撤销除当前外的全部会话（“退出其他设备”）。 */
+  public revokeOtherSessions(context: AuthContext): { revoked: number } {
+    const now = new Date().toISOString();
+    const revoke = this.database.prepare(
+      'UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL AND session_id <> ?'
+    ).run(now, context.userId, context.sessionId);
+    this.recordAudit('sessions_revoked', context.userId, context.email, context.userId, now, { revoked: Number(revoke.changes) });
+    return { revoked: Number(revoke.changes) };
   }
 
   public overview(): { totalUsers: number; activeUsers: number; suspendedUsers: number; totalBooks: number; totalTokens: number } {
@@ -319,8 +355,12 @@ export class AccountAuthService {
     return publicAccount({ ...target, status });
   }
 
+  private findAccountByEmail(email: string): AccountRow | undefined {
+    return this.database.prepare('SELECT * FROM user_accounts WHERE email_normalized = ?').get(email) as AccountRow | undefined;
+  }
+
   private issueSession(account: AccountRow, nowIso: string): IssuedSession {
-    const token = randomBytes(32).toString('base64url');
+    const token = issueRandomToken();
     const sessionId = randomUUID();
     const expiresAt = new Date(Date.parse(nowIso) + this.ttlSeconds * 1_000).toISOString();
     this.database.prepare(`
@@ -345,7 +385,7 @@ export class AccountAuthService {
   }
 
   private recordAudit(
-    eventType: 'register' | 'login_success' | 'login_failed' | 'logout' | 'user_suspended' | 'user_reactivated',
+    eventType: 'register' | 'login_success' | 'login_failed' | 'login_rejected' | 'logout' | 'user_suspended' | 'user_reactivated' | 'password_changed' | 'password_change_failed' | 'sessions_revoked',
     userId: string | null,
     email: string | null,
     actorUserId: string | null,
@@ -359,11 +399,17 @@ export class AccountAuthService {
   }
 }
 
-export function constantTimeTokenMatches(actual: string | undefined, expected: string): boolean {
-  if (actual === undefined || actual.length === 0 || actual.length > 1_024) return false;
-  const left = Buffer.from(actual);
-  const right = Buffer.from(expected);
-  return left.length === right.length && timingSafeEqual(left, right);
+function invalidCredentials(): DomainError {
+  return new DomainError('INVALID_CREDENTIALS', '邮箱或密码不正确', {}, false, 401);
+}
+
+async function deriveWithRecord(password: string, record: PasswordRecord): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    scrypt(password, record.salt, record.keyLength, { N: record.n, r: record.r, p: record.p, maxmem: 64 * 1024 * 1024 }, (error, derived) => {
+      if (error !== null) reject(error);
+      else resolve(Buffer.from(derived).toString('hex'));
+    });
+  });
 }
 
 function normalizeEmail(raw: string): string {
@@ -374,7 +420,7 @@ function normalizeEmail(raw: string): string {
   return value;
 }
 
-function validatePassword(raw: string): string {
+function validatePasswordPolicy(raw: string): string {
   if (typeof raw !== 'string' || raw.length < MIN_PASSWORD_LENGTH || raw.length > MAX_PASSWORD_LENGTH) {
     throw new DomainError('INVALID_PASSWORD', `密码需要${MIN_PASSWORD_LENGTH}至${MAX_PASSWORD_LENGTH}个字符`, {}, false, 400);
   }
@@ -387,23 +433,6 @@ function normalizeDisplayName(raw: string | undefined, email: string): string {
     throw new DomainError('INVALID_DISPLAY_NAME', '昵称需要1至30个字符', {}, false, 400);
   }
   return value;
-}
-
-function constantTimeHexMatches(actual: string, expected: string): boolean {
-  const left = Buffer.from(actual, 'hex');
-  const right = Buffer.from(expected, 'hex');
-  return left.length === right.length && timingSafeEqual(left, right);
-}
-
-function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
-}
-
-function readCookie(header: string | undefined, name: string): string | null {
-  if (header === undefined) return null;
-  const prefix = `${name}=`;
-  const part = header.split(';').map((value) => value.trim()).find((value) => value.startsWith(prefix));
-  return part === undefined ? null : part.slice(prefix.length);
 }
 
 function publicAccount(row: AccountRow): PublicAccount {
