@@ -179,15 +179,15 @@ describe('S1-A revision six fixes',()=>{
   c.config.modelRuntime.endpoints.coding.apiKey='fixture-only-no-network';
   c.config.modelRuntime.endpoints.agent.apiKey='fixture-only-no-network';
   const settingBase=new SettingResolver(false);
-  // 组合resolver：设定阶段提示走部门夹具，其余（时光机全链）走本文件确定性夹具；
-  // failNextGroupDesign模拟一次结果未知的设计成员失败，让批次停在partially_failed（不可自动恢复）
+  // 组合resolver：时光机提示先判（自检/修复提示含“紧凑候选：”会误中设定“候选：”标记），再走部门夹具
+  const tmMarkers=['你是主编，推荐','设计全书骨架。只设计','补全本批卷卡','核对短卡是否','判断需要哪些方法','自检你刚完成','自检候选锚点','核对候选锚点','核对候选骨架'];
   const settingMarkers=['v7_setting_group_design_v1','v7_setting_batch_final_review','v7_compile_book_genre_profile_v1','只判断后续设定阶段应该准备哪些条目','你是副编','你是设计成员','你是设定连续性审查员','候选：','上次输出存在空字段'];
   let failNextGroupDesign=false;
   const resolver:V7OpeningModelAdapterResolver={resolve(provider,modelId,purpose){
    const base=settingBase.resolve(provider,modelId,purpose);
    return {provider,modelId,async generate(request,signal){
     if(request.prompt.includes('v7_setting_group_design_v1')&&failNextGroupDesign){failNextGroupDesign=false;throw new ModelAdapterError('模拟批次成员结果未知','technical_failure',true,504,true);}
-    if(settingMarkers.some(marker=>request.prompt.includes(marker)))return base.generate(request,signal);
+    if(!tmMarkers.some(marker=>request.prompt.includes(marker))&&settingMarkers.some(marker=>request.prompt.includes(marker)))return base.generate(request,signal);
     return {provider,modelId,output:JSON.stringify(output(request.prompt)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded' as const};
    }};
   }};
