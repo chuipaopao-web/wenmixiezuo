@@ -127,7 +127,7 @@ rm -f "$TMP_MIG/0125_password_scrypt_v2.sql"
 
 node --input-type=module -e "
 import { DatabaseSync } from 'node:sqlite';
-import { runMigrations } from '$SRC/apps/api/src/infrastructure/db/migrations.js';
+import { runMigrations } from '$SRC/apps/api/dist/infrastructure/db/migrations.js';
 import { resolve } from 'node:path';
 const db = new DatabaseSync('$MIG_DB');
 const result = runMigrations(db, resolve('$TMP_MIG'));
@@ -168,7 +168,7 @@ db.close();
 # 应用0125
 node --input-type=module -e "
 import { DatabaseSync } from 'node:sqlite';
-import { runMigrations } from '$SRC/apps/api/src/infrastructure/db/migrations.js';
+import { runMigrations } from '$SRC/apps/api/dist/infrastructure/db/migrations.js';
 import { resolve } from 'node:path';
 const db = new DatabaseSync('$MIG_DB');
 const r1 = runMigrations(db, resolve('$MIGRATIONS_DIR'));
@@ -220,7 +220,7 @@ check "OK" "$MEMBERSHIP_OK" "P0-3 权益内容保留(plan=bronze quota=200000)"
 MIG_FAIL_DB=$(mktemp /tmp/auth-migfail-XXXXXX.sqlite)
 node --input-type=module -e "
 import { DatabaseSync } from 'node:sqlite';
-import { runMigrations } from '$SRC/apps/api/src/infrastructure/db/migrations.js';
+import { runMigrations } from '$SRC/apps/api/dist/infrastructure/db/migrations.js';
 import { resolve } from 'node:path';
 const db = new DatabaseSync('$MIG_FAIL_DB');
 // 先应用到0124
