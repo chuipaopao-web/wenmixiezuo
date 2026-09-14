@@ -48,7 +48,10 @@ function recommendRun(status: 'working' | 'succeeded' | 'failed', id = 'rec-1') 
           { id: 'partner', role: 'through' as const, title: '机甲伙伴线', description: '机甲的自主选择', recommended: false }
         ], structure: 'single' as const, reason: '聚焦修理工成长' }
       : null,
-    message: status === 'failed' ? '本期剩余创作额度不足，推荐已暂停。' : null
+    message: status === 'failed' ? '本期剩余创作额度不足，推荐已暂停。' : null,
+    // S1-A：服务端计算的成功推荐哈希与来源版本；页面原样带回。
+    recommendationHash: status === 'succeeded' ? 'hash-rec-1' : null,
+    preparationVersion: status === 'succeeded' ? 'confirmed-v1' : null
   };
 }
 
@@ -112,11 +115,11 @@ describe('time machine direction page', () => {
   beforeEach(() => { vi.unstubAllGlobals(); });
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-  it('allows deselecting every recommendation and sends the chosen story description', async () => {
-    let intent='';const state=stateFixture({runs:[recommendRun('succeeded')]});
+  it('allows deselecting every recommendation and sends the structured selection', async () => {
+    let body='';const state=stateFixture({runs:[recommendRun('succeeded')]});
     vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
       if(String(input).endsWith('/state'))return response(state);
-      if(String(input).endsWith('/design-runs')){intent=JSON.parse(String(init?.body)).intent;return response({runs:[]});}
+      if(String(input).endsWith('/design-runs')){body=String(init?.body);return response({runs:[]});}
       throw Error('Unexpected request');
     }));
     render(<TimeMachineDirectionEntry bookId="bk-1"/>);
@@ -125,16 +128,23 @@ describe('time machine direction page', () => {
     const growth=boxes.find(box=>box.closest('label')?.textContent?.includes('成长线'))!;
     fireEvent.click(growth);expect(await screen.findByText('已选 0 条故事线')).toBeVisible();
     fireEvent.click(growth);fireEvent.click(screen.getByRole('button',{name:'确认故事线，设计全书方向'}));
-    await waitFor(()=>expect(intent).toContain('成长线（林舟建立工坊）'));
+    await waitFor(()=>{
+      const parsed=JSON.parse(body) as {selection:{recommendationRunId:string;recommendationHash:string;preparationVersion:string;selectedLineIds:string[]}};
+      expect(parsed.selection.recommendationRunId).toBe('rec-1');
+      expect(parsed.selection.recommendationHash).toBe('hash-rec-1');
+      expect(parsed.selection.preparationVersion).toBe('confirmed-v1');
+      expect(parsed.selection.selectedLineIds).toEqual(['growth']);
+    });
   });
 
-  it('keeps scheme selection after adoption and repeats the saved intent while showing stored line numbers', async () => {
+  it('keeps scheme selection after adoption and lets the author re-confirm storylines (S1-A redesign)', async () => {
     const plan=planFixture('当前方案');plan.relations=[{from:'sub',to:'main',kind:'push',effect:'伙伴的选择推动工坊改变'}] as never;
-    const savedIntent='主线·成长线（林舟建立工坊），不写感情线';let submitted='';
-    const state=stateFixture({runs:[recommendRun('succeeded'),{...designRun('A','succeeded','红玉','候选A'),intent:savedIntent},designRun('B','succeeded','幼薇','候选B')],adopted:{revision:2,member:{id:'writer-a',name:'红玉'},plan,numbering:{volumes:[{localId:'v1',code:'C'},{localId:'v2',code:'D'}],mainLines:['主线4'],branchLines:['支线7']}}});
-    vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
-      if(String(input).endsWith('/state'))return response(state);
-      if(String(input).endsWith('/design-runs')){submitted=JSON.parse(String(init?.body)).intent;return response({runs:[]});}
+    let posted=0;
+    const state=stateFixture({runs:[recommendRun('succeeded'),{...designRun('A','succeeded','红玉','候选A'),selection:{recommendationRunId:'rec-1',selectedLineIds:['growth'],addedLines:[],shape:'auto',ensemble:true,authorNote:''}},designRun('B','succeeded','幼薇','候选B')],adopted:{revision:2,member:{id:'writer-a',name:'红玉'},plan,numbering:{volumes:[{localId:'v1',code:'C'},{localId:'v2',code:'D'}],mainLines:['主线4'],branchLines:['支线7']}}});
+    vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{
+      const url=String(input);
+      if(url.endsWith('/state'))return response(state);
+      if(url.endsWith('/design-runs')){posted++;return response({runs:[]});}
       throw Error('Unexpected request');
     }));
     render(<TimeMachineDirectionEntry bookId="bk-1"/>);
@@ -142,21 +152,23 @@ describe('time machine direction page', () => {
     expect(await screen.findByText('主线4')).toBeVisible();expect(screen.getByText('支线7 → 主线4')).toBeVisible();
     expect(screen.getByRole('button',{name:/方案B/})).toBeEnabled();
     fireEvent.click(screen.getByRole('button',{name:'重新设计全书方向'}));
-    await waitFor(()=>expect(submitted).toBe(savedIntent));
-    fireEvent.click(screen.getByRole('button',{name:'调整故事线'}));
+    // S1-A：重新设计回到故事线确认页，不重复提交旧intent；作者再次确认才发起新设计
     expect(await screen.findByText('老板，我们来设计全书骨架。')).toBeVisible();
+    expect(posted).toBe(0);
+    // 刷新恢复：已保存选择投影恢复了勾选（不为空）
+    expect(screen.getByText('已选 1 条故事线')).toBeVisible();
   });
 
   it('detects a fresh book, auto-starts the recommendation once and begins a three-scheme round', async () => {
     let state = stateFixture({ runs: [] });
     let posted = { recommend: 0, design: 0 };
     let designStarted = false;
-    let designIntent = '';
+    let designSelection: { shape?: string; ensemble?: boolean; selectedLineIds?: string[]; addedLines?: { title: string; description: string }[] } = {};
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/api/time-machine/books/bk-1/state')) return response(state);
       if (url.endsWith('/recommendation-runs') && url.includes('/api/time-machine/')) { posted.recommend += 1; state = stateFixture({ runs: [recommendRun('succeeded')] }); return response({ id: 'rec-1', state: 'succeeded' }); }
-      if (url.endsWith('/design-runs')) { posted.design += 1; designStarted = true; designIntent = typeof init?.body === 'string' ? ((JSON.parse(init.body) as { intent?: string }).intent ?? '') : ''; state = stateFixture({ runs: [recommendRun('succeeded'), designRun('A', 'working', '红玉', 'x'), designRun('B', 'working', '幼薇', 'x'), designRun('C', 'working', '苏映棠', 'x')] }); return response({ runs: [{ id: 'design-A', scheme: 'A', state: 'queued' }, { id: 'design-B', scheme: 'B', state: 'queued' }, { id: 'design-C', scheme: 'C', state: 'queued' }] }); }
+      if (url.endsWith('/design-runs')) { posted.design += 1; designStarted = true; designSelection = typeof init?.body === 'string' ? (JSON.parse(init.body) as { selection: typeof designSelection }).selection : {}; state = stateFixture({ runs: [recommendRun('succeeded'), designRun('A', 'working', '红玉', 'x'), designRun('B', 'working', '幼薇', 'x'), designRun('C', 'working', '苏映棠', 'x')] }); return response({ runs: [{ id: 'design-A', scheme: 'A', state: 'queued' }, { id: 'design-B', scheme: 'B', state: 'queued' }, { id: 'design-C', scheme: 'C', state: 'queued' }] }); }
       if (url.endsWith('/planning-routes/latest')) return response(null);
       if (url.endsWith('/generation-runs/latest')) return response(null);
       throw new Error(`Unexpected request: ${url}`);
@@ -171,7 +183,7 @@ describe('time machine direction page', () => {
     expect(screen.getByText('还有想加入的故事吗？')).toBeVisible();
     expect(screen.getByText('已选 1 条故事线')).toBeVisible();
     fireEvent.click(screen.getByRole('radio', { name: /集中讲一个核心故事/ }));
-    // 原型“＋ 添加其他故事线”弹窗：加入一条预设线后计入已选计数并进入设计意图。
+    // 原型“＋ 添加其他故事线”弹窗：加入一条预设线后计入已选计数并进入结构化选择。
     fireEvent.click(screen.getByRole('button', { name: '＋ 添加其他故事线' }));
     expect(await screen.findByRole('dialog', { name: '添加你想写的故事' })).toBeVisible();
     expect(screen.getByLabelText('故事线名称')).toBeVisible();
@@ -181,9 +193,10 @@ describe('time machine direction page', () => {
     expect(screen.getAllByText(/与拥有独立追求的伴侣/).length).toBeGreaterThanOrEqual(1);
     fireEvent.click(screen.getByRole('button', { name: '确认故事线，设计全书方向' }));
     await waitFor(() => { expect(posted.design).toBe(1); });
-    expect(designIntent).toContain('故事展开方式：集中讲一个核心故事');
-    expect(designIntent).toContain('也希望配角拥有自己的完整故事');
-    expect(designIntent).toContain('感情线（与拥有独立追求的伴侣，在合作与分歧中发展感情。）');
+    expect(designSelection.shape).toBe('single');
+    expect(designSelection.ensemble).toBe(true);
+    expect(designSelection.selectedLineIds).toEqual(['growth']);
+    expect(designSelection.addedLines).toEqual([{ title: '感情线', description: '与拥有独立追求的伴侣，在合作与分歧中发展感情。' }]);
     expect(await screen.findByText('方案A')).toBeVisible();
     expect(screen.getByText('方案B')).toBeVisible();
     expect(screen.getByText('方案C')).toBeVisible();

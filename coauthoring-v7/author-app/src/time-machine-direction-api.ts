@@ -85,6 +85,32 @@ export interface TimeMachineRunView {
   progress: string;
   result: TimeMachineRecommendationView | TimeMachineDesignResultView | null;
   message: string | null;
+  /** S1-A：成功推荐的服务端规范哈希与来源版本；作者原样带回、服务端再验证，前端不可伪造。 */
+  recommendationHash?: string | null;
+  preparationVersion?: string | null;
+  /** S1-A：设计轮的最小选择投影，用于刷新后恢复当次实际选择；不回传完整快照或内部成员配置。 */
+  selection?: StorylineSelectionProjection | null;
+}
+
+export interface StorylineSelectionProjection {
+  recommendationRunId: string | null;
+  selectedLineIds: string[];
+  addedLines: { title: string; description: string }[];
+  shape: 'auto' | 'single' | 'multiple';
+  ensemble: boolean;
+  authorNote: string;
+}
+
+/** S1-A：作者对推荐的结构化确认（发给后端；勾选/自添/备注都由服务端按来源校验）。 */
+export interface StorylineSelectionRequest {
+  recommendationRunId: string;
+  recommendationHash: string;
+  preparationVersion: string;
+  selectedLineIds: string[];
+  addedLines: { title: string; description: string }[];
+  shape: 'auto' | 'single' | 'multiple';
+  ensemble: boolean;
+  authorNote: string;
 }
 
 export interface TimeMachineAdoptionNumbering {
@@ -119,10 +145,10 @@ export async function startTimeMachineRecommendation(bookId: string, idempotency
   });
 }
 
-export async function startTimeMachineDesignRound(bookId: string, intent: string, idempotencyKey: string): Promise<{ runs: { id: string; scheme: string; state: string }[] }> {
+export async function startTimeMachineDesignRound(bookId: string, selection: StorylineSelectionRequest, idempotencyKey: string): Promise<{ runs: { id: string; scheme: string; state: string }[] }> {
   return request<{ runs: { id: string; scheme: string; state: string }[] }>(`/api/time-machine/books/${encodeURIComponent(bookId)}/design-runs`, {
     method: 'POST',
-    body: JSON.stringify({ intent, idempotencyKey })
+    body: JSON.stringify({ selection, idempotencyKey })
   });
 }
 

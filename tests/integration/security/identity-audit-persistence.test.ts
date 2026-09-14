@@ -16,7 +16,7 @@ function auditCount(c: ReturnType<typeof createTestContext>, type: string): numb
   return (c.database.prepare('SELECT COUNT(*) n FROM auth_audit_events WHERE event_type=?').get(type) as { n: number }).n;
 }
 function auditRows(c: ReturnType<typeof createTestContext>, type: string): AuditRow[] {
-  return c.database.prepare('SELECT event_type, user_id, email_normalized, details_json FROM auth_audit_events WHERE event_type=? ORDER BY recorded_at').all(type) as AuditRow[];
+  return c.database.prepare('SELECT event_type, user_id, email_normalized, details_json FROM auth_audit_events WHERE event_type=? ORDER BY recorded_at').all(type) as unknown as AuditRow[];
 }
 function accountRow(c: ReturnType<typeof createTestContext>, email: string): { password_hash: string; credential_version: number; last_login_at: string | null } {
   return c.database.prepare('SELECT password_hash, credential_version, last_login_at FROM user_accounts WHERE email_normalized=?').get(email) as { password_hash: string; credential_version: number; last_login_at: string | null };

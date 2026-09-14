@@ -11,7 +11,24 @@ export interface SourceDocument {key:string;text:string}
 export interface MethodCard {id:string;name:string;category:string;intro:string;usage:string}
 /** 字数口径：规划字数与作者正文统计使用同一以"字"为单位的字符计数口径；作者开书填写的总字数按软目标处理（第23.3节）。 */
 export interface WordPolicy {policy:'chars-v1';unit:'字';hard:false}
-export interface TimeMachineSnapshot {creativeReleaseId?:string|null;manifest:Manifest;documents:SourceDocument[];methods:MethodCard[];members:{researcher:V7EffectiveMember;chief:V7EffectiveMember;writer:V7EffectiveMember};writers:V7EffectiveMember[];intent:string;targetWords:number|null;wordPolicy:WordPolicy|null;windowTokens:number}
+/** S1-A：作者对故事线推荐的结构化确认，随设计轮快照保存（可选字段，旧快照无此字段仍可读）。 */
+export interface StorylineSelectionSnapshot {
+  recommendationRunId: string;
+  recommendationHash: string;
+  preparationVersion: string;
+  selectedLineIds: string[];
+  addedLines: { title: string; description: string }[];
+  shape: 'auto' | 'single' | 'multiple';
+  ensemble: boolean;
+  authorNote: string;
+  requestHash: string;
+}
+export interface TimeMachineSnapshot {creativeReleaseId?:string|null;manifest:Manifest;documents:SourceDocument[];methods:MethodCard[];members:{researcher:V7EffectiveMember;chief:V7EffectiveMember;writer:V7EffectiveMember};writers:V7EffectiveMember[];intent:string;targetWords:number|null;wordPolicy:WordPolicy|null;windowTokens:number;selection?:StorylineSelectionSnapshot}
+/** 开书+已确认设定来源的稳定签名：路由与设计服务共用同一口径判断推荐是否仍与当前资料一致。 */
+export function manifestSourcesSignature(manifest:{sources:{kind:string;id:string;revision:string;hash:string}[]}):string{
+  const sources=manifest.sources.filter(x=>x.kind==='opening'||x.kind==='setting').sort((a,b)=>a.kind.localeCompare(b.kind)||a.id.localeCompare(b.id));
+  return digest(sources);
+}
 /** Reads upstream formal records only; it does not invoke old planning or context compilation. */
 export function snapshotTimeMachine(db:DatabaseSync,scope:Scope,intent:string,windowTokens:number):TimeMachineSnapshot {
  const book=new BookRepository(db).require(scope);if(book.status==='archived')throw Error('书籍已归档');

@@ -44,7 +44,9 @@ const cover = {
 };
 
 describe('V7开书资料页', () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
+  // 最小类型修复（既有基线即报TS2348）：给vi.fn显式函数签名，使Mock保持可调用；不改变任何行为。
+  type FetchStub = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  let fetchMock: ReturnType<typeof vi.fn<FetchStub>>;
   let studioDesigns: unknown[];
   beforeEach(() => {
     studioDesigns = [];

@@ -95,7 +95,6 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const recommendStarted = useRef(false);
   const initializedRecommendation = useRef<string | null>(null);
   const addDialogRef = useRef<HTMLDialogElement | null>(null);
-  const designKey = useRef(`design:${bookId}:${Date.now()}`);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -144,6 +143,26 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const roundRuns = useMemo(() => designRuns.filter(run => run.roundKey === latestRoundKey), [designRuns, latestRoundKey]);
   const roundActive = roundRuns.some(timeMachineRunBusy);
   const recommendBusy = recommendRun !== null && timeMachineRunBusy(recommendRun);
+  // S1-A：刷新恢复——当轮设计已保存作者的实际选择；从最小投影恢复勾选/自添/备注，
+  // 不把推荐里recommended的线重新当成作者已选。恢复先于推荐默认初始化执行。
+  const restoredSelection = useMemo(() => {
+    const withSelection = designRuns.filter(run => run.selection != null && run.roundKey === latestRoundKey);
+    return withSelection.length > 0 ? withSelection[0]!.selection! : null;
+  }, [designRuns, latestRoundKey]);
+  const restoredRecommendation = useMemo(() => {
+    if (restoredSelection?.recommendationRunId == null) return null;
+    return runs.find(run => run.id === restoredSelection.recommendationRunId && run.kind === 'recommend') ?? null;
+  }, [runs, restoredSelection]);
+  useEffect(() => {
+    if (restoredSelection !== null && restoredRecommendation !== null) {
+      initializedRecommendation.current = initializedRecommendation.current ?? restoredRecommendation.id;
+      setSelectedLineIds(restoredSelection.selectedLineIds);
+      setAddedLines(restoredSelection.addedLines.map(line => ({ id: `restored-${line.title}`, title: line.title, description: line.description })));
+      setAuthorNote(restoredSelection.authorNote);
+      setShape(restoredSelection.shape);
+      setEnsemble(restoredSelection.ensemble);
+    }
+  }, [restoredSelection, restoredRecommendation]);
   useEffect(()=>{recommendStarted.current=false;},[state?.preparation?.version]);
 
   useEffect(() => {
@@ -189,20 +208,39 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
     } finally { setBusy(false); }
   };
 
+  // S1-A：结构化确认——键在一次提交开始时冻结，网络结果未知重试同请求同键；作者修改选择后才新键。
+  const designKey = useRef<string | null>(null);
+  const designKeySignature = useRef<string | null>(null);
+  const selectionSignature = useCallback((): string | null => {
+    if (recommendRun === null || recommendationHashRef.current === null || state?.preparation?.version == null) return null;
+    return JSON.stringify([recommendRun.id, recommendationHashRef.current, state.preparation.version, selectedLineIds, addedLines.map(line => [line.title, line.description]), shape, ensemble, authorNote.trim()]);
+  }, [recommendRun, selectedLineIds, addedLines, shape, ensemble, authorNote, state?.preparation?.version]);
+  const recommendationHashRef = useRef<string | null>(null);
+  useEffect(() => { recommendationHashRef.current = recommendRun?.recommendationHash ?? null; }, [recommendRun]);
+
   const startDesign = () => {
     if (recommendation === null || anyBusy || busy) return;
-    const picked = recommendation.lines.filter(line => selectedLineIds.includes(line.id));
-    const structureHint = shape === 'auto'
-      ? (recommendation.structure === 'multiple' ? '（主编建议多线交织）' : '（主编建议单主线推进）')
-      : '';
-    const chosen = [
-      ...picked.map(line => `${roleLabel(line.role)}·${line.title}（${line.description}）`),
-      ...addedLines.map(line => `${line.title}（${line.description}）`)
-    ];
-    const intent = `选择的故事线：${chosen.join('；')}${authorNote.trim() ? `。作者补充：${authorNote.trim()}` : ''}。故事展开方式：${shapeLabelText(shape)}${ensemble ? '；也希望配角拥有自己的完整故事' : ''}${structureHint}`;
-    designKey.current = `design:${bookId}:${Date.now()}`;
+    if (recommendRun === null || recommendRun.recommendationHash == null || state?.preparation?.version == null) {
+      setFeedback({ tone: 'error', text: '推荐来源尚未就绪，请稍候或刷新页面后重试。' });
+      return;
+    }
+    const selection = {
+      recommendationRunId: recommendRun.id,
+      recommendationHash: recommendRun.recommendationHash,
+      preparationVersion: state.preparation.version,
+      selectedLineIds,
+      addedLines: addedLines.map(line => ({ title: line.title, description: line.description })),
+      shape,
+      ensemble,
+      authorNote: authorNote.trim()
+    };
+    const signature = selectionSignature();
+    if (designKey.current === null || designKeySignature.current !== signature) {
+      designKey.current = `design:${bookId}:${Date.now()}`;
+      designKeySignature.current = signature;
+    }
     setSelectedScheme(null);
-    void runAction(() => startTimeMachineDesignRound(bookId, intent, designKey.current).then(() => setSection('plan')));
+    void runAction(() => startTimeMachineDesignRound(bookId, selection, designKey.current!).then(() => setSection('plan')));
   };
 
   const retryRun = (runId: string) => { void runAction(() => retryTimeMachineRun(bookId, runId)); };
@@ -239,11 +277,11 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   };
 
   const redesign = () => {
-    designKey.current = `design:${bookId}:${Date.now()}`;
-    const intent = selectedRun?.intent ?? roundRuns.find(run => run.intent)?.intent;
-    if (!intent) { setSection('landing'); setFeedback({ tone: 'info', text: '请确认这次想写的故事线，再开始设计。' }); return; }
-    setSelectedScheme(null);
-    void runAction(() => startTimeMachineDesignRound(bookId, intent, designKey.current));
+    // S1-A：重新设计=回到故事线确认；作者修改选择后确认时按签名变化自然生成新键
+    designKey.current = null;
+    designKeySignature.current = null;
+    setSection('landing');
+    setFeedback({ tone: 'info', text: '请确认这次想写的故事线，再开始设计。' });
   };
 
   if (state === null) {

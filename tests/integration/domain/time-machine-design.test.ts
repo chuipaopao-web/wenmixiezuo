@@ -1,10 +1,38 @@
-import {afterEach,describe,it,expect} from 'vitest';
+﻿import {afterEach,describe,it,expect} from 'vitest';
+import {randomUUID} from 'node:crypto';
 import {createTestContext,type TestContext} from '../../helpers/test-context.js';
 import {seedCreativeLibrary} from '../../helpers/creative-library.js';
 import {BookRepository} from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import {TimeMachineDesignService} from '../../../apps/api/src/application/books/time-machine-design-service.js';
 import {TimeMachineModelGateway} from '../../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
 import {SqlPlanRepository} from '@wenmi/time-machine-core';
+import {snapshotTimeMachine} from '../../../apps/api/src/application/books/time-machine-sources.js';
+import type {StorylineSelectionInput} from '../../../apps/api/src/application/books/storyline-selection.js';
+/** S1-A：设计必须经结构化确认——先建立成功推荐，再按服务端推荐构造合法选择（intent文本经authorNote保留语义）。 */
+function buildSelection(service:TimeMachineDesignService,scope:{ownerId:string;bookId:string},authorNote=''):StorylineSelectionInput{
+ const rec=service.state(scope).filter(r=>r.kind==='recommend'&&r.state==='succeeded').sort((a,b)=>String(a.updatedAt??'')<String(b.updatedAt??'')?1:-1)[0];
+ if(!rec)throw Error('测试前置失败：缺少成功推荐');
+ const lines=(rec.result as unknown as {lines:{id:string}[]}).lines;
+ return {recommendationRunId:String(rec.id),recommendationHash:String(rec.recommendationHash),preparationVersion:'test-pv',selectedLineIds:[String(lines[0]!.id)],addedLines:[],shape:'auto',ensemble:false,authorNote};
+}
+/** S1-A：设计必须经结构化确认——先保证有成功推荐（无则直接种一条含当前manifest的合成成功推荐，
+ * 不产生模型调用、不干扰各测试自己的调用计数），再按服务端推荐构造合法选择。 */
+function seedRecommendIfMissing(service:TimeMachineDesignService,scope:{ownerId:string;bookId:string}):void{
+ if(service.state(scope).some(r=>r.kind==='recommend'&&r.state==='succeeded'))return;
+ const db=(service as unknown as {db:import('node:sqlite').DatabaseSync}).db;
+ const manifest=snapshotTimeMachine(db,scope,'',64000).manifest;
+ const result={greeting:'老板，推荐如下',lines:[{id:'growth',role:'main',title:'成长线',description:'建立工坊',recommended:true}],structure:'single',reason:'聚焦成长'};
+ const now=new Date().toISOString();
+ const seedId=`seed-rec-${randomUUID().slice(0,8)}`;
+ const seedSnapshot=JSON.stringify({manifest,members:{},writers:[],intent:'',windowTokens:64000});
+ const seedResult=JSON.stringify(result);
+ db.prepare('INSERT INTO tm2_design_runs(id,owner_id,book_id,kind,request_key,input_hash,snapshot_json,result_json,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(seedId,scope.ownerId,scope.bookId,'recommend',`seed:${now}`,randomUUID(),seedSnapshot,seedResult,'succeeded',now,now);
+}
+async function designRun(service:TimeMachineDesignService,scope:{ownerId:string;bookId:string},intent:string,key:string):Promise<string>{
+ seedRecommendIfMissing(service,scope);
+ const created=service.startDesignRound(scope,buildSelection(service,scope,intent),key,'test-pv');
+ return created[0]!.id;
+}
 import {BookSynopsisService} from '../../../apps/api/src/application/books/book-synopsis-service.js';
 import {listTimeMachineTasks} from '../../../apps/api/src/application/books/time-machine-task-list.js';
 const contexts:TestContext[]=[];afterEach(()=>contexts.splice(0).forEach(c=>c.close()));
@@ -53,7 +81,7 @@ describe('new time machine orchestration with real persistence and simulated mod
   expect(listTimeMachineTasks(c.database,'other')).toEqual([]);expect(listTimeMachineTasks(c.database,scope.ownerId,'other-book')).toEqual([]);
   c.database.prepare("UPDATE tm2_design_runs SET state='queued' WHERE id=?").run(id);await service.process(id);
   expect(listTimeMachineTasks(c.database,scope.ownerId)[0]).toMatchObject({status:'waiting_for_you',taskKind:'time_machine_recommend'});
-  const design=service.start(scope,'design','','task-projection-design');await service.process(design);
+  const design=await designRun(service,scope,'','task-projection-design');await service.process(design);
   expect(listTimeMachineTasks(c.database,scope.ownerId).find(t=>t.taskId===id)?.status).toBe('completed');
   expect(listTimeMachineTasks(c.database,scope.ownerId).find(t=>t.taskId===design)?.status).toBe('waiting_for_you');
   new SqlPlanRepository(c.database).adopt(scope,design,1,0,'task-adopt');
@@ -77,7 +105,7 @@ describe('new time machine orchestration with real persistence and simulated mod
   const saved=c.database.prepare('SELECT fields_json FROM tm2_context_cards').get()!;expect(String(saved.fields_json)).toContain('opening:opening:1');
   prompts.length=0;await service.process(service.start(scope,'recommend','增加伙伴关系','compact-repeat'));
   expect(prompts).toHaveLength(1);
-  prompts.length=0;const design=service.start(scope,'design','成长线与伙伴关系','compact-design');await service.process(design);
+  prompts.length=0;const design=await designRun(service,scope,'成长线与伙伴关系','compact-design');await service.process(design);
   expect(service.state(scope).find(r=>r.id===design)?.state).toBe('succeeded');
   expect(prompts.some(p=>p.includes('核对短卡是否')||p.includes('这可能是一部分资料'))).toBe(false);
   const skeleton=prompts.find(p=>p.includes('设计全书骨架。只设计'))!;
@@ -91,7 +119,7 @@ describe('new time machine orchestration with real persistence and simulated mod
   }}));
   const service=new BookSynopsisService(c.database,gateway,64000);
   await expect(service.generate(scope,'synopsis-before')).rejects.toThrow('全书基线');expect(synopsisCalls).toBe(0);
-  const design=new TimeMachineDesignService(c.database,gateway,64000),id=design.start(scope,'design','','synopsis-plan');await design.process(id);
+  const design=new TimeMachineDesignService(c.database,gateway,64000),id=await designRun(design,scope,'','synopsis-plan');await design.process(id);
   const plans=new SqlPlanRepository(c.database);plans.adopt(scope,id,1,0,'synopsis-adopt');
   const candidate=await service.generate(scope,'synopsis-generate');expect(candidate.state).toBe('candidate');expect(service.state(scope).saved).toBeNull();
   await service.generate(scope,'synopsis-generate');expect(synopsisCalls).toBe(1);
@@ -131,7 +159,7 @@ describe('new time machine orchestration with real persistence and simulated mod
  it('reviews a saved author revision without regenerating its design and keeps earlier evidence',async()=>{
   const {c,scope}=setup();const prompts:string[]=[];
   const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){prompts.push(request.prompt);return {provider,modelId,output:JSON.stringify(output(request.prompt)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};}}));
-  const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','成长线','author-review');await service.process(id);
+  const service=new TimeMachineDesignService(c.database,gateway,64000);const id=await designRun(service,scope,'成长线','author-review');await service.process(id);
   const repo=new SqlPlanRepository(c.database),original=repo.readCandidate(scope,id,1)!;
   const edited={...original,plan:{...original.plan,baseline:'作者修订：共同成长'}};
   const revision=repo.saveCandidate(scope,id,1,edited);
@@ -155,7 +183,7 @@ describe('new time machine orchestration with real persistence and simulated mod
    }
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
   }}));
-  const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','成长线','anchor-evidence');await service.process(id);
+  const service=new TimeMachineDesignService(c.database,gateway,64000);const id=await designRun(service,scope,'成长线','anchor-evidence');await service.process(id);
   expect(prompts.length).toBeGreaterThan(1);
   for(const prompt of prompts){expect(prompt).toContain('订单交付完成');expect(prompt).toContain('subjectIds');expect(prompt).toContain('logic');expect(prompt).toContain('未达成需修订开场');}
   expect(service.state(scope).find(r=>r.id===id)).toMatchObject({result:{review:{pass:false,issues:['订单交付的证据条件需要明确']}}});
@@ -164,8 +192,8 @@ describe('new time machine orchestration with real persistence and simulated mod
   const {c,scope}=setup();let reviews=0;const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
    const value=request.prompt.includes('核对候选骨架')?(reviews++,{action:'verdict',pass:true,issues:[],suggestions:['可以减少相似损失，增加轻快的变化']}):output(request.prompt);
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
-  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','成长线','suggestions');await service.process(id);
-  expect(reviews).toBe(1);expect(service.state(scope)[0]).toMatchObject({progress:'已完成',result:{revision:1,review:{pass:true,suggestions:['可以减少相似损失，增加轻快的变化']}}});expect(new SqlPlanRepository(c.database).adopt(scope,id,1,0,'adopt').revision).toBe(1);
+  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=await designRun(service,scope,'成长线','suggestions');await service.process(id);
+  expect(reviews).toBe(1);expect(service.state(scope).find(r=>r.id===id)).toMatchObject({progress:'已完成',result:{revision:1,review:{pass:true,suggestions:['可以减少相似损失，增加轻快的变化']}}});expect(new SqlPlanRepository(c.database).adopt(scope,id,1,0,'adopt').revision).toBe(1);
  });
  it('corrects source-card omissions once and restarts a known invalid run without erasing it',async()=>{
   const {c,scope}=setup();let audits=0,corrections=0;const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
@@ -181,7 +209,7 @@ describe('new time machine orchestration with real persistence and simulated mod
   const {c,scope}=setup();let reviews=0;const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
    const value=request.prompt.includes('核对候选骨架')?(reviews++,{action:'verdict',pass:true,issues:['v1转折仍然过于空泛'],suggestions:[]}):output(request.prompt);
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
-  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','成长线','review');await service.process(id);
+  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=await designRun(service,scope,'成长线','review');await service.process(id);
   expect(reviews).toBe(2);expect(service.state(scope).find(r=>r.id===id)).toMatchObject({state:'succeeded',result:{revision:2,review:{pass:false}}});
   const repo=new SqlPlanRepository(c.database);expect(repo.readCandidate(scope,id,1)).not.toBeNull();expect(repo.readCandidate(scope,id,2)).not.toBeNull();expect(()=>repo.adopt(scope,id,2,0,'adopt')).toThrow('核查');
   await service.process(id);expect(reviews).toBe(2);
@@ -197,12 +225,12 @@ describe('new time machine orchestration with real persistence and simulated mod
    }
    if(request.prompt.includes('设计全书骨架')){expect(request.prompt).toContain(methodId);expect(request.prompt).toContain('不反复复述结果');}
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
-  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','坚持单主线','methods');await service.process(id);
+  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=await designRun(service,scope,'坚持单主线','methods');await service.process(id);
   expect(round).toBe(4);expect(service.state(scope).find(r=>r.id===id)).toMatchObject({state:'succeeded'});
  });
  it('reads formal sources, recommends and designs, saves review and adopts without old engine',async()=>{const {c,scope}=setup();let calls=0;const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){calls++;return {provider,modelId,output:JSON.stringify(output(request.prompt)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};}}));const service=new TimeMachineDesignService(c.database,gateway,128000);
   const recommendation=service.start(scope,'recommend','','recommend-1');expect(service.start(scope,'recommend','','recommend-1')).toBe(recommendation);await service.process(recommendation);expect(service.state(scope)[0]).toMatchObject({state:'succeeded'});
-  const design=service.start(scope,'design','成长线','design-1');await service.process(design);const row=service.state(scope).find(r=>r.id===design)!;expect(row).toMatchObject({state:'succeeded',result:{review:{pass:true}}});const before=calls;await service.process(design);expect(calls).toBe(before);const adoption=new SqlPlanRepository(c.database).adopt(scope,design,1,0,'adopt-1');expect(adoption.mapping['main-line:main']!.number).toBe(1);expect(adoption.mapping['volume:v1']!.number).toBe(1);
+  const design=await designRun(service,scope,'成长线','design-1');await service.process(design);const row=service.state(scope).find(r=>r.id===design)!;expect(row).toMatchObject({state:'succeeded',result:{review:{pass:true}}});const before=calls;await service.process(design);expect(calls).toBe(before);const adoption=new SqlPlanRepository(c.database).adopt(scope,design,1,0,'adopt-1');expect(adoption.mapping['main-line:main']!.number).toBe(1);expect(adoption.mapping['volume:v1']!.number).toBe(1);
  });
  it('rejects missing formal sources and overlong author selections',()=>{const {c,scope}=setup();const gateway=new TimeMachineModelGateway(c.database,()=>{throw Error('must not dispatch');});const service=new TimeMachineDesignService(c.database,gateway,128000);expect(()=>service.start(scope,'recommend','x'.repeat(4001),'key')).toThrow('过长');c.database.prepare("UPDATE book_opening_blueprints SET status='superseded'").run();expect(()=>service.start(scope,'recommend','','key')).toThrow('开书');});
  it('continues with original creation when the member never finishes method rounds',async()=>{
@@ -210,7 +238,7 @@ describe('new time machine orchestration with real persistence and simulated mod
    let value=output(request.prompt);
    if(request.prompt.includes('当前仅选取创作参考')){value={action:'search',purpose:'阶段回报',query:'',conditional:false,cursor:rounds++};}
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
-  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','成长线','no-ready');await service.process(id);
+  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=await designRun(service,scope,'成长线','no-ready');await service.process(id);
   expect(rounds).toBe(6);
   expect(service.state(scope).find(r=>r.id===id)).toMatchObject({state:'succeeded',result:{review:{pass:true}}});
  });
@@ -220,7 +248,7 @@ describe('new time machine orchestration with real persistence and simulated mod
    if(request.prompt.includes('自检你刚完成'))value=++checks===1?{pass:false,issues:['分卷字数合计与全书预算不一致']}:{pass:true,issues:[]};
    if(request.prompt.includes('设计全书骨架')&&request.prompt.includes('上轮意见'))expect(request.prompt).toContain('分卷字数合计');
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
-  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','成长线','self-check');await service.process(id);
+  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=await designRun(service,scope,'成长线','self-check');await service.process(id);
   expect(checks).toBe(2);expect(service.state(scope).find(r=>r.id===id)).toMatchObject({state:'succeeded',result:{revision:2,review:{pass:true}}});
   const repo=new SqlPlanRepository(c.database);expect(repo.readCandidate(scope,id,1)).not.toBeNull();expect(repo.readCandidate(scope,id,2)).not.toBeNull();
   const parsed=repo.readCandidate(scope,id,2);expect(parsed?.schemaVersion).toBe(2);
@@ -235,7 +263,7 @@ describe('new time machine orchestration with real persistence and simulated mod
     seen.push(request.prompt);
    }
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
-  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','成长线','chief-read');await service.process(id);
+  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=await designRun(service,scope,'成长线','chief-read');await service.process(id);
   expect(seen).toHaveLength(2);expect(seen[1]).toContain('已读片段');expect(seen[1]).toContain('key');
   expect(service.state(scope).find(r=>r.id===id)).toMatchObject({state:'succeeded',result:{review:{pass:true}}});
  });
@@ -265,7 +293,7 @@ describe('new time machine orchestration with real persistence and simulated mod
    }
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
   }}));
-  const service=new TimeMachineDesignService(c2.database,svcGateway,64000);const id=service.start(bigScope,'design','成长线','red-line');await service.process(id);
+  const service=new TimeMachineDesignService(c2.database,svcGateway,64000);const id=await designRun(service,bigScope,'成长线','red-line');await service.process(id);
   expect(service.state(bigScope).find(r=>r.id===id)).toMatchObject({state:'succeeded'});
   expect(dispatched.length).toBeGreaterThan(5);
   const reviews=dispatched.filter(prompt=>prompt.includes('核对候选锚点'));
@@ -297,7 +325,7 @@ describe('new time machine orchestration with real persistence and simulated mod
     value={volumes:card.volumes.map(v=>({...(v as Record<string,unknown>),anchors:[{id:'开场-危机',ownerEntityId:'v1',kind:'entry',summary:'危机',span:'本卷开篇',conditions:[{summary:'危机成立',subjectIds:['line']}],logic:'all',importance:'required',fallback:'补开场',keywords:[],aliases:[]},{id:'收束-交付',ownerEntityId:'v1',kind:'exit',summary:'交付',span:'本卷收束',conditions:[{summary:'交付完成',subjectIds:['line']}],logic:'all',importance:'required',fallback:'补收束',keywords:[],aliases:[]}],duties:[{lineId:'line',action:'close',result:'工坊建立',anchorIds:['开场-危机','收束-交付'],strength:'required',reason:'主线'}]}))};
    }
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
-  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=service.start(scope,'design','成长线','bad-ids');await service.process(id);
+  }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=await designRun(service,scope,'成长线','bad-ids');await service.process(id);
   expect(service.state(scope).find(r=>r.id===id)).toMatchObject({state:'succeeded'});
   const adoption=new SqlPlanRepository(c.database).adopt(scope,id,1,0,'bad-ids');
   expect(adoption.mapping['volume:v1']!.number).toBe(1);expect(adoption.mapping['main-line:line']!.number).toBe(1);

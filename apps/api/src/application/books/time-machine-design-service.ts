@@ -2,7 +2,8 @@
 import type {DatabaseSync} from 'node:sqlite';
 import {SqlPlanRepository,StepRepository,digest,parseCard,parseCandidate,type Candidate,type Scope,type ContextCard} from '@wenmi/time-machine-core';
 import {TimeMachineModelGateway,TimeMachineCallError} from '../../infrastructure/models/time-machine-model-gateway.js';
-import {snapshotTimeMachine,type TimeMachineSnapshot} from './time-machine-sources.js';
+import {snapshotTimeMachine,manifestSourcesSignature,type TimeMachineSnapshot} from './time-machine-sources.js';
+import {validateStorylineSelection,selectionRequestHash,canonicalRecommendationHash,type StorylineSelectionInput} from './storyline-selection.js';
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
 import {timeMachineReviewChecks} from './time-machine-review.js';
 import {applyTimeMachineCardEdits} from './time-machine-card-edits.js';
@@ -48,22 +49,38 @@ function normalizeVolumeAnchorIds(volume:Record<string,unknown>,lineMap:Map<stri
 export class TimeMachineDesignService {
  private readonly plans:SqlPlanRepository;private readonly steps:StepRepository;
  constructor(private readonly db:DatabaseSync,private readonly gateway:TimeMachineModelGateway,private readonly windowTokens:number){this.plans=new SqlPlanRepository(db);this.steps=new StepRepository(db);}
- start(scope:Scope,kind:'recommend'|'design',intent:string,key:string):string{
-  if(!['recommend','design'].includes(kind)||typeof key!=='string'||!key.trim()||key.length>160)throw Error('请求参数错误');
+ start(scope:Scope,kind:'recommend',intent:string,key:string):string{
+  if(kind!=='recommend')throw Error('设计必须经结构化故事线确认入口（startDesignRound），此入口不接受无选择的新设计');
+  if(typeof key!=='string'||!key.trim()||key.length>160)throw Error('请求参数错误');
   const snapshot=snapshotTimeMachine(this.db,scope,intent,this.windowTokens);
   this.db.exec('BEGIN IMMEDIATE');try{const id=this.createRun(scope,kind,key,'','',snapshot);this.db.exec('COMMIT');return id;}
   catch(e){if(this.db.isTransaction)this.db.exec('ROLLBACK');throw e;}
  }
- /** 三套方案一轮：独立编剧、独立状态与失败恢复；同一轮共享资料短卡与作者选择，资料只整理一次（第23.12节阶段二）。 */
- startDesignRound(scope:Scope,intent:string,key:string):{id:string;scheme:string}[]{
-  if(typeof intent!=='string'||intent.length>4000||typeof key!=='string'||!key.trim()||key.length>160)throw Error('请求参数错误');
-  const base=snapshotTimeMachine(this.db,scope,intent,this.windowTokens);
-  const writers=base.writers.slice(0,3);
-  if(!writers.length)throw Error('成员岗位尚未配置：planning_writer');
-  const schemes=['A','B','C'].slice(0,writers.length) as string[];
-  const keys=schemes.map(scheme=>`${key}#${scheme}`);
+ /** 三套方案一轮：独立编剧、独立状态与失败恢复；同一轮共享资料短卡与作者确认的结构化选择（S1-A）。
+  * 唯一受控设计入口：来源读取/推荐与版本校验/快照构建/createRun在同一BEGIN IMMEDIATE事务内完成；
+  * 幂等先按owner/book/round_key读取已有轮比较规范requestHash（同键同请求返回原轮、同键不同选择409），
+  * 新键才校验当前来源并创建；无selection的设计一律拒绝，不留第二条绕过确认的路径。 */
+ startDesignRound(scope:Scope,selection:StorylineSelectionInput,key:string,currentPreparationVersion:string|null):{id:string;scheme:string}[]{
+  if(typeof key!=='string'||!key.trim()||key.length>160)throw Error('请求参数错误');
   this.db.exec('BEGIN IMMEDIATE');try{
-   const created=schemes.map((scheme,index)=>({id:this.createRun(scope,'design',keys[index]!,scheme,key,{...base,members:{...base.members,writer:writers[index]!}}),scheme}));
+   const prior=this.db.prepare('SELECT id,scheme,snapshot_json FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND kind=\'design\' AND round_key=? ORDER BY scheme LIMIT 1').get(scope.ownerId,scope.bookId,key) as {id:string;scheme:string;snapshot_json:string}|undefined;
+   if(prior){
+    let stored:string|undefined;
+    try{stored=(JSON.parse(prior.snapshot_json) as {selection?:{requestHash?:string}}).selection?.requestHash;}catch{stored=undefined;}
+    if(stored===undefined)throw Error('该操作对应的历史设计无法核对本词选择，请发起新设计');
+    if(stored!==selectionRequestHash(selection))throw Error('同一操作编号已对应其他故事线选择，请刷新页面查看当次设计');
+    const rows=this.db.prepare('SELECT id,scheme FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND kind=\'design\' AND round_key=? ORDER BY scheme').all(scope.ownerId,scope.bookId,key) as {id:string;scheme:string}[];
+    this.db.exec('COMMIT');
+    return rows.map(row=>({id:row.id,scheme:row.scheme}));
+   }
+   const base=snapshotTimeMachine(this.db,scope,'',this.windowTokens);
+   const {intent,selectionSnapshot}=validateStorylineSelection(this.db,scope,selection,currentPreparationVersion,manifestSourcesSignature(base.manifest));
+   base.intent=intent;
+   const writers=base.writers.slice(0,3);
+   if(!writers.length)throw Error('成员岗位尚未配置：planning_writer');
+   const schemes=['A','B','C'].slice(0,writers.length) as string[];
+   const keys=schemes.map(scheme=>`${key}#${scheme}`);
+   const created=schemes.map((scheme,index)=>({id:this.createRun(scope,'design',keys[index]!,scheme,key,{...base,members:{...base.members,writer:writers[index]!},selection:selectionSnapshot}),scheme}));
    this.db.exec('COMMIT');return created;
   }catch(e){if(this.db.isTransaction)this.db.exec('ROLLBACK');throw e;}
  }
@@ -80,14 +97,24 @@ export class TimeMachineDesignService {
   const id=randomUUID(),now=new Date().toISOString();
   this.db.prepare("INSERT INTO tm2_design_runs(id,owner_id,book_id,kind,request_key,input_hash,snapshot_json,state,scheme,round_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'queued',?,?,?,?)").run(id,scope.ownerId,scope.bookId,kind,key,hash,JSON.stringify(snapshot),scheme,roundKey,now,now);return id;
  }
- state(scope:Scope){return this.db.prepare('SELECT id,kind,state,result_json,error_code,updated_at,phase,scheme,round_key,json_extract(snapshot_json,\'$.members\') AS members_json,json_extract(snapshot_json,\'$.intent\') AS intent FROM tm2_design_runs WHERE owner_id=? AND book_id=? ORDER BY created_at DESC LIMIT 12').all(scope.ownerId,scope.bookId).map(row=>{
+ state(scope:Scope){return this.db.prepare('SELECT id,kind,state,result_json,error_code,updated_at,phase,scheme,round_key,json_extract(snapshot_json,\'$.members\') AS members_json,json_extract(snapshot_json,\'$.intent\') AS intent,json_extract(snapshot_json,\'$.selection\') AS selection_json FROM tm2_design_runs WHERE owner_id=? AND book_id=? ORDER BY created_at DESC LIMIT 12').all(scope.ownerId,scope.bookId).map(row=>{
   const phase=String(row.phase);const label=phase.startsWith('card-review')?'正在核对资料':phase.startsWith('card')||phase.startsWith('merge')?'正在整理资料':phase.startsWith('methods')?'正在选择设计方法':phase.startsWith('self')?'正在自检方案':phase.startsWith('skeleton')?'正在设计全书骨架':phase.startsWith('volumes')?'正在设计分卷方向':phase.startsWith('review')?'正在核对方案':phase.startsWith('recommend')?'正在推荐故事线':'等待成员接手';
   const result=typeof row.result_json==='string'?JSON.parse(row.result_json):null;
   const needsReview=row.kind==='design'&&result?.review?.pass===false;
   const members=JSON.parse(String(row.members_json)) as TimeMachineSnapshot['members'];
   const activeMember=phase.startsWith('card-review')||phase.startsWith('review')||phase.startsWith('recommend')||(phase.startsWith('methods')&&row.kind==='recommend')?members.chief:phase.startsWith('card')||phase.startsWith('merge')?members.researcher:members.writer;
   const failureMessage=phase.startsWith('card')||phase.startsWith('merge')?`资料整理或核对尚未完成，还没有进入${row.kind==='recommend'?'故事线推荐':'方案设计'}。`: '本次工作尚未完成，已保存的步骤会保留。';
-  return {id:row.id,kind:row.kind,intent:String(row.intent??''),scheme:String(row.scheme||'')||null,roundKey:String(row.round_key||'')||null,state:row.state,updatedAt:row.updated_at,member:row.state==='working'?{id:activeMember.memberKey,name:activeMember.displayName}:null,progress:row.state==='working'?label:row.state==='succeeded'?(needsReview?'方案待调整':'已完成'):row.state==='failed'?'未完成':'等待成员接手',result,message:needsReview?'方案仍有待核对的问题，暂不能采用。':row.error_code==='unknown'?'上次调用结果尚未确认，已保留记录，不会自动重复调用。':row.error_code?failureMessage:null};
+  // S1-A：成功推荐附带服务端规范哈希（前端原样带回，服务端再验证）；设计轮投影最小selection供刷新恢复
+  let recommendationHash:string|null=null;
+  if(row.kind==='recommend'&&row.state==='succeeded'&&typeof row.result_json==='string'){
+   try{recommendationHash=canonicalRecommendationHash(row.result_json);}catch{recommendationHash=null;}
+  }
+  let selection:unknown=null;
+  if(row.kind==='design'&&typeof row.selection_json==='string'){
+   try{const parsed=JSON.parse(row.selection_json) as {selectedLineIds?:unknown;addedLines?:unknown;shape?:unknown;ensemble?:unknown;authorNote?:unknown;recommendationRunId?:unknown};
+    selection={recommendationRunId:parsed.recommendationRunId??null,selectedLineIds:Array.isArray(parsed.selectedLineIds)?parsed.selectedLineIds:[],addedLines:Array.isArray(parsed.addedLines)?parsed.addedLines:[],shape:typeof parsed.shape==='string'?parsed.shape:'auto',ensemble:parsed.ensemble===true,authorNote:typeof parsed.authorNote==='string'?parsed.authorNote:''};}catch{selection=null;}
+  }
+  return {id:row.id,kind:row.kind,intent:String(row.intent??''),scheme:String(row.scheme||'')||null,roundKey:String(row.round_key||'')||null,state:row.state,updatedAt:row.updated_at,member:row.state==='working'?{id:activeMember.memberKey,name:activeMember.displayName}:null,progress:row.state==='working'?label:row.state==='succeeded'?(needsReview?'方案待调整':'已完成'):row.state==='failed'?'未完成':'等待成员接手',result,message:needsReview?'方案仍有待核对的问题，暂不能采用。':row.error_code==='unknown'?'上次调用结果尚未确认，已保留记录，不会自动重复调用。':row.error_code?failureMessage:null,recommendationHash,selection};
  });}
  retry(scope:Scope,id:string):string{
   const row=this.db.prepare('SELECT state,error_code,snapshot_json,kind,scheme,round_key FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND id=?').get(scope.ownerId,scope.bookId,id) as {state:string;error_code:string|null;snapshot_json:string;kind:'recommend'|'design';scheme:string|null;round_key:string|null}|undefined;

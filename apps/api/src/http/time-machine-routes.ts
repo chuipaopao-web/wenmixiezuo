@@ -4,13 +4,14 @@ import type {DatabaseSync} from 'node:sqlite';
 import {Conflict,SqlPlanRepository,volumePlanningContext,parseCandidate,volumeDisplayCode,lineDisplayCode,digest} from '@wenmi/time-machine-core';
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
 import {TimeMachineDesignService} from '../application/books/time-machine-design-service.js';
-import {snapshotTimeMachine} from '../application/books/time-machine-sources.js';
+import {snapshotTimeMachine,manifestSourcesSignature} from '../application/books/time-machine-sources.js';
 import {TimeMachineModelGateway} from '../infrastructure/models/time-machine-model-gateway.js';
 import type {ModelAdapter} from '../infrastructure/models/model-adapter.js';
 import {BookRepository} from '../infrastructure/db/repositories/book-repository.js';
 import {requireAuthenticatedOwner} from '../infrastructure/security/auth-context.js';
 import {success} from '../contracts/api.js';
 import {DomainError,errorCodes} from '../domain/errors.js';
+import {parseStorylineSelectionInput} from '../application/books/storyline-selection.js';
 import {BookSynopsisService} from '../application/books/book-synopsis-service.js';
 import {V7SettingEditorialService} from '../application/books/v7-setting-editorial-service.js';
 import {SystemClock,UuidGenerator} from '../domain/ids.js';
@@ -22,10 +23,9 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
  const requirePrepared=(s:{ownerId:string;bookId:string})=>{const p=prerequisite(s);if(!p.ready)throw new DomainError(errorCodes.validation,p.message,{},false,409);};
  const currentRuns=(s:{ownerId:string;bookId:string})=>{
   const opening=db.prepare("SELECT version,blueprint_json FROM book_opening_blueprints WHERE owner_id=? AND book_id=? AND status='active' ORDER BY version DESC LIMIT 1").get(s.ownerId,s.bookId);
-  const sources=[...(opening?[{kind:'opening',id:'opening',revision:String(opening.version),hash:digest(JSON.parse(String(opening.blueprint_json)))}]:[]),...new V7SettingEditorialRepository(db).confirmedVersions(s.ownerId,s.bookId).map(x=>({kind:'setting',id:x.item_key,revision:x.version_id,hash:digest(JSON.parse(x.content_json))}))];
-  const signature=(xs:typeof sources)=>digest(xs.filter(x=>x.kind==='opening'||x.kind==='setting').sort((a,b)=>a.kind.localeCompare(b.kind)||a.id.localeCompare(b.id)));
-  const expected=signature(sources);
-  return service.state(s).filter(run=>{const r=db.prepare('SELECT snapshot_json FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND id=?').get(s.ownerId,s.bookId,String(run.id));return r&&signature(JSON.parse(String(r.snapshot_json)).manifest.sources)===expected;});
+  const sources:{kind:'opening'|'setting';id:string;revision:string;hash:string}[]=[...(opening?[{kind:'opening' as const,id:'opening',revision:String(opening.version),hash:digest(JSON.parse(String(opening.blueprint_json)))}]:[]),...new V7SettingEditorialRepository(db).confirmedVersions(s.ownerId,s.bookId).map(x=>({kind:'setting' as const,id:x.item_key,revision:x.version_id,hash:digest(JSON.parse(x.content_json))}))];
+  const expected=manifestSourcesSignature({sources});
+  return service.state(s).filter(run=>{const r=db.prepare('SELECT snapshot_json FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND id=?').get(s.ownerId,s.bookId,String(run.id));return r&&manifestSourcesSignature((JSON.parse(String(r.snapshot_json)) as {manifest:{sources:{kind:string;id:string;revision:string;hash:string}[]}}).manifest)===expected;});
  };
  const synopses=new BookSynopsisService(db,new TimeMachineModelGateway(db,resolve),windowTokens);
  synopses.recover();
@@ -63,7 +63,9 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
   let planRevision=0;
   try{planRevision=new SqlPlanRepository(db).state(s).revision;}catch{planRevision=0;}
   const preparation=prerequisite(s);
-  return success({enabled:windowTokens>=16000,preparation,runs:preparation.ready?currentRuns(s):[],adopted,planRevision},request.id);
+  // S1-A：成功推荐附带服务端计算的preparationVersion（当前来源版本），前端原样带回、服务端再验证
+  const runs=preparation.ready?currentRuns(s).map(run=>run.kind==='recommend'?{...run,preparationVersion:preparation.version}:run):[];
+  return success({enabled:windowTokens>=16000,preparation,runs,adopted,planRevision},request.id);
  });
  app.get<{Params:{bookId:string;volumeId:string}}>('/api/time-machine/books/:bookId/volumes/:volumeId/planning-context',async request=>{
   const s=scope(request,request.params.bookId);
@@ -84,11 +86,14 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
   const run=service.state(s).find(item=>item.id===id);reply.code(run?.state==='queued'||run?.state==='working'?202:200);return success({id,state:run?.state??'unknown'},request.id);
  });
  // 一轮设计同时建立A/B/C三套方案：独立编剧、独立状态与失败恢复（第23.12节阶段二）。
- app.post<{Params:{bookId:string};Body:{intent?:unknown;idempotencyKey?:unknown}}>('/api/time-machine/books/:bookId/design-runs',async(request,reply)=>{
+ // S1-A：请求合同改为结构化故事线确认——服务端验证推荐归属/哈希/设定版本/来源一致后才建轮；
+ // 旧intent-only请求不再有启动后门，返回400并提示刷新（旧结果仍可读取，不回填旧书）。
+ app.post<{Params:{bookId:string};Body:{idempotencyKey?:unknown;intent?:unknown;selection?:unknown}}>('/api/time-machine/books/:bookId/design-runs',async(request,reply)=>{
   const s=scope(request,request.params.bookId);const body=request.body??{};
   requirePrepared(s);
-  if(typeof body.idempotencyKey!=='string'||(body.intent!==undefined&&typeof body.intent!=='string'))throw new DomainError(errorCodes.validation,'提交格式不正确',{},false,400);
-  const created=guard(()=>service.startDesignRound(s,String(body.intent??''),body.idempotencyKey as string));
+  if(typeof body.intent==='string'&&body.intent.length>0)throw new DomainError(errorCodes.validation,'页面已更新：请刷新后重新确认故事线，再开始设计。',{},false,400);
+  const {idempotencyKey,selection}=parseStorylineSelectionInput(body);
+  const created=guard(()=>service.startDesignRound(s,selection,idempotencyKey,prerequisite(s).version));
   const states=service.state(s);const runs=created.map(item=>({id:item.id,scheme:item.scheme,state:states.find(row=>row.id===item.id)?.state??'unknown'}));
   reply.code(runs.some(run=>run.state==='queued'||run.state==='working')?202:200);return success({runs},request.id);
  });

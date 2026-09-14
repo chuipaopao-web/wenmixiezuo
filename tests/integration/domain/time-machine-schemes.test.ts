@@ -1,11 +1,37 @@
-import {afterEach,describe,it,expect} from 'vitest';
+﻿import {afterEach,describe,it,expect} from 'vitest';
+import {randomUUID} from 'node:crypto';
 import {createTestContext,type TestContext} from '../../helpers/test-context.js';
 import {BookRepository} from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import {TimeMachineDesignService} from '../../../apps/api/src/application/books/time-machine-design-service.js';
 import {TimeMachineModelGateway} from '../../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
 import {ModelAdapterError} from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import {SqlPlanRepository} from '@wenmi/time-machine-core';
+import {snapshotTimeMachine} from '../../../apps/api/src/application/books/time-machine-sources.js';
+import type {StorylineSelectionInput} from '../../../apps/api/src/application/books/storyline-selection.js';
 const contexts:TestContext[]=[];afterEach(()=>contexts.splice(0).forEach(c=>c.close()));
+/** S1-A：设计必须经结构化确认——先建立成功推荐，再按服务端推荐构造合法选择。 */
+function buildSelection(service:TimeMachineDesignService,scope:{ownerId:string;bookId:string}):StorylineSelectionInput{
+ const rec=service.state(scope).filter(r=>r.kind==='recommend'&&r.state==='succeeded').sort((a,b)=>String(a.updatedAt??'')<String(b.updatedAt??'')?1:-1)[0];
+ if(!rec)throw Error('测试前置失败：缺少成功推荐');
+ const lines=(rec.result as unknown as {lines:{id:string}[]}).lines;
+ return {recommendationRunId:String(rec.id),recommendationHash:String(rec.recommendationHash),preparationVersion:'test-pv',selectedLineIds:[String(lines[0]!.id)],addedLines:[],shape:'auto',ensemble:false,authorNote:'成长线'};
+}
+/** 无成功推荐时种合成推荐（含当前manifest），不产生模型调用。 */
+function seedRecommendIfMissing(service:TimeMachineDesignService,scope:{ownerId:string;bookId:string}):void{
+ if(service.state(scope).some(r=>r.kind==='recommend'&&r.state==='succeeded'))return;
+ const db=(service as unknown as {db:import('node:sqlite').DatabaseSync}).db;
+ const manifest=snapshotTimeMachine(db,scope,'',64000).manifest;
+ const result={greeting:'老板，推荐如下',lines:[{id:'growth',role:'main',title:'成长线',description:'建立工坊',recommended:true}],structure:'single',reason:'聚焦成长'};
+ const now=new Date().toISOString();
+ const seedId=`seed-rec-${randomUUID().slice(0,8)}`;
+ const seedSnapshot=JSON.stringify({manifest,members:{},writers:[],intent:'',windowTokens:64000});
+ const seedResult=JSON.stringify(result);
+ db.prepare('INSERT INTO tm2_design_runs(id,owner_id,book_id,kind,request_key,input_hash,snapshot_json,result_json,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(seedId,scope.ownerId,scope.bookId,'recommend',`seed:${now}`,randomUUID(),seedSnapshot,seedResult,'succeeded',now,now);
+}
+function round(service:TimeMachineDesignService,scope:{ownerId:string;bookId:string},key:string){
+ seedRecommendIfMissing(service,scope);
+ return service.startDesignRound(scope,buildSelection(service,scope),key,'test-pv');
+}
 function setup(){const c=createTestContext();contexts.push(c);const scope={ownerId:c.config.ownerId,bookId:'tm-scheme-book'};c.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run(scope.ownerId,'测试作者','2026-09-11','2026-09-11');new BookRepository(c.database).create(scope,'机甲会修仙','2026-09-11','active');c.database.prepare("INSERT INTO book_opening_blueprints VALUES('opening',?,?,1,'v1','male','fantasy','玄幻',?,?,'active','2026-09-11')").run(scope.ownerId,scope.bookId,JSON.stringify({protagonists:['林舟'],storyDirection:'无灵根修理工建立工坊'}),'a'.repeat(64));return {c,scope};}
 function output(prompt:string,modelId:string):unknown{
  if(prompt.includes('核对短卡是否'))return {pass:true,issues:[]};
@@ -17,18 +43,18 @@ function output(prompt:string,modelId:string):unknown{
  if(prompt.includes('核对候选骨架'))return {action:'verdict',pass:true,issues:[],suggestions:[]};
  return {fields:{premise:[{text:'修理工建立工坊',sourceKeys:['opening:opening:1']}],protagonists:[{text:'林舟',sourceKeys:['opening:opening:1']}],world:[],openingEnding:[],preferences:[],prohibitions:[]}};
 }
-function schemeWriters(c:TestContext,bookId:string){return (c.database.prepare('SELECT scheme,snapshot_json FROM tm2_design_runs WHERE book_id=? ORDER BY scheme').all(bookId) as {scheme:string;snapshot_json:string}[]).map(row=>({scheme:row.scheme,writer:(JSON.parse(row.snapshot_json) as {members:{writer:{memberKey:string;model:{modelId:string}}}}).members.writer}));}
+function schemeWriters(c:TestContext,bookId:string){return (c.database.prepare("SELECT scheme,snapshot_json FROM tm2_design_runs WHERE book_id=? AND kind='design' ORDER BY scheme").all(bookId) as {scheme:string;snapshot_json:string}[]).map(row=>({scheme:row.scheme,writer:(JSON.parse(row.snapshot_json) as {members:{writer:{memberKey:string;model:{modelId:string}}}}).members.writer}));}
 describe('three independent schemes per design round',()=>{
  it('creates A/B/C with distinct writers, idempotent re-click and honest attribution',async()=>{
   const {c,scope}=setup();const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){return {provider,modelId,output:JSON.stringify(output(request.prompt,modelId)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};}}));
   const service=new TimeMachineDesignService(c.database,gateway,64000);
-  const created=service.startDesignRound(scope,'成长线','round-1');
+  const created=await round(service,scope,'round-1');
   expect(created.map(x=>x.scheme).sort()).toEqual(['A','B','C']);
-  expect(service.startDesignRound(scope,'成长线','round-1').map(x=>x.id).sort()).toEqual(created.map(x=>x.id).sort());
+  expect((await round(service,scope,'round-1')).map(x=>x.id).sort()).toEqual(created.map(x=>x.id).sort());
   const writers=schemeWriters(c,scope.bookId);
   expect(new Set(writers.map(w=>w.writer.memberKey)).size).toBe(3);
   expect(new Set(writers.map(w=>w.writer.model.modelId)).size).toBe(3);
-  expect(()=>service.startDesignRound(scope,'成长线','round-2')).toThrow('已有新时光机任务');
+  expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-2','test-pv')).toThrow('已有新时光机任务');
   for(const item of created)await service.process(item.id);
   const states=service.state(scope).filter(row=>row.roundKey==='round-1');
   expect(states.filter(row=>row.state==='succeeded')).toHaveLength(3);
@@ -48,7 +74,7 @@ describe('three independent schemes per design round',()=>{
    return {provider,modelId,output:JSON.stringify(output(request.prompt,modelId)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
   }}));
   const service=new TimeMachineDesignService(c.database,gateway,64000);
-  const created=service.startDesignRound(scope,'成长线','round-f');
+  const created=await round(service,scope,'round-f');
   const writers=schemeWriters(c,scope.bookId);
   const target=writers.find(w=>w.scheme==='C')!;
   failModels.add(target.writer.model.modelId);
@@ -70,6 +96,6 @@ describe('three independent schemes per design round',()=>{
   c.database.prepare("UPDATE tm2_design_runs SET state='failed',error_code='needs_review' WHERE id=?").run(schemeB.id);
   const retriedB=service.retry(scope,schemeB.id);
   expect(service.state(scope).find(row=>row.id===retriedB)?.scheme).toBe('B');
-  expect(()=>service.startDesignRound(scope,'成长线','round-blocked')).toThrow('已有新时光机任务');
+  expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-blocked','test-pv')).toThrow('已有新时光机任务');
  });
 });

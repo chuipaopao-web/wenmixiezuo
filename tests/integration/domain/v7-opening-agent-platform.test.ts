@@ -1503,6 +1503,7 @@ class ScriptedResolver implements V7OpeningModelAdapterResolver {
           : (stageTaskPayload ?? compiled)) as {
           operation: string;
           authorSource?: { originalIdea?: string };
+          authorAdjustment?: { instructions?: string[] };
           currentCandidates?: { openingPackage?: typeof PACKAGE | null };
         };
         const operation = prompt.operation;
