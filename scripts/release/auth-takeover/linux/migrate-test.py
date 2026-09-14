@@ -94,6 +94,14 @@ def copy_migrations(dst, include_0125=False):
 
 def main():
     tmp = tempfile.mkdtemp(prefix='auth-mig4-')
+    try:
+        run_checks(tmp)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    print(f'\nPhase0 RESULT: {PASS}/{PASS + FAIL} PASS, {FAIL} FAIL')
+    sys.exit(FAIL)
+
+def run_checks(tmp):
     db_path = os.path.join(tmp, 'test.sqlite')
     mig_0124 = os.path.join(tmp, 'mig-0124')
 
@@ -104,7 +112,7 @@ def main():
     ok, out = run_migrations(db_path, mig_0124)
     check('P0-0a 创建0124库', ok, out[:100] if ok else out)
     if not ok:
-        return finish(tmp)
+        return
 
     db = sqlite3.connect(db_path)
     cols = get_schema(db, 'user_accounts')
@@ -123,7 +131,7 @@ def main():
     ok, out = run_migrations(db_path, MIG_DIR)
     check('P0-1a 0125应用成功', ok, out[:200])
     if not ok:
-        return finish(tmp)
+        return
 
     post_data = snapshot(db_path)
     db = sqlite3.connect(db_path)
@@ -153,7 +161,7 @@ def main():
     ok, out = run_migrations(fail_db, mig_0124)
     if not ok:
         check('P0-5a 失败注入前置库', False, out[:200])
-        return finish(tmp)
+        return
     seed_data(fail_db, pw_hash)
 
     fail_mig = os.path.join(tmp, 'mig-fail')
@@ -192,14 +200,6 @@ def main():
     post_cnt = fdb.execute("SELECT COUNT(*) FROM auth_audit_events").fetchone()[0]
     check('P0-5g 移除故障后迁移成功(审计保留)', ok4 and post_cnt == 1, f'ok={ok4} count={post_cnt}')
     fdb.close()
-
-    return finish(tmp)
-
-def finish(tmp):
-    shutil.rmtree(tmp, ignore_errors=True)
-    total = PASS + FAIL
-    print(f'\nPhase0 RESULT: {PASS}/{total} PASS, {FAIL} FAIL')
-    sys.exit(FAIL)
 
 if __name__ == '__main__':
     main()

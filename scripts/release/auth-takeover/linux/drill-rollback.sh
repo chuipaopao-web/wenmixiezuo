@@ -23,7 +23,9 @@ cleanup() {
   echo "CLEANUP-DONE (exit=$exit_code)"
   exit $exit_code
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT   # 信号退出必须返回失败状态(EXIT trap会带着130/143再进cleanup)
+trap 'exit 143' TERM
 
 # ── 端口+PID验证 ──
 start_api() {
@@ -216,6 +218,14 @@ else
 fi
 C8_LEAK=$(python3 -c "import sys; a=set(filter(None,sys.argv[1].split())); b=set(filter(None,sys.argv[2].split())); print(len(a&b))" "$C8_ADMIN_IDS" "$C8_USER_IDS" 2>/dev/null || echo ERR)
 check "0" "$C8_LEAK" "C8b 跨owner taskId交集=0(admin=$(echo $C8_ADMIN_IDS | wc -w)个 user=$(echo $C8_USER_IDS | wc -w)个)"
+# C8c: user直接按ID读取admin的任务，必须被拒（owner作用域查询→404）
+C8_ADMIN_TID=$(echo $C8_ADMIN_IDS | cut -d' ' -f1)
+if [ -n "$C8_ADMIN_TID" ]; then
+  CODE=$(curl_check -o /dev/null -w '%{http_code}' "$URL/api/v1/v7/opening-agent/tasks/$C8_ADMIN_TID" -H "$EX" -H "$FS" -H "$HD" -b "$C8_USER_COOKIE")
+  check "404" "$CODE" "C8c user直读admin任务被拒(id=${C8_ADMIN_TID:0:8}…)"
+else
+  check "404" "SKIP" "C8c user直读admin任务被拒(无admin任务)"
+fi
 
 stop_api
 echo "════════ RESULT: $PASS/$TOTAL PASS, $FAIL FAIL ═════════"
