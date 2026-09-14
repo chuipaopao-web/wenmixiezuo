@@ -1,5 +1,7 @@
 # 文秘写作当前交接
 
+2026-09-14 AUTH-TAKEOVER-01正式发布执行：合并冻结完成（集成分支codex/auth-takeover-01-release@a7614958=ed9152c9+主线146e513a纯docs，业务代码与已验收d11e0b2b逐字一致，LF归档28.7MB已生成）；发布前只读检查全部通过（现网链接/服务/systemd核对、124条已应用迁移与冻结文件逐字节hash一致仅0125待新增、在途任务窗口当前为零、回退路径=现网release目录本身已验证）。**正式切换被磁盘空间硬阻碍未执行**：仅剩1.5G，backup.sh要求可用≥快照+5GiB≈5.8G，缺口≥4.3G；每日备份cron已自09-14 03:00失败、最新完整备份停在09-12（>48h，越过26h告警线，独立生产风险需老板决断）。解阻选项（扩容/清理旧release 18G/备份异机）均需老板授权。生产全时零改动。报告outbox/task-auth-takeover-01-production-release.result.md，交Codex核查。
+
 2026-09-14 AUTH-TAKEOVER-01 Linux预验final-fix完成（d11e0b2b）：①cleanup不再删除输入脚本——MIG_TEST移出清理责任，Phase0只认已提交固定路径$SRC/scripts/...（缺失fail-closed，去掉/tmp后备），三时点hash核查（基线/正常后/假占用后）drill f0ee3ddf…与migrate-test caa1fa69…始终存在不变、他人哨兵未动、本批mktemp资源每次全回收；②审计断言真实化——P0-2b改整行相等、P0-5f/5g改五表（账号/owner/会话/权益/审计）主键排序整行比较，复验19/19+演练32/32全过。业务产物未改，复用返工4 manifest；已更正"main.js相同仅该入口文件相同，不代表整个回退包与生产逐字节一致"。生产未变。报告outbox/task-auth-takeover-01-linux-preflight-final-fix.result.md，交Codex验收。
 
 2026-09-14 AUTH-TAKEOVER-01 Linux预验返工4完成（b32141a0）：六项修正全部真实运行关闭——Phase0迁移验证19/19（no-such-table真实故障注入+种子审计行存活性）、三阶段演练32/32（含C8c跨owner直读404、双账号taskId交集=0）、假占用fail-closed零请求、生产路径按现网链接realpath拒绝（实测现网source被拒且零副作用）、候选确定性构建（4产物hash重构建前后一致，manifest三方核验）、候选/回退manifest+构建日志已导出本地。回退包main.js=现网main.js（1d340b64逐字节复刻）。第一次运行的注入no-op、C4笔误、Phase0退出码覆盖、A10单次瞬时失败（根因未明，已排除OOM/进程死亡/序列问题，加了响应体捕获）全部修复复验。生产全时未变，服务器无本批残留。报告outbox/task-auth-takeover-01-linux-preflight-revision-4.result.md，停等Codex验收。
