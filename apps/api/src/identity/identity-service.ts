@@ -196,8 +196,9 @@ export class IdentityService {
         }
         const active = current;
         if (!matches) {
-          this.recordAudit('login_failed', row.user_id, email, null, now, {});
+          // R3-1：先回滚（无成功状态变更），再在事务外持久化失败审计——恰好一条。
           this.database.exec('ROLLBACK');
+          this.recordAudit('login_failed', row.user_id, email, null, now, {});
           throw invalidCredentials();
         }
         if (upgraded !== null) {
@@ -296,8 +297,9 @@ export class IdentityService {
           continue;
         }
         if (!matches) {
-          this.recordAudit('password_change_failed', current.user_id, current.email_normalized, input.context.userId, now, {});
+          // R3-1：先回滚，再在事务外持久化失败审计——恰好一条。
           this.database.exec('ROLLBACK');
+          this.recordAudit('password_change_failed', current.user_id, current.email_normalized, input.context.userId, now, {});
           throw invalidCredentials();
         }
         // R2-2：发起会话必须在写入时刻仍然有效（存在、同账号、未撤销、未过期）。
