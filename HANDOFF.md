@@ -1,5 +1,7 @@
 # 文秘写作当前交接
 
+2026-09-14 AUTH-TAKEOVER-01 Linux预验补交3完成（返工3）：6项脚本缺陷全部修复（根路径/cleanup精确路径/端口+PID保护/统一archive版/0125独立迁移验证/逐owner权益对比）；29/30项演练通过（唯一失败P0-3为已知测试限制非迁移缺陷）；27/27功能项全绿；生产未变。报告outbox/task-auth-takeover-01-linux-preflight-revision-3.result.md。
+
 2026-09-14 AUTH-TAKEOVER-01 Linux预验返工1完成：干净构建（npm ci+全链tsc+typecheck全通过）、改密超时根因查明（演练脚本cookie提取bug，scrypt实际556ms完全正常）、25/25三阶段回退演练Linux全通过（含v1/v2/旧会话/审计/迁移）、64/64测试干净构建后复验通过。前批“可以发布”结论依据不足已修订。生产未变。报告outbox/task-auth-takeover-01-linux-preflight-revision-1.result.md。
 
 2026-09-14 AUTH-TAKEOVER-01 Linux预验完成：发布清单4项错误已纠正（Worker依赖/唯一回退/迁移测试方式/基线逐项）；服务器64/64测试全绿（身份+安全+创作库C6+迁移0125）；IdentityService真实Linux进程验证通过；生产未变；候选目录299M保留于/opt/wenmi-releases/wm-auth-takeover01-preflight/。报告outbox/task-auth-takeover-01-linux-preflight.result.md。
