@@ -6,7 +6,7 @@ set -u  # 不用-e（cleanup必须执行），每个关键命令显式检查退�
 SRC="${SRC:?需要SRC}"
 RB="${RB:?需要RB}"
 PORT="${1:-43210}"
-DATA=""; API_PID=""; HDR=""; MIG_TEST=""
+DATA=""; API_PID=""; HDR=""; MIG_TEST=""; BODY_F=""
 
 # ── 精确清理 ──
 cleanup() {
@@ -19,6 +19,7 @@ cleanup() {
   [ -n "$DATA" ] && [ -d "$DATA" ] && rm -rf "$DATA"
   [ -n "$HDR" ] && [ -f "$HDR" ] && rm -f "$HDR"
   [ -n "$MIG_TEST" ] && [ -f "$MIG_TEST" ] && rm -f "$MIG_TEST"
+  [ -n "$BODY_F" ] && [ -f "$BODY_F" ] && rm -f "$BODY_F"
   echo "CLEANUP-DONE (exit=$exit_code)"
   exit $exit_code
 }
@@ -84,9 +85,7 @@ MIG_TEST="$SRC/scripts/release/auth-takeover/linux/migrate-test.py"
 if [ ! -f "$MIG_TEST" ]; then MIG_TEST="/tmp/migrate-test.py"; fi
 python3 "$MIG_TEST" "$SRC" 2>&1
 MIG_EXIT=$?
-MIG_PASS=$(echo "$?" | grep -c '0' || echo "1")  # python exits with FAIL count
-# Python脚本的exit code = FAIL count
-echo "  Phase0 exit=$? (0=全通过)"
+check "0" "$MIG_EXIT" "P0 迁移测试退出码(0=全通过)"
 
 # ═══════════════ Phase A: 新包 ═══════════════
 echo "════════ Phase A: 新包 ══════════"
@@ -113,18 +112,35 @@ USER_COOKIE=$(get_cookie)
 CODE=$(curl_check -o /dev/null -w '%{http_code}' "$URL/api/v1/admin/overview" -H "$EX" -H "$FS" -H "$HD" -b "$USER_COOKIE")
 check "403" "$CODE" "A8 普通用户→admin403"
 
-# A9-A10: 跨owner有效数据（admin和user各创建一个开书任务）
-ADMIN_TASK=$(curl_check -X POST "$URL/api/v1/v7/opening-agent/tasks" -H "$H" -H "$EX" -H "$FS" -H "$HD" -b "$ADMIN_COOKIE" -d '{"idea":"admin的专属开书任务","idempotencyKey":"admin-task-1"}')
-USER_TASK=$(curl_check -X POST "$URL/api/v7/opening-agent/tasks" -H "$H" -H "$EX" -H "$FS" -H "$HD" -b "$USER_COOKIE" -d '{"idea":"user的专属开书任务","idempotencyKey":"user-task-1"}')
-echo "$ADMIN_TASK" | grep -q '"taskId"'; check "0" "$?" "A9 admin创建任务"
-echo "$USER_TASK" | grep -q '"taskId"'; check "0" "$?" "A10 user创建任务"
+# A9-A10: 跨owner有效数据（admin和user各创建一个开书任务；失败时打印响应体供定位）
+BODY_F=$(mktemp /tmp/auth-body-XXXX)
+ADMIN_CODE=$(curl_check -o "$BODY_F" -w '%{http_code}' -X POST "$URL/api/v1/v7/opening-agent/tasks" -H "$H" -H "$EX" -H "$FS" -H "$HD" -b "$ADMIN_COOKIE" -d '{"idea":"admin的专属开书任务","idempotencyKey":"admin-task-1"}')
+if grep -q '"taskId"' "$BODY_F"; then
+  check "0" "0" "A9 admin创建任务(http=$ADMIN_CODE)"
+else
+  check "0" "1" "A9 admin创建任务(http=$ADMIN_CODE)"; echo "  [A9失败响应] $(head -c 220 "$BODY_F")"
+fi
+USER_TASK_ID=""
+USER_CODE=$(curl_check -o "$BODY_F" -w '%{http_code}' -X POST "$URL/api/v1/v7/opening-agent/tasks" -H "$H" -H "$EX" -H "$FS" -H "$HD" -b "$USER_COOKIE" -d '{"idea":"user的专属开书任务","idempotencyKey":"user-task-1"}')
+if grep -q '"taskId"' "$BODY_F"; then
+  check "0" "0" "A10 user创建任务(http=$USER_CODE)"
+  USER_TASK_ID=$(grep -o '"taskId":"[^"]*"' "$BODY_F" | head -1 | cut -d'"' -f4)
+else
+  check "0" "1" "A10 user创建任务(http=$USER_CODE)"; echo "  [A10失败响应] $(head -c 220 "$BODY_F")"
+fi
 
 # user的任务列表不应含admin的任务
 USER_LIST=$(curl_check "$URL/api/v1/v7/opening-agent/tasks?limit=50" -H "$EX" -H "$FS" -H "$HD" -b "$USER_COOKIE")
 echo "$USER_LIST" | grep -q "admin的专属" && FOUND_ADMIN=1 || FOUND_ADMIN=0
 check "0" "$FOUND_ADMIN" "A11 user列表不含admin任务"
-echo "$USER_LIST" | grep -q "user的专属" && FOUND_OWN=0 || FOUND_OWN=1
-check "0" "$FOUND_OWN" "A12 user列表含自己任务"
+if [ "$FOUND_ADMIN" = "1" ]; then echo "  [A11泄漏内容] $(echo "$USER_LIST" | head -c 220)"; fi
+if [ -n "$USER_TASK_ID" ]; then
+  echo "$USER_LIST" | grep -q "$USER_TASK_ID" && FOUND_OWN=0 || FOUND_OWN=1
+  check "0" "$FOUND_OWN" "A12 user列表含自己任务(id=${USER_TASK_ID:0:8}…)"
+else
+  check "0" "1" "A12 user列表含自己任务(无任务可查)"
+fi
+if [ "${FOUND_OWN:-1}" != "0" ]; then echo "  [A12列表内容] $(echo "$USER_LIST" | head -c 220)"; fi
 
 OWNER1_PRE=$(sqlite3 "$DATA/database/wenmi.sqlite" "SELECT plan,status,token_quota FROM user_memberships WHERE owner_id=(SELECT owner_id FROM user_accounts WHERE email_normalized='user@example.com')" 2>/dev/null)
 stop_api
@@ -175,7 +191,7 @@ FORMAT=$(sqlite3 "$DATA/database/wenmi.sqlite" "SELECT password_format FROM user
 check "scrypt-v2" "$FORMAT" "C3 v1→v2(format=$FORMAT)"
 CODE=$(curl_check -o /dev/null -w '%{http_code}' -D "$HDR" -X POST "$URL/api/v1/auth/login" -H "$H" -H "$EX" -H "$FS" -H "$HD" -d '{"email":"admin@example.com","password":"Admin-Changed-456!"}')
 NEW_COOKIE=$(get_cookie)
-CODE=$(curl_check -o /dev/null -w '%{http-code}' -X POST "$URL/api/v1/auth/password/change" -H "$H" -H "$EX" -H "$FS" -H "$HD" -b "$NEW_COOKIE" -d '{"currentPassword":"Admin-Changed-456!","nextPassword":"Final-Pass-789-012!"}')
+CODE=$(curl_check -o /dev/null -w '%{http_code}' -X POST "$URL/api/v1/auth/password/change" -H "$H" -H "$EX" -H "$FS" -H "$HD" -b "$NEW_COOKIE" -d '{"currentPassword":"Admin-Changed-456!","nextPassword":"Final-Pass-789-012!"}')
 check "200" "$CODE" "C4 改密恢复"
 CODE=$(curl_check -o /dev/null -w '%{http_code}' -X POST "$URL/api/v1/auth/login" -H "$H" -H "$EX" -H "$FS" -H "$HD" -d '{"email":"admin@example.com","password":"Final-Pass-789-012!"}')
 check "200" "$CODE" "C5 最终密码登录"
@@ -184,21 +200,22 @@ check "401" "$CODE" "C6 旧密码拒绝"
 FAIL_COUNT=$(sqlite3 "$DATA/database/wenmi.sqlite" "SELECT COUNT(*) FROM auth_audit_events WHERE event_type='login_failed'")
 [ "$FAIL_COUNT" -ge "2" ]; check "0" "$?" "C7 审计持久化(count=$FAIL_COUNT)"
 
-# C8: 跨owner直接读取拒绝
-# user尝试读admin的书籍/对象（通过具体ID）
-USER_RE_COOKIE=$(curl_check -D "$HDR" -X POST "$URL/api/v1/auth/login" -H "$H" -H "$EX" -H "$FS" -H "$HD" -d '{"email":"user@example.com","password":"User-Pass-123-456!"}' | grep -o 'wenmi_session=[^;"]*' | head -1)
-# 获取admin的书籍列表
-ADMIN_BOOKS=$(curl_check "$URL/api/v1/v7/opening-agent/tasks?limit=5" -H "$EX" -H "$FS" -H "$HD" -b "$ADMIN_COOKIE" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); items=d.get('data',d) if isinstance(d,dict) else d; print(items[0].get('taskId','') if items else '')" 2>/dev/null)
-if [ -n "$ADMIN_BOOKS" ]; then
-  # user尝试直接读取admin的任务详情
-  CODE=$(curl_check -o /dev/null -w '%{http_code}' "$URL/api/v1/v7/opening-agent/tasks" -H "$EX" -H "$FS" -H "$HD" -b "$USER_RE_COOKIE")
-  # 任务列表API不分具体ID，检查列表内容不含admin的
-  USER_FINAL_LIST=$(curl_check "$URL/api/v1/v7/opening-agent/tasks?limit=50" -H "$EX" -H "$FS" -H "$HD" -b "$USER_RE_COOKIE")
-  echo "$USER_FINAL_LIST" | grep -q "admin的专属" && A_LEAK=1 || A_LEAK=0
-  check "0" "$A_LEAK" "C8 跨owner无泄漏"
+# C8: 跨owner隔离（C4改密已撤销Phase A的admin会话，必须重新登录双方拿有效会话）
+C8_ADMIN_COOKIE=$(curl_check -D "$HDR" -X POST "$URL/api/v1/auth/login" -H "$H" -H "$EX" -H "$FS" -H "$HD" -d '{"email":"admin@example.com","password":"Final-Pass-789-012!"}' -o /dev/null; get_cookie)
+C8_USER_COOKIE=$(curl_check -D "$HDR" -X POST "$URL/api/v1/auth/login" -H "$H" -H "$EX" -H "$FS" -H "$HD" -d '{"email":"user@example.com","password":"User-Pass-123-456!"}' -o /dev/null; get_cookie)
+C8_ADMIN_LIST=$(curl_check "$URL/api/v1/v7/opening-agent/tasks?limit=50" -H "$EX" -H "$FS" -H "$HD" -b "$C8_ADMIN_COOKIE")
+C8_USER_LIST=$(curl_check "$URL/api/v1/v7/opening-agent/tasks?limit=50" -H "$EX" -H "$FS" -H "$HD" -b "$C8_USER_COOKIE")
+extract_ids() { echo "$1" | python3 -c "import json,sys; d=json.load(sys.stdin); items=d.get('data',d) if isinstance(d,dict) else d; print(' '.join(t.get('taskId','') for t in items if isinstance(t,dict)))" 2>/dev/null; }
+C8_ADMIN_IDS=$(extract_ids "$C8_ADMIN_LIST")
+C8_USER_IDS=$(extract_ids "$C8_USER_LIST")
+if [ -n "$USER_TASK_ID" ]; then
+  echo "$C8_USER_IDS" | grep -q "$USER_TASK_ID" && OWN_SURVIVE=0 || OWN_SURVIVE=1
+  check "0" "$OWN_SURVIVE" "C8a user任务经回退+回切存活(id=${USER_TASK_ID:0:8}…)"
 else
-  check "0" "0" "C8 跨owner无泄漏(无admin任务)"
+  check "0" "1" "C8a user任务经回退+回切存活(Phase A无任务)"
 fi
+C8_LEAK=$(python3 -c "import sys; a=set(filter(None,sys.argv[1].split())); b=set(filter(None,sys.argv[2].split())); print(len(a&b))" "$C8_ADMIN_IDS" "$C8_USER_IDS" 2>/dev/null || echo ERR)
+check "0" "$C8_LEAK" "C8b 跨owner taskId交集=0(admin=$(echo $C8_ADMIN_IDS | wc -w)个 user=$(echo $C8_USER_IDS | wc -w)个)"
 
 stop_api
 echo "════════ RESULT: $PASS/$TOTAL PASS, $FAIL FAIL ═════════"
