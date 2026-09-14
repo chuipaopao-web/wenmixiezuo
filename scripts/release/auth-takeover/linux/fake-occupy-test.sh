@@ -16,7 +16,9 @@ if ! kill -0 "$FPID" 2>/dev/null; then
   exit 1
 fi
 
-bash /tmp/drill-rollback.sh $PORT >"$DRILL_LOG" 2>&1
+# 演练脚本使用已提交的固定输入路径（$SRC/scripts/...），不从/tmp调用
+DRILL="$SRC/scripts/release/auth-takeover/linux/drill-rollback.sh"
+bash "$DRILL" $PORT >"$DRILL_LOG" 2>&1
 DEXIT=$?
 
 if kill -0 "$FPID" 2>/dev/null; then FAKE_ALIVE=yes; else FAKE_ALIVE=no; fi

@@ -6,7 +6,7 @@ set -u  # 不用-e（cleanup必须执行），每个关键命令显式检查退�
 SRC="${SRC:?需要SRC}"
 RB="${RB:?需要RB}"
 PORT="${1:-43210}"
-DATA=""; API_PID=""; HDR=""; MIG_TEST=""; BODY_F=""
+DATA=""; API_PID=""; HDR=""; BODY_F=""
 
 # ── 精确清理 ──
 cleanup() {
@@ -18,7 +18,6 @@ cleanup() {
   fi
   [ -n "$DATA" ] && [ -d "$DATA" ] && rm -rf "$DATA"
   [ -n "$HDR" ] && [ -f "$HDR" ] && rm -f "$HDR"
-  [ -n "$MIG_TEST" ] && [ -f "$MIG_TEST" ] && rm -f "$MIG_TEST"
   [ -n "$BODY_F" ] && [ -f "$BODY_F" ] && rm -f "$BODY_F"
   echo "CLEANUP-DONE (exit=$exit_code)"
   exit $exit_code
@@ -85,8 +84,10 @@ echo "新包: $NEW_HASH  回退: $RB_HASH"
 
 # ═══════════════ Phase 0: Python迁移测试 ═══════════════
 echo "════════ Phase 0: 0125独立迁移验证（Python） ═════════"
+# 只使用已提交的固定输入（仓库内路径）；输入脚本不是本批临时资源，cleanup不删除它
 MIG_TEST="$SRC/scripts/release/auth-takeover/linux/migrate-test.py"
-if [ ! -f "$MIG_TEST" ]; then MIG_TEST="/tmp/migrate-test.py"; fi
+[ -f "$MIG_TEST" ] || { echo "ERROR: 迁移测试输入缺失: $MIG_TEST"; exit 1; }
+echo "  输入脚本hash: $(sha256sum "$MIG_TEST" | cut -d' ' -f1)"
 python3 "$MIG_TEST" "$SRC" 2>&1
 MIG_EXIT=$?
 check "0" "$MIG_EXIT" "P0 迁移测试退出码(0=全通过)"

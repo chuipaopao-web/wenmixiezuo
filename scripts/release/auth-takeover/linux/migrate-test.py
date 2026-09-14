@@ -75,13 +75,14 @@ def seed_data(db_path, pw_hash):
     db.close()
 
 def snapshot(db_path):
+    """全表快照：accounts只取原有列（0125会加列），其余整行；按主键排序保证顺序稳定。"""
     db = sqlite3.connect(db_path)
     data = {
-        'accounts': db.execute("SELECT user_id,owner_id,email_normalized,display_name,password_salt,password_hash,role,status,created_at,updated_at FROM user_accounts").fetchall(),
-        'owners': db.execute("SELECT * FROM owners").fetchall(),
-        'sessions': db.execute("SELECT * FROM auth_sessions").fetchall(),
-        'memberships': db.execute("SELECT * FROM user_memberships").fetchall(),
-        'audit': db.execute("SELECT * FROM auth_audit_events").fetchall(),
+        'accounts': db.execute("SELECT user_id,owner_id,email_normalized,display_name,password_salt,password_hash,role,status,created_at,updated_at,last_login_at FROM user_accounts ORDER BY user_id").fetchall(),
+        'owners': db.execute("SELECT * FROM owners ORDER BY owner_id").fetchall(),
+        'sessions': db.execute("SELECT * FROM auth_sessions ORDER BY session_id").fetchall(),
+        'memberships': db.execute("SELECT * FROM user_memberships ORDER BY user_id,owner_id").fetchall(),
+        'audit': db.execute("SELECT * FROM auth_audit_events ORDER BY audit_id").fetchall(),
     }
     db.close()
     return data
@@ -143,7 +144,7 @@ def run_checks(tmp):
     check('P0-1d 会话逐字段一致', post_data['sessions'] == pre_data['sessions'])
     check('P0-2a 权益逐字段一致', post_data['memberships'] == pre_data['memberships'],
           f"pre={pre_data['memberships'][0][:4]} post={post_data['memberships'][0][:4] if post_data['memberships'] else 'EMPTY'}")
-    check('P0-2b 旧审计记录保留', len(post_data['audit']) >= len(pre_data['audit']),
+    check('P0-2b 旧审计整行一致', post_data['audit'] == pre_data['audit'],
           f'pre_count={len(pre_data["audit"])} post_count={len(post_data["audit"])}')
     check('P0-3a password_format列已加', 'password_format' in cols)
     check('P0-3b credential_version列已加', 'credential_version' in cols)
@@ -163,6 +164,7 @@ def run_checks(tmp):
         check('P0-5a 失败注入前置库', False, out[:200])
         return
     seed_data(fail_db, pw_hash)
+    fail_pre = snapshot(fail_db)  # 五表基线（含种子审计行）
 
     fail_mig = os.path.join(tmp, 'mig-fail')
     copy_migrations(fail_mig, include_0125=True)
@@ -190,16 +192,20 @@ def run_checks(tmp):
     check('P0-5d 失败后无残留v2表', len(v2_tables) == 0, f'tables={v2_tables}')
     applied = fdb.execute("SELECT name FROM schema_migrations WHERE name LIKE '%0125%'").fetchall()
     check('P0-5e 0125未登记', len(applied) == 0, f'applied={applied}')
-    orig_count = fdb.execute("SELECT COUNT(*) FROM auth_audit_events").fetchone()[0]
-    check('P0-5f 种子审计行完好', orig_count == 1, f'count={orig_count}')
     fdb.close()
 
-    # 移除故障后迁移成功，且种子审计行经v2重建仍保留
+    # 失败注入前后五表（账号/owner/会话/权益/审计）整行一致，非仅行数
+    fail_after = snapshot(fail_db)
+    diffs = [k for k in fail_pre if fail_after[k] != fail_pre[k]]
+    check('P0-5f 失败后五表整行一致', not diffs,
+          f'不一致={diffs}' if diffs else 'audit整行保留(含种子行)')
+
+    # 移除故障后迁移成功，五表整行保留（审计经v2重建后内容一致）
     ok4, _ = run_migrations(fail_db, MIG_DIR)
-    fdb = sqlite3.connect(fail_db)
-    post_cnt = fdb.execute("SELECT COUNT(*) FROM auth_audit_events").fetchone()[0]
-    check('P0-5g 移除故障后迁移成功(审计保留)', ok4 and post_cnt == 1, f'ok={ok4} count={post_cnt}')
-    fdb.close()
+    fail_final = snapshot(fail_db)
+    diffs2 = [k for k in fail_after if fail_final[k] != fail_after[k]]
+    check('P0-5g 移除故障后迁移成功(五表整行保留)', ok4 and not diffs2,
+          f'ok={ok4} 不一致={diffs2}' if diffs2 or not ok4 else 'audit整行保留(经v2重建)')
 
 if __name__ == '__main__':
     main()
