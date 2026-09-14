@@ -1,5 +1,7 @@
 # 文秘写作当前交接
 
+2026-09-14老板要求可交GLM的全部委派，Codex只做范围判断与关键验收。发布准备GLM d2555484已交付但清单有错误：Worker依赖被误写无需重启、回退旧v1-only竟要求重置用户密码、生产库预验措辞不当、基线确认归属夸大。下一任务.local/dispatch/inbox/task-auth-takeover-01-linux-preflight.md让GLM纠正并连续完成Linux隔离构建/测试/迁移回退预验；允许既有授权目标的隔离暂存，不允许正式切换或改生产库。结果outbox/task-auth-takeover-01-linux-preflight.result.md。尚未认可本次可直接生产发布。
+
 2026-09-14下一步已安排GLM执行AUTH-TAKEOVER-01发布准备，任务.local/dispatch/inbox/task-auth-takeover-01-release-prep.md：在原隔离分支合并最新主线、修正式发布工具的退出/清理/重入问题，复验并交付明确平台的发布清单。不重做已通过身份修复，不扩PG/时光机，本批不推送/合入主工作区/部署。结果outbox/task-auth-takeover-01-release-prep.result.md，随后Codex验收发布物与生产门禁。
 
 2026-09-14 AUTH-TAKEOVER-01返工3 557574db：Codex相关本地返工验收通过，错误登录/改密失败审计各落1条，18项身份/并发/审计/路由测试通过；独立新包→兼容基准包→新包21项演练通过。未合入/部署，PG未接管；不代表整站重构完成。最终证据outbox/task-auth-takeover-01.codex-review-final.md。后续合并/发布准备需处理演练process.exit跳过finally和构建清理保护，核对全分支及C6状态，不能直接部署或再重复前三轮已通过返工。
