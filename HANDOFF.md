@@ -1,5 +1,7 @@
 # 文秘写作当前交接
 
+2026-09-14 AUTH-TAKEOVER-01 Linux预验完成：发布清单4项错误已纠正（Worker依赖/唯一回退/迁移测试方式/基线逐项）；服务器64/64测试全绿（身份+安全+创作库C6+迁移0125）；IdentityService真实Linux进程验证通过；生产未变；候选目录299M保留于/opt/wenmi-releases/wm-auth-takeover01-preflight/。报告outbox/task-auth-takeover-01-linux-preflight.result.md。
+
 2026-09-14 AUTH-TAKEOVER-01发布准备中（本批）：隔离分支已合并主线05af55f8，修正式发布工具（drill退出码/子进程清理/端口检查；build-rollback安全目录/归属标记/不覆盖已有包），复验21项演练+18项身份测试+合并后回归，交付发布清单。候选commit见release-prep报告。不推送/不合入/不部署。
 
 2026-09-14下一步已安排GLM执行AUTH-TAKEOVER-01发布准备，任务.local/dispatch/inbox/task-auth-takeover-01-release-prep.md：在原隔离分支合并最新主线、修正式发布工具的退出/清理/重入问题，复验并交付明确平台的发布清单。不重做已通过身份修复，不扩PG/时光机，本批不推送/合入主工作区/部署。结果outbox/task-auth-takeover-01-release-prep.result.md，随后Codex验收发布物与生产门禁。
