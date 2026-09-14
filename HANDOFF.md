@@ -1,5 +1,7 @@
 # 文秘写作当前交接
 
+2026-09-14 AUTH-TAKEOVER-01返工2 c328dca3已复查：13项并发/权限回归独立通过，最终事务校验和独立基准回退方案已有进展；但错误登录/改密失败审计在事务内写后ROLLBACK而丢失，独立内存探针计数均0。未合入/部署。审查outbox/task-auth-takeover-01.codex-review-3.md，GLM继续inbox/task-auth-takeover-01-revision-3.md小范围修复，保留已通过成果；完整回退包仍待Codex独立演练、PG仍未验证。
+
 2026-09-14 AUTH-TAKEOVER-01返工1 c7f2fdd3复验仍未通过，未合入/部署。已确认凭据并发覆盖和last_login_at修好，8项局部测试通过；但第二次哈希窗口停用仍发新会话、退出中的改密仍成功、已知账号校验绕过有界hash队列，所谓回滚仅复制并测试本次自身版本。证据outbox/task-auth-takeover-01.codex-review-2.md及codex-revision1-probe.mjs；让GLM执行inbox/task-auth-takeover-01-revision-2.md，保留前轮成果集中返工。
 
 2026-09-14 AUTH-TAKEOVER-01 GLM提交281e1749已由Codex审查，未通过，未合入/未部署：入口主要为旧装配改名，完整身份接管未完成；独立内存探针确认密码升级后旧代码回退登录失败、并发凭据修改被旧登录升级覆盖、last_login_at未落库。审查`.local/dispatch/outbox/task-auth-takeover-01.codex-review.md`，返工`.local/dispatch/inbox/task-auth-takeover-01-revision-1.md`。保留GLM分支及自测，不以其“已开发/验证”宣称完整通过；老板触发GLM继续返工。
