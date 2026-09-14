@@ -151,7 +151,7 @@ const db = new DatabaseSync('$MIG_DB');
 const salt = '0123456789abcdef0123456789abcdef';
 const hash = scryptSync('Old-Pass-123-456!', salt, 64, { N: 16384, r: 8, p: 1, maxmem: 128*1024*1024 }).toString('hex');
 db.prepare(\"INSERT INTO owners (owner_id, display_name, version, created_at, updated_at) VALUES ('mig-owner-1','迁移测试Owner',1,'2026-01-01','2026-01-01')\").run();
-db.prepare(\"INSERT INTO user_accounts (user_id, owner_id, email_normalized, display_name, password_salt, password_hash, role, status, created_at, updated_at, last_login_at) VALUES ('mig-user-1','mig-owner-1','mig@example.com','迁移用户','$salt','$hash','user','active','2026-01-01','2026-01-01',NULL)\").run();
+db.prepare("INSERT INTO user_accounts (user_id, owner_id, email_normalized, display_name, password_salt, password_hash, role, status, created_at, updated_at, last_login_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").run('mig-user-1','mig-owner-1','mig@example.com','迁移用户',salt,hash,'user','active','2026-01-01','2026-01-01',NULL);
 // 种旧审计记录（0125会重建此表）
 db.prepare(\"INSERT INTO auth_audit_events (audit_id, user_id, event_type, email_normalized, actor_user_id, recorded_at, details_json) VALUES (?,?,?,?,?,?,?)\").run(randomUUID(), 'mig-user-1', 'login_success', 'mig@example.com', 'mig-user-1', '2026-01-01', '{\"seed\":true}');
 // 种权益
