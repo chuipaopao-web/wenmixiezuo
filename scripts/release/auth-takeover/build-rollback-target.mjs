@@ -22,11 +22,36 @@ const NPM = 'D:/wenmixiezuo/data/cache/runtime/node-v24.16.0-win-x64/npm.cmd';
 const NODE = 'D:/wenmixiezuo/data/cache/runtime/node-v24.16.0-win-x64/node.exe';
 const BASE_COMMIT = '5edad171';
 const AUTH_PATH = 'apps/api/src/infrastructure/security/account-auth-service.ts';
-const outDir = resolve(process.argv[2] ?? '.local/dispatch/outbox/task-auth-takeover-01/rollback-target');
-const tmpSrc = resolve(root, '.tmp-rollback-src');
+const OWNERSHIP_MARKER = '.wenmi-auth-takeover-build';
+// 唯一目录：每次运行用进程PID隔离，不与用户目录冲突
+const runId = `rb-${Date.now().toString(36)}-${process.pid}`;
+const outDir = resolve(process.argv[2] ?? `.local/dispatch/outbox/task-auth-takeover-01/rollback-target-${runId}`);
+const tmpSrc = resolve(root, `.tmp-${runId}`);
 
-try { rmSync(tmpSrc, { recursive: true, force: true }); } catch { /* 不存在 */ }
-console.log(`基准源码：git worktree detach ${BASE_COMMIT}`);
+// 安全检查：不覆盖已有输出目录（除非有归属标记且明确传入--force）
+if (existsSync(outDir)) {
+  const marker = resolve(outDir, OWNERSHIP_MARKER);
+  if (!existsSync(marker)) {
+    console.error(`输出目录已存在且无归属标记，拒绝覆盖：${outDir}`);
+    process.exitCode = 1;
+    process.exit(1);
+  }
+  if (!process.argv.includes('--force')) {
+    console.error(`输出目录已有归属标记但未传--force，拒绝覆盖：${outDir}`);
+    process.exitCode = 1;
+    process.exit(1);
+  }
+}
+
+// 安全检查：临时工作树目录如果已存在则拒绝（不做无检查递归删除）
+if (existsSync(tmpSrc)) {
+  console.error(`临时工作树目录已存在（可能是上次异常退出残留），需手动清理后重试：${tmpSrc}`);
+  console.error(`  git worktree remove --force "${tmpSrc}"`);
+  process.exitCode = 1;
+  process.exit(1);
+}
+
+console.log(`基准源码：git worktree detach ${BASE_COMMIT} → ${tmpSrc}`);
 execSync(`"${GIT}" worktree add --detach "${tmpSrc}" ${BASE_COMMIT}`, { stdio: 'pipe' });
 
 try {
@@ -56,8 +81,9 @@ try {
   execSync(`set "PATH=D:/wenmixiezuo/data/cache/runtime/node-v24.16.0-win-x64;%PATH%"&&"${NPM}" run build -w @wenmi/api`, { cwd: tmpSrc, shell: 'cmd.exe', stdio: 'pipe' });
   if (!existsSync(resolve(tmpSrc, 'apps/api/dist/main.js'))) throw new Error('回退目标构建失败');
 
-  // 5. 打包
+  // 5. 打包（写归属标记）
   mkdirSync(outDir, { recursive: true });
+  writeFileSync(resolve(outDir, OWNERSHIP_MARKER), `${new Date().toISOString()} run=${runId} pid=${process.pid}\n`);
   cpSync(resolve(tmpSrc, 'apps/api/dist'), resolve(outDir, 'dist'), { recursive: true });
   mkdirSync(resolve(outDir, 'apps/api/src/infrastructure/db/migrations'), { recursive: true });
   cpSync(resolve(tmpSrc, 'apps/api/src/infrastructure/db/migrations'), resolve(outDir, 'apps/api/src/infrastructure/db/migrations'), { recursive: true });
