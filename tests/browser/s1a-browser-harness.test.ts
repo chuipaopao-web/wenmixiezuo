@@ -26,12 +26,22 @@ export const BREAK_FLAG = join(tmpdir(), 's1a-break-design.flag');
 const API_PORT = 43111;
 const WEB_PORT = 43180;
 
-function tmOutput(prompt: string): unknown {
-  if (prompt.includes('核对短卡是否')) return { pass: true, issues: [] };
+// 夹具内共享：骨架解析出的线ID供卷卡职责覆盖（同进程顺序调用）
+let currentLineIds: string[] = ['main'];
+function tmOutput(prompt: string): unknown {  if (prompt.includes('核对短卡是否')) return { pass: true, issues: [] };
   if (prompt.includes('判断需要哪些方法')) return { action: 'ready', selected: [] };
   if (prompt.includes('你是主编，推荐')) return { greeting: '老板，推荐如下', lines: [{ id: 'growth', role: 'main', title: '成长线', description: '建立工坊', recommended: true }, { id: 'ally', role: 'through', title: '伙伴线', description: '结识同伴', recommended: false }], structure: 'single', reason: '聚焦成长' };
-  if (prompt.includes('设计全书骨架。只设计')) return { structure: '四幕起承转合', baseline: '轻快成长', ending: '建立工坊', openingHooks: ['开头钩子', '第一章钩子', '前三章钩子'], words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' }, lines: [{ id: 'main', role: 'main', title: '工坊', goal: '立足', answer: '建立工坊', process: '从修理到建坊', parentIds: [], covers: ['成长线'], milestones: [] }, { id: 'ally-line', role: 'through', title: '伙伴关系', goal: '结识同伴', answer: '伙伴并肩', process: '结识到并肩', parentIds: [], covers: ['伙伴线'], milestones: [] }, { id: 'love-line', role: 'through', title: '感情', goal: '相遇', answer: '相知', process: '并肩生情', parentIds: [], covers: ['感情线'], milestones: [] }], expectations: [{ id: 'promise', opening: '无灵根能否立足', change: '看到变化', answer: '以机甲立足', lineIds: ['main'] }], relations: [], volumeBriefs: [{ id: 'v1', title: '开张', goal: '建立工坊', words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' } }] };
-  const volumeCard = { id: 'v1', title: '开张', start: '濒临倒闭', goal: '完成订单', conflict: '封锁', beat: '起', turningPoint: '机甲完成', gain: '伙伴', loss: null, arc: null, payoff: null, hook: null, mood: null, ending: '工坊建立', handoff: '', words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' }, anchors: [{ id: 'v1-in', ownerEntityId: 'v1', kind: 'entry', summary: '店铺濒临倒闭', span: '本卷开篇', conditions: [{ summary: '订单危机已经成立', subjectIds: ['main'] }], logic: 'all', importance: 'required', fallback: '未达成需修订开场', keywords: [], aliases: [] }, { id: 'v1-out', ownerEntityId: 'v1', kind: 'exit', summary: '订单交付工坊立足', span: '本卷收束', conditions: [{ summary: '订单交付完成', subjectIds: ['main'] }], logic: 'all', importance: 'required', fallback: '全书结束', keywords: [], aliases: [] }], duties: [{ lineId: 'main', action: 'close', result: '工坊建立', anchorIds: ['v1-out'], strength: 'required', reason: '主线起点' }, { lineId: 'ally-line', action: 'advance', result: '伙伴并肩', anchorIds: ['v1-out'], strength: 'flexible', reason: '伙伴线推进' }, { lineId: 'love-line', action: 'start', result: '相遇相知', anchorIds: ['v1-out'], strength: 'flexible', reason: '感情线起步' }] };
+  // P1-3后covers合同双向严格：每条作者故事线恰好一条线承接，covers不得含非作者故事线。
+  // 夹具从提示词解析作者实际确认的故事线标题，一线承接一条；卷卡职责同步覆盖全部线。
+  if (prompt.includes('设计全书骨架。只设计')) {
+    const match = prompt.match(/必须全部承接，不得丢弃、合并或改名：([^。]+)。/u);
+    const titles = match ? match[1]!.split('、') : ['成长线'];
+    const ids = ['main', 'ally-line', 'love-line', 'line-4', 'line-5', 'line-6', 'line-7', 'line-8'];
+    currentLineIds = titles.map((_, index) => ids[index] ?? `line-${index + 1}`);
+    const lines = titles.map((title, index) => ({ id: currentLineIds[index]!, role: index === 0 ? 'main' : 'through', title, goal: '立足', answer: '建立工坊', process: '从修理到建坊', parentIds: [], covers: [title], milestones: [] }));
+    return { structure: '四幕起承转合', baseline: '轻快成长', ending: '建立工坊', openingHooks: ['开头钩子', '第一章钩子', '前三章钩子'], words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' }, lines, expectations: [{ id: 'promise', opening: '无灵根能否立足', change: '看到变化', answer: '以机甲立足', lineIds: [currentLineIds[0]!] }], relations: [], volumeBriefs: [{ id: 'v1', title: '开张', goal: '建立工坊', words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' } }] };
+  }
+  const volumeCard = { id: 'v1', title: '开张', start: '濒临倒闭', goal: '完成订单', conflict: '封锁', beat: '起', turningPoint: '机甲完成', gain: '伙伴', loss: null, arc: null, payoff: null, hook: null, mood: null, ending: '工坊建立', handoff: '', words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' }, anchors: [{ id: 'v1-in', ownerEntityId: 'v1', kind: 'entry', summary: '店铺濒临倒闭', span: '本卷开篇', conditions: [{ summary: '订单危机已经成立', subjectIds: [currentLineIds[0] ?? 'main'] }], logic: 'all', importance: 'required', fallback: '未达成需修订开场', keywords: [], aliases: [] }, { id: 'v1-out', ownerEntityId: 'v1', kind: 'exit', summary: '订单交付工坊立足', span: '本卷收束', conditions: [{ summary: '订单交付完成', subjectIds: [currentLineIds[0] ?? 'main'] }], logic: 'all', importance: 'required', fallback: '全书结束', keywords: [], aliases: [] }], duties: currentLineIds.map((lineId, index) => ({ lineId, action: index === 0 ? 'close' : 'advance', result: '本卷推进', anchorIds: ['v1-out'], strength: 'flexible', reason: '本卷职责' })) };
   if (prompt.includes('补全本卷卷卡')) return { volumes: [volumeCard] };
   if (prompt.includes('补全本批卷卡')) return { volumes: [volumeCard] };
   if (prompt.includes('自检你刚完成') || prompt.includes('自检候选锚点')) return { pass: true, issues: [] };

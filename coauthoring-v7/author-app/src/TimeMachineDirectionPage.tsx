@@ -3,11 +3,16 @@ import { CheckCircleIcon, ClockCounterClockwiseIcon, PencilSimpleIcon } from '@p
 import {
   adoptTimeMachinePlan,
   fetchTimeMachineDirectionState,
+  previewStorylineMaterial,
   retryTimeMachineRun,
+  saveStorylineMaterial,
+  saveStorylineMaterialDraft,
   saveTimeMachineCandidateRevision,
   startTimeMachineDesignRound,
   startTimeMachineRecommendation,
   timeMachineRunBusy,
+  type StorylineMaterialContentView,
+  type StorylineMaterialPreviewView,
   type StorylineSelectionRequest,
   type TimeMachineDesignResultView,
   type TimeMachinePlanView,
@@ -111,9 +116,21 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const [customTitle, setCustomTitle] = useState('');
   const [customDescription, setCustomDescription] = useState('');
   // 故事线推荐是首次进入时光机的落地页，不占导航；导航只列二级功能页。
-  const [section, setSection] = useState<'landing' | 'plan' | null>(null);
+  // S1-A阶段二（第25节）：二级导航为 全书｜时光树｜轨迹｜资料；故事线是"全书"的子步骤，资料页展示/编辑故事线资料。
+  const [section, setSection] = useState<'landing' | 'plan' | 'material' | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<TimeMachinePlanView | null>(null);
+  // 故事线资料编辑状态：m*为编辑中的草稿字段；materialPreview为确认前的影响预览
+  const [materialEditing, setMaterialEditing] = useState(false);
+  const [materialFromDraft, setMaterialFromDraft] = useState(false);
+  const [mSelected, setMSelected] = useState<string[]>([]);
+  const [mAdded, setMAdded] = useState<typeof ADD_LINE_PRESETS>([]);
+  const [mShape, setMShape] = useState<'auto' | 'single' | 'multiple'>('auto');
+  const [mEnsemble, setMEnsemble] = useState(true);
+  const [mNote, setMNote] = useState('');
+  const [materialPreview, setMaterialPreview] = useState<StorylineMaterialPreviewView | null>(null);
+  const materialConfirmRef = useRef<HTMLDialogElement | null>(null);
+  const materialSaveKey = useRef<string | null>(null);
   const recommendStarted = useRef(false);
   const initializedRecommendation = useRef<string | null>(null);
   const addDialogRef = useRef<HTMLDialogElement | null>(null);
@@ -196,6 +213,23 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
     setShape(restoredSelection.shape);
     setEnsemble(restoredSelection.ensemble);
   }, [restoredSelection, restoredRecommendation, latestRoundKey, bookId]);
+  // S1-A阶段二（第25节）：故事线资料是作者确认的最新正式版本，初始化优先级高于当轮恢复——
+  // 材料与最近轮不一致（作者已编辑保存）时从材料初始化；同样一次性、不覆盖dirty、来源需一致。
+  const materialInit = useRef<string | null>(null);
+  const storylineMaterial = state?.storylineMaterial ?? null;
+  useEffect(() => {
+    if (storylineMaterial === null || recommendRun === null) return;
+    if (storylineMaterial.content.recommendationRunId !== recommendRun.id) return;
+    const mark = `${bookId}:${storylineMaterial.revision}`;
+    if (materialInit.current === mark || authorDirty.current) return;
+    materialInit.current = mark;
+    initializedRecommendation.current = initializedRecommendation.current ?? recommendRun.id;
+    setSelectedLineIds(storylineMaterial.content.selectedLineIds);
+    setAddedLines(storylineMaterial.content.addedLines.map(line => ({ id: `material-${line.title}`, title: line.title, description: line.description })));
+    setAuthorNote(storylineMaterial.content.authorNote);
+    setShape(storylineMaterial.content.shape);
+    setEnsemble(storylineMaterial.content.ensemble);
+  }, [storylineMaterial, recommendRun, bookId]);
   // 作者编辑即置dirty（恢复不得覆盖正在编辑的输入）
   useEffect(() => {
     const handler = () => { authorDirty.current = true; };
@@ -290,6 +324,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
     designKeySignature.current = null;
     pendingDesign.current = null;
     initializedRecommendation.current = null;
+    materialInit.current = null;
     recommendStarted.current = false;
     setSelectedLineIds([]);
     setAddedLines([]);
@@ -423,6 +458,88 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
     setFeedback({ tone: 'info', text: '请确认这次想写的故事线，再开始设计。' });
   };
 
+  // —— 故事线资料（S1-A阶段二，第25节）：展示/编辑/草稿/确认保存 ——
+  const materialSourceRun = storylineMaterial !== null ? runs.find(run => run.id === storylineMaterial.content.recommendationRunId && run.kind === 'recommend') ?? null : null;
+  const materialSourceRecommendation = materialSourceRun !== null && isRecommendation(materialSourceRun.result) ? materialSourceRun.result : null;
+  const materialContentNow = (): StorylineMaterialContentView | null => {
+    if (storylineMaterial === null) return null;
+    return {
+      recommendationRunId: storylineMaterial.content.recommendationRunId,
+      recommendationHash: storylineMaterial.content.recommendationHash,
+      preparationVersion: storylineMaterial.content.preparationVersion,
+      selectedLineIds: mSelected,
+      addedLines: mAdded.map(line => ({ title: line.title, description: line.description })),
+      shape: mShape,
+      ensemble: mEnsemble,
+      authorNote: mNote.trim()
+    };
+  };
+  const beginMaterialEdit = () => {
+    if (storylineMaterial === null) return;
+    const draftContent = storylineMaterial.draft?.content;
+    const fromDraft = draftContent !== null && draftContent !== undefined && typeof draftContent === 'object' && Array.isArray((draftContent as { selectedLineIds?: unknown }).selectedLineIds);
+    const source = fromDraft ? draftContent as StorylineMaterialContentView : storylineMaterial.content;
+    setMSelected([...source.selectedLineIds]);
+    setMAdded(source.addedLines.map(line => ({ id: `edit-${line.title}`, title: line.title, description: line.description })));
+    setMShape(source.shape);
+    setMEnsemble(source.ensemble);
+    setMNote(source.authorNote);
+    setMaterialFromDraft(fromDraft);
+    setMaterialPreview(null);
+    materialSaveKey.current = null;
+    setMaterialEditing(true);
+    setFeedback(fromDraft ? { tone: 'info', text: '已恢复上次未保存的草稿。' } : null);
+  };
+  const cancelMaterialEdit = () => { setMaterialEditing(false); setMaterialPreview(null); setMaterialFromDraft(false); materialSaveKey.current = null; };
+  const saveMaterialDraftNow = () => {
+    if (storylineMaterial === null) return;
+    const content = materialContentNow();
+    if (content === null) return;
+    void runAction(async () => {
+      await saveStorylineMaterialDraft(bookId, content, storylineMaterial.revision);
+      setFeedback({ tone: 'info', text: '草稿已保存；正式资料与后续设计不受影响。' });
+    });
+  };
+  // 保存修改→影响预览→确认弹窗；幂等键在一次保存流程开始时冻结，结果未知重试同键
+  const requestMaterialSave = () => {
+    if (storylineMaterial === null) return;
+    const content = materialContentNow();
+    if (content === null) return;
+    if (content.selectedLineIds.length + content.addedLines.length === 0) { setFeedback({ tone: 'error', text: '请至少选择或添加一条故事线' }); return; }
+    if (materialSaveKey.current === null) materialSaveKey.current = `material-edit:${bookId}:${Date.now()}`;
+    void runAction(async () => {
+      const preview = await previewStorylineMaterial(bookId, content, storylineMaterial.revision);
+      if (preview.unchanged) { setFeedback({ tone: 'info', text: '内容与当前资料一致，无需保存。' }); return; }
+      setMaterialPreview(preview);
+      materialConfirmRef.current?.showModal();
+    });
+  };
+  const confirmMaterialSave = () => {
+    if (storylineMaterial === null) return;
+    const content = materialContentNow();
+    if (content === null || materialSaveKey.current === null) return;
+    materialConfirmRef.current?.close();
+    void runAction(async () => {
+      const saved = await saveStorylineMaterial(bookId, { content, expectedRevision: storylineMaterial.revision, idempotencyKey: materialSaveKey.current! });
+      setMaterialEditing(false); setMaterialPreview(null); setMaterialFromDraft(false);
+      materialInit.current = `${bookId}:${saved.projection.revision}`;
+      // 这就是作者刚保存的正式内容：同步全书页确认区，不视为dirty覆盖
+      setSelectedLineIds(saved.projection.content.selectedLineIds);
+      setAddedLines(saved.projection.content.addedLines.map(line => ({ id: `material-${line.title}`, title: line.title, description: line.description })));
+      setAuthorNote(saved.projection.content.authorNote);
+      setShape(saved.projection.content.shape);
+      setEnsemble(saved.projection.content.ensemble);
+      setFeedback({ tone: 'info', text: saved.unchanged ? '内容与当前资料一致，无需保存。' : `已保存为第${saved.projection.revision}版故事线资料；基于旧版资料的${saved.markedRuns}套设计已标记需重新设计，旧结果保留可查看。` });
+    });
+  };
+
+  // “＋ 添加其他故事线”弹窗由全书确认区与资料编辑共用：加入目标随上下文切换（编辑资料时加入资料草稿）
+  const lineAddTarget = materialEditing ? mAdded : addedLines;
+  const addLineToContext = (line: { id: string; title: string; description: string }) => {
+    if (materialEditing) setMAdded(prev => prev.some(item => item.id === line.id) ? prev : [...prev, line]);
+    else setAddedLines(prev => prev.some(item => item.id === line.id) ? prev : [...prev, line]);
+  };
+
   if (state === null) {
     return (
       <div className="tmd-shell">
@@ -451,10 +568,10 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   return (
     <div className="tmd-shell">
       <nav className="tmd-nav" aria-label="时光机功能">
-        <button type="button" aria-pressed={activeSection === 'landing'} onClick={() => setSection('landing')}>故事线</button>
-        <button type="button" aria-pressed={activeSection === 'plan'} onClick={() => setSection('plan')}>全书基线</button>
+        <button type="button" aria-pressed={activeSection === 'landing' || activeSection === 'plan'} onClick={() => setSection(adopted !== null || designRuns.length > 0 ? 'plan' : 'landing')}>全书</button>
         <button type="button" disabled>时光树</button>
-        <button type="button" disabled>正文轨迹</button>
+        <button type="button" disabled>轨迹</button>
+        <button type="button" aria-pressed={activeSection === 'material'} onClick={() => setSection('material')}>资料</button>
       </nav>
 
       {feedback !== null && <div className={feedback.tone === 'error' ? 'tmd-error' : 'tmd-info'}>{feedback.text}</div>}
@@ -479,6 +596,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
             </div>
           </div>
           <details className="tmd-adopted-details"><summary>查看已采用的全书方向</summary><PlanDetail plan={adopted.plan} numbering={adopted.numbering} /></details>
+          {adopted.needsRedesign === true && <div className="tmd-stale" role="status">基于旧版故事线资料，需重新设计。已采用的规划保留可查看，不会自动覆盖。</div>}
           <div className="tmd-actions">
             <button type="button" disabled={busy || roundActive} onClick={redesign}>重新设计全书方向</button>
             <button type="button" disabled={busy || roundActive} onClick={()=>setSection('landing')}>调整故事线</button>
@@ -593,35 +711,6 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
                   <button type="button" className="tmd-primary" disabled={busy || anyBusy || selectedLineIds.length + addedLines.length === 0} onClick={startDesign}>确认故事线，设计全书方向</button>
                 </div>
               </div>
-              <dialog ref={addDialogRef} className="tmd-dialog" aria-label="添加你想写的故事">
-                <div className="tmd-dialog-row">
-                  <h2>添加你想写的故事</h2>
-                  <button type="button" onClick={() => addDialogRef.current?.close()}>关闭</button>
-                </div>
-                <form className="tmd-custom-form" onSubmit={event => { event.preventDefault(); if (!customTitle.trim() || !customDescription.trim()) return; setAddedLines(prev => [...prev, {id:`custom-${crypto.randomUUID()}`,title:customTitle.trim(),description:customDescription.trim()}]); setCustomTitle(''); setCustomDescription(''); addDialogRef.current?.close(); }}>
-                  <label>故事线名称<input value={customTitle} onChange={event => setCustomTitle(event.target.value)} maxLength={40} required placeholder="例如：重建家园" /></label>
-                  <label>想写怎样的故事<textarea value={customDescription} onChange={event => setCustomDescription(event.target.value)} maxLength={400} required rows={3} placeholder="谁想完成什么，会经历怎样的变化？" /></label>
-                  <button type="submit" className="tmd-primary" disabled={!customTitle.trim() || !customDescription.trim()}>加入故事线</button>
-                </form>
-                <p>也可以从全部常见故事线方向中挑选（点选即加入，可再次打开继续选）：</p>
-                <div className="tmd-dialog-list" role="group" aria-label="全部故事线方向">
-                {ADD_LINE_PRESETS.map(preset => (
-                  <button
-                    type="button"
-                    key={preset.id}
-                    className="tmd-dialog-option"
-                    disabled={addedLines.some(item => item.id === preset.id)}
-                    onClick={() => {
-                      setAddedLines(prev => prev.some(item => item.id === preset.id) ? prev : [...prev, preset]);
-                      addDialogRef.current?.close();
-                    }}
-                  >
-                    <b>{preset.title}</b>
-                    <small>{preset.description}</small>
-                  </button>
-                ))}
-                </div>
-              </dialog>
             </>
           )}
         </section>
@@ -640,6 +729,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
                   <span className="tmd-scheme-avatar" style={memberAvatarStyle(isDesignResult(run.result)?run.result.member.id:run.member?.id ?? '')} aria-hidden="true" />
                   <strong>{isDesignResult(run.result) ? run.result.member.name : run.member?.name ?? '待接手'}</strong>
                   <span className={`tmd-scheme-state state-${run.state}`}>{run.state === 'failed' ? '未完成' : run.progress}</span>
+                  {run.needsRedesign === true && <span className="tmd-stale-tag">需重新设计</span>}
                 </button>{run.state === 'failed' && <button type="button" className="tmd-scheme-retry" disabled={busy || editing} onClick={()=>retryRun(run.id)}>续做</button>}</div>
               );
             })}
@@ -658,10 +748,11 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
                     <button type="button" className="tmd-primary" disabled={busy} onClick={saveEdit}>保存修改</button>
                     <button type="button" className="tmd-ghost" disabled={busy} onClick={() => { setEditing(false); setDraft(null); }}>取消</button>
                   </>
-                : <button type="button" disabled={busy || timeMachineRunBusy(selectedRun)} onClick={beginEdit}><PencilSimpleIcon /> 修改方案</button>}
-              <button type="button" className="tmd-primary" disabled={busy || editing || timeMachineRunBusy(selectedRun) || selectedResult.review.pass !== true} onClick={adopt}>采用本方案</button>
+                : <button type="button" disabled={busy || timeMachineRunBusy(selectedRun) || selectedRun.needsRedesign === true} onClick={beginEdit}><PencilSimpleIcon /> 修改方案</button>}
+              <button type="button" className="tmd-primary" disabled={busy || editing || timeMachineRunBusy(selectedRun) || selectedRun.needsRedesign === true || selectedResult.review.pass !== true} onClick={adopt}>采用本方案</button>
             </div>
           </div>
+          {selectedRun.needsRedesign === true && <div className="tmd-stale" role="status">本方案基于旧版故事线资料，需重新设计；结果保留可查看。</div>}
           {selectedResult.review.pass !== true && <div className="tmd-error">{timeMachineRunBusy(selectedRun) ? '修改已保存，主编正在核查这一版，完成后可以采用。' : '方案仍有待核对的问题，暂不能采用。'}{selectedResult.review.issues.map((issue,index)=><p key={index}>{issue}</p>)}</div>}
           {selectedResult.review.suggestions.length > 0 && (
             <details className="tmd-suggestions">
@@ -674,6 +765,165 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
             : <PlanDetail plan={selectedResult.plan} numbering={null} />}
         </section>
       )}
+
+      {activeSection === 'material' && (
+        <section className="tmd-panel tmd-material">
+          <h3>故事线资料</h3>
+          {storylineMaterial === null ? (
+            <div className="tmd-material-empty">
+              <p>本书还没有故事线资料。</p>
+              <p>故事线资料在你确认故事线后形成：先在「全书」里请主编推荐并确认故事线。</p>
+              <button type="button" className="tmd-primary" onClick={() => setSection('landing')}>去确认故事线</button>
+            </div>
+          ) : materialEditing ? (
+            <div className="tmd-material-edit">
+              {materialFromDraft && <p className="tmd-note">正在继续上次未保存的草稿；「取消」会丢弃这些未保存改动。</p>}
+              <section className="tmd-block">
+                <h4 className="tmd-section-title">主编推荐的故事线（勾选保留）</h4>
+                <div className="tmd-line-grid">
+                  {materialSourceRecommendation?.lines.map(line => (
+                    <label key={line.id} className={`tmd-line-card${mSelected.includes(line.id) ? ' selected' : ''}`}>
+                      <input type="checkbox" checked={mSelected.includes(line.id)} onChange={event => setMSelected(prev => event.target.checked ? [...prev, line.id] : prev.filter(id => id !== line.id))} />
+                      <span><strong>{line.title}</strong><small>{line.description}</small></span>
+                    </label>
+                  ))}
+                </div>
+                <p className="tmd-note">推荐线的标题与描述来自主编推荐，不能改写；想调整方向可在下方添加自己的故事线或写补充要求。</p>
+              </section>
+              <section className="tmd-block">
+                <h4 className="tmd-section-title">你添加的故事线</h4>
+                {mAdded.map((line, index) => (
+                  <div key={line.id} className="tmd-material-added">
+                    <label>故事线名称<input aria-label={`自添故事线${index + 1}名称`} value={line.title} maxLength={80} onChange={event => setMAdded(prev => prev.map((item, i) => i === index ? { ...item, title: event.target.value } : item))} /></label>
+                    <label>想写怎样的故事<textarea aria-label={`自添故事线${index + 1}描述`} rows={2} maxLength={500} value={line.description} onChange={event => setMAdded(prev => prev.map((item, i) => i === index ? { ...item, description: event.target.value } : item))} /></label>
+                    <button type="button" onClick={() => setMAdded(prev => prev.filter((_, i) => i !== index))}>移除</button>
+                  </div>
+                ))}
+                <button type="button" className="tmd-add-line" onClick={() => addDialogRef.current?.showModal()}>＋ 添加其他故事线</button>
+              </section>
+              <section className="tmd-block">
+                <h4 className="tmd-section-title">故事展开方式</h4>
+                <div className="tmd-shape-grid" role="radiogroup" aria-label="资料故事展开方式">
+                  {SHAPE_OPTIONS.map(option => (
+                    <label key={option.value} className={`tmd-choice${mShape === option.value ? ' selected' : ''}`}>
+                      <input type="radio" name="tmd-material-shape" checked={mShape === option.value} onChange={() => setMShape(option.value)} />
+                      <span><strong>{option.title}</strong><small>{option.desc}</small></span>
+                    </label>
+                  ))}
+                </div>
+                <label className={`tmd-choice tmd-choice-wide${mEnsemble ? ' selected' : ''}`}>
+                  <input type="checkbox" checked={mEnsemble} onChange={event => setMEnsemble(event.target.checked)} />
+                  <span><strong>也希望配角拥有自己的完整故事</strong><small>让重要人物有自己的追求，他们的选择会影响全书。</small></span>
+                </label>
+              </section>
+              <section className="tmd-block">
+                <h4 className="tmd-section-title">作者补充要求</h4>
+                <textarea className="tmd-custom-line" aria-label="资料作者补充要求" value={mNote} maxLength={1000} rows={3} onChange={event => setMNote(event.target.value)} placeholder="写下想加入的人物关系、故事目标，或希望主编调整的方向。" />
+              </section>
+              <div className="tmd-footer">
+                <button type="button" className="tmd-ghost" disabled={busy} onClick={cancelMaterialEdit}>取消</button>
+                <button type="button" disabled={busy} onClick={saveMaterialDraftNow}>保存草稿</button>
+                <button type="button" className="tmd-primary" disabled={busy || mSelected.length + mAdded.length === 0} onClick={requestMaterialSave}>保存修改</button>
+              </div>
+              <p className="tmd-note">「保存草稿」只暂存不影响任何后续设计；「保存修改」会形成新的正式版本，并先让你确认受影响范围。</p>
+            </div>
+          ) : (
+            <div className="tmd-material-view">
+              <div className="tmd-material-head">
+                <strong>第{storylineMaterial.revision}版 · {storylineMaterial.createdBy === 'author-edit' ? '作者修改形成' : '作者确认形成'}</strong>
+                <button type="button" disabled={busy || materialSourceRecommendation === null} onClick={beginMaterialEdit}><PencilSimpleIcon /> 修改故事线资料</button>
+              </div>
+              {materialSourceRecommendation === null && <p className="tmd-note">形成本资料的推荐已不在当前列表，暂不能在此基础上修改；可在「全书」重新确认故事线形成新版本。</p>}
+              {storylineMaterial.draft !== null && <p className="tmd-note">有一份未保存的草稿（基于第{storylineMaterial.draft.baseRevision}版），点「修改故事线资料」可继续。</p>}
+              <section className="tmd-block">
+                <h4 className="tmd-section-title">已确认的故事线（{storylineMaterial.content.selectedLineIds.length + storylineMaterial.content.addedLines.length}条）</h4>
+                <ul className="tmd-material-lines">
+                  {storylineMaterial.content.selectedLineIds.map(id => {
+                    const line = materialSourceRecommendation?.lines.find(item => item.id === id);
+                    return <li key={id}><span className="tmd-line-role">{line !== undefined ? roleLabel(line.role) : '推荐线'}</span><strong>{line?.title ?? id}</strong>{line !== undefined && <small>{line.description}</small>}</li>;
+                  })}
+                  {storylineMaterial.content.addedLines.map(line => (
+                    <li key={`added-${line.title}`}><span className="tmd-line-role">作者添加</span><strong>{line.title}</strong><small>{line.description}</small></li>
+                  ))}
+                </ul>
+              </section>
+              <section className="tmd-block">
+                <h4 className="tmd-section-title">故事展开方式</h4>
+                <p>{shapeLabelText(storylineMaterial.content.shape)}{storylineMaterial.content.ensemble ? '；也希望配角拥有自己的完整故事' : ''}</p>
+              </section>
+              {storylineMaterial.content.authorNote.trim() !== '' && (
+                <section className="tmd-block">
+                  <h4 className="tmd-section-title">作者补充要求</h4>
+                  <p>{storylineMaterial.content.authorNote}</p>
+                </section>
+              )}
+              <details className="tmd-material-summary">
+                <summary>全书工作摘要（主编推荐语）</summary>
+                {materialSourceRecommendation !== null ? <><p>{materialSourceRecommendation.greeting}</p><p>{materialSourceRecommendation.reason}</p></> : <p>推荐原文已不在当前列表。</p>}
+              </details>
+              <section className="tmd-block tmd-material-source">
+                <h4 className="tmd-section-title">来源引用（只读）</h4>
+                <p>推荐运行：<code>{storylineMaterial.content.recommendationRunId}</code></p>
+                <p>推荐哈希：<code>{storylineMaterial.content.recommendationHash}</code></p>
+                <p>设定资料版本：<code>{storylineMaterial.content.preparationVersion}</code></p>
+                <p>资料版本：第{storylineMaterial.revision}版（{storylineMaterial.createdBy === 'author-edit' ? '作者修改' : '作者确认'}，{new Date(storylineMaterial.createdAt).toLocaleString('zh-CN')}）</p>
+              </section>
+              {storylineMaterial.versions.length > 1 && (
+                <details className="tmd-material-summary">
+                  <summary>历史版本（{storylineMaterial.versions.length}个，只读保留）</summary>
+                  <ul>{storylineMaterial.versions.map(v => <li key={v.revision}>第{v.revision}版 · {v.createdBy === 'author-edit' ? '作者修改' : '作者确认'} · {new Date(v.createdAt).toLocaleString('zh-CN')}</li>)}</ul>
+                </details>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      <dialog ref={materialConfirmRef} className="tmd-dialog" aria-label="确认保存故事线资料修改">
+        <h2>确认保存修改</h2>
+        <p>保存此修改后，基于旧版故事线资料的全书基线，以及后续卷、链、章规划将需要重新设计。已有正文会保留，不会自动覆盖。</p>
+        {materialPreview !== null && (
+          <div className="tmd-material-impact">
+            <p>全书基线：{materialPreview.affectedBaseline ? '已采用的基线将标记为需重新设计' : '当前没有已采用的基线'}</p>
+            <p>设计方案：{materialPreview.affectedRuns.length}套将标记为需重新设计{materialPreview.affectedInFlight > 0 ? `（其中${materialPreview.affectedInFlight}套仍在进行，完成后结果保留但不可采用）` : ''}；旧结果保留可查看。</p>
+            <p>卷、链、章规划：尚未创建</p>
+          </div>
+        )}
+        <div className="tmd-dialog-row">
+          <button type="button" disabled={busy} onClick={() => materialConfirmRef.current?.close()}>取消</button>
+          <button type="button" className="tmd-primary" disabled={busy} onClick={confirmMaterialSave}>保存修改并标记重设</button>
+        </div>
+      </dialog>
+
+      <dialog ref={addDialogRef} className="tmd-dialog" aria-label="添加你想写的故事">
+        <div className="tmd-dialog-row">
+          <h2>添加你想写的故事</h2>
+          <button type="button" onClick={() => addDialogRef.current?.close()}>关闭</button>
+        </div>
+        <form className="tmd-custom-form" onSubmit={event => { event.preventDefault(); if (!customTitle.trim() || !customDescription.trim()) return; addLineToContext({id:`custom-${crypto.randomUUID()}`,title:customTitle.trim(),description:customDescription.trim()}); setCustomTitle(''); setCustomDescription(''); addDialogRef.current?.close(); }}>
+          <label>故事线名称<input value={customTitle} onChange={event => setCustomTitle(event.target.value)} maxLength={40} required placeholder="例如：重建家园" /></label>
+          <label>想写怎样的故事<textarea value={customDescription} onChange={event => setCustomDescription(event.target.value)} maxLength={400} required rows={3} placeholder="谁想完成什么，会经历怎样的变化？" /></label>
+          <button type="submit" className="tmd-primary" disabled={!customTitle.trim() || !customDescription.trim()}>加入故事线</button>
+        </form>
+        <p>也可以从全部常见故事线方向中挑选（点选即加入，可再次打开继续选）：</p>
+        <div className="tmd-dialog-list" role="group" aria-label="全部故事线方向">
+        {ADD_LINE_PRESETS.map(preset => (
+          <button
+            type="button"
+            key={preset.id}
+            className="tmd-dialog-option"
+            disabled={lineAddTarget.some(item => item.id === preset.id)}
+            onClick={() => {
+              addLineToContext(preset);
+              addDialogRef.current?.close();
+            }}
+          >
+            <b>{preset.title}</b>
+            <small>{preset.description}</small>
+          </button>
+        ))}
+        </div>
+      </dialog>
     </div>
   );
 }

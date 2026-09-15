@@ -12,12 +12,16 @@ import {requireAuthenticatedOwner} from '../infrastructure/security/auth-context
 import {success} from '../contracts/api.js';
 import {DomainError,errorCodes} from '../domain/errors.js';
 import {parseStorylineSelectionInput} from '../application/books/storyline-selection.js';
+import {TimeMachineStorylineMaterialService} from '../application/books/time-machine-storyline-material-service.js';
+import {StorylineMaterialRepository} from '../infrastructure/db/repositories/storyline-material-repository.js';
 import {BookSynopsisService} from '../application/books/book-synopsis-service.js';
 import {V7SettingEditorialService} from '../application/books/v7-setting-editorial-service.js';
 import {SystemClock,UuidGenerator} from '../domain/ids.js';
 import {V7SettingEditorialRepository} from '../infrastructure/db/repositories/v7-setting-editorial-repository.js';
 export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseSync,resolve:(provider:string,model:string)=>ModelAdapter,windowTokens:number):Promise<void>{
  const service=new TimeMachineDesignService(db,new TimeMachineModelGateway(db,resolve),windowTokens);
+ const materials=new TimeMachineStorylineMaterialService(db);
+ const materialRows=new StorylineMaterialRepository(db);
  const settings=new V7SettingEditorialService(db,{resolve},new UuidGenerator(),new SystemClock(),{codingPlan:false,agentPlan:false});
  const prerequisite=(s:{ownerId:string;bookId:string})=>settings.timeMachinePrerequisite(s.ownerId,s.bookId);
  const requirePrepared=(s:{ownerId:string;bookId:string})=>{const p=prerequisite(s);if(!p.ready)throw new DomainError(errorCodes.validation,p.message,{},false,409);};
@@ -63,9 +67,33 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
   let planRevision=0;
   try{planRevision=new SqlPlanRepository(db).state(s).revision;}catch{planRevision=0;}
   const preparation=prerequisite(s);
+  // S1-A阶段二（第25.3节）：已采用基线经其候选轮needs_redesign标记联动投影
+  let adoptedNeedsRedesign=false;
+  try{const candidateId=materialRows.adoptedCandidateId(s.ownerId,s.bookId);adoptedNeedsRedesign=candidateId!==undefined&&materialRows.runNeedsRedesign(s.ownerId,s.bookId,candidateId);}catch{adoptedNeedsRedesign=false;}
   // S1-A：成功推荐附带服务端计算的preparationVersion（当前来源版本），前端原样带回、服务端再验证
   const runs=preparation.ready?currentRuns(s).map(run=>run.kind==='recommend'?{...run,preparationVersion:preparation.version}:run):[];
-  return success({enabled:windowTokens>=16000,preparation,runs,adopted,planRevision},request.id);
+  return success({enabled:windowTokens>=16000,preparation,runs,adopted:adopted?{...adopted,needsRedesign:adoptedNeedsRedesign}:null,planRevision,storylineMaterial:materials.current(s)},request.id);
+ });
+ // S1-A阶段二（第25.3节）：故事线资料的影响预览/草稿/确认保存。保存只建立新版本与失效事实，不触发推荐或重生成。
+ const materialSourceFacts=(s:{ownerId:string;bookId:string})=>{
+  const preparation=prerequisite(s);
+  if(!preparation.ready||preparation.version===null)throw new DomainError(errorCodes.validation,preparation.message||'请先完成设定确认与主编统一整理',{},false,409);
+  const probe=snapshotTimeMachine(db,s,'',windowTokens);
+  return {preparationVersion:preparation.version,manifestSignature:manifestSourcesSignature(probe.manifest)};
+ };
+ app.post<{Params:{bookId:string};Body:{content?:unknown;expectedRevision?:unknown}}>('/api/time-machine/books/:bookId/storyline-material/preview',async request=>{
+  const s=scope(request,request.params.bookId);const body=request.body??{};
+  const facts=materialSourceFacts(s);
+  return success(guard(()=>materials.preview(s,body.content,body.expectedRevision,facts.preparationVersion,facts.manifestSignature)),request.id);
+ });
+ app.put<{Params:{bookId:string};Body:{content?:unknown;baseRevision?:unknown}}>('/api/time-machine/books/:bookId/storyline-material/draft',async request=>{
+  const s=scope(request,request.params.bookId);const body=request.body??{};
+  return success(guard(()=>materials.saveDraft(s,body.content,body.baseRevision)),request.id);
+ });
+ app.post<{Params:{bookId:string};Body:{content?:unknown;expectedRevision?:unknown;idempotencyKey?:unknown}}>('/api/time-machine/books/:bookId/storyline-material',async request=>{
+  const s=scope(request,request.params.bookId);const body=request.body??{};
+  const facts=materialSourceFacts(s);
+  return success(guard(()=>materials.save(s,body.content,body.expectedRevision,body.idempotencyKey,facts.preparationVersion,facts.manifestSignature)),request.id);
  });
  app.get<{Params:{bookId:string;volumeId:string}}>('/api/time-machine/books/:bookId/volumes/:volumeId/planning-context',async request=>{
   const s=scope(request,request.params.bookId);
@@ -105,8 +133,10 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
   requirePrepared(s);
   const expectedRevision=body?.expectedRevision;
   if(!body||typeof body.plan!=='object'||body.plan===null||typeof expectedRevision!=='number'||!Number.isSafeInteger(expectedRevision)||expectedRevision<0)throw new DomainError(errorCodes.validation,'修订参数不正确',{},false,400);
-  const row=db.prepare("SELECT snapshot_json,result_json FROM tm2_design_runs WHERE id=? AND owner_id=? AND book_id=? AND state='succeeded'").get(request.params.candidateId,s.ownerId,s.bookId) as {snapshot_json:string;result_json:string|null}|undefined;
+  const row=db.prepare("SELECT snapshot_json,result_json,needs_redesign FROM tm2_design_runs WHERE id=? AND owner_id=? AND book_id=? AND state='succeeded'").get(request.params.candidateId,s.ownerId,s.bookId) as {snapshot_json:string;result_json:string|null;needs_redesign:number}|undefined;
   if(!row)throw new DomainError(errorCodes.validation,'候选不存在',{},false,404);
+  // S1-A阶段二（第25.2节）：基于旧版故事线资料的候选拒绝人工修订，需重新设计
+  if(Number(row.needs_redesign)===1)throw new DomainError(errorCodes.validation,'该方案基于旧版故事线资料，需重新设计',{},false,409);
   return success(guard(()=>{const snapshot=JSON.parse(row.snapshot_json) as {manifest:unknown;members:{writer:V7EffectiveMember}};const prior=row.result_json!==null?JSON.parse(row.result_json) as {member?:{id:string;name:string};review?:{suggestions?:string[]};selfCheck?:unknown}:null;const candidate=parseCandidate({schemaVersion:2,manifest:snapshot.manifest,member:{id:snapshot.members.writer.memberKey,name:snapshot.members.writer.displayName,model:snapshot.members.writer.model.modelId,routeRevision:String(snapshot.members.writer.governanceRevision)},plan:body.plan});const plans=new SqlPlanRepository(db);const revision=plans.saveCandidate(s,request.params.candidateId,expectedRevision,candidate);
    // 保存不等于审查通过：复用持久化执行器核对这一修订，旧审查仍归属旧修订。
    const result={candidateId:request.params.candidateId,revision,member:prior?.member??{id:snapshot.members.writer.memberKey,name:snapshot.members.writer.displayName},plan:candidate.plan,review:{pass:false,pending:true,issues:[],suggestions:[]},selfCheck:null,editedBy:'author'};
@@ -117,8 +147,10 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
   const s=scope(request,request.params.bookId),body=request.body;
   requirePrepared(s);
   if(!body||typeof body.candidateId!=='string'||!Number.isSafeInteger(body.revision)||!Number.isSafeInteger(body.expectedRevision)||typeof body.idempotencyKey!=='string')throw new DomainError(errorCodes.validation,'采用参数不正确',{},false,400);
-  const row=db.prepare("SELECT snapshot_json FROM tm2_design_runs WHERE id=? AND owner_id=? AND book_id=? AND state='succeeded'").get(body.candidateId,s.ownerId,s.bookId) as {snapshot_json:string}|undefined;
+  const row=db.prepare("SELECT snapshot_json,needs_redesign FROM tm2_design_runs WHERE id=? AND owner_id=? AND book_id=? AND state='succeeded'").get(body.candidateId,s.ownerId,s.bookId) as {snapshot_json:string;needs_redesign:number}|undefined;
   if(!row)throw new DomainError(errorCodes.validation,'候选尚未完成',{},false,409);
+  // S1-A阶段二（第25.2节）：基于旧版故事线资料的候选结果保留可读，但采用拒绝并提示重新设计
+  if(Number(row.needs_redesign)===1)throw new DomainError(errorCodes.validation,'该方案基于旧版故事线资料，需重新设计',{},false,409);
   return success(guard(()=>{const snapshot=JSON.parse(row.snapshot_json) as {intent:string};const current=snapshotTimeMachine(db,s,snapshot.intent,windowTokens);const plans=new SqlPlanRepository(db);plans.syncManifest(s,current.manifest);return plans.adopt(s,body.candidateId,body.revision,body.expectedRevision,body.idempotencyKey);}),request.id);
  });
 }

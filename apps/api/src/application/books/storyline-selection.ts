@@ -38,7 +38,11 @@ export function parseStorylineSelectionInput(body: unknown): {idempotencyKey: st
   const record = body as Record<string, unknown>;
   if (typeof record.idempotempotencyKey === 'string') throw bad('提交格式不正确');
   if (typeof record.idempotencyKey !== 'string' || !record.idempotencyKey.trim() || record.idempotencyKey.length > 160) throw bad('操作编号无效');
-  const raw = record.selection;
+  return {idempotencyKey: record.idempotencyKey, selection: parseStorylineSelectionContent(record.selection)};
+}
+
+/** 严格解析故事线选择内容本体：design-runs确认与故事线资料编辑保存共用同一解析与上限（第25.3节）。 */
+export function parseStorylineSelectionContent(raw: unknown): StorylineSelectionInput {
   if (raw === null || typeof raw !== 'object') throw bad('请刷新页面后重新确认故事线');
   const s = raw as Record<string, unknown>;
   if (typeof s.recommendationRunId !== 'string' || !s.recommendationRunId.trim()) throw bad('请刷新页面后重新确认故事线');
@@ -69,7 +73,7 @@ export function parseStorylineSelectionInput(body: unknown): {idempotencyKey: st
   const authorNote = s.authorNote.trim();
   if (authorNote.length > SELECTION_LIMITS.authorNote) throw bad(`作者补充最多${SELECTION_LIMITS.authorNote}字，请精简后再确认`);
   if (selectedLineIds.length + addedLines.length === 0) throw bad('请至少选择或添加一条故事线');
-  return {idempotencyKey: record.idempotencyKey, selection: {recommendationRunId: s.recommendationRunId, recommendationHash: s.recommendationHash, preparationVersion: s.preparationVersion, selectedLineIds, addedLines, shape: s.shape as StorylineSelectionInput['shape'], ensemble: s.ensemble, authorNote}};
+  return {recommendationRunId: s.recommendationRunId, recommendationHash: s.recommendationHash, preparationVersion: s.preparationVersion, selectedLineIds, addedLines, shape: s.shape as StorylineSelectionInput['shape'], ensemble: s.ensemble, authorNote};
 }
 
 /** 对成功推荐result_json的规范摘要：前端不可伪造，服务端在state与校验时同口径计算。 */

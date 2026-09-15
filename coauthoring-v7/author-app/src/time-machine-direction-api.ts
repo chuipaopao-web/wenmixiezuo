@@ -85,6 +85,8 @@ export interface TimeMachineRunView {
   progress: string;
   result: TimeMachineRecommendationView | TimeMachineDesignResultView | null;
   message: string | null;
+  /** S1-A阶段二：该轮基于旧版故事线资料，结果保留可读但不可采用/修订（第25节）。 */
+  needsRedesign?: boolean;
   /** S1-A：成功推荐的服务端规范哈希与来源版本；作者原样带回、服务端再验证，前端不可伪造。 */
   recommendationHash?: string | null;
   preparationVersion?: string | null;
@@ -124,6 +126,39 @@ export interface TimeMachineAdoptedView {
   member: { id: string; name: string };
   plan: TimeMachinePlanView;
   numbering: TimeMachineAdoptionNumbering | null;
+  /** S1-A阶段二：已采用基线基于旧版故事线资料，需重新设计（第25节）。 */
+  needsRedesign?: boolean;
+}
+
+/** S1-A阶段二（第25节）：故事线资料——作者确认故事线后的正式版本对象。 */
+export interface StorylineMaterialContentView {
+  recommendationRunId: string;
+  recommendationHash: string;
+  preparationVersion: string;
+  selectedLineIds: string[];
+  addedLines: { title: string; description: string }[];
+  shape: 'auto' | 'single' | 'multiple';
+  ensemble: boolean;
+  authorNote: string;
+}
+
+export interface StorylineMaterialView {
+  revision: number;
+  content: StorylineMaterialContentView;
+  createdBy: 'selection-confirm' | 'author-edit';
+  createdAt: string;
+  versions: { revision: number; contentHash: string; createdBy: string; createdAt: string }[];
+  draft: { content: unknown; baseRevision: number; updatedAt: string } | null;
+}
+
+export interface StorylineMaterialPreviewView {
+  currentRevision: number;
+  unchanged: boolean;
+  revisionMatch: boolean;
+  affectedBaseline: boolean;
+  affectedRuns: { id: string; scheme: string | null; roundKey: string | null; state: string; alreadyMarked: boolean }[];
+  affectedInFlight: number;
+  downstream: { volumes: 'not-created'; chains: 'not-created'; chapters: 'not-created' };
 }
 
 export interface TimeMachineStateView {
@@ -132,6 +167,8 @@ export interface TimeMachineStateView {
   runs: TimeMachineRunView[];
   adopted: TimeMachineAdoptedView | null;
   planRevision: number;
+  /** S1-A阶段二：本书故事线资料（未确认过故事线的书为null/缺省，页面如实显示尚未创建）。 */
+  storylineMaterial?: StorylineMaterialView | null;
 }
 
 export async function fetchTimeMachineDirectionState(bookId: string, signal?: AbortSignal): Promise<TimeMachineStateView> {
@@ -168,6 +205,28 @@ export async function saveTimeMachineCandidateRevision(bookId: string, candidate
 
 export async function adoptTimeMachinePlan(bookId: string, input: { candidateId: string; revision: number; expectedRevision: number; idempotencyKey: string }): Promise<{ id: string; revision: number }> {
   return request<{ id: string; revision: number }>(`/api/time-machine/books/${encodeURIComponent(bookId)}/adoptions`, {
+    method: 'POST',
+    body: JSON.stringify(input)
+  });
+}
+
+/** S1-A阶段二（第25.3节）：故事线资料的影响预览/草稿/确认保存。 */
+export async function previewStorylineMaterial(bookId: string, content: StorylineMaterialContentView, expectedRevision: number): Promise<StorylineMaterialPreviewView> {
+  return request<StorylineMaterialPreviewView>(`/api/time-machine/books/${encodeURIComponent(bookId)}/storyline-material/preview`, {
+    method: 'POST',
+    body: JSON.stringify({ content, expectedRevision })
+  });
+}
+
+export async function saveStorylineMaterialDraft(bookId: string, content: StorylineMaterialContentView, baseRevision: number): Promise<{ baseRevision: number; updatedAt: string }> {
+  return request<{ baseRevision: number; updatedAt: string }>(`/api/time-machine/books/${encodeURIComponent(bookId)}/storyline-material/draft`, {
+    method: 'PUT',
+    body: JSON.stringify({ content, baseRevision })
+  });
+}
+
+export async function saveStorylineMaterial(bookId: string, input: { content: StorylineMaterialContentView; expectedRevision: number; idempotencyKey: string }): Promise<{ projection: StorylineMaterialView; markedRuns: number; unchanged: boolean; replayed: boolean }> {
+  return request<{ projection: StorylineMaterialView; markedRuns: number; unchanged: boolean; replayed: boolean }>(`/api/time-machine/books/${encodeURIComponent(bookId)}/storyline-material`, {
     method: 'POST',
     body: JSON.stringify(input)
   });

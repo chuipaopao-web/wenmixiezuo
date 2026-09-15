@@ -5,6 +5,7 @@ import {TimeMachineModelGateway,TimeMachineCallError} from '../../infrastructure
 import {snapshotTimeMachine,manifestSourcesSignature,type TimeMachineSnapshot} from './time-machine-sources.js';
 import {validateStorylineSelection,selectionRequestHash,canonicalRecommendationHash,type StorylineSelectionInput} from './storyline-selection.js';
 import {StorylineSelectionRepository} from '../../infrastructure/db/repositories/storyline-selection-repository.js';
+import {TimeMachineStorylineMaterialService} from './time-machine-storyline-material-service.js';
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
 import {timeMachineReviewChecks} from './time-machine-review.js';
 import {applyTimeMachineCardEdits} from './time-machine-card-edits.js';
@@ -138,6 +139,8 @@ export class TimeMachineDesignService {
    // 第一遍：空intent快照仅用于上游来源签名校验
    const probe=snapshotTimeMachine(this.db,scope,'',this.windowTokens);
    const {intent,selectionSnapshot}=validateStorylineSelection(selections,scope,selection,readiness.version,manifestSourcesSignature(probe.manifest));
+   // S1-A阶段二（第25.2节）：确认选择同事务确保故事线资料版本——内容不同先写新版本再建轮，相同不新建、不触发失效
+   new TimeMachineStorylineMaterialService(this.db).ensureFromSelection(scope,selectionSnapshot,key);
    // 第二遍：以最终intent在同一事务内重建完整快照——manifest intent哈希/documents/正文全部一致
    const base=snapshotTimeMachine(this.db,scope,intent,this.windowTokens);
    const writers=base.writers.slice(0,3);
@@ -161,7 +164,7 @@ export class TimeMachineDesignService {
   const id=randomUUID(),now=new Date().toISOString();
   this.db.prepare("INSERT INTO tm2_design_runs(id,owner_id,book_id,kind,request_key,input_hash,snapshot_json,state,scheme,round_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'queued',?,?,?,?)").run(id,scope.ownerId,scope.bookId,kind,key,hash,JSON.stringify(snapshot),scheme,roundKey,now,now);return id;
  }
- state(scope:Scope){return this.db.prepare('SELECT id,kind,state,result_json,error_code,updated_at,phase,scheme,round_key,json_extract(snapshot_json,\'$.members\') AS members_json,json_extract(snapshot_json,\'$.intent\') AS intent,json_extract(snapshot_json,\'$.selection\') AS selection_json FROM tm2_design_runs WHERE owner_id=? AND book_id=? ORDER BY created_at DESC LIMIT 12').all(scope.ownerId,scope.bookId).map(row=>{
+ state(scope:Scope){return this.db.prepare('SELECT id,kind,state,result_json,error_code,updated_at,phase,scheme,round_key,needs_redesign,json_extract(snapshot_json,\'$.members\') AS members_json,json_extract(snapshot_json,\'$.intent\') AS intent,json_extract(snapshot_json,\'$.selection\') AS selection_json FROM tm2_design_runs WHERE owner_id=? AND book_id=? ORDER BY created_at DESC LIMIT 12').all(scope.ownerId,scope.bookId).map(row=>{
   const phase=String(row.phase);const label=phase.startsWith('card-review')?'正在核对资料':phase.startsWith('card')||phase.startsWith('merge')?'正在整理资料':phase.startsWith('methods')?'正在选择设计方法':phase.startsWith('self')?'正在自检方案':phase.startsWith('skeleton')?'正在设计全书骨架':phase.startsWith('volumes')?'正在设计分卷方向':phase.startsWith('review')?'正在核对方案':phase.startsWith('recommend')?'正在推荐故事线':'等待成员接手';
   const result=typeof row.result_json==='string'?JSON.parse(row.result_json):null;
   const needsReview=row.kind==='design'&&result?.review?.pass===false;
@@ -178,7 +181,7 @@ export class TimeMachineDesignService {
    try{const parsed=JSON.parse(row.selection_json) as {selectedLineIds?:unknown;addedLines?:unknown;shape?:unknown;ensemble?:unknown;authorNote?:unknown;recommendationRunId?:unknown};
     selection={recommendationRunId:parsed.recommendationRunId??null,selectedLineIds:Array.isArray(parsed.selectedLineIds)?parsed.selectedLineIds:[],addedLines:Array.isArray(parsed.addedLines)?parsed.addedLines:[],shape:typeof parsed.shape==='string'?parsed.shape:'auto',ensemble:parsed.ensemble===true,authorNote:typeof parsed.authorNote==='string'?parsed.authorNote:''};}catch{selection=null;}
   }
-  return {id:row.id,kind:row.kind,intent:String(row.intent??''),scheme:String(row.scheme||'')||null,roundKey:String(row.round_key||'')||null,state:row.state,updatedAt:row.updated_at,member:row.state==='working'?{id:activeMember.memberKey,name:activeMember.displayName}:null,progress:row.state==='working'?label:row.state==='succeeded'?(needsReview?'方案待调整':'已完成'):row.state==='failed'?'未完成':'等待成员接手',result,message:needsReview?'方案仍有待核对的问题，暂不能采用。':row.error_code==='unknown'?'上次调用结果尚未确认，已保留记录，不会自动重复调用。':row.error_code?failureMessage:null,recommendationHash,selection};
+  return {id:row.id,kind:row.kind,intent:String(row.intent??''),scheme:String(row.scheme||'')||null,roundKey:String(row.round_key||'')||null,state:row.state,updatedAt:row.updated_at,needsRedesign:Number(row.needs_redesign)===1,member:row.state==='working'?{id:activeMember.memberKey,name:activeMember.displayName}:null,progress:row.state==='working'?label:row.state==='succeeded'?(needsReview?'方案待调整':'已完成'):row.state==='failed'?'未完成':'等待成员接手',result,message:needsReview?'方案仍有待核对的问题，暂不能采用。':row.error_code==='unknown'?'上次调用结果尚未确认，已保留记录，不会自动重复调用。':row.error_code?failureMessage:null,recommendationHash,selection};
  });}
  retry(scope:Scope,id:string):string{
   const row=this.db.prepare('SELECT state,error_code,snapshot_json,kind,scheme,round_key FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND id=?').get(scope.ownerId,scope.bookId,id) as {state:string;error_code:string|null;snapshot_json:string;kind:'recommend'|'design';scheme:string|null;round_key:string|null}|undefined;

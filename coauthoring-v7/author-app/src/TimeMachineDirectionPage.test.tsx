@@ -54,7 +54,7 @@ function designResult(memberName: string, baseline: string, pass: boolean) {
 }
 
 function stateFixture(partial: Partial<TimeMachineStateView> & { runs?: TimeMachineStateView['runs'] }): TimeMachineStateView {
-  return { enabled: true, preparation:partial.preparation??{ready:true,message:'已准备',version:'confirmed-v1'},runs: partial.runs ?? [], adopted: partial.adopted ?? null, planRevision: partial.planRevision ?? 0 };
+  return { enabled: true, preparation:partial.preparation??{ready:true,message:'已准备',version:'confirmed-v1'},runs: partial.runs ?? [], adopted: partial.adopted ?? null, planRevision: partial.planRevision ?? 0, storylineMaterial: partial.storylineMaterial ?? null };
 }
 
 function recommendRun(status: 'working' | 'succeeded' | 'failed', id = 'rec-1') {
@@ -268,7 +268,7 @@ describe('time machine direction page', () => {
     }));
     renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
     // 已有设计轮刷新后恢复到全书方向，避免误以为需要重新选线。
-    expect(await screen.findByRole('button', { name: '全书基线' })).toHaveAttribute('aria-pressed','true');
+    expect(await screen.findByRole('button', { name: '全书' })).toHaveAttribute('aria-pressed','true');
     expect(await screen.findByText('方案A')).toBeVisible();
     expect(screen.getByText('方案C')).toBeVisible();
     expect(screen.getByText('未完成')).toBeVisible();
@@ -303,7 +303,7 @@ describe('time machine direction page', () => {
       throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`);
     }));
     renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
-    await screen.findByRole('button', { name: '全书基线' });
+    await screen.findByRole('button', { name: '全书' });
     expect(await screen.findByText(/方案仍有待核对的问题/)).toBeVisible();
     expect(screen.getByRole('button', { name: '采用本方案' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: /修改方案/ }));
@@ -338,7 +338,7 @@ describe('time machine direction page', () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(0); });
       expect(refreshes).toBe(1);
       // 已有设计轮先进方案页，再回故事线确认（重新设计）
-      fireEvent.click(screen.getByRole('button', { name: '故事线' }));
+      fireEvent.click(screen.getByRole('button', { name: '‹ 返回故事线推荐' }));
       expect(screen.getByText('老板，我们来设计全书骨架。')).toBeVisible();
       expect(screen.getByText('已选 1 条故事线')).toBeVisible();
       // 作者编辑：真实输入事件（置dirty）+自添一条预设线
@@ -473,4 +473,131 @@ describe('time machine direction page', () => {
       expect(window.sessionStorage.getItem('wenmi:design-pending:owner-b:bk-1')).toBeNull();
     } finally { window.sessionStorage.clear(); }
   }, 20000);
+
+  // —— S1-A阶段二（第25节）：二级导航四项与故事线资料页 ——
+  function storylineMaterialFixture(overrides: Record<string, unknown> = {}) {
+    return {
+      revision: 1,
+      content: {
+        recommendationRunId: 'rec-1', recommendationHash: 'hash-rec-1', preparationVersion: 'confirmed-v1',
+        selectedLineIds: ['growth'], addedLines: [{ title: '宿敌线', description: '对手改变彼此' }],
+        shape: 'auto' as const, ensemble: true, authorNote: '想多写伙伴的成长'
+      },
+      createdBy: 'selection-confirm' as const, createdAt: '2026-09-15T10:00:00Z',
+      versions: [{ revision: 1, contentHash: 'h1', createdBy: 'selection-confirm', createdAt: '2026-09-15T10:00:00Z' }],
+      draft: null,
+      ...overrides
+    };
+  }
+
+  it('secondary nav is 全书｜时光树｜轨迹｜资料; 资料 page honestly shows not-created when no material exists', async () => {
+    const state = stateFixture({ runs: [recommendRun('succeeded')] });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith('/state')) return response(state);
+      throw new Error(`Unexpected request: ${String(input)}`);
+    }));
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
+    const nav = await screen.findByRole('navigation', { name: '时光机功能' });
+    const buttons = Array.from(nav.querySelectorAll('button'));
+    expect(buttons.map(button => button.textContent)).toEqual(['全书', '时光树', '轨迹', '资料']);
+    expect((buttons[1] as HTMLButtonElement).disabled).toBe(true);
+    expect((buttons[2] as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '资料' }));
+    expect(await screen.findByText('本书还没有故事线资料。')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '去确认故事线' }));
+    expect(await screen.findByText('为本书推荐')).toBeVisible();
+  });
+
+  it('material page shows the confirmed storyline material expanded by default with read-only source references', async () => {
+    const state = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture() });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith('/state')) return response(state);
+      throw new Error(`Unexpected request: ${String(input)}`);
+    }));
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
+    fireEvent.click(await screen.findByRole('button', { name: '资料' }));
+    expect(await screen.findByText(/第1版 · 作者确认形成/)).toBeVisible();
+    // 主要内容默认展开：故事线清单/展开方式/作者补充/来源引用直接可读
+    expect(screen.getByText('已确认的故事线（2条）')).toBeVisible();
+    expect(screen.getByText('成长线')).toBeVisible();
+    expect(screen.getAllByText('宿敌线').length).toBeGreaterThan(0);
+    expect(screen.getByText('想多写伙伴的成长')).toBeVisible();
+    expect(screen.getByText('来源引用（只读）')).toBeVisible();
+    expect(screen.getByText('hash-rec-1')).toBeVisible();
+    // 全书工作摘要折叠存在
+    expect(screen.getByText('全书工作摘要（主编推荐语）')).toBeVisible();
+    fireEvent.click(screen.getByText('全书工作摘要（主编推荐语）'));
+    expect(screen.getByText('老板，我们现在设计全书骨架。')).toBeVisible();
+  });
+
+  it('material edit: cancel discards; draft restores unsaved changes; save asks preview then exact confirm wording', async () => {
+    const draftContent = {
+      recommendationRunId: 'rec-1', recommendationHash: 'hash-rec-1', preparationVersion: 'confirmed-v1',
+      selectedLineIds: ['growth', 'partner'], addedLines: [], shape: 'multiple' as const, ensemble: false, authorNote: '草稿里的想法'
+    };
+    let current = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture({ draft: { content: draftContent, baseRevision: 1, updatedAt: '2026-09-15T11:00:00Z' } }) });
+    let previewPosts = 0; let savePosts = 0; let draftPosts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/state')) return response(current);
+      if (url.endsWith('/storyline-material/preview')) { previewPosts++; return response({ currentRevision: 1, unchanged: false, revisionMatch: true, affectedBaseline: true, affectedRuns: [{ id: 'design-A', scheme: 'A', roundKey: 'round-1', state: 'succeeded', alreadyMarked: false }], affectedInFlight: 0, downstream: { volumes: 'not-created', chains: 'not-created', chapters: 'not-created' } }); }
+      if (url.endsWith('/storyline-material/draft')) { draftPosts++; return response({ baseRevision: 1, updatedAt: '2026-09-15T12:00:00Z' }); }
+      if (url.endsWith('/storyline-material')) {
+        savePosts++;
+        const body = JSON.parse(String(init?.body)) as { content: { authorNote: string } };
+        current = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture({ revision: 2, createdBy: 'author-edit', content: { ...draftContent, authorNote: body.content.authorNote } }) });
+        return response({ projection: storylineMaterialFixture({ revision: 2, createdBy: 'author-edit', content: { ...draftContent, authorNote: body.content.authorNote } }), markedRuns: 1, unchanged: false, replayed: false });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
+    fireEvent.click(await screen.findByRole('button', { name: '资料' }));
+    expect(await screen.findByText(/有一份未保存的草稿/)).toBeVisible();
+    // 进入编辑：从草稿恢复
+    fireEvent.click(screen.getByRole('button', { name: /修改故事线资料/ }));
+    expect(await screen.findByText(/正在继续上次未保存的草稿/)).toBeVisible();
+    expect((screen.getByLabelText('资料作者补充要求') as HTMLTextAreaElement).value).toBe('草稿里的想法');
+    // 取消：丢弃未保存改动回到展示
+    fireEvent.change(screen.getByLabelText('资料作者补充要求'), { target: { value: '改成别的' } });
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(await screen.findByText('想多写伙伴的成长')).toBeVisible();
+    // 再次进入仍是草稿内容；保存草稿不失效
+    fireEvent.click(screen.getByRole('button', { name: /修改故事线资料/ }));
+    expect((screen.getByLabelText('资料作者补充要求') as HTMLTextAreaElement).value).toBe('草稿里的想法');
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(draftPosts).toBe(1));
+    expect(await screen.findByText(/草稿已保存；正式资料与后续设计不受影响/)).toBeVisible();
+    // 保存修改→预览→确认弹窗（逐字文案）→确认保存
+    fireEvent.change(screen.getByLabelText('资料作者补充要求'), { target: { value: '最终确定的补充' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }));
+    await waitFor(() => expect(previewPosts).toBe(1));
+    expect(await screen.findByText('保存此修改后，基于旧版故事线资料的全书基线，以及后续卷、链、章规划将需要重新设计。已有正文会保留，不会自动覆盖。')).toBeVisible();
+    expect(screen.getByText('卷、链、章规划：尚未创建')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '保存修改并标记重设' }));
+    await waitFor(() => expect(savePosts).toBe(1));
+    expect(await screen.findByText(/已保存为第2版故事线资料/)).toBeVisible();
+    expect(await screen.findByText(/第2版 · 作者修改形成/)).toBeVisible();
+  });
+
+  it('stale runs and adopted baseline show 需重新设计 and block adopt/edit after material change', async () => {
+    const staleA = { ...designRun('A', 'succeeded', '青鸾', '甲方案', true), needsRedesign: true };
+    const state = stateFixture({
+      runs: [recommendRun('succeeded'), staleA, designRun('B', 'succeeded', '白泽', '乙方案', true)],
+      adopted: { revision: 1, member: { id: 'writer-青鸾', name: '青鸾' }, plan: planFixture('甲方案'), numbering: null, needsRedesign: true },
+      planRevision: 1,
+      storylineMaterial: storylineMaterialFixture({ revision: 2, createdBy: 'author-edit' })
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith('/state')) return response(state);
+      throw new Error(`Unexpected request: ${String(input)}`);
+    }));
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
+    expect(await screen.findAllByText(/基于旧版故事线资料，需重新设计/).then(items => items.length)).toBeGreaterThan(0);
+    // 已采用基线条幅
+    expect(screen.getByText(/已采用的规划保留可查看，不会自动覆盖/)).toBeVisible();
+    // 方案A标记需重新设计且采用/修改禁用
+    expect(screen.getAllByText('需重新设计').length).toBeGreaterThan(0);
+    expect((screen.getByRole('button', { name: '采用本方案' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: /修改方案/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
 });

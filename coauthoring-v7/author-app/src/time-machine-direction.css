@@ -206,3 +206,28 @@
 
 /* 添加故事线弹窗：完整方向目录独立滚动，长目录不撑破弹窗 */
 .tmd-dialog-list { max-height: min(46vh, 420px); overflow-y: auto; padding-right: 4px; }
+
+/* S1-A阶段二（第25节）：故事线资料页与失效标记 */
+.tmd-material { display: grid; gap: 14px; }
+.tmd-material-empty { display: grid; gap: 8px; justify-items: start; }
+.tmd-material-empty p { margin: 0; color: var(--ink-soft); line-height: 1.7; }
+.tmd-material-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.tmd-material-head button { display: inline-flex; align-items: center; gap: 6px; }
+.tmd-material-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.tmd-material-lines li { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: baseline; }
+.tmd-material-lines li small { grid-column: 2; color: var(--ink-soft); line-height: 1.6; }
+.tmd-material-summary { font-size: 14px; color: var(--ink-soft); }
+.tmd-material-summary summary { cursor: pointer; color: var(--ink); }
+.tmd-material-summary p { line-height: 1.7; }
+.tmd-material-source p { margin: 0 0 6px; font-size: 13.5px; color: var(--ink-soft); overflow-wrap: anywhere; }
+.tmd-material-source code { font-size: 12.5px; background: var(--panel-muted); border-radius: 6px; padding: 1px 6px; }
+.tmd-material-edit { display: grid; gap: 16px; }
+.tmd-material-edit h4 { margin: 0 0 8px; }
+.tmd-material-added { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin-bottom: 10px; }
+.tmd-material-added label { display: grid; gap: 6px; font-size: 14px; }
+.tmd-material-added input, .tmd-material-added textarea { border: 1px solid var(--line-strong); border-radius: 12px; padding: 10px 12px; font: inherit; font-size: 16px; background: var(--panel-raised); color: var(--ink); }
+.tmd-material-added button { justify-self: end; }
+.tmd-material-impact { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 10px 0; display: grid; gap: 6px; }
+.tmd-material-impact p { margin: 0; font-size: 13.5px; color: var(--ink-soft); line-height: 1.6; }
+.tmd-stale { border-radius: 12px; padding: 10px 12px; background: var(--accent-soft); color: var(--accent); font-size: 14px; line-height: 1.6; margin: 10px 0; }
+.tmd-stale-tag { display: inline-block; font-size: 11.5px; border-radius: 6px; padding: 1px 6px; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
