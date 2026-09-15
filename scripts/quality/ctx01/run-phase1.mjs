@@ -85,7 +85,8 @@ async function callModel(apiKey, request, logPath) {
       usage: {
         input_tokens: Number.isInteger(payload.usage?.input_tokens) ? payload.usage.input_tokens : 0,
         output_tokens: Number.isInteger(payload.usage?.output_tokens) ? payload.usage.output_tokens : 0
-      }
+      },
+      rawUsage: payload.usage ?? null
     };
   } catch (error) {
     return {
@@ -178,6 +179,7 @@ async function main() {
       failed: false,
       output: result.output,
       usage: result.usage,
+      rawUsage: result.rawUsage ?? null,
       latencyMs: result.latencyMs,
       stopReason: result.stopReason,
       truncated: result.truncated
