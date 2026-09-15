@@ -3,7 +3,7 @@ import {createTestContext,type TestContext} from '../../helpers/test-context.js'
 import {BookRepository} from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import {TimeMachineDesignService} from '../../../apps/api/src/application/books/time-machine-design-service.js';
 import {TimeMachineModelGateway} from '../../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
-import {canonicalRecommendationHash,parseStorylineSelectionInput,selectionRequestHash,validateStorylineSelection,type StorylineSelectionInput} from '../../../apps/api/src/application/books/storyline-selection.js';
+import {canonicalRecommendationHash,parseStorylineSelectionInput,resolveSelectionRequestHash,validateStorylineSelection,type StorylineSelectionInput} from '../../../apps/api/src/application/books/storyline-selection.js';
 import {StorylineSelectionRepository} from '../../../apps/api/src/infrastructure/db/repositories/storyline-selection-repository.js';
 import {snapshotTimeMachine,manifestSourcesSignature} from '../../../apps/api/src/application/books/time-machine-sources.js';
 // S1-A：结构化故事线确认——来源校验、防重、同轮三方案共享selection、事务原子性。
@@ -64,7 +64,15 @@ describe('S1-A structured storyline selection',()=>{
    const sel=selectionFor(rec,'pv-1');
    const {intent,selectionSnapshot}=validateStorylineSelection(new StorylineSelectionRepository(c.database),scope,sel,'pv-1',sig);
    expect(intent).toContain('主线·成长线（建立工坊）');
-   expect(selectionSnapshot.requestHash).toBe(selectionRequestHash(sel));
+   expect(selectionSnapshot.requestHash).toBe(resolveSelectionRequestHash(new StorylineSelectionRepository(c.database),scope,sel));
+   expect(selectionSnapshot.selectedLines).toEqual([{id:'growth',role:'main',title:'成长线',description:'建立工坊'}]);
+   // 72c3a62f复核第1项：作者编辑的标题/描述进入intent与快照，role恒取服务端推荐；覆盖未勾选的线拒绝
+   const edited=selectionFor(rec,'pv-1',{selectedLines:[{id:'growth',title:'逆袭线',description:'改写命运'}]});
+   const editedResult=validateStorylineSelection(new StorylineSelectionRepository(c.database),scope,edited,'pv-1',sig);
+   expect(editedResult.intent).toContain('主线·逆袭线（改写命运）');
+   expect(editedResult.selectionSnapshot.selectedLines?.[0]).toEqual({id:'growth',role:'main',title:'逆袭线',description:'改写命运'});
+   expect(editedResult.selectionSnapshot.requestHash).not.toBe(selectionSnapshot.requestHash);
+   expect(()=>validateStorylineSelection(new StorylineSelectionRepository(c.database),scope,selectionFor(rec,'pv-1',{selectedLines:[{id:'ally',title:'x',description:'y'}]}),'pv-1',sig)).toThrow('不在本次勾选');
    expect(()=>validateStorylineSelection(new StorylineSelectionRepository(c.database),scope,selectionFor(rec,'pv-1',{selectedLineIds:['nope']}),'pv-1',sig)).toThrow('不在本次推荐');
    expect(()=>validateStorylineSelection(new StorylineSelectionRepository(c.database),scope,selectionFor(rec,'pv-1',{recommendationHash:'bad'}),'pv-1',sig)).toThrow('已更新');
    expect(()=>validateStorylineSelection(new StorylineSelectionRepository(c.database),scope,selectionFor(rec,'pv-1'),'pv-2',sig)).toThrow('设定资料已变化');
@@ -81,7 +89,7 @@ describe('S1-A structured storyline selection',()=>{
    const created=service.startDesignRound(scope,sel,'round-1');
    expect(created.length).toBe(3);
    const snapshots=created.map(item=>JSON.parse(String((c.database.prepare('SELECT snapshot_json FROM tm2_design_runs WHERE id=?').get(item.id) as {snapshot_json:string}).snapshot_json)) as {selection?:{requestHash:string;authorNote:string};members:{writer:{memberKey:string}}});
-   for(const snap of snapshots){expect(snap.selection?.requestHash).toBe(selectionRequestHash(sel));expect(snap.selection?.authorNote).toBe('想多一点群像');}
+   for(const snap of snapshots){expect(snap.selection?.requestHash).toBe(resolveSelectionRequestHash(new StorylineSelectionRepository(c.database),scope,sel));expect(snap.selection?.authorNote).toBe('想多一点群像');}
    expect(new Set(snapshots.map(s=>s.members.writer.memberKey)).size).toBeGreaterThan(1);
    const again=service.startDesignRound(scope,sel,'round-1');
    expect(again.map(x=>x.id).sort()).toEqual(created.map(x=>x.id).sort());
@@ -90,8 +98,21 @@ describe('S1-A structured storyline selection',()=>{
    // 同键同选择：上游版本变化后仍返回原轮（响应丢失不因后来配置变化新开任务；回放不重新就绪）
    versions.value='pv-3';
    expect(service.startDesignRound(scope,sel,'round-1').map(x=>x.id).sort()).toEqual(created.map(x=>x.id).sort());
-   // 新键+过期版本（选择携带旧pv-2，服务端当前已是pv-3）：拒绝创建
-   expect(()=>service.startDesignRound(scope,selectionFor(rec,'pv-2'),'round-1b')).toThrow('设定资料已变化');
+   // 72c3a62f复核第2项：材料已存在后，新键必须带expectedMaterialRevision且内容与当前材料一致
+   expect(()=>service.startDesignRound(scope,sel,'round-1b')).toThrow('故事线资料版本已变化');
+   expect(()=>service.startDesignRound(scope,sel,'round-1b',0)).toThrow('故事线资料版本已变化');
+   // 旧标签页旧选择（内容不同于当前材料）+新键：拒绝，零材料写入/零新轮
+   expect(()=>service.startDesignRound(scope,selectionFor(rec,'pv-2',{authorNote:'旧标签页的别的选择'}),'round-1c',1)).toThrow('内容已变化');
+   expect((c.database.prepare('SELECT COUNT(*) AS n FROM tm2_storyline_materials WHERE book=?').get(scope.bookId) as {n:number}).n).toBe(1);
+   expect((c.database.prepare('SELECT COUNT(*) AS n FROM tm2_design_runs WHERE book_id=? AND kind=\'design\'').get(scope.bookId) as {n:number}).n).toBe(3);
+   // 版本相符+内容一致但上游设定版本过期：拒绝创建
+   expect(()=>service.startDesignRound(scope,sel,'round-1d',1)).toThrow('设定资料已变化');
+   // 版本相符+内容一致+来源一致：读取服务端材料建轮（不新建材料版本）
+   for(const item of created)await service.process(item.id); // 释放在途互斥后再开新轮
+   versions.value='pv-2';
+   const follow=service.startDesignRound(scope,sel,'round-1e',1);
+   expect(follow.length).toBe(3);
+   expect((c.database.prepare('SELECT COUNT(*) AS n FROM tm2_storyline_materials WHERE book=?').get(scope.bookId) as {n:number}).n).toBe(1);
    // intent-only设计入口被拒（不留第二条绕过确认的路径）
    expect(()=>service.start(scope,'design' as never,'自由文字','k')).toThrow('结构化故事线确认');
  });
@@ -104,7 +125,7 @@ describe('S1-A structured storyline selection',()=>{
    const firstId=(c.database.prepare('SELECT id FROM tm2_design_runs WHERE book_id=? AND round_key=? LIMIT 1').get(scope.bookId,'round-2') as {id:string}).id;
    c.database.prepare('UPDATE tm2_design_runs SET snapshot_json=\'{"members":{}}\' WHERE id=?').run(firstId);
    expect(()=>service.startDesignRound(scope,selectionFor(rec,'pv-3'),'round-2')).toThrow('无法核对');
-   expect(service.startDesignRound(scope,selectionFor(rec,'pv-3'),'round-3').length).toBe(3);
+   expect(service.startDesignRound(scope,selectionFor(rec,'pv-3'),'round-3',1).length).toBe(3);
  });
  it('app restart idempotency: new service instance, same key same selection returns original round',async()=>{
    const {c,scope,service,versions}=setup();

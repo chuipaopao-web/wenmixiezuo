@@ -5,14 +5,19 @@ import {StorylineSelectionRepository} from '../../infrastructure/db/repositories
 
 /** S1-A：故事线结构化确认的请求解析、来源校验、规范哈希与供生成intent的构建。
  * 请求边界（不是文学建议）：选择ID≤30、自添线≤20、标题≤80字符、描述≤500、authorNote≤1000、最终intent≤4000。
- * 超限明确提示精简、不截断；名称/描述/role取服务端推荐，不接受客户端改写既有推荐内容。
+ * 超限明确提示精简、不截断；role与线集合取服务端推荐校验，勾选线标题/描述为材料内可编辑正文（推荐原件不变，72c3a62f复核第1项）。
  * 6ad621dd修正：authorNote非字符串直接拒绝（不静默转空串）；DB查询已提取到StorylineSelectionRepository。 */
+
+export interface StorylineMaterialLine { id: string; role: 'main' | 'through' | 'stage'; title: string; description: string }
 
 export interface StorylineSelectionInput {
   recommendationRunId: string;
   recommendationHash: string;
   preparationVersion: string;
   selectedLineIds: string[];
+  /** 勾选推荐线的正文快照：作者可编辑标题/描述（72c3a62f复核第1项），role恒取服务端推荐。
+   * 缺省=未修改，校验时从推荐结果解析补齐；提供时每条id必须在selectedLineIds内。 */
+  selectedLines?: { id: string; title: string; description: string }[];
   addedLines: { title: string; description: string }[];
   shape: 'auto' | 'single' | 'multiple';
   ensemble: boolean;
@@ -66,6 +71,22 @@ export function parseStorylineSelectionContent(raw: unknown): StorylineSelection
     addedLines.push({title, description});
   }
   if (addedLines.length > SELECTION_LIMITS.addedLines) throw bad(`自添故事线最多${SELECTION_LIMITS.addedLines}条，请精简后再确认`);
+  // 勾选线正文快照（可选）：作者编辑后的标题/描述；id须为字符串且去重，role不接受客户端指定
+  let selectedLines: {id: string; title: string; description: string}[] | undefined;
+  if (s.selectedLines !== undefined) {
+    if (!Array.isArray(s.selectedLines)) throw bad('提交格式不正确');
+    selectedLines = [];
+    for (const entry of s.selectedLines) {
+      if (entry === null || typeof entry !== 'object') throw bad('提交格式不正确');
+      const line = entry as Record<string, unknown>;
+      if (typeof line.id !== 'string' || !line.id.trim()) throw bad('提交格式不正确');
+      const title = asTrimmedString(line.title, '故事线标题', SELECTION_LIMITS.title);
+      const description = asTrimmedString(line.description, '故事线描述', SELECTION_LIMITS.description);
+      if (!title) throw bad('故事线标题不能为空');
+      if (!selectedLines.some(item => item.id === line.id)) selectedLines.push({id: line.id, title, description});
+    }
+    if (selectedLines.length > SELECTION_LIMITS.selectedLineIds) throw bad(`勾选故事线最多${SELECTION_LIMITS.selectedLineIds}条，请精简后再确认`);
+  }
   if (!['auto', 'single', 'multiple'].includes(String(s.shape))) throw bad('提交格式不正确');
   if (typeof s.ensemble !== 'boolean') throw bad('提交格式不正确');
   // 严格字符串：authorNote必须始终为字符串（缺失/非字符串都拒绝，不静默丢作者输入）
@@ -73,7 +94,7 @@ export function parseStorylineSelectionContent(raw: unknown): StorylineSelection
   const authorNote = s.authorNote.trim();
   if (authorNote.length > SELECTION_LIMITS.authorNote) throw bad(`作者补充最多${SELECTION_LIMITS.authorNote}字，请精简后再确认`);
   if (selectedLineIds.length + addedLines.length === 0) throw bad('请至少选择或添加一条故事线');
-  return {recommendationRunId: s.recommendationRunId, recommendationHash: s.recommendationHash, preparationVersion: s.preparationVersion, selectedLineIds, addedLines, shape: s.shape as StorylineSelectionInput['shape'], ensemble: s.ensemble, authorNote};
+  return {recommendationRunId: s.recommendationRunId, recommendationHash: s.recommendationHash, preparationVersion: s.preparationVersion, selectedLineIds, ...(selectedLines === undefined ? {} : {selectedLines}), addedLines, shape: s.shape as StorylineSelectionInput['shape'], ensemble: s.ensemble, authorNote};
 }
 
 /** 对成功推荐result_json的规范摘要：前端不可伪造，服务端在state与校验时同口径计算。 */
@@ -103,24 +124,45 @@ function parseRecommendLines(resultJson: string): {lines: RecommendLine[]; struc
 
 function roleLabel(role: string): string { return role === 'main' ? '主线' : role === 'through' ? '支线' : '阶段线'; }
 
-/** 规范requestHash：只覆盖作者可变部分与来源三要素；parse与幂等回放共用同一函数，不依赖属性顺序。 */
-export function selectionRequestHash(selection: StorylineSelectionInput): string {
+/** 解析勾选线正文：作者编辑的标题/描述覆盖推荐原文，role恒取服务端推荐（72c3a62f复核第1项：保留稳定lineId与原推荐来源，推荐原件不变）。
+ * selectedLines缺省=未修改，直接用推荐正文；提供的覆盖条目必须在勾选内。 */
+export function resolveSelectionLines(selection: StorylineSelectionInput, known: ReadonlyMap<string, RecommendLine>): StorylineMaterialLine[] {
+  const overrides = new Map((selection.selectedLines ?? []).map(line => [line.id, line]));
+  for (const id of overrides.keys()) if (!selection.selectedLineIds.includes(id)) throw bad(`修改的故事线不在本次勾选内（${id}），请刷新后重新选择`, 400);
+  return selection.selectedLineIds.map(id => {
+    const base = known.get(id);
+    if (!base) throw bad(`勾选的故事线不在本次推荐内（${id}），请刷新后重新选择`, 400);
+    const override = overrides.get(id);
+    return {id, role: base.role as StorylineMaterialLine['role'], title: override?.title ?? base.title, description: override?.description ?? base.description};
+  });
+}
+
+/** 规范内容哈希：覆盖来源三要素+勾选线正文（含作者编辑）+自添线+展开方式+群像+补充；材料版本与设计轮快照同口径。 */
+export function materialContentHash(content: {recommendationRunId: string; recommendationHash: string; preparationVersion: string; selectedLines: StorylineMaterialLine[]; addedLines: {title: string; description: string}[]; shape: string; ensemble: boolean; authorNote: string}): string {
   return digest(JSON.stringify([
-    selection.recommendationRunId,
-    selection.recommendationHash,
-    selection.preparationVersion,
-    selection.selectedLineIds,
-    selection.addedLines.map(line => [line.title, line.description]),
-    selection.shape,
-    selection.ensemble,
-    selection.authorNote
+    content.recommendationRunId,
+    content.recommendationHash,
+    content.preparationVersion,
+    content.selectedLines.map(line => [line.id, line.role, line.title, line.description]),
+    content.addedLines.map(line => [line.title, line.description]),
+    content.shape,
+    content.ensemble,
+    content.authorNote
   ]));
+}
+
+/** 回放比对用：只解析勾选线正文并计算规范哈希（完整来源校验在validateStorylineSelection）。推荐不可解析时明确拒绝，不静默放行。 */
+export function resolveSelectionRequestHash(repository: StorylineSelectionRepository, scope: {ownerId: string; bookId: string}, selection: StorylineSelectionInput): string {
+  const row = repository.findRecommendationRun(selection.recommendationRunId);
+  if (!row || row.owner_id !== scope.ownerId || row.book_id !== scope.bookId || row.result_json === null) throw bad('推荐不存在或尚未完成，请刷新后重新确认', 404);
+  const {lines} = parseRecommendLines(row.result_json);
+  const known = new Map(lines.map(line => [line.id, line]));
+  return materialContentHash({...selection, selectedLines: resolveSelectionLines(selection, known)});
 }
 
 /** 校验选择来源并构建供生成的intent与规范requestHash。全部为确定性检查，不调用模型。
  * DB读取经StorylineSelectionRepository（6ad621dd第6项）。 */
 export function validateStorylineSelection(repository: StorylineSelectionRepository, scope: {ownerId: string; bookId: string}, selection: StorylineSelectionInput, currentPreparationVersion: string | null, currentManifestSignature: string): {intent: string; selectionSnapshot: StorylineSelectionSnapshot} {
-  const requestHash = selectionRequestHash(selection);
   const row = repository.findRecommendationRun(selection.recommendationRunId);
   if (!row || row.owner_id !== scope.ownerId || row.book_id !== scope.bookId) throw bad('推荐不存在或尚未完成，请刷新后重新确认', 404);
   if (row.kind !== 'recommend' || row.state !== 'succeeded' || row.result_json === null) throw bad('推荐尚未完成，请先等待主编完成推荐', 409);
@@ -131,14 +173,16 @@ export function validateStorylineSelection(repository: StorylineSelectionReposit
   if (manifestSourcesSignature({sources:snapshotSources}) !== currentManifestSignature) throw bad('推荐所依据的资料已变化，请刷新后重新确认故事线', 409);
   const {lines, structure} = parseRecommendLines(row.result_json);
   const known = new Map(lines.map(line => [line.id, line]));
-  for (const id of selection.selectedLineIds) if (!known.has(id)) throw bad(`勾选的故事线不在本次推荐内（${id}），请刷新后重新选择`, 400);
+  // 勾选线正文：作者可编辑标题/描述（材料编辑），role与线集合仍由服务端推荐校验
+  const selectedLines = resolveSelectionLines(selection, known);
+  const requestHash = materialContentHash({...selection, selectedLines});
   const chosen = [
-    ...selection.selectedLineIds.map(id => { const line = known.get(id)!; return `${roleLabel(line.role)}·${line.title}（${line.description}）`; }),
+    ...selectedLines.map(line => `${roleLabel(line.role)}·${line.title}（${line.description}）`),
     ...selection.addedLines.map(line => `${line.title}（${line.description}）`)
   ];
   const structureHint = selection.shape === 'auto' ? (structure === 'multiple' ? '（主编建议多线交织）' : '（主编建议单主线推进）') : '';
   const shapeText = selection.shape === 'auto' ? '由主编推荐' : selection.shape === 'single' ? '单主线推进' : '多线交织';
   const intent = `选择的故事线：${chosen.join('；')}${selection.authorNote ? `。作者补充：${selection.authorNote}` : ''}。故事展开方式：${shapeText}${selection.ensemble ? '；也希望配角拥有自己的完整故事' : ''}${structureHint}`;
   if (intent.length > SELECTION_LIMITS.intent) throw bad(`确认内容过长（最多${SELECTION_LIMITS.intent}字），请精简勾选或补充后再确认`, 400);
-  return {intent, selectionSnapshot: {recommendationRunId: selection.recommendationRunId, recommendationHash: selection.recommendationHash, preparationVersion: selection.preparationVersion, selectedLineIds: selection.selectedLineIds, addedLines: selection.addedLines, shape: selection.shape, ensemble: selection.ensemble, authorNote: selection.authorNote, requestHash}};
+  return {intent, selectionSnapshot: {recommendationRunId: selection.recommendationRunId, recommendationHash: selection.recommendationHash, preparationVersion: selection.preparationVersion, selectedLineIds: selection.selectedLineIds, selectedLines, addedLines: selection.addedLines, shape: selection.shape, ensemble: selection.ensemble, authorNote: selection.authorNote, requestHash}};
 }

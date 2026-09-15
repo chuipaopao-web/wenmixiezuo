@@ -90,16 +90,18 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
   const s=scope(request,request.params.bookId);const body=request.body??{};
   return success(guard(()=>materials.saveDraft(s,body.content,body.baseRevision)),request.id);
  });
- app.post<{Params:{bookId:string};Body:{content?:unknown;expectedRevision?:unknown;idempotencyKey?:unknown}}>('/api/time-machine/books/:bookId/storyline-material',async request=>{
+ app.post<{Params:{bookId:string};Body:{content?:unknown;expectedRevision?:unknown;idempotencyKey?:unknown;previewSignature?:unknown}}>('/api/time-machine/books/:bookId/storyline-material',async request=>{
   const s=scope(request,request.params.bookId);const body=request.body??{};
   const facts=materialSourceFacts(s);
-  return success(guard(()=>materials.save(s,body.content,body.expectedRevision,body.idempotencyKey,facts.preparationVersion,facts.manifestSignature)),request.id);
+  return success(guard(()=>materials.save(s,body.content,body.expectedRevision,body.idempotencyKey,body.previewSignature,facts.preparationVersion,facts.manifestSignature)),request.id);
  });
  app.get<{Params:{bookId:string;volumeId:string}}>('/api/time-machine/books/:bookId/volumes/:volumeId/planning-context',async request=>{
   const s=scope(request,request.params.bookId);
   return success(guard(()=>{
-   const row=db.prepare('SELECT r.snapshot_json FROM tm2_books b JOIN tm2_adoptions a ON a.owner=b.owner AND a.book=b.book AND a.id=b.adoption JOIN tm2_design_runs r ON r.owner_id=a.owner AND r.book_id=a.book AND r.id=a.candidate WHERE b.owner=? AND b.book=?').get(s.ownerId,s.bookId) as {snapshot_json:string}|undefined;
+   const row=db.prepare('SELECT r.snapshot_json,r.needs_redesign FROM tm2_books b JOIN tm2_adoptions a ON a.owner=b.owner AND a.book=b.book AND a.id=b.adoption JOIN tm2_design_runs r ON r.owner_id=a.owner AND r.book_id=a.book AND r.id=a.candidate WHERE b.owner=? AND b.book=?').get(s.ownerId,s.bookId) as {snapshot_json:string;needs_redesign:number}|undefined;
    if(!row)throw new Conflict('请先采用全书方案');
+   // 72c3a62f复核第4项：失效基线不可作为新卷设计输入；旧规划只读展示保留、作者正文不变
+   if(Number(row.needs_redesign)===1)throw new DomainError(errorCodes.validation,'已采用的全书方案基于旧版故事线资料，需重新设计；旧规划保留可查看，正文不受影响',{},true,409);
    const snapshot=JSON.parse(row.snapshot_json) as {intent:string};const plans=new SqlPlanRepository(db);
    plans.syncManifest(s,snapshotTimeMachine(db,s,snapshot.intent,windowTokens).manifest);
    const active=plans.activePlan(s);if(!active)throw new Conflict('请先采用全书方案');
@@ -117,12 +119,14 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
  // S1-A：请求合同改为结构化故事线确认。6ad621dd修正：就绪/版本读取移入startDesignRound事务内
  // （路由注入prerequisiteReader作为服务端事实来源；客户端preparationVersion只作回显比对，不作事实）。
  (service as unknown as {_prerequisiteReader?:(s:{ownerId:string;bookId:string})=>{ready:boolean;message:string;version:string|null}})._prerequisiteReader=(s:{ownerId:string;bookId:string})=>prerequisite(s);
- app.post<{Params:{bookId:string};Body:{idempotencyKey?:unknown;intent?:unknown;selection?:unknown}}>('/api/time-machine/books/:bookId/design-runs',async(request,reply)=>{
+ app.post<{Params:{bookId:string};Body:{idempotencyKey?:unknown;intent?:unknown;selection?:unknown;expectedMaterialRevision?:unknown}}>('/api/time-machine/books/:bookId/design-runs',async(request,reply)=>{
   const s=scope(request,request.params.bookId);const body=request.body??{};
   requirePrepared(s);
   if(typeof body.intent==='string'&&body.intent.length>0)throw new DomainError(errorCodes.validation,'页面已更新：请刷新后重新确认故事线，再开始设计。',{},false,400);
+  // 72c3a62f复核第2项：材料存在后新设计轮必须带expectedMaterialRevision（服务端事务内读取当前正式正文）
+  if(body.expectedMaterialRevision!==undefined&&(!Number.isSafeInteger(body.expectedMaterialRevision)||(body.expectedMaterialRevision as number)<0))throw new DomainError(errorCodes.validation,'修订参数不正确',{},false,400);
   const {idempotencyKey,selection}=parseStorylineSelectionInput(body);
-  const created=guard(()=>service.startDesignRound(s,selection,idempotencyKey));
+  const created=guard(()=>service.startDesignRound(s,selection,idempotencyKey,body.expectedMaterialRevision as number|undefined));
   const states=service.state(s);const runs=created.map(item=>({id:item.id,scheme:item.scheme,state:states.find(row=>row.id===item.id)?.state??'unknown'}));
   reply.code(runs.some(run=>run.state==='queued'||run.state==='working')?202:200);return success({runs},request.id);
  });

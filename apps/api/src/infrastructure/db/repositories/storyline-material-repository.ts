@@ -86,4 +86,10 @@ export class StorylineMaterialRepository {
     const row = this.db.prepare('SELECT a.candidate AS candidate FROM tm2_books b JOIN tm2_adoptions a ON a.owner=b.owner AND a.book=b.book AND a.id=b.adoption WHERE b.owner=? AND b.book=?').get(ownerId, bookId) as {candidate: string} | undefined;
     return row?.candidate;
   }
+
+  /** 影响预览签名用：已采用的候选、候选修订与采用修订（72c3a62f复核第3项）。 */
+  adoptedCandidate(ownerId: string, bookId: string): {candidate: string; candidateRevision: number; adoptionRevision: number} | undefined {
+    const row = this.db.prepare('SELECT a.candidate AS candidate, a.candidate_revision AS candidateRevision, a.revision AS adoptionRevision FROM tm2_books b JOIN tm2_adoptions a ON a.owner=b.owner AND a.book=b.book AND a.id=b.adoption WHERE b.owner=? AND b.book=?').get(ownerId, bookId) as {candidate: string; candidateRevision: number; adoptionRevision: number} | undefined;
+    return row === undefined ? undefined : {candidate: row.candidate, candidateRevision: Number(row.candidateRevision), adoptionRevision: Number(row.adoptionRevision)};
+  }
 }

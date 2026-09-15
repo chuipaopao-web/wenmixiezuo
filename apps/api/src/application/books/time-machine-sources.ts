@@ -17,6 +17,8 @@ export interface StorylineSelectionSnapshot {
   recommendationHash: string;
   preparationVersion: string;
   selectedLineIds: string[];
+  /** 勾选线正文快照（含作者编辑的标题/描述，role取服务端推荐）；旧快照缺省时由推荐回填。 */
+  selectedLines?: { id: string; role: 'main' | 'through' | 'stage'; title: string; description: string }[];
   addedLines: { title: string; description: string }[];
   shape: 'auto' | 'single' | 'multiple';
   ensemble: boolean;

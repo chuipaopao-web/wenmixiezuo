@@ -2,8 +2,9 @@ import {randomUUID} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
 import {SqlPlanRepository,StepRepository,digest,parseCard,parseCandidate,type Candidate,type Scope,type ContextCard} from '@wenmi/time-machine-core';
 import {TimeMachineModelGateway,TimeMachineCallError} from '../../infrastructure/models/time-machine-model-gateway.js';
-import {snapshotTimeMachine,manifestSourcesSignature,type TimeMachineSnapshot} from './time-machine-sources.js';
-import {validateStorylineSelection,selectionRequestHash,canonicalRecommendationHash,type StorylineSelectionInput} from './storyline-selection.js';
+import {snapshotTimeMachine,manifestSourcesSignature,type TimeMachineSnapshot,type StorylineSelectionSnapshot} from './time-machine-sources.js';
+import {validateStorylineSelection,resolveSelectionRequestHash,canonicalRecommendationHash,type StorylineSelectionInput} from './storyline-selection.js';
+import {DomainError,errorCodes} from '../../domain/errors.js';
 import {StorylineSelectionRepository} from '../../infrastructure/db/repositories/storyline-selection-repository.js';
 import {TimeMachineStorylineMaterialService} from './time-machine-storyline-material-service.js';
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
@@ -118,7 +119,7 @@ export class TimeMachineDesignService {
   *  - 已有同键规范请求在归属核查后直接回放，不要求重新就绪（响应丢失后上游变化不重开任务）；
   *  - 快照一致性：先用只含上游签名的空intent快照校验来源，得到规范intent后在同一事务内以最终intent重建完整快照
   *    （manifest的intent哈希、documents的intent正文与保存文本一致，不再只改单字段）。 */
- startDesignRound(scope:Scope,selection:StorylineSelectionInput,key:string):{id:string;scheme:string}[]{
+ startDesignRound(scope:Scope,selection:StorylineSelectionInput,key:string,expectedMaterialRevision?:number):{id:string;scheme:string}[]{
   if(typeof key!=='string'||!key.trim()||key.length>160)throw Error('请求参数错误');
   const selections=new StorylineSelectionRepository(this.db);
   const prerequisiteReader=(this as unknown as {_prerequisiteReader?:(s:Scope)=>{ready:boolean;message:string;version:string|null}|null})._prerequisiteReader?.bind(this)??null;
@@ -128,7 +129,7 @@ export class TimeMachineDesignService {
     let stored:string|undefined;
     try{stored=(JSON.parse(prior.snapshot_json) as {selection?:{requestHash?:string}}).selection?.requestHash;}catch{stored=undefined;}
     if(stored===undefined)throw Error('该操作对应的历史设计无法核对本词选择，请发起新设计');
-    if(stored!==selectionRequestHash(selection))throw Error('同一操作编号已对应其他故事线选择，请刷新页面查看当次设计');
+    if(stored!==resolveSelectionRequestHash(selections,scope,selection))throw Error('同一操作编号已对应其他故事线选择，请刷新页面查看当次设计');
     const rows=selections.listDesignRoundSchemes(scope.ownerId,scope.bookId,key);
     this.db.exec('COMMIT');
     return rows.map(row=>({id:row.id,scheme:row.scheme}));
@@ -138,9 +139,26 @@ export class TimeMachineDesignService {
    if(readiness===null||!readiness.ready||readiness.version===null)throw Error(readiness!==null&&readiness.message?readiness.message:'请先完成设定确认与主编统一整理');
    // 第一遍：空intent快照仅用于上游来源签名校验
    const probe=snapshotTimeMachine(this.db,scope,'',this.windowTokens);
-   const {intent,selectionSnapshot}=validateStorylineSelection(selections,scope,selection,readiness.version,manifestSourcesSignature(probe.manifest));
-   // S1-A阶段二（第25.2节）：确认选择同事务确保故事线资料版本——内容不同先写新版本再建轮，相同不新建、不触发失效
-   new TimeMachineStorylineMaterialService(this.db).ensureFromSelection(scope,selectionSnapshot,key);
+   const materialService=new TimeMachineStorylineMaterialService(this.db);
+   const materialRow=materialService.currentRow(scope);
+   let intent:string;
+   let selectionSnapshot:StorylineSelectionSnapshot;
+   if(materialRow===undefined){
+    // 初次确认：校验客户端选择并同事务建材料v1（72c3a62f复核第2项）
+    if(expectedMaterialRevision!==undefined&&expectedMaterialRevision!==0)throw new DomainError(errorCodes.validation,'故事线资料版本已变化，请刷新页面后核对再开始设计',{currentRevision:0},true,409);
+    const validated=validateStorylineSelection(selections,scope,selection,readiness.version,manifestSourcesSignature(probe.manifest));
+    intent=validated.intent;selectionSnapshot=validated.selectionSnapshot;
+    materialService.ensureFromSelection(scope,selectionSnapshot,key);
+   }else{
+    // 后续设计：版本权威——事务内读取当前正式材料正文构造快照，客户端旧选择不得静默插为最新材料
+    if(!Number.isSafeInteger(expectedMaterialRevision)||expectedMaterialRevision!==materialRow.revision)throw new DomainError(errorCodes.validation,'故事线资料版本已变化，请刷新页面后核对再开始设计',{currentRevision:materialRow.revision},true,409);
+    let storedSnapshot:StorylineSelectionSnapshot;
+    try{storedSnapshot=JSON.parse(materialRow.content_json) as StorylineSelectionSnapshot;}catch{throw new DomainError(errorCodes.validation,'故事线资料版本无法核对，请刷新后重试',{},true,409);}
+    // 客户端选择必须与当前正式材料一致；分歧=未经影响预览确认的修改，拒绝并引导走编辑保存流程
+    if(resolveSelectionRequestHash(selections,scope,selection)!==materialRow.content_hash)throw new DomainError(errorCodes.validation,'故事线资料内容已变化：请先在资料页保存修改并确认影响，或恢复为当前资料内容',{},true,409);
+    const validated=validateStorylineSelection(selections,scope,storedSnapshot,readiness.version,manifestSourcesSignature(probe.manifest));
+    intent=validated.intent;selectionSnapshot=validated.selectionSnapshot;
+   }
    // 第二遍：以最终intent在同一事务内重建完整快照——manifest intent哈希/documents/正文全部一致
    const base=snapshotTimeMachine(this.db,scope,intent,this.windowTokens);
    const writers=base.writers.slice(0,3);
@@ -165,11 +183,13 @@ export class TimeMachineDesignService {
   this.db.prepare("INSERT INTO tm2_design_runs(id,owner_id,book_id,kind,request_key,input_hash,snapshot_json,state,scheme,round_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'queued',?,?,?,?)").run(id,scope.ownerId,scope.bookId,kind,key,hash,JSON.stringify(snapshot),scheme,roundKey,now,now);return id;
  }
  state(scope:Scope){return this.db.prepare('SELECT id,kind,state,result_json,error_code,updated_at,phase,scheme,round_key,needs_redesign,json_extract(snapshot_json,\'$.members\') AS members_json,json_extract(snapshot_json,\'$.intent\') AS intent,json_extract(snapshot_json,\'$.selection\') AS selection_json FROM tm2_design_runs WHERE owner_id=? AND book_id=? ORDER BY created_at DESC LIMIT 12').all(scope.ownerId,scope.bookId).map(row=>{
-  const phase=String(row.phase);const label=phase.startsWith('card-review')?'正在核对资料':phase.startsWith('card')||phase.startsWith('merge')?'正在整理资料':phase.startsWith('methods')?'正在选择设计方法':phase.startsWith('self')?'正在自检方案':phase.startsWith('skeleton')?'正在设计全书骨架':phase.startsWith('volumes')?'正在设计分卷方向':phase.startsWith('review')?'正在核对方案':phase.startsWith('recommend')?'正在推荐故事线':'等待成员接手';
+  // 72c3a62f复核第5项：作者卡片统一"正在工作"，不直出检索/整理等内部步骤；无真实分母不给百分比（不定进度）
+  const phase=String(row.phase);const label=phase===''?'等待成员接手':'正在工作';
   const result=typeof row.result_json==='string'?JSON.parse(row.result_json):null;
   const needsReview=row.kind==='design'&&result?.review?.pass===false;
   const members=JSON.parse(String(row.members_json)) as TimeMachineSnapshot['members'];
-  const activeMember=phase.startsWith('card-review')||phase.startsWith('review')||phase.startsWith('recommend')||(phase.startsWith('methods')&&row.kind==='recommend')?members.chief:phase.startsWith('card')||phase.startsWith('merge')?members.researcher:members.writer;
+  // 审查相位对应实际reviewer（旧快照无reviewer回退chief）；卷卡/骨架/自检等设计相位对应writer
+  const activeMember=phase.startsWith('review')?(members.reviewer??members.chief):phase.startsWith('card-review')||phase.startsWith('recommend')||(phase.startsWith('methods')&&row.kind==='recommend')?members.chief:phase.startsWith('card')||phase.startsWith('merge')?members.researcher:members.writer;
   const failureMessage=phase.startsWith('card')||phase.startsWith('merge')?`资料整理或核对尚未完成，还没有进入${row.kind==='recommend'?'故事线推荐':'方案设计'}。`: '本次工作尚未完成，已保存的步骤会保留。';
   // S1-A：成功推荐附带服务端规范哈希（前端原样带回，服务端再验证）；设计轮投影最小selection供刷新恢复
   let recommendationHash:string|null=null;

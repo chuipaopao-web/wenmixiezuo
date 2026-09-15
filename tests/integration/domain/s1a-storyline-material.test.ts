@@ -3,14 +3,17 @@ import {createTestContext,type TestContext} from '../../helpers/test-context.js'
 import {BookRepository} from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import {TimeMachineDesignService} from '../../../apps/api/src/application/books/time-machine-design-service.js';
 import {TimeMachineModelGateway} from '../../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
-import {selectionRequestHash,type StorylineSelectionInput} from '../../../apps/api/src/application/books/storyline-selection.js';
+import {type StorylineSelectionInput} from '../../../apps/api/src/application/books/storyline-selection.js';
 import {snapshotTimeMachine,manifestSourcesSignature} from '../../../apps/api/src/application/books/time-machine-sources.js';
 import {TimeMachineStorylineMaterialService} from '../../../apps/api/src/application/books/time-machine-storyline-material-service.js';
+import {SqlPlanRepository} from '@wenmi/time-machine-core';
 import {createAppServer} from '../../../apps/api/src/http/app-server.js';
 import {V7SettingEditorialService} from '../../../apps/api/src/application/books/v7-setting-editorial-service.js';
 // S1-A阶段二（TIMEMACHINE_STORY_DESIGN第25节）：故事线资料正式版本、作者编辑与失效标记。
 // 合同清单：确认建v1不重复建版/编辑后旧轮标记+采用409+旧结果可读/保存不触发推荐/下轮读新材料无标记/
 // CAS409+新预览/幂等重复保存/草稿不失效/跨owner-book/事务回滚/预览卷链章"尚未创建"。
+// 72c3a62f复核后追加：材料自含正文可编辑（稳定lineId/推荐原件不变）/版本权威expectedMaterialRevision/
+// 预览签名事务内重算/planning-context失效门禁/工作投影真实成员。
 const contexts:TestContext[]=[];
 afterEach(()=>contexts.splice(0).forEach(c=>c.close()));
 function output(prompt:string):unknown{
@@ -49,8 +52,12 @@ function selectionFor(run:RecRun,preparationVersion:string,overrides:Partial<Sto
 }
 const materialCount=(c:TestContext,bookId:string)=>Number((c.database.prepare('SELECT COUNT(*) AS n FROM tm2_storyline_materials WHERE book=?').get(bookId) as {n:number}).n);
 const staleCount=(c:TestContext,bookId:string)=>Number((c.database.prepare('SELECT COUNT(*) AS n FROM tm2_design_runs WHERE book_id=? AND needs_redesign=1').get(bookId) as {n:number}).n);
+type Facts=()=>{preparationVersion:string;manifestSignature:string};
+/** 保存前先取影响预览签名（72c3a62f复核第3项：保存事务内重算匹配才写）。 */
+const sigOf=(materials:TimeMachineStorylineMaterialService,scope:{ownerId:string;bookId:string},content:StorylineSelectionInput,revision:number,facts:Facts):string=>
+ materials.preview(scope,content,revision,facts().preparationVersion,facts().manifestSignature).signature;
 describe('S1-A stage2 storyline material',()=>{
- it('确认选择建v1（selection-confirm）；同键回放与同内容确认不重复建版；不同内容确认建v2但不触发失效',async()=>{
+ it('确认选择建v1（selection-confirm）；同键回放与同内容确认不重复建版；材料存在后内容分歧的新确认拒绝（版本权威）',async()=>{
    const {c,scope,service,versions,materials}=setup();
    const rec=await succeededRecommend(service,scope,'mat-rec-1');
    versions.value='pv-m1';
@@ -60,16 +67,20 @@ describe('S1-A stage2 storyline material',()=>{
    const v1=materials.current(scope)!;
    expect(v1.revision).toBe(1);expect(v1.createdBy).toBe('selection-confirm');
    expect(v1.content.selectedLineIds).toEqual(['growth']);
+   expect(v1.content.selectedLines).toEqual([{id:'growth',role:'main',title:'成长线',description:'建立工坊'}]);
    // 同键回放：不新建版本
    service.startDesignRound(scope,sel,'mat-round-1');
    expect(materialCount(c,scope.bookId)).toBe(1);
    // 旧轮完结后再开新轮（同一书在途任务互斥是既有行为）
    for(const item of round1)await service.process(item.id);
-   // 不同内容的新确认：建v2，但正常确认不触发失效（第25.2节）
-   service.startDesignRound(scope,selectionFor(rec,'pv-m1',{authorNote:'加点群像'}),'mat-round-2');
-   expect(materialCount(c,scope.bookId)).toBe(2);
-   expect(materials.current(scope)!.revision).toBe(2);
+   // 同内容新轮：带expectedMaterialRevision读取当前材料，不新建版本
+   service.startDesignRound(scope,sel,'mat-round-2',1);
+   expect(materialCount(c,scope.bookId)).toBe(1);
+   // 不同内容的新确认（旧标签页旧选择+新key）：409且零材料写入/零新轮（72c3a62f复核第2项）
+   expect(()=>service.startDesignRound(scope,selectionFor(rec,'pv-m1',{authorNote:'加点群像'}),'mat-round-3',1)).toThrow('内容已变化');
+   expect(materialCount(c,scope.bookId)).toBe(1);
    expect(staleCount(c,scope.bookId)).toBe(0);
+   expect(service.state(scope).filter(r=>r.kind==='design'&&r.roundKey==='mat-round-3').length).toBe(0);
  });
  it('作者编辑保存：旧轮needs_redesign=1且结果保留可读；保存不触发推荐任务；下轮读新材料且无标记',async()=>{
    const {c,scope,service,versions,materials,facts}=setup();
@@ -80,7 +91,7 @@ describe('S1-A stage2 storyline material',()=>{
    for(const item of round)await service.process(item.id);
    const recommendRuns=Number((c.database.prepare("SELECT COUNT(*) AS n FROM tm2_design_runs WHERE book_id=? AND kind='recommend'").get(scope.bookId) as {n:number}).n);
    const edited={...sel,authorNote:'作者改成更多伙伴戏'};
-   const result=materials.save(scope,edited,1,'mat-edit-1',facts().preparationVersion,facts().manifestSignature);
+   const result=materials.save(scope,edited,1,'mat-edit-1',sigOf(materials,scope,edited,1,facts),facts().preparationVersion,facts().manifestSignature);
    expect(result.projection.revision).toBe(2);
    expect(result.projection.createdBy).toBe('author-edit');
    expect(result.markedRuns).toBe(3);
@@ -91,14 +102,82 @@ describe('S1-A stage2 storyline material',()=>{
    const projected=service.state(scope).filter(r=>r.kind==='design');
    expect(projected.length).toBe(3);
    for(const run of projected)expect(run.needsRedesign).toBe(true);
-   // 下轮读取新材料：内容哈希一致不新建版本，新轮无标记
-   const round2=service.startDesignRound(scope,edited,'mat-round-e2');
+   // 下轮读取新材料：内容哈希一致不新建版本，新轮无标记（版本权威：带当前revision）
+   const round2=service.startDesignRound(scope,edited,'mat-round-e2',2);
    expect(round2.length).toBe(3);
    expect(materialCount(c,scope.bookId)).toBe(2);
    const newRuns=service.state(scope).filter(r=>r.kind==='design'&&r.roundKey==='mat-round-e2');
    expect(newRuns.length).toBe(3);
    for(const run of newRuns)expect(run.needsRedesign).toBe(false);
    expect(round[0]!.id).not.toBe(round2[0]!.id);
+ });
+ it('结果正文可编辑：材料自含勾选线正文；编辑保留稳定lineId与role、推荐原件逐字不变；新基线使用修改正文',async()=>{
+   const {c,scope,service,versions,materials,facts}=setup();
+   const rec=await succeededRecommend(service,scope,'mat-rec-lines');
+   versions.value='pv-ml';
+   const sel=selectionFor(rec,'pv-ml',{selectedLineIds:['growth','ally']});
+   const round=service.startDesignRound(scope,sel,'mat-round-l1');
+   for(const item of round)await service.process(item.id);
+   const v1=materials.current(scope)!;
+   expect(v1.content.selectedLines).toEqual([
+     {id:'growth',role:'main',title:'成长线',description:'建立工坊'},
+     {id:'ally',role:'through',title:'伙伴线',description:'结识同伴'}
+   ]);
+   const recResultBefore=String((c.database.prepare('SELECT result_json FROM tm2_design_runs WHERE id=?').get(rec.id) as {result_json:string}).result_json);
+   // 作者直接修改已确认故事线的标题/描述（保留稳定lineId与原推荐来源）
+   const edited={...sel,selectedLines:[{id:'growth',title:'工坊崛起线',description:'从修理工到工坊之主'},{id:'ally',title:'伙伴线',description:'结识同伴'}]};
+   const saved=materials.save(scope,edited,1,'mat-edit-line',sigOf(materials,scope,edited,1,facts),facts().preparationVersion,facts().manifestSignature);
+   expect(saved.projection.revision).toBe(2);
+   expect(saved.projection.content.selectedLines).toEqual([
+     {id:'growth',role:'main',title:'工坊崛起线',description:'从修理工到工坊之主'},
+     {id:'ally',role:'through',title:'伙伴线',description:'结识同伴'}
+   ]);
+   expect(saved.projection.content.recommendationRunId).toBe(rec.id);
+   // 推荐原件逐字不变
+   expect(String((c.database.prepare('SELECT result_json FROM tm2_design_runs WHERE id=?').get(rec.id) as {result_json:string}).result_json)).toBe(recResultBefore);
+   // 材料投影自含正文：不依赖state最新12轮仍含原推荐（投影来自tm2_storyline_materials，以上断言不读runs列表）
+   // 新基线（新设计轮）读取修改后的正文
+   const round2=service.startDesignRound(scope,edited,'mat-round-l2',2);
+   const snap=JSON.parse(String((c.database.prepare('SELECT snapshot_json FROM tm2_design_runs WHERE id=?').get(round2[0]!.id) as {snapshot_json:string}).snapshot_json)) as {intent:string;selection:{selectedLines:{id:string;title:string}[]}};
+   expect(snap.intent).toContain('工坊崛起线');
+   expect(snap.intent).toContain('从修理工到工坊之主');
+   expect(snap.selection.selectedLines[0]).toMatchObject({id:'growth',title:'工坊崛起线'});
+ });
+ it('旧版本读取（迁移兼容）：无selectedLines的旧材料行从原推荐回填正文，不伪造',async()=>{
+   const {c,scope,service,versions,materials}=setup();
+   const rec=await succeededRecommend(service,scope,'mat-rec-old');
+   versions.value='pv-mo';
+   service.startDesignRound(scope,selectionFor(rec,'pv-mo'),'mat-round-o1');
+   c.database.prepare("UPDATE tm2_storyline_materials SET content_json=json_remove(content_json,'$.selectedLines') WHERE book=?").run(scope.bookId);
+   const proj=materials.current(scope)!;
+   expect(proj.content.selectedLines).toEqual([{id:'growth',role:'main',title:'成长线',description:'建立工坊'}]);
+ });
+ it('预览签名绑定：预览后下游采用变化（材料不变）→保存409带新预览且不写入；新签名匹配才保存',async()=>{
+   const {c,scope,service,versions,materials,facts}=setup();
+   const rec=await succeededRecommend(service,scope,'mat-rec-sig');
+   versions.value='pv-ms';
+   const sel=selectionFor(rec,'pv-ms');
+   const round=service.startDesignRound(scope,sel,'mat-round-s1');
+   for(const item of round)await service.process(item.id);
+   const edited={...sel,authorNote:'签名绑定测试修改'};
+   const preview=materials.preview(scope,edited,1,facts().preparationVersion,facts().manifestSignature);
+   expect(preview.signature).toBeTruthy();
+   expect(preview.affectedBaseline).toBe(false);
+   // 预览后下游变化：采用候选A（材料本身未变）
+   const intent=String((JSON.parse(String((c.database.prepare('SELECT snapshot_json FROM tm2_design_runs WHERE id=?').get(round[0]!.id) as {snapshot_json:string}).snapshot_json)) as {intent:string}).intent);
+   const plans=new SqlPlanRepository(c.database);
+   plans.syncManifest(scope,snapshotTimeMachine(c.database,scope,intent,64000).manifest);
+   plans.adopt(scope,round[0]!.id,1,0,'mat-adopt-sig');
+   // 旧签名保存：409影响预览已变化，零写入
+   try{materials.save(scope,edited,1,'mat-edit-sig',preview.signature,facts().preparationVersion,facts().manifestSignature);expect.unreachable();}
+   catch(e){const err=e as {statusCode?:number;message:string;details?:{preview?:{signature:string;affectedBaseline:boolean;downstream:{volumeOutlines:number}}}};expect(err.statusCode).toBe(409);expect(err.message).toContain('影响预览已变化');expect(err.details?.preview?.signature).not.toBe(preview.signature);expect(err.details?.preview?.affectedBaseline).toBe(true);expect(err.details?.preview?.downstream.volumeOutlines).toBe(1);}
+   expect(materialCount(c,scope.bookId)).toBe(1);
+   expect(materials.current(scope)!.revision).toBe(1);
+   // 新预览签名匹配才写
+   const fresh=materials.preview(scope,edited,1,facts().preparationVersion,facts().manifestSignature);
+   expect(fresh.affectedBaseline).toBe(true);
+   const saved=materials.save(scope,edited,1,'mat-edit-sig',fresh.signature,facts().preparationVersion,facts().manifestSignature);
+   expect(saved.projection.revision).toBe(2);
  });
  it('CAS：expectedRevision不符409并返回新预览；同幂等键重复保存返回原版本；同键不同内容409',async()=>{
    const {scope,service,versions,materials,facts}=setup();
@@ -107,16 +186,16 @@ describe('S1-A stage2 storyline material',()=>{
    const sel=selectionFor(rec,'pv-m3');
    service.startDesignRound(scope,sel,'mat-round-c1');
    const edited={...sel,authorNote:'第一次修改'};
-   try{materials.save(scope,edited,0,'mat-edit-cas',facts().preparationVersion,facts().manifestSignature);expect.unreachable();}
+   try{materials.save(scope,edited,0,'mat-edit-cas','any-signature',facts().preparationVersion,facts().manifestSignature);expect.unreachable();}
    catch(e){const err=e as {statusCode?:number;message:string;details?:{preview?:{currentRevision:number}}};expect(err.statusCode).toBe(409);expect(err.message).toContain('版本已变化');expect(err.details?.preview?.currentRevision).toBe(1);}
-   const saved=materials.save(scope,edited,1,'mat-edit-cas',facts().preparationVersion,facts().manifestSignature);
+   const saved=materials.save(scope,edited,1,'mat-edit-cas',sigOf(materials,scope,edited,1,facts),facts().preparationVersion,facts().manifestSignature);
    expect(saved.projection.revision).toBe(2);
-   // 同幂等键同内容：返回原版本，不新建
-   const replay=materials.save(scope,edited,1,'mat-edit-cas',facts().preparationVersion,facts().manifestSignature);
+   // 同幂等键同内容：返回原版本，不新建（回放不重复校验签名）
+   const replay=materials.save(scope,edited,1,'mat-edit-cas','any-signature',facts().preparationVersion,facts().manifestSignature);
    expect(replay.replayed).toBe(true);expect(replay.projection.revision).toBe(2);
    expect(materials.current(scope)!.versions.length).toBe(2);
    // 同幂等键不同内容：409
-   expect(()=>materials.save(scope,{...edited,authorNote:'别的内容'},1,'mat-edit-cas',facts().preparationVersion,facts().manifestSignature)).toThrow('同一操作编号');
+   expect(()=>materials.save(scope,{...edited,authorNote:'别的内容'},1,'mat-edit-cas','any-signature',facts().preparationVersion,facts().manifestSignature)).toThrow('同一操作编号');
  });
  it('草稿：覆盖式保存/恢复，不失效任何后续、不建版本',async()=>{
    const {c,scope,service,versions,materials}=setup();
@@ -174,22 +253,41 @@ describe('S1-A stage2 storyline material',()=>{
    expect(preview.affectedBaseline).toBe(false);
    expect(preview.affectedRuns.length).toBe(3);
    expect(preview.affectedRuns.every(r=>r.alreadyMarked===false)).toBe(true);
-   expect(preview.downstream).toEqual({volumes:'not-created',chains:'not-created',chapters:'not-created'});
+   expect(preview.downstream).toEqual({volumeOutlines:0,volumes:'not-created',chains:'not-created',chapters:'not-created'});
    // 内容未变化：unchanged，无影响清单
    const same=materials.preview(scope,sel,1,facts().preparationVersion,facts().manifestSignature);
    expect(same.unchanged).toBe(true);
    expect(same.affectedRuns.length).toBe(0);
  });
- it('编辑保存校验与确认选择同级：推荐过期/来源变化/超限分别拒绝',async()=>{
+ it('编辑保存校验与确认选择同级：推荐过期/来源变化/超限分别拒绝；缺预览签名拒绝',async()=>{
    const {scope,service,versions,materials,facts}=setup();
    const rec=await succeededRecommend(service,scope,'mat-rec-8');
    versions.value='pv-m8';
    const sel=selectionFor(rec,'pv-m8');
    service.startDesignRound(scope,sel,'mat-round-v1');
-   expect(()=>materials.save(scope,{...sel,recommendationHash:'bad'},1,'mat-edit-v1',facts().preparationVersion,facts().manifestSignature)).toThrow('已更新');
-   expect(()=>materials.save(scope,{...sel,preparationVersion:'pv-old'},1,'mat-edit-v2',facts().preparationVersion,facts().manifestSignature)).toThrow('设定资料已变化');
-   expect(()=>materials.save(scope,{...sel,authorNote:'n'.repeat(1001)},1,'mat-edit-v3',facts().preparationVersion,facts().manifestSignature)).toThrow('1000');
-   expect(()=>materials.save(scope,{...sel,selectedLineIds:['nope']},1,'mat-edit-v4',facts().preparationVersion,facts().manifestSignature)).toThrow('不在本次推荐');
+   expect(()=>materials.save(scope,{...sel,recommendationHash:'bad'},1,'mat-edit-v1','sig',facts().preparationVersion,facts().manifestSignature)).toThrow('已更新');
+   expect(()=>materials.save(scope,{...sel,preparationVersion:'pv-old'},1,'mat-edit-v2','sig',facts().preparationVersion,facts().manifestSignature)).toThrow('设定资料已变化');
+   expect(()=>materials.save(scope,{...sel,authorNote:'n'.repeat(1001)},1,'mat-edit-v3','sig',facts().preparationVersion,facts().manifestSignature)).toThrow('1000');
+   expect(()=>materials.save(scope,{...sel,selectedLineIds:['nope']},1,'mat-edit-v4','sig',facts().preparationVersion,facts().manifestSignature)).toThrow('不在本次推荐');
+   expect(()=>materials.save(scope,{...sel,authorNote:'缺签名'},1,'mat-edit-v5',undefined,facts().preparationVersion,facts().manifestSignature)).toThrow('影响预览');
+ });
+ it('工作投影：审查相位member=实际reviewer、卷卡相位=writer；进行中统一"正在工作"，无真实分母不给百分比',async()=>{
+   const {c,scope,service}=setup();
+   const members={researcher:{memberKey:'r-key',displayName:'研究员'},chief:{memberKey:'c-key',displayName:'主编'},writer:{memberKey:'w-key',displayName:'编剧'},reviewer:{memberKey:'v-key',displayName:'审查'}};
+   const insert=(id:string,phase:string,state:string)=>c.database.prepare("INSERT INTO tm2_design_runs(id,owner_id,book_id,kind,request_key,input_hash,snapshot_json,state,scheme,round_key,phase,created_at,updated_at) VALUES(?,?,?,'design',?,'x',?,?, 'A',?,?, '2026-09-15','2026-09-15')").run(id,scope.ownerId,scope.bookId,`key-${id}`,JSON.stringify({members,intent:''}),state,`rk-${id}`,phase);
+   insert('w-run-review','review-anchors:0','working');
+   insert('w-run-vol','volume-card:0','working');
+   insert('w-run-skeleton','skeleton','working');
+   insert('w-run-queued','','queued');
+   const projected=service.state(scope);
+   const byId=(id:string)=>projected.find(r=>r.id===id)!;
+   expect(byId('w-run-review').member).toEqual({id:'v-key',name:'审查'});
+   expect(byId('w-run-vol').member).toEqual({id:'w-key',name:'编剧'});
+   expect(byId('w-run-skeleton').member).toEqual({id:'w-key',name:'编剧'});
+   expect(byId('w-run-review').progress).toBe('正在工作');
+   expect(byId('w-run-vol').progress).toBe('正在工作');
+   expect(byId('w-run-queued').member).toBeNull();
+   expect(byId('w-run-queued').progress).toBe('等待成员接手');
  });
  it('F-http：采用→编辑保存→基线与旧轮联动标记、采用/人工修订409、旧结果可读、不推荐；state投影storylineMaterial',async()=>{  const c=createTestContext();contexts.push(c);
   c.config.modelRuntime.endpoints.coding.apiKey='fixture-only-no-network';
@@ -230,16 +328,21 @@ describe('S1-A stage2 storyline material',()=>{
    state=await getState();
    expect(state.adopted).not.toBeNull();
    expect(state.adopted!.needsRedesign).toBe(false);
+   // 72c3a62f复核第4项：基线有效时planning-context可用
+   const ctxOk=await app.inject({url:'/api/time-machine/books/mat-http-book/volumes/v1/planning-context',headers:{...headers,cookie}});
+   expect(ctxOk.statusCode,ctxOk.body).toBe(200);
    // 影响预览：基线+三轮受影响，卷/链/章尚未创建
    const editedContent={...selection,authorNote:'作者改为更聚焦宿敌对决'};
    const preview=await app.inject({method:'POST',url:'/api/time-machine/books/mat-http-book/storyline-material/preview',headers:{...headers,cookie},payload:{content:editedContent,expectedRevision:1}});
    expect(preview.statusCode,preview.body).toBe(200);
-   const previewData=preview.json().data as {affectedBaseline:boolean;affectedRuns:{id:string;state:string}[];downstream:{volumes:string};unchanged:boolean;revisionMatch:boolean};
+   const previewData=preview.json().data as {signature:string;affectedBaseline:boolean;affectedRuns:{id:string;state:string}[];downstream:{volumeOutlines:number;volumes:string};unchanged:boolean;revisionMatch:boolean};
    expect(previewData.affectedBaseline).toBe(true);
    expect(previewData.affectedRuns.length).toBe(3);
+   expect(previewData.downstream.volumeOutlines).toBe(1);
    expect(previewData.downstream.volumes).toBe('not-created');
-   // 确认保存（CAS+幂等+同事务失效）
-   const save=await app.inject({method:'POST',url:'/api/time-machine/books/mat-http-book/storyline-material',headers:{...headers,cookie},payload:{content:editedContent,expectedRevision:1,idempotencyKey:'mat-http-edit-1'}});
+   expect(previewData.signature).toBeTruthy();
+   // 确认保存（CAS+预览签名+幂等+同事务失效）
+   const save=await app.inject({method:'POST',url:'/api/time-machine/books/mat-http-book/storyline-material',headers:{...headers,cookie},payload:{content:editedContent,expectedRevision:1,idempotencyKey:'mat-http-edit-1',previewSignature:previewData.signature}});
    expect(save.statusCode,save.body).toBe(200);
    expect(save.json().data.projection.revision).toBe(2);
    state=await getState();
@@ -258,6 +361,25 @@ describe('S1-A stage2 storyline material',()=>{
    expect(JSON.parse(revise.body).error.message).toContain('基于旧版故事线资料');
    // 保存不触发推荐任务
    expect(Number((c.database.prepare("SELECT COUNT(*) AS n FROM tm2_design_runs WHERE book_id=? AND kind='recommend'").get(scope.bookId) as {n:number}).n)).toBe(1);
+   // 72c3a62f复核第4项：失效基线不可作为新卷设计输入；新方案采用后恢复，旧结果保留可读
+   const ctxStale=await app.inject({url:'/api/time-machine/books/mat-http-book/volumes/v1/planning-context',headers:{...headers,cookie}});
+   expect(ctxStale.statusCode).toBe(409);
+   expect(JSON.parse(ctxStale.body).error.message).toContain('基于旧版故事线资料');
+   // 新版本材料开启新设计轮（版本权威：expectedMaterialRevision=2）
+   const redesign=await app.inject({method:'POST',url:'/api/time-machine/books/mat-http-book/design-runs',headers:{...headers,cookie},payload:{idempotencyKey:'mat-http-round-2',selection:editedContent,expectedMaterialRevision:2}});
+   expect(redesign.statusCode,redesign.body).toBe(202);
+   const created2=redesign.json().data.runs as {id:string;scheme:string}[];
+   await waitFor(()=>getState().then(d=>created2.every(item=>d.runs.find(r=>r.id===item.id)?.state==='succeeded')),'新轮三方案完成');
+   state=await getState();
+   const doneNew=state.runs.find(r=>r.id===created2[0]!.id)!;
+   const adoptNew=await app.inject({method:'POST',url:'/api/time-machine/books/mat-http-book/adoptions',headers:{...headers,cookie},payload:{candidateId:created2[0]!.id,revision:doneNew.result!.revision,expectedRevision:1,idempotencyKey:'mat-http-adopt-2'}});
+   expect(adoptNew.statusCode,adoptNew.body).toBe(200);
+   state=await getState();
+   expect(state.adopted!.needsRedesign).toBe(false);
+   const ctxRecover=await app.inject({url:'/api/time-machine/books/mat-http-book/volumes/v1/planning-context',headers:{...headers,cookie}});
+   expect(ctxRecover.statusCode,ctxRecover.body).toBe(200);
+   // 旧轮结果保留可读（仍带失效标记）
+   for(const run of state.runs.filter(r=>r.kind==='design'&&created.some(item=>item.id===r.id))){expect(run.needsRedesign).toBe(true);expect(run.result).not.toBeNull();}
    spy.mockRestore();
   }finally{vi.restoreAllMocks();await app.close();}
  },120000);
