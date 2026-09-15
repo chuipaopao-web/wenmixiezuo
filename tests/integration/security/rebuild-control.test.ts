@@ -31,6 +31,8 @@ describe('重构管理后台文档与运行证据', () => {
     const signup = plan.units.find((unit) => unit.id === 'RB-01')!;
     expect(signup.frontend).toBe('未开始');
     expect(signup.acceptance).toBe('未验证');
+    expect(signup.deployment).toBe('已发布(后端)');
+    expect(plan.units.find((unit) => unit.id === 'RB-12')?.deployment).toBe('已发布(后端部分)');
     expect(signup.details.find((item) => item.label === '重点验收')?.text).toContain('重复邮箱并发');
     expect(plan.units.find((unit) => unit.id === 'RB-00.1')?.sourceFeatures.some((item) => item.id === 'F-1206')).toBe(true);
     // Never mistake the same coverage feature mentioned in multiple units for new features.
@@ -52,6 +54,7 @@ describe('重构管理后台文档与运行证据', () => {
   it.each([
     ['丢失卡片', (text: string) => text.replace('### RB-01 注册页', '### 注册页已误删编号')],
     ['未知进度', (text: string) => text.replace('| 待讨论 | 未开始 | 未开始 | 未验证 |', '| 待讨论 | 完美完成 | 未开始 | 未验证 |')],
+    ['未登记发布状态', (text: string) => text.replace('| 未验证 | 已发布(后端) |', '| 未验证 | 已发布(前端) |')],
     ['无效依赖', (text: string) => text.replace('| 注册页 | RB-00 |', '| 注册页 | RB-61 |')],
     ['未开发却验收通过', (text: string) => text.replace('| 待讨论 | 未开始 | 未开始 | 未验证 |', '| 待讨论 | 未开始 | 未开始 | 通过 |')],
     ['重复当前批次', (text: string) => withCurrentProgress(text).replace(`- **当前工作**：${expectedCurrentWork}`, '- **当前批次**：第122批：重复登记')],

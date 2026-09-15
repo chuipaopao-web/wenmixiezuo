@@ -15,7 +15,7 @@ const STATUS_VALUES = [
   ['未开始', '开发中', '已实现', '不适用'],
   ['未开始', '开发中', '已实现', '不适用'],
   ['未验证', '验收中', '通过', '未通过', '阻塞', '不适用'],
-  ['未发布', '试用中', '已发布', '已回退', '不适用']
+  ['未发布', '试用中', '已发布', '已发布(后端)', '已发布(后端部分)', '已回退', '不适用']
 ];
 
 // These are explicit associations with current V7 audit categories, not claims that
