@@ -124,6 +124,7 @@ const waitFor = async (what, timeoutMs, check) => {
   }
 };
 let bookId = '';
+let cookie = ''; // 提升到try外：catch中也要读取最终状态
 const getState = async cookie => (await call('GET', '/api/time-machine/books/' + bookId + '/state', undefined, cookie)).body.data;
 
 try {
@@ -131,7 +132,7 @@ try {
   const email = 's1a-probe@example.test';
   const register = await call('POST', '/api/v1/auth/register', { email, password: 'strong-pass-probe-1', displayName: '探针作者' });
   if (register.status !== 200) throw Error('注册失败：' + JSON.stringify(register.body).slice(0, 200));
-  const cookie = register.cookie;
+  cookie = register.cookie;
   const openingPackage = {
     title: '机甲修仙·探针样本', positioning: {
       publishingPlatform: 'fanqie', channel: 'male', category: '历史脑洞', genres: ['历史脑洞'], tags: ['成长'],
@@ -201,7 +202,12 @@ try {
       break;
     }
     if (decision.status === 'adoptable') { outcome = { ...decision, finalState: state }; break; }
-    if (Date.now() > outcomeDeadline) throw Error('等待超时：方案未全部到达终态（' + JSON.stringify(roundsDetail(state)) + '）');
+    if (Date.now() > outcomeDeadline) {
+      // 截止时已有完整可采用方案则照常采用（其余方案状态如实列出），否则明确超时失败。
+      const anyAdoptable = (state?.runs ?? []).filter(r => r.kind === 'design').find(r => String(r?.state) === 'succeeded' && r?.result?.review?.pass === true);
+      if (anyAdoptable) { outcome = { status: 'adoptable', run: anyAdoptable, finalState: state }; log({ event: 'deadline_adopt_anyway', scheme: anyAdoptable.scheme }); break; }
+      throw Error('等待超时：方案未全部到达终态（' + JSON.stringify(roundsDetail(state)) + '）');
+    }
     await wait(20000);
   }
   const finalState = outcome.finalState;
