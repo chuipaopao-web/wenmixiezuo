@@ -194,7 +194,9 @@ try {
   const roundsDetail = state => (state?.runs ?? []).filter(r => r.kind === 'design').map(r => ({ scheme: r.scheme, state: r.state, phase: r.phase ?? null, message: r.message ?? null,
     verdict: String(r?.state) === 'succeeded' ? (r?.result?.review?.pass === true ? 'pass' : 'revise') : null }));
   let outcome = null;
-  const outcomeDeadline = Date.now() + 45 * 60000;
+  // run4实测：真实模型单次2—3分钟、三套方案串行执行，单套约45—75分钟；45分钟上限不足以等到首套可采用。
+  // 有一套可采用即立即采用（不等其他方案），上限按首套完成+余量设定；墙钟仍由外层timeout硬限制。
+  const outcomeDeadline = Date.now() + 150 * 60000;
   for (;;) {
     const state = await getState(cookie);
     const decision = decideProbeOutcome((state?.runs ?? []).filter(r => r.kind === 'design'));
