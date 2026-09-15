@@ -383,4 +383,56 @@ describe('S1-A stage2 storyline material',()=>{
    spy.mockRestore();
   }finally{vi.restoreAllMocks();await app.close();}
  },120000);
+
+ it('422a48c7复核：旧版本设计请求真实HTTP 409且retryable=false、零新轮（确定性拒绝合同）',async()=>{  const c=createTestContext();contexts.push(c);
+  c.config.modelRuntime.endpoints.coding.apiKey='fixture-only-no-network';
+  c.config.modelRuntime.endpoints.agent.apiKey='fixture-only-no-network';
+  const app=await createAppServer(c.config,c.database,{timeMachineWindowTokens:64000,v7OpeningModelAdapters:{resolve:(provider:string,modelId:string)=>({provider,modelId,async generate(request:{prompt:string}){return {provider,modelId,output:JSON.stringify(output(request.prompt)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded' as const};}})}});
+  try{
+   const headers={host:'127.0.0.1:43111',origin:c.config.webOrigin,'sec-fetch-site':'same-origin','content-type':'application/json'};
+   const register=await app.inject({method:'POST',url:'/api/v1/auth/register',headers,payload:{email:'mat409@example.com',displayName:'测试',password:'Strong-test-pass-123!'}});
+   expect(register.statusCode,register.body).toBe(200);
+   const cookie=String(register.headers['set-cookie']).split(';')[0]!;
+   const ownerId=String((c.database.prepare('SELECT owner_id FROM user_accounts WHERE email_normalized=?').get('mat409@example.com') as {owner_id:string}).owner_id);
+   const scope={ownerId,bookId:'mat409-book'};
+   new BookRepository(c.database).create(scope,'旧版本拒绝书','2026-09-16','active');
+   c.database.prepare("INSERT INTO book_opening_blueprints VALUES('opening',?,?,1,'v1','male','fantasy','玄幻',?,?,'active','2026-09-16')").run(scope.ownerId,scope.bookId,JSON.stringify({protagonists:['林舟'],storyDirection:'无灵根修理工建立工坊'}),'a'.repeat(64));
+   const spy=vi.spyOn(V7SettingEditorialService.prototype,'timeMachinePrerequisite').mockReturnValue({ready:true,message:'已确认',version:'v-mat409'});
+   type RunView={id:string;kind:string;state:string;roundKey:string|null;recommendationHash?:string|null;preparationVersion?:string|null};
+   const getState=async()=>(await app.inject({url:'/api/time-machine/books/mat409-book/state',headers:{...headers,cookie}})).json().data as {runs:RunView[];storylineMaterial:{revision:number}|null};
+   const waitFor=async(check:()=>Promise<boolean>|boolean,what:string)=>{const start=Date.now();while(Date.now()-start<100000){if(await check())return;await new Promise(r=>setTimeout(r,250));}throw Error(`等待超时：${what}`);};
+   // 推荐→确认建材料v1并开首轮三方案
+   const recStart=await app.inject({method:'POST',url:'/api/time-machine/books/mat409-book/recommendation-runs',headers:{...headers,cookie},payload:{intent:'',idempotencyKey:'mat409-rec'}});
+   expect(recStart.statusCode,recStart.body).toBe(202);
+   await waitFor(()=>getState().then(d=>d.runs.some(r=>r.kind==='recommend'&&r.state==='succeeded')),'推荐完成');
+   const recRun=(await getState()).runs.find(r=>r.kind==='recommend'&&r.state==='succeeded')!;
+   const selection={recommendationRunId:recRun.id,recommendationHash:String(recRun.recommendationHash),preparationVersion:String(recRun.preparationVersion),selectedLineIds:['growth'],addedLines:[{title:'宿敌线',description:'对手改变彼此'}],shape:'auto' as const,ensemble:true,authorNote:'想多写伙伴的成长'};
+   const designStart=await app.inject({method:'POST',url:'/api/time-machine/books/mat409-book/design-runs',headers:{...headers,cookie},payload:{idempotencyKey:'mat409-round-1',selection}});
+   expect(designStart.statusCode,designStart.body).toBe(202);
+   const created=designStart.json().data.runs as {id:string;scheme:string}[];
+   await waitFor(()=>getState().then(d=>created.every(item=>d.runs.find(r=>r.id===item.id)?.state==='succeeded')),'首轮三方案完成');
+   expect((await getState()).storylineMaterial?.revision).toBe(1);
+   // 保存v2（作者另一标签页编辑生效）
+   const editedContent={...selection,authorNote:'作者改为更聚焦宿敌对决'};
+   const preview=await app.inject({method:'POST',url:'/api/time-machine/books/mat409-book/storyline-material/preview',headers:{...headers,cookie},payload:{content:editedContent,expectedRevision:1}});
+   expect(preview.statusCode,preview.body).toBe(200);
+   const save=await app.inject({method:'POST',url:'/api/time-machine/books/mat409-book/storyline-material',headers:{...headers,cookie},payload:{content:editedContent,expectedRevision:1,idempotencyKey:'mat409-edit-1',previewSignature:(preview.json().data as {signature:string}).signature}});
+   expect(save.statusCode,save.body).toBe(200);
+   expect((await getState()).storylineMaterial?.revision).toBe(2);
+   // 旧标签页冻结v1的恢复请求（新幂等键）：HTTP409、error.retryable=false、零新轮
+   const stale=await app.inject({method:'POST',url:'/api/time-machine/books/mat409-book/design-runs',headers:{...headers,cookie},payload:{idempotencyKey:'mat409-stale-retry',selection,expectedMaterialRevision:1}});
+   expect(stale.statusCode,stale.body).toBe(409);
+   const staleError=(JSON.parse(stale.body) as {error:{message:string;retryable:boolean;details:{currentRevision:number}}}).error;
+   expect(staleError.retryable).toBe(false);
+   expect(staleError.message).toContain('故事线资料版本已变化');
+   expect(staleError.details.currentRevision).toBe(2);
+   expect(Number((c.database.prepare("SELECT COUNT(*) AS n FROM tm2_design_runs WHERE book_id=? AND round_key='mat409-stale-retry'").get(scope.bookId) as {n:number}).n)).toBe(0);
+   // 同键再次回放同一旧请求：仍是409确定性拒绝，不创建任何运行（幂等回放优先仅适用于已成功建轮的键）
+   const replay=await app.inject({method:'POST',url:'/api/time-machine/books/mat409-book/design-runs',headers:{...headers,cookie},payload:{idempotencyKey:'mat409-stale-retry',selection,expectedMaterialRevision:1}});
+   expect(replay.statusCode,replay.body).toBe(409);
+   expect((JSON.parse(replay.body) as {error:{retryable:boolean}}).error.retryable).toBe(false);
+   expect(Number((c.database.prepare("SELECT COUNT(*) AS n FROM tm2_design_runs WHERE book_id=? AND round_key='mat409-stale-retry'").get(scope.bookId) as {n:number}).n)).toBe(0);
+   spy.mockRestore();
+  }finally{vi.restoreAllMocks();await app.close();}
+ },120000);
 });

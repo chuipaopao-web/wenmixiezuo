@@ -827,6 +827,7 @@ describe('time machine direction page', () => {
   }, 20000);
 
   // 1dbed5cd复核：恢复期间资料已被改为v2→重试仍用冻结的v1（不自动改成新版本绕过作者确认），服务端409终结未决、零新轮
+  // 422a48c7复核：mock响应与真实后端合同逐字对齐（startDesignRound材料版本冲突retryable=false，真实HTTP反例见s1a-storyline-material）
   it('pending retry keeps the frozen revision when material changed during recovery; server 409 ends it with no new round', async () => {
     try {
       let state = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture() });
@@ -838,8 +839,8 @@ describe('time machine direction page', () => {
           const raw = String(init?.body);
           designPosts.push({ key: (JSON.parse(raw) as { idempotencyKey: string }).idempotencyKey, body: raw });
           if (designPosts.length === 1) throw new TypeError('network went away'); // 首发根本没到服务端
-          // 服务端版本门禁：冻结的v1与当前v2不符→409明确拒绝、零新轮
-          return { ok: false, status: 409, json: async () => ({ error: { message: '故事线资料已变化，请核对最新资料后重新确认', retryable: false } }) } as Response;
+          // 服务端版本门禁真实合同：冻结的v1与当前v2不符→409、retryable=false、details带当前版本，零新轮
+          return { ok: false, status: 409, json: async () => ({ error: { code: 'VALIDATION_ERROR', message: '故事线资料版本已变化，请刷新页面后核对再开始设计', details: { currentRevision: 2 }, retryable: false } }) } as Response;
         }
         throw new Error(`Unexpected request: ${url}`);
       }));
@@ -861,6 +862,13 @@ describe('time machine direction page', () => {
       await new Promise(resolve => { setTimeout(resolve, 100); });
       expect(designPosts).toHaveLength(2);
       expect(designPosts.every(post => (JSON.parse(post.body) as { expectedMaterialRevision?: number }).expectedMaterialRevision === 1)).toBe(true);
+      // 清除未决后再次刷新：无记录可恢复，不再重发任何设计请求
+      cleanup();
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />, 'owner-stale');
+      expect(await screen.findByText('已选 2 条故事线')).toBeVisible();
+      await new Promise(resolve => { setTimeout(resolve, 100); });
+      expect(designPosts).toHaveLength(2);
+      expect(window.sessionStorage.getItem('wenmi:design-pending:owner-stale:bk-1')).toBeNull();
     } finally { window.sessionStorage.clear(); }
   }, 20000);
 });

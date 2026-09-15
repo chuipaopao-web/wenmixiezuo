@@ -143,19 +143,21 @@ export class TimeMachineDesignService {
    const materialRow=materialService.currentRow(scope);
    let intent:string;
    let selectionSnapshot:StorylineSelectionSnapshot;
+   // 422a48c7复核：以下材料版本/快照/内容冲突是需作者重新核对的确定性拒绝，retryable=false——
+   // 页面据此清除未决记录、不自动重发；网络/5xx仍按结果未知保留未决。限本组，不改其他409合同。
    if(materialRow===undefined){
     // 初次确认：校验客户端选择并同事务建材料v1（72c3a62f复核第2项）
-    if(expectedMaterialRevision!==undefined&&expectedMaterialRevision!==0)throw new DomainError(errorCodes.validation,'故事线资料版本已变化，请刷新页面后核对再开始设计',{currentRevision:0},true,409);
+    if(expectedMaterialRevision!==undefined&&expectedMaterialRevision!==0)throw new DomainError(errorCodes.validation,'故事线资料版本已变化，请刷新页面后核对再开始设计',{currentRevision:0},false,409);
     const validated=validateStorylineSelection(selections,scope,selection,readiness.version,manifestSourcesSignature(probe.manifest));
     intent=validated.intent;selectionSnapshot=validated.selectionSnapshot;
     materialService.ensureFromSelection(scope,selectionSnapshot,key);
    }else{
     // 后续设计：版本权威——事务内读取当前正式材料正文构造快照，客户端旧选择不得静默插为最新材料
-    if(!Number.isSafeInteger(expectedMaterialRevision)||expectedMaterialRevision!==materialRow.revision)throw new DomainError(errorCodes.validation,'故事线资料版本已变化，请刷新页面后核对再开始设计',{currentRevision:materialRow.revision},true,409);
+    if(!Number.isSafeInteger(expectedMaterialRevision)||expectedMaterialRevision!==materialRow.revision)throw new DomainError(errorCodes.validation,'故事线资料版本已变化，请刷新页面后核对再开始设计',{currentRevision:materialRow.revision},false,409);
     let storedSnapshot:StorylineSelectionSnapshot;
-    try{storedSnapshot=JSON.parse(materialRow.content_json) as StorylineSelectionSnapshot;}catch{throw new DomainError(errorCodes.validation,'故事线资料版本无法核对，请刷新后重试',{},true,409);}
+    try{storedSnapshot=JSON.parse(materialRow.content_json) as StorylineSelectionSnapshot;}catch{throw new DomainError(errorCodes.validation,'故事线资料版本无法核对，请刷新后重试',{},false,409);}
     // 客户端选择必须与当前正式材料一致；分歧=未经影响预览确认的修改，拒绝并引导走编辑保存流程
-    if(resolveSelectionRequestHash(selections,scope,selection)!==materialRow.content_hash)throw new DomainError(errorCodes.validation,'故事线资料内容已变化：请先在资料页保存修改并确认影响，或恢复为当前资料内容',{},true,409);
+    if(resolveSelectionRequestHash(selections,scope,selection)!==materialRow.content_hash)throw new DomainError(errorCodes.validation,'故事线资料内容已变化：请先在资料页保存修改并确认影响，或恢复为当前资料内容',{},false,409);
     const validated=validateStorylineSelection(selections,scope,storedSnapshot,readiness.version,manifestSourcesSignature(probe.manifest));
     intent=validated.intent;selectionSnapshot=validated.selectionSnapshot;
    }
