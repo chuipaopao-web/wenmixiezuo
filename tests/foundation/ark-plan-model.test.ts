@@ -12,6 +12,27 @@ const request = {
   maxOutputTokens: 100
 };
 
+describe('显式推理余量（tm2-node-budget-v2）', () => {
+  it('覆盖值直接决定max_tokens，不再按默认策略折算', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.max_tokens).toBe(8000 + 24_000);
+      return Response.json({ content: [{ type: 'text', text: '{}' }] });
+    });
+    const adapter = new ArkPlanModelAdapter({ plan: 'coding', provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding', apiKey: 'test', purpose: 'structured_planning' }, fetchImpl);
+    await adapter.generate({ ...request, maxOutputTokens: 8000, thinkingHeadroomTokens: 24_000 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+  it.each([-1, 64_001, 1.5, Number.NaN])('非法覆盖值%j在发送前拒绝', async (headroom) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const adapter = new ArkPlanModelAdapter({ plan: 'coding', provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding', apiKey: 'test', purpose: 'structured_planning' }, fetchImpl);
+    await expect(adapter.generate({ ...request, maxOutputTokens: 8000, thinkingHeadroomTokens: headroom })).rejects.toThrow('显式推理余量');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
 describe('火山方舟严格套餐适配器', () => {
   it.each([
     ['glm-5.3','opening_design',true],['glm-5.3',undefined,false],

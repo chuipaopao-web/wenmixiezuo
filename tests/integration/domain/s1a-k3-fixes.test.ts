@@ -1,7 +1,7 @@
 import {describe,it,expect,afterEach} from 'vitest';
 import {createTestContext,type TestContext} from '../../helpers/test-context.js';
 import {BookRepository} from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
-import {TimeMachineDesignService} from '../../../apps/api/src/application/books/time-machine-design-service.js';
+import {TimeMachineDesignService,timeMachineSynthesisHeadroom} from '../../../apps/api/src/application/books/time-machine-design-service.js';
 import {TimeMachineModelGateway} from '../../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
 import {StorylineSelectionInput} from '../../../apps/api/src/application/books/storyline-selection.js';
 // K3批（14b58cae复核后第一项）反例与回归：
@@ -9,14 +9,16 @@ import {StorylineSelectionInput} from '../../../apps/api/src/application/books/s
 // ② 修订时volume-card携带本卷旧内容及其顶层锚点，不整轮无差别重写；
 // ③ 骨架无固定条数上限：至少7条有效选择（含自添线）全部有可核对去向（covers）；
 // ④ 覆盖缺失/合并给精确反馈一次局部修复，不静默丢弃作者方向；
-// ⑤ keywords/aliases机械归一化保留原始输出并落可审查记录。全部离线夹具，不调用真实模型。
+// ⑤ keywords/aliases机械归一化保留原始输出并落可审查记录；
+// ⑥ 审查阻塞问题超单次上限时有界续批收齐（hasMoreIssues），不硬截清单；⑦ 大综合节点推理余量按实测放大。全部离线夹具，不调用真实模型。
 const contexts:TestContext[]=[];
 afterEach(()=>contexts.splice(0).forEach(c=>c.close()));
-interface Counters{skeletonAttempts:number;seenPrompts:string[]}
+interface Counters{skeletonAttempts:number;reviewMoreAttempts:number;seenPrompts:string[]}
 type Overrides={
  recommend?:()=>unknown;
  skeleton?:(prompt:string,attempt:number)=>unknown;
  review?:(attempt:number)=>unknown;
+ reviewMore?:(attempt:number)=>unknown;
  volume?:(briefId:string,lineIds:string[])=>unknown;
 };
 function lineFor(id:string,role:string,title:string,covers:string[]){return {id,role,title,goal:'目标',answer:'收束',process:'过程方向',parentIds:[],covers,milestones:[{id:`${id}-ms`,summary:'落点',suggestedVolumes:['v1'],importance:'flexible'}]};}
@@ -38,6 +40,7 @@ function makeGateway(c:TestContext,overrides:Overrides,counters:Counters){
    }
    if(p.includes('自检你刚完成')||p.includes('自检候选锚点'))return result(provider,modelId,{pass:true,issues:[]});
    if(p.includes('核对候选锚点'))return result(provider,modelId,{pass:true,issues:[],suggestions:[]});
+   if(p.includes('只返回尚未报告的其余阻塞问题')){counters.reviewMoreAttempts++;return result(provider,modelId,overrides.reviewMore?overrides.reviewMore(counters.reviewMoreAttempts):{pass:false,issues:[],suggestions:[],hasMoreIssues:false});}
    if(p.includes('核对候选骨架'))return result(provider,modelId,overrides.review?overrides.review(1):{action:'verdict',pass:true,issues:[],suggestions:[]});
    return result(provider,modelId,{fields:{premise:[{text:'修理工建立工坊',sourceKeys:['opening:opening:1']}],protagonists:[{text:'林舟',sourceKeys:['opening:opening:1']}],world:[],openingEnding:[],preferences:[],prohibitions:[]}});
   }});
@@ -56,7 +59,7 @@ async function recommend(service:TimeMachineDesignService,scope:{ownerId:string;
 function selectionFor(run:{id:string;recommendationHash?:string|null},overrides:Partial<StorylineSelectionInput>={}):StorylineSelectionInput{return {recommendationRunId:run.id,recommendationHash:String(run.recommendationHash),preparationVersion:'pv-k3',selectedLineIds:['growth'],addedLines:[],shape:'auto',ensemble:true,authorNote:'希望更热血一点',...overrides};}
 describe('K3 batch: volume-card inputs, storyline coverage, normalization audit',()=>{
  it('volume-card initial generation carries the frozen formal card and the author requirements',async()=>{
-  const counters:Counters={skeletonAttempts:0,seenPrompts:[]};
+  const counters:Counters={skeletonAttempts:0,reviewMoreAttempts:0,seenPrompts:[]};
   const {scope,service}=setup({},counters,'k3-input-book');
   const rec=await recommend(service,scope,'k3-input-rec');
   const created=service.startDesignRound(scope,selectionFor(rec),'k3-input-round');
@@ -73,7 +76,7 @@ describe('K3 batch: volume-card inputs, storyline coverage, normalization audit'
   }
  });
  it('volume-card revision carries the old version of that volume with its top-level anchors, not the whole plan',async()=>{
-  const counters:Counters={skeletonAttempts:0,seenPrompts:[]};
+  const counters:Counters={skeletonAttempts:0,reviewMoreAttempts:0,seenPrompts:[]};
   // 第一次全书审查revise→修订轮；修订后过审
   let reviewCalls=0;
   const {scope,service}=setup({review:()=>{reviewCalls++;return reviewCalls===1?{action:'verdict',pass:false,issues:['卷A开场文字与锚点条件不一致'],suggestions:[]}:{action:'verdict',pass:true,issues:[],suggestions:[]};}},counters,'k3-rev-book');
@@ -96,7 +99,7 @@ describe('K3 batch: volume-card inputs, storyline coverage, normalization audit'
  });
  it('seven valid selections (including author-added lines) all get a traceable line, no fixed cap',async()=>{
   const titles=['成长主线','伙伴同行','宿敌对抗','家园重建','秘境探索'];
-  const counters:Counters={skeletonAttempts:0,seenPrompts:[]};
+  const counters:Counters={skeletonAttempts:0,reviewMoreAttempts:0,seenPrompts:[]};
   const {scope,service}=setup({
    recommend:()=>({greeting:'老板，推荐如下',lines:titles.map((title,i)=>({id:`l${i+1}`,role:i===0?'main':'through',title,description:`${title}说明`,recommended:i===0})),structure:'multiple',reason:'多线并行'}),
    skeleton:()=>({structure:'四幕起承转合',baseline:'轻快成长',ending:'建立工坊',openingHooks:['开头钩子','第一章钩子','前三章钩子'],words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'},
@@ -118,7 +121,7 @@ describe('K3 batch: volume-card inputs, storyline coverage, normalization audit'
   expect(plan.lines.length).toBe(7); // 7条作者故事线各有独立去向，未被压缩合并
  });
  it('missing or merged coverage gets one precise repair naming the dropped author lines',async()=>{
-  const counters:Counters={skeletonAttempts:0,seenPrompts:[]};
+  const counters:Counters={skeletonAttempts:0,reviewMoreAttempts:0,seenPrompts:[]};
   const full={structure:'四幕起承转合',baseline:'轻快成长',ending:'建立工坊',openingHooks:['开头钩子','第一章钩子','前三章钩子'],words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'},
    lines:[lineFor('main','main','工坊',['成长线']),lineFor('rival','through','宿敌',['宿敌线'])],
    expectations:[{id:'promise',opening:'期待',change:'变化',answer:'回应',lineIds:['main']}],relations:[],volumeBriefs:[{id:'v1',title:'开张',goal:'建立工坊',words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'}}]};
@@ -141,7 +144,7 @@ describe('K3 batch: volume-card inputs, storyline coverage, normalization audit'
   expect(repairPrompt).toContain('不得把作者不同方向合并到同一条线');
  });
  it('keywords/aliases trimming keeps the raw step output and writes an auditable normalization record',async()=>{
-  const counters:Counters={skeletonAttempts:0,seenPrompts:[]};
+  const counters:Counters={skeletonAttempts:0,reviewMoreAttempts:0,seenPrompts:[]};
   const many=Array.from({length:19},(_,i)=>`检索词${i+1}`);
   const {c,scope,service}=setup({volume:(briefId)=>volumeCardFor(briefId,['main'],many)},counters,'k3-norm-book');
   const rec=await recommend(service,scope,'k3-norm-rec');
@@ -160,5 +163,62 @@ describe('K3 batch: volume-card inputs, storyline coverage, normalization audit'
   // 原始模型输出在步骤记录中逐字保留（含被裁掉的第19个词），归一化只是系统侧合同处理
   const step=c.database.prepare("SELECT output FROM tm2_steps WHERE id=?").get(`${runId}:volume-card:0`) as {output:string};
   expect(step.output).toContain('检索词19');
+ });
+ it('blocking issues beyond one batch are collected via bounded continuation and merged without duplicates',async()=>{
+  const counters:Counters={skeletonAttempts:0,reviewMoreAttempts:0,seenPrompts:[]};
+  let reviewCalls=0;
+  const {c,scope,service}=setup({
+   review:()=>{reviewCalls++;return reviewCalls===1
+    ?{action:'verdict',pass:false,issues:['问题1：卷A字数不足','问题2：主线2无落点'],suggestions:[],hasMoreIssues:true}
+    :{action:'verdict',pass:true,issues:[],suggestions:[]};},
+   reviewMore:()=>({pass:false,issues:['问题1：卷A字数不足','问题3：卷B收束未兑现'],suggestions:[],hasMoreIssues:false}),
+  },counters,'k3-more-book');
+  const rec=await recommend(service,scope,'k3-more-rec');
+  const created=service.startDesignRound(scope,selectionFor(rec),'k3-more-round');
+  const runId=created.find(x=>x.scheme==='A')!.id;
+  await service.process(runId);
+  const done=service.state(scope).find(r=>r.id===runId)!;
+  expect(done.state).toBe('succeeded');
+  expect(counters.reviewMoreAttempts).toBe(1);
+  // 续批提示词携带已报告清单防重复
+  const morePrompt=counters.seenPrompts.find(p=>p.includes('只返回尚未报告的其余阻塞问题'))!;
+  expect(morePrompt).toContain('问题2：主线2无落点');
+  // 第一轮按合并清单判revise；去重后进入修订轮反馈（问题1只出现一次，问题3被收齐）
+  expect(c.database.prepare("SELECT verdict FROM tm2_reviews WHERE candidate=? AND revision=1").get(runId)).toMatchObject({verdict:'revise'});
+  const revisionSkeleton=counters.seenPrompts.filter(p=>p.includes('设计全书骨架。只设计'))[1]!;
+  const feedback=revisionSkeleton.split('上轮意见（不是作者新增设定）：')[1]!;
+  expect(feedback).toContain('问题3：卷B收束未兑现');
+  expect(feedback.match(/问题1：卷A字数不足/g)!.length).toBe(1);
+ });
+ it('continuation is bounded: still-more after two batches gets an honest marker instead of silent truncation',async()=>{
+  const counters:Counters={skeletonAttempts:0,reviewMoreAttempts:0,seenPrompts:[]};
+  let reviewCalls=0;
+  const {scope,service}=setup({
+   review:()=>{reviewCalls++;return reviewCalls===1
+    ?{action:'verdict',pass:false,issues:['甲：卷A开场矛盾'],suggestions:[],hasMoreIssues:true}
+    :{action:'verdict',pass:true,issues:[],suggestions:[]};},
+   reviewMore:(attempt)=>attempt===1
+    ?{pass:false,issues:['乙：卷B锚点缺条件'],suggestions:[],hasMoreIssues:true}
+    :{pass:false,issues:['丙：终卷未收束'],suggestions:[],hasMoreIssues:true},
+  },counters,'k3-bound-book');
+  const rec=await recommend(service,scope,'k3-bound-rec');
+  const created=service.startDesignRound(scope,selectionFor(rec),'k3-bound-round');
+  const runId=created.find(x=>x.scheme==='A')!.id;
+  await service.process(runId);
+  const done=service.state(scope).find(r=>r.id===runId)!;
+  expect(done.state).toBe('succeeded');
+  expect(counters.reviewMoreAttempts).toBe(2); // 有界：每个审查节点最多2次续批
+  const revisionSkeleton=counters.seenPrompts.filter(p=>p.includes('设计全书骨架。只设计'))[1]!;
+  expect(revisionSkeleton).toContain('乙：卷B锚点缺条件');
+  expect(revisionSkeleton).toContain('丙：终卷未收束');
+  expect(revisionSkeleton).toContain('未尽列'); // 不硬截清单，如实标记仍有余项
+ });
+ it('node budget strategy tm2-node-budget-v2 widens headroom only for measured large synthesis nodes',()=>{
+  expect(timeMachineSynthesisHeadroom('glm-5.3',8000)).toBe(24000);
+  expect(timeMachineSynthesisHeadroom('glm-5.3-flash',8000)).toBe(24000);
+  expect(timeMachineSynthesisHeadroom('deepseek-v4-pro',8000)).toBe(12000);
+  expect(timeMachineSynthesisHeadroom('glm-5.3',5000)).toBeUndefined();
+  expect(timeMachineSynthesisHeadroom('deepseek-v4-pro',3000)).toBeUndefined();
+  expect(timeMachineSynthesisHeadroom('doubao-seed-2.1-turbo',8000)).toBeUndefined();
  });
 });

@@ -7,6 +7,8 @@ import {thinkingTokenAllowance} from './model-runtime-config.js';
 export interface TimeMachineCall {
  scope:Scope; id:string; memberId:string; provider:string; modelId:string;
  prompt:string; maxOutputTokens:number; windowTokens:number; temperature:number;
+ /** 节点预算策略显式推理余量（tm2-node-budget-v2）；预留与转发必须与适配器实际max_tokens一致。 */
+ thinkingHeadroomTokens?: number;
 }
 /** 老板红线（2026-09-12）：设计成员单次收到的上下文（提示词）不得超过1.5万字；超限必须拆批或压缩，不得截断关键条件。 */
 export const TIME_MACHINE_PROMPT_CHAR_LIMIT = 15_000;
@@ -21,6 +23,7 @@ export class TimeMachineModelGateway {
  async generate(request:TimeMachineCall):Promise<string>{
   parseScope(request.scope);
   if(!request.id.trim()||!request.memberId.trim()||!request.prompt.trim()||!Number.isSafeInteger(request.windowTokens)||request.windowTokens<=0||!Number.isSafeInteger(request.maxOutputTokens)||request.maxOutputTokens<=0||!Number.isFinite(request.temperature)||request.temperature<0||request.temperature>2)throw new TimeMachineCallError('invalid','调用配置不完整');
+  if(request.thinkingHeadroomTokens!==undefined&&(!Number.isSafeInteger(request.thinkingHeadroomTokens)||request.thinkingHeadroomTokens<0||request.thinkingHeadroomTokens>64000))throw new TimeMachineCallError('invalid','调用配置不完整');
   if(request.prompt.length>TIME_MACHINE_PROMPT_CHAR_LIMIT)throw new TimeMachineCallError('budget',`本次上下文${request.prompt.length}字符，超过1.5万字红线，需拆批或压缩后重试`);
   const accessible=this.db.prepare("SELECT 1 FROM books WHERE owner_id=? AND book_id=? AND status<>'archived'").get(request.scope.ownerId,request.scope.bookId);
   if(!accessible)throw new TimeMachineCallError('invalid','书籍不可访问');
@@ -38,7 +41,8 @@ export class TimeMachineModelGateway {
   const input=adapter.inputContext?.({prompt:request.prompt})??JSON.stringify({messages:[{role:'user',content:request.prompt}]});
   if(input.length>TIME_MACHINE_PROMPT_CHAR_LIMIT)throw new TimeMachineCallError('budget',`完整输入${input.length}字符，超过15000字符上限；已包含系统提示及消息包装，未发送模型`);
   // Conservative UTF-8 bound is explicitly not a tokenizer. Include transport/reasoning allowance.
-  const reasoning=thinkingTokenAllowance(request.modelId,'structured_planning',request.maxOutputTokens,request.prompt.length);
+  // 显式推理余量（节点预算策略）与适配器max_tokens同源，预留不得按默认折算少算。
+  const reasoning=request.thinkingHeadroomTokens??thinkingTokenAllowance(request.modelId,'structured_planning',request.maxOutputTokens,request.prompt.length);
   const reserved=Buffer.byteLength(input,'utf8')+request.maxOutputTokens+reasoning+2048;
   if(reserved>request.windowTokens)throw new TimeMachineCallError('budget','本次上下文超预算，尚未调用模型');
   this.db.exec('BEGIN IMMEDIATE');
@@ -59,7 +63,7 @@ export class TimeMachineModelGateway {
   let dispatched=false;
   try{
    dispatched=true;
-   const result=await adapter.generate({requestId:request.id,taskId:request.id,ownerId:request.scope.ownerId,bookId:request.scope.bookId,agentId:request.memberId,prompt:request.prompt,maxOutputTokens:request.maxOutputTokens,temperature:request.temperature});
+   const result=await adapter.generate({requestId:request.id,taskId:request.id,ownerId:request.scope.ownerId,bookId:request.scope.bookId,agentId:request.memberId,prompt:request.prompt,maxOutputTokens:request.maxOutputTokens,...(request.thinkingHeadroomTokens!==undefined?{thinkingHeadroomTokens:request.thinkingHeadroomTokens}:{}),temperature:request.temperature});
    if(![result.inputTokens,result.outputTokens].every(n=>Number.isSafeInteger(n)&&n>=0)||!Number.isFinite(result.cashCostCny)||result.cashCostCny<0)throw new TimeMachineCallError('unknown','供应商用量需要核对');
    if(result.provider!==request.provider||result.modelId!==request.modelId)throw new TimeMachineCallError('unknown','实际路由与冻结成员不一致');
    this.db.prepare("UPDATE tm2_model_calls SET state='succeeded',input_tokens=?,output_tokens=?,cash_micros=?,output_text=?,completed_at=? WHERE id=? AND state='working'").run(result.inputTokens,result.outputTokens,Math.round(result.cashCostCny*1000000),result.output,new Date().toISOString(),request.id);

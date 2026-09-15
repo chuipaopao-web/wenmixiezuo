@@ -24,4 +24,21 @@ describe('new time machine billing transport',()=>{
  it('unknown result retains reservation and never silently resends',async()=>{const {c,request}=setup();let calls=0;const gateway=new TimeMachineModelGateway(c.database,()=>({provider:'test',modelId:'test',async generate(){calls++;throw new ModelAdapterError('private provider detail','technical_failure',true,undefined,true);}}));await expect(gateway.generate(request)).rejects.toMatchObject({kind:'unknown'});await expect(gateway.generate(request)).rejects.toMatchObject({kind:'unknown'});expect(calls).toBe(1);expect(accountUsageTotals(c.database).reservedTokens).toBeGreaterThan(0);});
  it('rejects mismatched id and foreign book before any dispatch',async()=>{const {c,request}=setup();let calls=0;const gateway=new TimeMachineModelGateway(c.database,()=>{calls++;throw Error('not used');});await expect(gateway.generate({...request,scope:{...request.scope,ownerId:'other'}})).rejects.toThrow('不可访问');expect(calls).toBe(0);await expect(gateway.generate({...request,windowTokens:1})).rejects.toMatchObject({kind:'budget'});expect(calls).toBe(0);});
  it('known authentication failure releases reservation without leaking provider text',async()=>{const {c,request}=setup();const gateway=new TimeMachineModelGateway(c.database,()=>({provider:'test',modelId:'test',async generate(){throw new ModelAdapterError('SECRET','authentication_failure',false,401);}}));await expect(gateway.generate(request)).rejects.toMatchObject({kind:'authentication',message:'本次成员调用未完成，已保留进度'});expect(accountUsageTotals(c.database)).toMatchObject({reservedTokens:0,consumedTokens:0,failedCalls:1});});
+ // tm2-node-budget-v2：显式推理余量与适配器max_tokens同源——预留按覆盖值计算并原样转发，非法值拒配。
+ it('explicit thinking headroom is reserved with the override and forwarded to the adapter',async()=>{
+  const {c,request}=setup();let seen:number|undefined;let reservedDuring=0;
+  const gateway=new TimeMachineModelGateway(c.database,()=>({provider:'test',modelId:'test',async generate(r:{thinkingHeadroomTokens?:number}){seen=r.thinkingHeadroomTokens;reservedDuring=accountUsageTotals(c.database,{ownerId:request.scope.ownerId}).reservedTokens;return {provider:'test',modelId:'test',output:'done',inputTokens:20,outputTokens:10,cashCostCny:0,state:'succeeded'};}}));
+  expect(await gateway.generate({...request,thinkingHeadroomTokens:24000})).toBe('done');
+  expect(seen).toBe(24000);
+  const defaultReserved=Buffer.byteLength(JSON.stringify({messages:[{role:'user',content:request.prompt}]}),'utf8')+request.maxOutputTokens+0+2048;
+  expect(reservedDuring).toBe(defaultReserved+24000);
+ });
+ it('rejects an invalid explicit thinking headroom before any dispatch or reservation',async()=>{
+  const {c,request}=setup();let calls=0;
+  const gateway=new TimeMachineModelGateway(c.database,()=>{calls++;throw Error('not used');});
+  await expect(gateway.generate({...request,thinkingHeadroomTokens:64001})).rejects.toMatchObject({kind:'invalid'});
+  await expect(gateway.generate({...request,thinkingHeadroomTokens:-1})).rejects.toMatchObject({kind:'invalid'});
+  await expect(gateway.generate({...request,thinkingHeadroomTokens:1.5})).rejects.toMatchObject({kind:'invalid'});
+  expect(calls).toBe(0);expect(c.database.prepare('SELECT COUNT(*) AS n FROM tm2_model_calls').get()).toMatchObject({n:0});
+ });
 });

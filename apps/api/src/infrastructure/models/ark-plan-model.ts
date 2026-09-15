@@ -87,6 +87,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
       controller.abort(new DOMException(`${planDisplayName(this.options.plan)}模型调用超时`, 'TimeoutError'));
     }, timeoutMs);
     const temperature = temperatureField(request.temperature);
+    const headroom = thinkingHeadroomAllowance(request, this.options.purpose, this.options.modelId);
     try {
     let response: Response;
     try {
@@ -102,7 +103,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
           // max_tokens 在可见输出限额之上追加与当前模型策略一致的推理余量；
           // thinking字段是否发送由模型和用途能力决定。GLM 隐式推理的余量
           // 随提示词规模折算（2026-09-02 实测：固定1k会被失控思考全部烧穿）。
-          max_tokens: request.maxOutputTokens + thinkingTokenAllowance(this.modelId, this.options.purpose, request.maxOutputTokens, request.prompt.length),
+          max_tokens: request.maxOutputTokens + headroom,
           ...temperature,
           ...(glmChat ? {
             // Z.ai GLM 5.3 requires thinking. Ark Coding Chat supports low effort;
@@ -197,6 +198,23 @@ function temperatureField(value: number | undefined): { temperature?: number } {
     throw new Error('Messages模型温度必须在0至1之间');
   }
   return { temperature: value };
+}
+
+// 推理余量：可信调用方（如时间机器大综合节点，策略 tm2-node-budget-v2）可显式指定；
+// 未指定时按模型/用途/提示词规模默认折算。上限64000防止配置错误放大预留。
+function thinkingHeadroomAllowance(
+  request: Pick<ModelRequest, 'maxOutputTokens' | 'prompt' | 'thinkingHeadroomTokens'>,
+  purpose: ModelPurpose,
+  modelId: string
+): number {
+  const override = request.thinkingHeadroomTokens;
+  if (override === undefined) {
+    return thinkingTokenAllowance(modelId, purpose, request.maxOutputTokens, request.prompt.length);
+  }
+  if (!Number.isSafeInteger(override) || override < 0 || override > 64_000) {
+    throw new Error('显式推理余量必须是0至64000的整数');
+  }
+  return override;
 }
 
 const longRequestDispatchers = new Map<number, Dispatcher>();

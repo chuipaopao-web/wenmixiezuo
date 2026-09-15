@@ -11,6 +11,9 @@ export interface ModelRequest {
   executionKind?: 'opening_design';
   supplementalInstructions?: string;
   maxOutputTokens: number;
+  /** 可信调用方按节点预算策略显式指定的推理余量（Token），覆盖按模型/用途的默认折算；
+   * 仅时间机器大综合节点等有实测证据的调用点使用；未提供时走默认策略。 */
+  thinkingHeadroomTokens?: number;
   temperature?: number;
 }
 

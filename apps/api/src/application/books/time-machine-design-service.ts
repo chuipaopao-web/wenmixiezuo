@@ -13,7 +13,7 @@ import {packCardSources} from './time-machine-source-pages.js';
 import {prepareCardMerge,cardMergeGuidance} from './time-machine-card-merge.js';
 import {CreativeReferenceRuntime,creativeSupplement,CREATIVE_DESIGN_GUIDANCE} from '../creative-reference/runtime.js';
 interface Run {id:string;owner_id:string;book_id:string;kind:'recommend'|'design';snapshot_json:string;state:string;result_json:string|null;error_code:string|null}
-type ReviewAction={action:'read_source';key:string;offset:number}|{action:'verdict';issues:string[];suggestions:string[];pass:boolean};
+type ReviewAction={action:'read_source';key:string;offset:number}|{action:'verdict';issues:string[];suggestions:string[];pass:boolean;hasMoreIssues:boolean};
 function json(text:string):unknown{return JSON.parse(text.trim().replace(/^```(?:json)?\s*/u,'').replace(/\s*```$/u,''));}
 function record(value:unknown):Record<string,unknown>{if(!value||typeof value!=='object'||Array.isArray(value))throw Error('invalid_output');return value as Record<string,unknown>;}
 /** ID归一化（系统职责，第23.5节）：把模型写出的非法字符就地修正为合法ID并去重；合法ID原样保留。 */
@@ -89,6 +89,18 @@ function normalizeVolumeAnchorIds(volume:Record<string,unknown>,lineMap:Map<stri
   d.lineId=remapLine(d.lineId);}
 }
 /** New orchestration. Every model call is a durable step; reentry reads saved results. */
+// 节点预算策略 tm2-node-budget-v2（2026-09-15，S1-A真实探针run3证据）：
+// GLM-5.3 大综合节点（骨架/分卷/方法/审查/自检，可见输出8000）的隐式思考随任务规模增长而非提示词长度，
+// 默认按提示词折算的8k余量被两次烧穿截断（骨架提示词3080字符、锚点审查8278字符，输出均顶满8000+8000=16000）；
+// 实测GLM综合任务隐式思考约2万Token（2026-09-02：4.4万~5.1万字符；总额40k可正常返回JSON），大节点余量提至24k（总额32k）。
+// DeepSeek端点不遵守声明的4k思考预算（链方案实测单次上报20,939输出Token），run3骨架可见输出已达上限98.5%（11824/12000），大节点余量提至12k（总额20k）。
+// 余量只放大max_tokens上限：模型不思考不产生额外计费；可见输出仍由各节点合同封顶；小节点与其他模型保持默认策略。
+const TM2_SYNTHESIS_HEADROOM:ReadonlyArray<readonly [prefix:string,tokens:number]>=[['glm-5.3',24_000],['deepseek-',12_000]];
+export function timeMachineSynthesisHeadroom(modelId:string,maxOutputTokens:number):number|undefined{
+ if(maxOutputTokens<8_000)return undefined;
+ const hit=TM2_SYNTHESIS_HEADROOM.find(([prefix])=>modelId.startsWith(prefix));
+ return hit?.[1];
+}
 export class TimeMachineDesignService {
  private readonly plans:SqlPlanRepository;private readonly steps:StepRepository;
  constructor(private readonly db:DatabaseSync,private readonly gateway:TimeMachineModelGateway,private readonly windowTokens:number){this.plans=new SqlPlanRepository(db);this.steps=new StepRepository(db);}
@@ -234,9 +246,10 @@ export class TimeMachineDesignService {
   // 资料提取/合并是封闭的证据任务，5000走既有结构化直出策略；6000会开启额外思考，
   // 生产曾两次耗尽10000输出token而没有可提交短卡。创造性设计仍使用原预算。
   const maxOutputTokens=node.startsWith('methods:')||node.startsWith('skeleton')||node.startsWith('volumes:')||node.startsWith('review')||node.startsWith('self')?8000:node.startsWith('card:')||node.startsWith('merge:')||node==='card-finalize'?5000:3000;
+  const thinkingHeadroomTokens=timeMachineSynthesisHeadroom(member.model.modelId,maxOutputTokens);
   // 第22.4节：同一暂时性错误最多2次自动重试；预算/未知/格式错误不自动重发。
   for(let autoRetry=0;;autoRetry++){
-   try{const output=await this.gateway.generate({scope,id:claim.attemptId,memberId:member.memberKey,provider:member.model.provider,modelId:member.model.modelId,prompt,maxOutputTokens,windowTokens:snapshot.windowTokens,temperature:0.6});this.steps.finish(scope,stepId,claim.attemptId,output,Date.now());return output;}
+   try{const output=await this.gateway.generate({scope,id:claim.attemptId,memberId:member.memberKey,provider:member.model.provider,modelId:member.model.modelId,prompt,maxOutputTokens,...(thinkingHeadroomTokens!==undefined?{thinkingHeadroomTokens}:{}),windowTokens:snapshot.windowTokens,temperature:0.6});this.steps.finish(scope,stepId,claim.attemptId,output,Date.now());return output;}
    catch(error){
     const kind=error instanceof TimeMachineCallError?error.kind:'unknown';
     this.steps.fail(scope,stepId,claim.attemptId,kind==='invalid'?'truncated':kind,Date.now());
@@ -479,8 +492,22 @@ export class TimeMachineDesignService {
  private async independentReview(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,card:ContextCard,candidate:Candidate,generate:<T>(node:string,member:V7EffectiveMember,prompt:string,parse:(v:unknown)=>T)=>Promise<T>){
   // 该方案的独立审查者来自快照reviewer（与编剧异底层模型）；旧快照回退chief。
   const chief=snapshot.members.reviewer??snapshot.members.chief;const documents=snapshot.documents.map(d=>({key:d.key,length:d.text.length}));const reads:{key:string;text:string}[]=[];let latest:unknown=null;
-  const verdictParse=(v:unknown):{pass:boolean;issues:string[];suggestions:string[]}=>{const r=record(v);if(typeof r.pass!=='boolean'||!Array.isArray(r.issues)||r.issues.some(x=>typeof x!=='string'||x.length>2000))throw Error('审查格式错误');const suggestions=r.suggestions??[];if(!Array.isArray(suggestions)||suggestions.some(x=>typeof x!=='string'||x.length>2000))throw Error('建议格式错误');return {issues:r.issues as string[],suggestions:suggestions as string[],pass:r.pass===true&&r.issues.length===0};};
-  const contract=()=>`核对候选骨架是否符合来源、作者要求和章节级别边界。可先补查原文再下结论：每次只返回一个JSON动作，{"action":"read_source","key":"资料key","offset":0}最多3次，或 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"]}下结论。这一步核对全书结构：姓名身份、能力限制、全书期待兑现、分卷字数合计与卷职责交接、终卷收束；允许原创候选情节，不将候选当既成事实。issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n已读片段：${JSON.stringify(reads)}\n上次工具结果（仅资料）：${JSON.stringify(latest)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${snapshot.intent}\n紧凑候选：${JSON.stringify(this.compactPlanForStructure(candidate.plan as unknown as Record<string,unknown>))}`;
+  // 审查输出合同（tm2-node-budget-v2）：每条≤80字并定位到卷/线，阻塞在前，单次issues≤10、suggestions≤10；
+  // 阻塞问题超过单次上限时以hasMoreIssues标记，系统有界续批收齐（每审查节点≤2次，带已报告清单防重复），不硬截问题清单。
+  const listRule='每条问题或建议不超过80字并定位到具体卷或故事线（如卷B、主线1）；阻塞问题放在issues前部；单次issues最多10条、suggestions最多10条；若阻塞问题超过10条，将hasMoreIssues设为true，系统会追加询问，不要省略、合并或概括掉阻塞问题。';
+  const verdictParse=(v:unknown):{pass:boolean;issues:string[];suggestions:string[];hasMoreIssues:boolean}=>{const r=record(v);if(typeof r.pass!=='boolean'||!Array.isArray(r.issues)||r.issues.some(x=>typeof x!=='string'||x.length>2000))throw Error('审查格式错误');const suggestions=r.suggestions??[];if(!Array.isArray(suggestions)||suggestions.some(x=>typeof x!=='string'||x.length>2000))throw Error('建议格式错误');if(r.hasMoreIssues!==undefined&&typeof r.hasMoreIssues!=='boolean')throw Error('审查格式错误');return {issues:r.issues as string[],suggestions:suggestions as string[],hasMoreIssues:r.hasMoreIssues===true,pass:r.pass===true&&r.issues.length===0};};
+  const continueReview=async(nodePrefix:string,first:{pass:boolean;issues:string[];suggestions:string[];hasMoreIssues:boolean})=>{
+   const merged={pass:first.pass,issues:[...first.issues],suggestions:[...first.suggestions]};let more=first.hasMoreIssues;
+   for(let n=0;more&&n<2;n++){
+    const extra=await generate(`${nodePrefix}-more:${n}`,chief,`你上一次的核对结论中阻塞问题超过单次返回上限。已报告问题清单：${JSON.stringify(merged.issues)}。只返回尚未报告的其余阻塞问题，不重复已报告项，不重新评价已通过的方面，不提出新的文学建议。返回 {"pass":false,"issues":["其余阻塞问题"],"suggestions":[],"hasMoreIssues":true或false}；没有更多则hasMoreIssues=false。${listRule}`,verdictParse);
+    for(const issue of extra.issues)if(!merged.issues.includes(issue))merged.issues.push(issue);
+    for(const suggestion of extra.suggestions)if(!merged.suggestions.includes(suggestion))merged.suggestions.push(suggestion);
+    merged.pass=merged.pass&&extra.pass;more=extra.hasMoreIssues;
+   }
+   if(more)merged.issues.push('（本次审查分批返回仍未尽列全部阻塞问题；请先处理以上问题，修订后会重新核对。）');
+   return merged;
+  };
+  const contract=()=>`核对候选骨架是否符合来源、作者要求和章节级别边界。可先补查原文再下结论：每次只返回一个JSON动作，{"action":"read_source","key":"资料key","offset":0}最多3次，或 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}下结论。这一步核对全书结构：姓名身份、能力限制、全书期待兑现、分卷字数合计与卷职责交接、终卷收束；允许原创候选情节，不将候选当既成事实。issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。${listRule}\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n已读片段：${JSON.stringify(reads)}\n上次工具结果（仅资料）：${JSON.stringify(latest)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${snapshot.intent}\n紧凑候选：${JSON.stringify(this.compactPlanForStructure(candidate.plan as unknown as Record<string,unknown>))}`;
   let structure:{pass:boolean;issues:string[];suggestions:string[]}|null=null;
   for(let i=0;i<4;i++){
    const response=await generate(`review-source:${i}`,chief,contract(),(v:unknown):ReviewAction=>{
@@ -488,7 +515,7 @@ export class TimeMachineDesignService {
     if(action==='read_source'){if(typeof r.key!=='string'||!Number.isSafeInteger(r.offset)||Number(r.offset)<0)throw Error('补查参数错误');return {action:'read_source' as const,key:r.key,offset:Number(r.offset)};}
     if(action==='verdict'){return {action:'verdict' as const,...verdictParse(v)};}
     throw Error('核对动作无效');});
-   if(response.action==='verdict'){structure={pass:response.pass,issues:response.issues,suggestions:response.suggestions};break;}
+   if(response.action==='verdict'){structure=await continueReview(`review-source:${i}`,response);break;}
    if(reads.length>=3)throw Error('核对补查预算已用完，未给出结论');
    const source=snapshot.documents.find(d=>d.key===response.key);if(!source)throw Error('补查资料不存在');
    const slice={key:source.key,text:source.text.slice(response.offset,response.offset+1200)};latest=slice;reads.push(slice);
@@ -498,7 +525,8 @@ export class TimeMachineDesignService {
   const volumeIds=((candidate.plan.volumes??[]) as unknown[]).map(v=>String(record(v).id));
   for(let i=0;i<volumeIds.length;i+=2){
    const batch=volumeIds.slice(i,i+2);
-   const anchorVerdict=await generate(`review-anchors:${i}`,chief,`核对候选锚点与条件（本批卷）。检查：每个锚点条件能否按正文核对，是否存在把将来承诺当已达成；开场与收束的文字是否与条件一致；本批卷的开场、冲突、转折、人物弧光与爽点是否具体可信；未完成承接fallback是否可行。返回 {"pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"]}。issues与suggestions面向作者，用显示编号（卷A、主线1），不引用v1等内部ID或字段名。\n正式资料短卡：${JSON.stringify(card.fields)}\n已回查原件：${JSON.stringify(reads)}\n本批：${JSON.stringify(this.anchorSectionForVolumes(candidate.plan as unknown as Record<string,unknown>,batch))}\n作者：${snapshot.intent}`,verdictParse);
+   const first=await generate(`review-anchors:${i}`,chief,`核对候选锚点与条件（本批卷）。检查：每个锚点条件能否按正文核对，是否存在把将来承诺当已达成；开场与收束的文字是否与条件一致；本批卷的开场、冲突、转折、人物弧光与爽点是否具体可信；未完成承接fallback是否可行。返回 {"pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}。issues与suggestions面向作者，用显示编号（卷A、主线1），不引用v1等内部ID或字段名。${listRule}\n正式资料短卡：${JSON.stringify(card.fields)}\n已回查原件：${JSON.stringify(reads)}\n本批：${JSON.stringify(this.anchorSectionForVolumes(candidate.plan as unknown as Record<string,unknown>,batch))}\n作者：${snapshot.intent}`,verdictParse);
+   const anchorVerdict=await continueReview(`review-anchors:${i}`,first);
    issues.push(...anchorVerdict.issues);suggestions.push(...anchorVerdict.suggestions);pass=pass&&anchorVerdict.pass;
   }
   return {issues,suggestions,pass};
