@@ -51,18 +51,28 @@ export function createProbeBudgetGuard({ maxCalls = 100, maxTokens = 600000 } = 
       return held;
     },
     summary() {
-      return { ...usage, reservedInFlight: reserved.size, reservedTokens: totalReserved(), knownTotal: totalKnown(), totalCalls: totalCalls() };
+      // knownTotal只计已知用量（成功+已知失败的实际消耗）；未知失败预留与在途预留单列，
+      // 合并口径另列budgetCommitted（保守上限视角），不把预留叫作已知。
+      return { ...usage, reservedInFlight: reserved.size, reservedTokens: totalReserved(),
+        knownTotal: usage.successKnown.tokens + usage.failedKnown.tokens,
+        budgetCommitted: totalKnown() + totalReserved(), totalCalls: totalCalls() };
     },
   };
 }
 
-/** 探针终态判定：三方案全终态且全部失败→立即结束（不空等45分钟）；全终态且有可采用→采用；
- * 其余继续等待。runs为state视图的design运行列表。 */
+/** 探针终态判定（2026-09-15复核项5三分类）：
+ * - 有一套可采用（succeeded且review.pass）→立即adoptable完成HTTP采用验证，不等其他方案终态；
+ * - 全终态无可采用：succeeded但review未pass=需修订（诚实质量结果，不能算作技术失败），单列needs-revision；
+ * - 全终态且全部failed=技术失败all-failed，立即结束不空等；
+ * - 其余继续等待。runs为state视图的design运行列表；非可采用方案的真实状态由调用方保留报告。 */
 export function decideProbeOutcome(designRuns) {
   const list = Array.isArray(designRuns) ? designRuns : [];
-  const terminal = list.length > 0 && list.every(r => ['succeeded', 'failed'].includes(String(r?.state)));
-  if (!terminal) return { status: 'continue' };
   const adoptable = list.find(r => String(r?.state) === 'succeeded' && r?.result?.review?.pass === true);
   if (adoptable) return { status: 'adoptable', run: adoptable };
+  const terminal = list.length > 0 && list.every(r => ['succeeded', 'failed'].includes(String(r?.state)));
+  if (!terminal) return { status: 'continue' };
+  const revised = list.filter(r => String(r?.state) === 'succeeded');
+  const failed = list.filter(r => String(r?.state) === 'failed');
+  if (revised.length > 0) return { status: 'needs-revision', revised, failed };
   return { status: 'all-failed', runs: list };
 }

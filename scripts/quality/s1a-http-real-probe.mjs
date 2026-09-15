@@ -79,7 +79,7 @@ const resolver = { resolve(provider, modelId, purpose) {
   return { provider, modelId, async generate(request, signal) {
     if (!live) return fixtureGenerate(provider, modelId, request.prompt);
     const promptBytes = Buffer.byteLength(request.prompt, 'utf8');
-    guard.beforeDispatch(String(request.requestId), { promptBytes, maxOutputTokens: request.maxOutputTokens, reasoningAllowance: probeThinkingAllowance(modelId, request.maxOutputTokens, promptBytes) });
+    guard.beforeDispatch(String(request.requestId), { promptBytes, maxOutputTokens: request.maxOutputTokens, reasoningAllowance: request.thinkingHeadroomTokens ?? probeThinkingAllowance(modelId, request.maxOutputTokens, promptBytes) });
     try {
       const result = await adapter.generate(request, signal);
       guard.onSuccess(String(request.requestId), result);
@@ -189,8 +189,10 @@ try {
   if (design.status !== 202 && design.status !== 200) throw Error('结构化确认失败：' + JSON.stringify(design.body).slice(0, 300));
   const created = design.body.data.runs;
   log({ event: 'design_round_created', runs: created.map(r => ({ id: r.id, scheme: r.scheme, state: r.state })) });
-  // 终态判定（30a6f053）：三方案全终态失败→立即结束并写明各轮phase/error；全终态且有可采用→采用；否则继续等（有界）。
-  const roundsDetail = state => (state?.runs ?? []).filter(r => r.kind === 'design').map(r => ({ scheme: r.scheme, state: r.state, phase: r.phase ?? null, message: r.message ?? null }));
+  // 终态判定（2026-09-15复核项5）：有一套可采用→立即HTTP采用（其他方案状态如实保留）；全终态无可采用→
+  // 区分需修订（succeeded但review未pass，诚实质量结果）与技术失败（failed），立即退出不空等；否则有界继续等。
+  const roundsDetail = state => (state?.runs ?? []).filter(r => r.kind === 'design').map(r => ({ scheme: r.scheme, state: r.state, phase: r.phase ?? null, message: r.message ?? null,
+    verdict: String(r?.state) === 'succeeded' ? (r?.result?.review?.pass === true ? 'pass' : 'revise') : null }));
   let outcome = null;
   const outcomeDeadline = Date.now() + 45 * 60000;
   for (;;) {
@@ -201,11 +203,13 @@ try {
       log({ event: 'all_schemes_failed_terminal', rounds: roundsDetail(state) });
       break;
     }
+    if (decision.status === 'needs-revision') {
+      outcome = { ...decision, finalState: state };
+      log({ event: 'no_adoptable_needs_revision', revised: decision.revised.map(r => r.scheme), failed: decision.failed.map(r => r.scheme), rounds: roundsDetail(state) });
+      break;
+    }
     if (decision.status === 'adoptable') { outcome = { ...decision, finalState: state }; break; }
     if (Date.now() > outcomeDeadline) {
-      // 截止时已有完整可采用方案则照常采用（其余方案状态如实列出），否则明确超时失败。
-      const anyAdoptable = (state?.runs ?? []).filter(r => r.kind === 'design').find(r => String(r?.state) === 'succeeded' && r?.result?.review?.pass === true);
-      if (anyAdoptable) { outcome = { status: 'adoptable', run: anyAdoptable, finalState: state }; log({ event: 'deadline_adopt_anyway', scheme: anyAdoptable.scheme }); break; }
       throw Error('等待超时：方案未全部到达终态（' + JSON.stringify(roundsDetail(state)) + '）');
     }
     await wait(20000);
@@ -214,14 +218,19 @@ try {
   const usageSummary = guard.summary();
   const baseResult = {
     databaseFile, elapsedMs: Date.now() - startedAt,
+    // 费用口径：套餐订阅模型现金计0；已知=成功+已知失败实际用量；未知失败按预留保守计入，单列不混入已知。
     usage: usageSummary,
+    costNote: `已知用量${usageSummary.knownTotal}tokens（成功${usageSummary.successKnown.tokens}+已知失败${usageSummary.failedKnown.tokens}）；未知失败${usageSummary.unknownCalls}次按预留${usageSummary.unknownReservedTokens}tokens单列；保守上限口径budgetCommitted=${usageSummary.budgetCommitted}`,
     rounds: roundsDetail(finalState),
     intent: (finalState.runs ?? []).find(r => r.kind === 'design')?.intent ?? null,
     recommend: { id: recRun.id, hash: selection.recommendationHash, version: selection.preparationVersion, lines: lines.map(l => l.id) }
   };
-  if (outcome.status === 'all-failed') {
-    writeFileSync(resolve(root, 'result.json'), JSON.stringify({ ...baseResult, success: false, error: '三套方案全部终态失败，未执行HTTP采用' }, null, 2), { mode: 0o600 });
-    log({ event: 'probe_complete', success: false, usage: usageSummary, elapsedMs: baseResult.elapsedMs });
+  if (outcome.status === 'all-failed' || outcome.status === 'needs-revision') {
+    const error = outcome.status === 'all-failed'
+      ? '三套方案全部技术失败（终态failed），未执行HTTP采用'
+      : `无可采用方案：${outcome.revised.length}套需修订（审查verdict=revise，诚实质量结果，非技术失败）、${outcome.failed.length}套技术失败，未执行HTTP采用`;
+    writeFileSync(resolve(root, 'result.json'), JSON.stringify({ ...baseResult, success: false, outcome: outcome.status, error }, null, 2), { mode: 0o600 });
+    log({ event: 'probe_complete', success: false, outcome: outcome.status, usage: usageSummary, elapsedMs: baseResult.elapsedMs });
     process.exitCode = 2;
   } else {
     const adoptable = outcome.run;
