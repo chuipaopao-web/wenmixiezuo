@@ -298,10 +298,13 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   // S1-A：结构化确认——键在一次提交开始时冻结，网络结果未知重试同请求同键；作者修改选择后才新键。
   // 6ad621dd修正F4：未决请求（完整selection+key）在发送前持久化到按账号/书籍隔离的sessionStorage；
   // 刷新/响应丢失后回填作者输入并用原请求原键重试；state中出现对应roundKey=确定成功，清除待发送记录。
-  type PendingDesignRecord = { key: string; signature: string; selection: StorylineSelectionRequest };
+  // 1dbed5cd复核：expectedMaterialRevision随请求一并冻结持久化；恢复重试必须原样带回，
+  // 已有资料时漏传会被服务端版本门禁409拒绝。无材料首发保持缺省（不落该字段）。
+  type PendingDesignRecord = { key: string; signature: string; selection: StorylineSelectionRequest; expectedMaterialRevision?: number };
   const designKey = useRef<string | null>(null);
   const designKeySignature = useRef<string | null>(null);
   const pendingDesign = useRef<StorylineSelectionRequest | null>(null);
+  const pendingExpectedRevision = useRef<number | undefined>(undefined);
   const pendingRetryDone = useRef(false);
   const pendingRestored = useRef(false);
   const selectionSignature = useCallback((): string | null => {
@@ -342,6 +345,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
     designKey.current = null;
     designKeySignature.current = null;
     pendingDesign.current = null;
+    pendingExpectedRevision.current = undefined;
     initializedRecommendation.current = null;
     materialInit.current = null;
     recommendStarted.current = false;
@@ -372,6 +376,8 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
       return;
     }
     pendingDesign.current = pending.selection;
+    // 恢复时只使用记录中冻结的版本号；记录缺省（无材料首发）保持undefined，绝不回填当前最新版本冒充原请求
+    pendingExpectedRevision.current = typeof pending.expectedMaterialRevision === 'number' ? pending.expectedMaterialRevision : undefined;
     initializedRecommendation.current = initializedRecommendation.current ?? pending.selection.recommendationRunId;
     setSelectedLineIds(pending.selection.selectedLineIds);
     setAddedLines(pending.selection.addedLines.map(line => ({ id: `pending-${line.title}`, title: line.title, description: line.description })));
@@ -391,8 +397,9 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
       && isRecommendation(recommendRun.result);
     if (!sourceValid) return; // 来源过期：保留自添/备注待作者重新核对，不自动替作者确认新推荐
     pendingRetryDone.current = true;
-    void runAction(() => startTimeMachineDesignRound(bookId, selection, designKey.current!).then(() => setSection('plan')).catch((error: unknown) => {
-      if (definitiveFailure(error)) { pendingDesign.current = null; clearPendingRecord(); }
+    // 1dbed5cd复核：重试必须原样带回冻结的expectedMaterialRevision——恢复期间资料已变更则由服务端409拒绝并终结未决，不自动改成新版本绕过作者确认
+    void runAction(() => startTimeMachineDesignRound(bookId, selection, designKey.current!, pendingExpectedRevision.current).then(() => setSection('plan')).catch((error: unknown) => {
+      if (definitiveFailure(error)) { pendingDesign.current = null; pendingExpectedRevision.current = undefined; clearPendingRecord(); }
       throw error; // 网络结果未知：保留未决记录，刷新或再点确认仍用原键原请求
     }));
   }, [state, busy, anyBusy, recommendRun, bookId, clearPendingRecord]);
@@ -400,10 +407,12 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   // 实际发送设计请求：持久化未决记录（响应未知/刷新后按原请求原键重试），4xx明确拒绝终结未决
   const sendDesignRequest = (selection: StorylineSelectionRequest, key: string, signature: string, expectedMaterialRevision?: number) => {
     pendingDesign.current = null;
+    pendingExpectedRevision.current = undefined;
     pendingRetryDone.current = true; // 手动提交由本次交互反馈，不走挂载自动重试路径
     const storageKey = pendingStorageKey();
     if (storageKey !== null) {
-      try { window.sessionStorage.setItem(storageKey, JSON.stringify({ key, signature, selection } satisfies PendingDesignRecord)); } catch { /* 存储不可用时退化为会话内useRef防重 */ }
+      // 冻结完整请求（含expectedMaterialRevision）落盘：无材料首发为undefined，不落该字段保持缺省语义
+      try { window.sessionStorage.setItem(storageKey, JSON.stringify({ key, signature, selection, ...(expectedMaterialRevision !== undefined ? { expectedMaterialRevision } : {}) } satisfies PendingDesignRecord)); } catch { /* 存储不可用时退化为会话内useRef防重 */ }
     }
     setSelectedScheme(null);
     void runAction(() => startTimeMachineDesignRound(bookId, selection, key, expectedMaterialRevision).then(() => setSection('plan')).catch((error: unknown) => {
@@ -628,10 +637,12 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
           designAfterMaterialSave.current = null;
           // 全书页确认接力：资料新版本落库后，用新资料版本开始设计（同样走未决记录持久化）
           pendingDesign.current = null;
+          pendingExpectedRevision.current = undefined;
           pendingRetryDone.current = true;
           const storageKey = pendingStorageKey();
           if (storageKey !== null) {
-            try { window.sessionStorage.setItem(storageKey, JSON.stringify({ key: pendingDesignStart.key, signature: pendingDesignStart.signature, selection: pendingDesignStart.selection } satisfies PendingDesignRecord)); } catch { /* 存储不可用时退化为会话内useRef防重 */ }
+            // 1dbed5cd复核：接力请求基于刚保存的资料新版本，版本号一并冻结落盘；刷新重试原样带回
+            try { window.sessionStorage.setItem(storageKey, JSON.stringify({ key: pendingDesignStart.key, signature: pendingDesignStart.signature, selection: pendingDesignStart.selection, expectedMaterialRevision: saved.projection.revision } satisfies PendingDesignRecord)); } catch { /* 存储不可用时退化为会话内useRef防重 */ }
           }
           setSelectedScheme(null);
           try {

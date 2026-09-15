@@ -736,4 +736,131 @@ describe('time machine direction page', () => {
     expect((JSON.parse(saveBodies[1]!) as { previewSignature?: string }).previewSignature).toBe('sig-2');
     expect(await screen.findByText(/已保存为第2版故事线资料/)).toBeVisible();
   }, 20000);
+
+  // 1dbed5cd复核：已有资料v1时设计首发未到达服务器→刷新→重试原样带回冻结的expectedMaterialRevision，正文与幂等键完全相等
+  it('pending retry with existing material v1 resends the frozen expectedMaterialRevision after refresh', async () => {
+    try {
+      let state = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture() });
+      const designPosts: { key: string; body: string }[] = [];
+      let releaseRetry: ((value: Response) => void) | null = null;
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/state')) return response(state);
+        if (url.endsWith('/design-runs')) {
+          const raw = String(init?.body);
+          designPosts.push({ key: (JSON.parse(raw) as { idempotencyKey: string }).idempotencyKey, body: raw });
+          if (designPosts.length === 1) throw new TypeError('network went away'); // 首发根本没到服务端
+          const key = designPosts[1]!.key;
+          state = stateFixture({ runs: [recommendRun('succeeded'), { ...designRun('A', 'working', '红玉', 'x'), roundKey: key }, { ...designRun('B', 'working', '幼薇', 'x'), roundKey: key }, { ...designRun('C', 'working', '苏映棠', 'x'), roundKey: key }], storylineMaterial: storylineMaterialFixture() });
+          // 挂起重试响应：先断言恢复提示，再放行成功回执
+          return new Promise<Response>(resolve => { releaseRetry = resolve; });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }));
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />, 'owner-v1');
+      expect(await screen.findByText('已选 2 条故事线')).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: '确认故事线，设计全书方向' }));
+      await waitFor(() => { expect(designPosts).toHaveLength(1); });
+      expect((JSON.parse(designPosts[0]!.body) as { expectedMaterialRevision?: number }).expectedMaterialRevision).toBe(1);
+      // 未决记录落盘含冻结版本号
+      expect((JSON.parse(window.sessionStorage.getItem('wenmi:design-pending:owner-v1:bk-1')!) as { expectedMaterialRevision?: number }).expectedMaterialRevision).toBe(1);
+      // 刷新：恢复期间资料未变化，回填作者输入（无需重新填字），自动用原请求原键原版本号重试一次
+      cleanup();
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />, 'owner-v1');
+      expect(await screen.findByText('已选 2 条故事线')).toBeVisible();
+      expect((screen.getByLabelText('故事线补充要求') as HTMLTextAreaElement).value).toBe('想多写伙伴的成长');
+      await waitFor(() => { expect(designPosts).toHaveLength(2); });
+      expect(designPosts[1]!.key).toBe(designPosts[0]!.key);
+      expect(designPosts[1]!.body).toBe(designPosts[0]!.body);
+      // 放行成功回执：state出现该轮=确定成功，清除未决记录
+      releaseRetry!(response({ runs: [{ id: 'design-A', scheme: 'A', state: 'queued' }] }));
+      await waitFor(() => { expect(window.sessionStorage.getItem('wenmi:design-pending:owner-v1:bk-1')).toBeNull(); });
+    } finally { window.sessionStorage.clear(); }
+  }, 20000);
+
+  // 1dbed5cd复核：保存资料v2后接力设计首发未到达服务器→刷新→重试原样带回冻结的新版本号2
+  it('pending relay retry after saving material v2 resends the frozen revision 2 after refresh', async () => {
+    try {
+      let state = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture() });
+      const designPosts: { key: string; body: string }[] = [];
+      let releaseRetry: ((value: Response) => void) | null = null;
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/state')) return response(state);
+        if (url.endsWith('/storyline-material/preview')) return response({ currentRevision: 1, unchanged: false, revisionMatch: true, affectedBaseline: false, affectedRuns: [], affectedInFlight: 0, downstream: { volumeOutlines: 0, volumes: 'not-created', chains: 'not-created', chapters: 'not-created' }, signature: 'sig-relay' });
+        if (url.endsWith('/storyline-material')) {
+          state = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture({ revision: 2, createdBy: 'author-edit' }) });
+          return response({ projection: storylineMaterialFixture({ revision: 2, createdBy: 'author-edit' }), markedRuns: 0, unchanged: false, replayed: false });
+        }
+        if (url.endsWith('/design-runs')) {
+          const raw = String(init?.body);
+          designPosts.push({ key: (JSON.parse(raw) as { idempotencyKey: string }).idempotencyKey, body: raw });
+          if (designPosts.length === 1) throw new TypeError('network went away'); // 接力首发根本没到服务端
+          const key = designPosts[1]!.key;
+          state = stateFixture({ runs: [recommendRun('succeeded'), { ...designRun('A', 'working', '红玉', 'x'), roundKey: key }, { ...designRun('B', 'working', '幼薇', 'x'), roundKey: key }, { ...designRun('C', 'working', '苏映棠', 'x'), roundKey: key }], storylineMaterial: storylineMaterialFixture({ revision: 2, createdBy: 'author-edit' }) });
+          // 挂起重试响应：先断言恢复提示，再放行成功回执
+          return new Promise<Response>(resolve => { releaseRetry = resolve; });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }));
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />, 'owner-v2');
+      expect(await screen.findByText('已选 2 条故事线')).toBeVisible();
+      fireEvent.change(screen.getByLabelText('故事线补充要求'), { target: { value: '改成全新的方向' } });
+      fireEvent.click(screen.getByRole('button', { name: '确认故事线，设计全书方向' }));
+      // 先保存资料v2（预览→确认），接力设计首发网络失败
+      fireEvent.click(await screen.findByRole('button', { name: '保存修改并标记重设' }));
+      await waitFor(() => { expect(designPosts).toHaveLength(1); });
+      expect((JSON.parse(designPosts[0]!.body) as { expectedMaterialRevision?: number }).expectedMaterialRevision).toBe(2);
+      expect((JSON.parse(window.sessionStorage.getItem('wenmi:design-pending:owner-v2:bk-1')!) as { expectedMaterialRevision?: number }).expectedMaterialRevision).toBe(2);
+      // 刷新：回填作者输入（含修改后的备注），自动用原请求原键原版本号（v2）重试一次，正文完全相等
+      cleanup();
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />, 'owner-v2');
+      expect(await screen.findByText('已选 2 条故事线')).toBeVisible();
+      expect((screen.getByLabelText('故事线补充要求') as HTMLTextAreaElement).value).toBe('改成全新的方向');
+      await waitFor(() => { expect(designPosts).toHaveLength(2); });
+      expect(designPosts[1]!.key).toBe(designPosts[0]!.key);
+      expect(designPosts[1]!.body).toBe(designPosts[0]!.body);
+      // 放行成功回执：state出现该轮=确定成功，清除未决记录
+      releaseRetry!(response({ runs: [{ id: 'design-A', scheme: 'A', state: 'queued' }] }));
+      await waitFor(() => { expect(window.sessionStorage.getItem('wenmi:design-pending:owner-v2:bk-1')).toBeNull(); });
+    } finally { window.sessionStorage.clear(); }
+  }, 20000);
+
+  // 1dbed5cd复核：恢复期间资料已被改为v2→重试仍用冻结的v1（不自动改成新版本绕过作者确认），服务端409终结未决、零新轮
+  it('pending retry keeps the frozen revision when material changed during recovery; server 409 ends it with no new round', async () => {
+    try {
+      let state = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture() });
+      const designPosts: { key: string; body: string }[] = [];
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/state')) return response(state);
+        if (url.endsWith('/design-runs')) {
+          const raw = String(init?.body);
+          designPosts.push({ key: (JSON.parse(raw) as { idempotencyKey: string }).idempotencyKey, body: raw });
+          if (designPosts.length === 1) throw new TypeError('network went away'); // 首发根本没到服务端
+          // 服务端版本门禁：冻结的v1与当前v2不符→409明确拒绝、零新轮
+          return { ok: false, status: 409, json: async () => ({ error: { message: '故事线资料已变化，请核对最新资料后重新确认', retryable: false } }) } as Response;
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }));
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />, 'owner-stale');
+      expect(await screen.findByText('已选 2 条故事线')).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: '确认故事线，设计全书方向' }));
+      await waitFor(() => { expect(designPosts).toHaveLength(1); });
+      // 恢复期间另一个标签页已把资料保存为v2
+      state = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture({ revision: 2, createdBy: 'author-edit' }) });
+      cleanup();
+      renderPage(<TimeMachineDirectionEntry bookId="bk-1" />, 'owner-stale');
+      await waitFor(() => { expect(designPosts).toHaveLength(2); });
+      // 重试仍用冻结的v1：正文与首发完全相等，不自动改成v2
+      expect(designPosts[1]!.key).toBe(designPosts[0]!.key);
+      expect(designPosts[1]!.body).toBe(designPosts[0]!.body);
+      expect((JSON.parse(designPosts[1]!.body) as { expectedMaterialRevision?: number }).expectedMaterialRevision).toBe(1);
+      // 409=明确失败：未决记录终结、零新轮，不再自动重试
+      await waitFor(() => { expect(window.sessionStorage.getItem('wenmi:design-pending:owner-stale:bk-1')).toBeNull(); });
+      await new Promise(resolve => { setTimeout(resolve, 100); });
+      expect(designPosts).toHaveLength(2);
+      expect(designPosts.every(post => (JSON.parse(post.body) as { expectedMaterialRevision?: number }).expectedMaterialRevision === 1)).toBe(true);
+    } finally { window.sessionStorage.clear(); }
+  }, 20000);
 });
