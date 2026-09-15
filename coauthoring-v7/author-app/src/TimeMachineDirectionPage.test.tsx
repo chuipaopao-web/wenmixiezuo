@@ -113,8 +113,8 @@ describe('time machine direction page', () => {
     }));
     renderPage(<TimeMachineDirectionEntry bookId="bk-1"/>);
     expect(await screen.findByText('正在整理本书故事线，请您耐心等待。')).toBeVisible();
-    // 72c3a62f复核第5项：已持久化的推荐任务附可离开说明
-    expect(screen.getByText(/推荐在后台进行，你可以离开本页/)).toBeVisible();
+    // 72c3a62f复核第5项：已持久化的推荐任务附可离开说明（推荐进行中才渲染，异步等待）
+    expect(await screen.findByText(/推荐在后台进行，你可以离开本页/)).toBeVisible();
     await waitFor(()=>expect(recommendations).toBe(1));expect(designs).toBe(0);
   });
   it('adds a custom story and carries author requests into chief recommendations',async()=>{
@@ -612,7 +612,7 @@ describe('time machine direction page', () => {
     expect(screen.getByText(/已采用的规划保留可查看，不会自动覆盖/)).toBeVisible();
     // 方案A标记需重新设计且采用/修改禁用
     expect(screen.getAllByText('需重新设计').length).toBeGreaterThan(0);
-    expect((screen.getByRole('button', { name: '采用本方案' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(((await screen.findByRole('button', { name: '采用本方案' })) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: /修改方案/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
