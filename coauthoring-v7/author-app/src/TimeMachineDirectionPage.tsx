@@ -28,11 +28,23 @@ const SHAPE_OPTIONS: { value: 'auto' | 'single' | 'multiple'; title: string; des
   { value: 'multiple', title: '几个重要故事交织', desc: '多个目标相互影响，共同走向结局。' }
 ];
 
-/** 原型“＋ 添加其他故事线”弹窗的预设线，文案与原型逐字一致。 */
+/** “＋ 添加其他故事线”弹窗的完整方向目录：作者从全部常见故事线方向中挑选，也可以完全自填。
+ * 前三项保持原型既有文案逐字一致；目录只提供起点，作者可改可写，不与本书推荐混淆。 */
 const ADD_LINE_PRESETS: { id: string; title: string; description: string }[] = [
   { id: 'romance', title: '感情线', description: '与拥有独立追求的伴侣，在合作与分歧中发展感情。' },
   { id: 'family', title: '亲情线', description: '从独自扛事，到重新拥有值得牵挂的家人。' },
-  { id: 'rival', title: '宿敌线', description: '立场不同的对手，在反复交锋中改变彼此。' }
+  { id: 'rival', title: '宿敌线', description: '立场不同的对手，在反复交锋中改变彼此。' },
+  { id: 'friendship', title: '友情线', description: '并肩同行的伙伴，在患难与选择中成为彼此的后盾。' },
+  { id: 'mentor', title: '师徒线', description: '遇见引路人，或成为别人的引路人，在传承中走出自己的路。' },
+  { id: 'revenge', title: '复仇线', description: '背负旧账出发，在追索真相中决定讨回还是放下。' },
+  { id: 'mystery', title: '悬疑线', description: '一个绕不开的谜团，牵着所有人一步步接近真相。' },
+  { id: 'adventure', title: '探险线', description: '前往未知的远方，在危险与奇遇中打开更大的世界。' },
+  { id: 'building', title: '建设线', description: '从一无所有开始，亲手建起值得守护的家业或家园。' },
+  { id: 'faction', title: '势力线', description: '经营自己的势力，在合纵连横中站稳并壮大。' },
+  { id: 'identity', title: '身份线', description: '被隐藏的身世或马甲，一旦揭开就改变所有人的位置。' },
+  { id: 'redemption', title: '救赎线', description: '弥补过去的错，在救赎别人的过程中放过自己。' },
+  { id: 'guardian', title: '守护线', description: '为了想守住的人或物，一次次站出来变得更强。' },
+  { id: 'competition', title: '竞逐线', description: '与同辈或强敌你追我赶，在较量中登上更高的位置。' }
 ];
 
 function shapeLabelText(shape: 'auto' | 'single' | 'multiple'): string {
@@ -591,7 +603,8 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
                   <label>想写怎样的故事<textarea value={customDescription} onChange={event => setCustomDescription(event.target.value)} maxLength={400} required rows={3} placeholder="谁想完成什么，会经历怎样的变化？" /></label>
                   <button type="submit" className="tmd-primary" disabled={!customTitle.trim() || !customDescription.trim()}>加入故事线</button>
                 </form>
-                <p>也可以从这些方向开始：</p>
+                <p>也可以从全部常见故事线方向中挑选（点选即加入，可再次打开继续选）：</p>
+                <div className="tmd-dialog-list" role="group" aria-label="全部故事线方向">
                 {ADD_LINE_PRESETS.map(preset => (
                   <button
                     type="button"
@@ -607,6 +620,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
                     <small>{preset.description}</small>
                   </button>
                 ))}
+                </div>
               </dialog>
             </>
           )}

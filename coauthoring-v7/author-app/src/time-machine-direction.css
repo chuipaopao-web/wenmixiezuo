@@ -203,3 +203,6 @@
   .tmd-avatar-md { width: 84px; height: 84px; }
   .tmd-working > svg { display: none; }
 }
+
+/* 添加故事线弹窗：完整方向目录独立滚动，长目录不撑破弹窗 */
+.tmd-dialog-list { max-height: min(46vh, 420px); overflow-y: auto; padding-right: 4px; }

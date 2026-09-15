@@ -1,4 +1,4 @@
-﻿import {describe,it,expect,afterEach} from 'vitest';
+import {describe,it,expect,afterEach} from 'vitest';
 import {createTestContext,type TestContext} from '../../helpers/test-context.js';
 import {BookRepository} from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import {TimeMachineDesignService} from '../../../apps/api/src/application/books/time-machine-design-service.js';
@@ -14,7 +14,7 @@ function output(prompt:string):unknown{
  if(prompt.includes('核对短卡是否'))return {pass:true,issues:[]};
  if(prompt.includes('判断需要哪些方法'))return {action:'ready',selected:[]};
  if(prompt.includes('你是主编，推荐'))return {greeting:'老板，推荐如下',lines:[{id:'growth',role:'main',title:'成长线',description:'建立工坊',recommended:true},{id:'ally',role:'through',title:'伙伴线',description:'结识同伴',recommended:false}],structure:'single',reason:'聚焦成长'};
- if(prompt.includes('设计全书骨架。只设计'))return {structure:'四幕起承转合',baseline:'轻快成长',ending:'建立工坊',openingHooks:['开头钩子','第一章钩子','前三章钩子'],words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'},lines:[{id:'main',role:'main',title:'工坊',goal:'立足',answer:'建立工坊',process:'从修理到建坊',parentIds:[],milestones:[]}],expectations:[{id:'promise',opening:'无灵根能否立足',change:'看到变化',answer:'以机甲立足',lineIds:['main']}],relations:[],volumeBriefs:[{id:'v1',title:'开张',goal:'建立工坊',words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'}}]};
+ if(prompt.includes('设计全书骨架。只设计'))return {structure:'四幕起承转合',baseline:'轻快成长',ending:'建立工坊',openingHooks:['开头钩子','第一章钩子','前三章钩子'],words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'},lines:[{id:'main',role:'main',title:'工坊',goal:'立足',answer:'建立工坊',process:'从修理到建坊',parentIds:[],covers:['成长线'],milestones:[]}],expectations:[{id:'promise',opening:'无灵根能否立足',change:'看到变化',answer:'以机甲立足',lineIds:['main']}],relations:[],volumeBriefs:[{id:'v1',title:'开张',goal:'建立工坊',words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'}}]};
  if(prompt.includes('补全本批卷卡'))return {volumes:[{id:'v1',title:'开张',start:'濒临倒闭',goal:'完成订单',conflict:'封锁',beat:'起',turningPoint:'机甲完成',gain:'伙伴',loss:null,arc:null,payoff:null,hook:null,mood:null,ending:'工坊建立',handoff:'',words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'},anchors:[],duties:[{lineId:'main',action:'close',result:'工坊建立',anchorIds:[],strength:'required',reason:'主线起点'}]}]};
  if(prompt.includes('自检你刚完成')||prompt.includes('自检候选锚点'))return {pass:true,issues:[]};
  if(prompt.includes('核对候选锚点'))return {pass:true,issues:[],suggestions:[]};
