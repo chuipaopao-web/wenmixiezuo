@@ -49,5 +49,12 @@ export class StepRepository {
   if(!Number.isSafeInteger(maxRetries)||maxRetries<0||maxRetries>10)throw new Error('重试预算错误');
   return this.tx(()=>{const row=this.row(scope,id);if(row.state!=='failed'||row.error_code!=='temporary')return false;const n=this.db.prepare('SELECT COUNT(*) n FROM tm2_attempts WHERE owner=? AND book=? AND step=?').get(scope.ownerId,scope.bookId,id) as {n:number};if(n.n>maxRetries)return false;this.db.prepare("UPDATE tm2_steps SET state='ready' WHERE owner=? AND book=? AND id=?").run(scope.ownerId,scope.bookId,id);return true;});
  }
+ /** 30a6f053：同轮截断恢复——只重新武装指定run下已知可恢复错误码（truncated等）的失败步骤；
+  * 已成功步骤保持缓存复用，unknown结果永不重发。 */
+ retryRunFailed(scope:Scope,runId:string,code:'temporary'|'authentication'|'budget'|'truncated'):number{
+  parseScope(scope);
+  if(!runId.trim())throw new Error('缺少运行编号');
+  return this.tx(()=>{const r=this.db.prepare("UPDATE tm2_steps SET state='ready' WHERE owner=? AND book=? AND id LIKE ? ESCAPE '\\' AND state='failed' AND error_code=?").run(scope.ownerId,scope.bookId,`${runId.replace(/[\\%_]/gu,ch=>'\\'+ch)}:%`,code);return Number(r.changes);});
+ }
  state(scope:Scope,id:string):{state:StepState;error:string|null}{const row=this.row(scope,id);return {state:row.state,error:row.error_code};}
 }
