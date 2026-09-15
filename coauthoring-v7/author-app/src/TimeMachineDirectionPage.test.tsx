@@ -78,7 +78,8 @@ function designRun(scheme: 'A' | 'B' | 'C', state: 'working' | 'succeeded' | 'fa
   return {
     id: `design-${scheme}`, kind: 'design' as const, scheme, roundKey: 'round-1', state, updatedAt: `2026-09-11T10:0${scheme === 'A' ? 1 : scheme === 'B' ? 2 : 3}:00Z`,
     member: state === 'working' ? { id: `writer-${memberName}`, name: memberName } : null,
-    progress: state === 'working' ? '正在设计全书骨架' : state === 'succeeded' ? '已完成' : '未完成',
+    // 72c3a62f复核第5项：进行中统一显示"正在工作"，member=实际接手成员（服务端投影合同）
+    progress: state === 'working' ? '正在工作' : state === 'succeeded' ? '已完成' : '未完成',
     result: state === 'succeeded' ? designResult(memberName, baseline, pass) : null,
     message: state === 'failed' ? '本次工作尚未完成，已保存的步骤会保留。' : null
   };
@@ -112,6 +113,8 @@ describe('time machine direction page', () => {
     }));
     renderPage(<TimeMachineDirectionEntry bookId="bk-1"/>);
     expect(await screen.findByText('正在整理本书故事线，请您耐心等待。')).toBeVisible();
+    // 72c3a62f复核第5项：已持久化的推荐任务附可离开说明
+    expect(screen.getByText(/推荐在后台进行，你可以离开本页/)).toBeVisible();
     await waitFor(()=>expect(recommendations).toBe(1));expect(designs).toBe(0);
   });
   it('adds a custom story and carries author requests into chief recommendations',async()=>{
@@ -222,6 +225,9 @@ describe('time machine direction page', () => {
     expect(screen.getByText('红玉')).toBeVisible();
     expect(screen.getByText('幼薇')).toBeVisible();
     expect(screen.getByText('苏映棠')).toBeVisible();
+    // 72c3a62f复核第5项：工作态统一"正在工作"，成员=实际接手成员，附可离开说明
+    expect(screen.getAllByText('正在工作')).toHaveLength(3);
+    expect(screen.getByText(/方案设计在后台进行，你可以离开本页/)).toBeVisible();
     expect(designStarted).toBe(true);
   }, 20000);
 
@@ -476,17 +482,22 @@ describe('time machine direction page', () => {
 
   // —— S1-A阶段二（第25节）：二级导航四项与故事线资料页 ——
   function storylineMaterialFixture(overrides: Record<string, unknown> = {}) {
+    const { content: contentOverride, ...rest } = overrides;
     return {
       revision: 1,
       content: {
         recommendationRunId: 'rec-1', recommendationHash: 'hash-rec-1', preparationVersion: 'confirmed-v1',
-        selectedLineIds: ['growth'], addedLines: [{ title: '宿敌线', description: '对手改变彼此' }],
-        shape: 'auto' as const, ensemble: true, authorNote: '想多写伙伴的成长'
+        selectedLineIds: ['growth'],
+        // 72c3a62f复核第1项：材料自含勾选线正文（服务端回填/保存），页面不依赖最新推荐
+        selectedLines: [{ id: 'growth', role: 'main' as const, title: '成长线', description: '林舟建立工坊' }],
+        addedLines: [{ title: '宿敌线', description: '对手改变彼此' }],
+        shape: 'auto' as const, ensemble: true, authorNote: '想多写伙伴的成长',
+        ...((contentOverride ?? {}) as Record<string, unknown>)
       },
       createdBy: 'selection-confirm' as const, createdAt: '2026-09-15T10:00:00Z',
       versions: [{ revision: 1, contentHash: 'h1', createdBy: 'selection-confirm', createdAt: '2026-09-15T10:00:00Z' }],
       draft: null,
-      ...overrides
+      ...rest
     };
   }
 
@@ -536,15 +547,16 @@ describe('time machine direction page', () => {
       selectedLineIds: ['growth', 'partner'], addedLines: [], shape: 'multiple' as const, ensemble: false, authorNote: '草稿里的想法'
     };
     let current = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture({ draft: { content: draftContent, baseRevision: 1, updatedAt: '2026-09-15T11:00:00Z' } }) });
-    let previewPosts = 0; let savePosts = 0; let draftPosts = 0;
+    let previewPosts = 0; let savePosts = 0; let draftPosts = 0; let saveBody = '';
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/state')) return response(current);
-      if (url.endsWith('/storyline-material/preview')) { previewPosts++; return response({ currentRevision: 1, unchanged: false, revisionMatch: true, affectedBaseline: true, affectedRuns: [{ id: 'design-A', scheme: 'A', roundKey: 'round-1', state: 'succeeded', alreadyMarked: false }], affectedInFlight: 0, downstream: { volumes: 'not-created', chains: 'not-created', chapters: 'not-created' } }); }
+      if (url.endsWith('/storyline-material/preview')) { previewPosts++; return response({ currentRevision: 1, unchanged: false, revisionMatch: true, affectedBaseline: true, affectedRuns: [{ id: 'design-A', scheme: 'A', roundKey: 'round-1', state: 'succeeded', alreadyMarked: false }], affectedInFlight: 0, downstream: { volumeOutlines: 2, volumes: 'not-created', chains: 'not-created', chapters: 'not-created' }, signature: 'sig-1' }); }
       if (url.endsWith('/storyline-material/draft')) { draftPosts++; return response({ baseRevision: 1, updatedAt: '2026-09-15T12:00:00Z' }); }
       if (url.endsWith('/storyline-material')) {
         savePosts++;
-        const body = JSON.parse(String(init?.body)) as { content: { authorNote: string } };
+        saveBody = String(init?.body);
+        const body = JSON.parse(saveBody) as { content: { authorNote: string } };
         current = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture({ revision: 2, createdBy: 'author-edit', content: { ...draftContent, authorNote: body.content.authorNote } }) });
         return response({ projection: storylineMaterialFixture({ revision: 2, createdBy: 'author-edit', content: { ...draftContent, authorNote: body.content.authorNote } }), markedRuns: 1, unchanged: false, replayed: false });
       }
@@ -572,9 +584,12 @@ describe('time machine direction page', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存修改' }));
     await waitFor(() => expect(previewPosts).toBe(1));
     expect(await screen.findByText('保存此修改后，基于旧版故事线资料的全书基线，以及后续卷、链、章规划将需要重新设计。已有正文会保留，不会自动覆盖。')).toBeVisible();
-    expect(screen.getByText('卷、链、章规划：尚未创建')).toBeVisible();
+    expect(screen.getByText('卷概要：已采用方案含2卷概要，重新设计后更新')).toBeVisible();
+    expect(screen.getByText('卷、链、章规划：尚未实现独立卷设计（如实标注）')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '保存修改并标记重设' }));
     await waitFor(() => expect(savePosts).toBe(1));
+    // 72c3a62f复核第3项：确认保存原样带回预览签名，服务端事务内重算
+    expect((JSON.parse(saveBody) as { previewSignature?: string }).previewSignature).toBe('sig-1');
     expect(await screen.findByText(/已保存为第2版故事线资料/)).toBeVisible();
     expect(await screen.findByText(/第2版 · 作者修改形成/)).toBeVisible();
   });
@@ -600,4 +615,125 @@ describe('time machine direction page', () => {
     expect((screen.getByRole('button', { name: '采用本方案' }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: /修改方案/ }) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  // 72c3a62f复核第1项：资料页可直接编辑每条已确认故事线的标题/描述，稳定id随材料保存
+  it('material edit lets the author rewrite a confirmed storyline title and description in place', async () => {
+    let saveBody = '';
+    const current = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture() });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/state')) return response(current);
+      if (url.endsWith('/storyline-material/preview')) return response({ currentRevision: 1, unchanged: false, revisionMatch: true, affectedBaseline: false, affectedRuns: [], affectedInFlight: 0, downstream: { volumeOutlines: 0, volumes: 'not-created', chains: 'not-created', chapters: 'not-created' }, signature: 'sig-edit' });
+      if (url.endsWith('/storyline-material')) { saveBody = String(init?.body); return response({ projection: storylineMaterialFixture({ revision: 2, createdBy: 'author-edit' }), markedRuns: 0, unchanged: false, replayed: false }); }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
+    fireEvent.click(await screen.findByRole('button', { name: '资料' }));
+    fireEvent.click(await screen.findByRole('button', { name: /修改故事线资料/ }));
+    // 推荐线正文以输入框直接呈现（自含于材料，不依赖最新推荐）
+    const titleField = (await screen.findByLabelText('推荐故事线1名称')) as HTMLInputElement;
+    const descField = screen.getByLabelText('推荐故事线1描述') as HTMLTextAreaElement;
+    expect(titleField.value).toBe('成长线');
+    expect(descField.value).toBe('林舟建立工坊');
+    fireEvent.change(titleField, { target: { value: '成长线·星际版' } });
+    fireEvent.change(descField, { target: { value: '林舟建立星际工坊' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }));
+    fireEvent.click(await screen.findByRole('button', { name: '保存修改并标记重设' }));
+    await waitFor(() => expect(saveBody).not.toBe(''));
+    const saved = JSON.parse(saveBody) as { content: { selectedLines: { id: string; title: string; description: string }[] }; previewSignature?: string };
+    expect(saved.content.selectedLines).toEqual([{ id: 'growth', title: '成长线·星际版', description: '林舟建立星际工坊' }]);
+    expect(saved.previewSignature).toBe('sig-edit');
+  });
+
+  // 72c3a62f复核第2项：全书页确认与正式资料一致时，设计直接带当前资料版本，不新建材料版本
+  it('landing confirmation matching the material starts design with the current material revision and no material write', async () => {
+    let designBody = ''; let previewPosts = 0;
+    const state = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture() });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/state')) return response(state);
+      if (url.endsWith('/storyline-material/preview')) { previewPosts++; return response({ currentRevision: 1, unchanged: true, revisionMatch: true, affectedBaseline: false, affectedRuns: [], affectedInFlight: 0, downstream: { volumeOutlines: 0, volumes: 'not-created', chains: 'not-created', chapters: 'not-created' }, signature: 'sig-x' }); }
+      if (url.endsWith('/design-runs')) { designBody = String(init?.body); return response({ runs: [] }); }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
+    // 材料初始化恢复勾选+自添+备注（与正式资料一致）
+    expect(await screen.findByText('已选 2 条故事线')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '确认故事线，设计全书方向' }));
+    await waitFor(() => expect(designBody).not.toBe(''));
+    const parsed = JSON.parse(designBody) as { expectedMaterialRevision?: number; selection: { selectedLines?: { id: string; title: string; description: string }[]; authorNote: string } };
+    expect(parsed.expectedMaterialRevision).toBe(1);
+    expect(parsed.selection.selectedLines).toEqual([{ id: 'growth', title: '成长线', description: '林舟建立工坊' }]);
+    expect(parsed.selection.authorNote).toBe('想多写伙伴的成长');
+    expect(previewPosts).toBe(0);
+  });
+
+  // 72c3a62f复核第2项：全书页确认与正式资料不一致时，先保存材料新版本（预览+确认），再用新版本自动开始设计
+  it('landing confirmation diverging from the material saves a new material revision first, then auto-starts design on it', async () => {
+    const calls: string[] = [];
+    let saveBody = ''; let designBody = '';
+    let current = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture() });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/state')) return response(current);
+      if (url.endsWith('/storyline-material/preview')) { calls.push('preview'); return response({ currentRevision: 1, unchanged: false, revisionMatch: true, affectedBaseline: false, affectedRuns: [], affectedInFlight: 0, downstream: { volumeOutlines: 0, volumes: 'not-created', chains: 'not-created', chapters: 'not-created' }, signature: 'sig-2' }); }
+      if (url.endsWith('/storyline-material')) {
+        calls.push('save'); saveBody = String(init?.body);
+        current = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture({ revision: 2, createdBy: 'author-edit' }) });
+        return response({ projection: storylineMaterialFixture({ revision: 2, createdBy: 'author-edit' }), markedRuns: 0, unchanged: false, replayed: false });
+      }
+      if (url.endsWith('/design-runs')) { calls.push('design'); designBody = String(init?.body); return response({ runs: [] }); }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
+    expect(await screen.findByText('已选 2 条故事线')).toBeVisible();
+    fireEvent.change(screen.getByLabelText('故事线补充要求'), { target: { value: '改成全新的方向' } });
+    fireEvent.click(screen.getByRole('button', { name: '确认故事线，设计全书方向' }));
+    // 先走材料保存流：预览→确认弹窗，尚不允许直接开设计
+    await waitFor(() => expect(calls).toEqual(['preview']));
+    expect(await screen.findByText('保存此修改后，基于旧版故事线资料的全书基线，以及后续卷、链、章规划将需要重新设计。已有正文会保留，不会自动覆盖。')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '保存修改并标记重设' }));
+    await waitFor(() => expect(calls).toEqual(['preview', 'save', 'design']));
+    const saved = JSON.parse(saveBody) as { expectedRevision: number; previewSignature: string };
+    expect(saved.expectedRevision).toBe(1);
+    expect(saved.previewSignature).toBe('sig-2');
+    const design = JSON.parse(designBody) as { expectedMaterialRevision: number; selection: { authorNote: string; selectedLines?: { id: string; title: string; description: string }[] } };
+    expect(design.expectedMaterialRevision).toBe(2);
+    expect(design.selection.authorNote).toBe('改成全新的方向');
+    expect(design.selection.selectedLines).toEqual([{ id: 'growth', title: '成长线', description: '林舟建立工坊' }]);
+  }, 20000);
+
+  // 72c3a62f复核第3项：保存时预览已变化（409）→零写入，页面刷新后重新生成预览并请作者再次确认
+  it('re-previews and asks again when the material save reports the preview changed (409), then saves on re-confirm', async () => {
+    let previewPosts = 0; const saveBodies: string[] = [];
+    let current = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture() });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/state')) return response(current);
+      if (url.endsWith('/storyline-material/preview')) { previewPosts++; return response({ currentRevision: 1, unchanged: false, revisionMatch: true, affectedBaseline: false, affectedRuns: [], affectedInFlight: 0, downstream: { volumeOutlines: 0, volumes: 'not-created', chains: 'not-created', chapters: 'not-created' }, signature: `sig-${previewPosts}` }); }
+      if (url.endsWith('/storyline-material')) {
+        saveBodies.push(String(init?.body));
+        if (saveBodies.length === 1) return { ok: false, status: 409, json: async () => ({ error: { message: '影响预览已变化，请按最新预览确认', retryable: false } }) } as Response;
+        current = stateFixture({ runs: [recommendRun('succeeded')], storylineMaterial: storylineMaterialFixture({ revision: 2, createdBy: 'author-edit' }) });
+        return response({ projection: storylineMaterialFixture({ revision: 2, createdBy: 'author-edit' }), markedRuns: 0, unchanged: false, replayed: false });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
+    fireEvent.click(await screen.findByRole('button', { name: '资料' }));
+    fireEvent.click(await screen.findByRole('button', { name: /修改故事线资料/ }));
+    fireEvent.change(await screen.findByLabelText('推荐故事线1名称'), { target: { value: '成长线·改' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }));
+    await waitFor(() => expect(previewPosts).toBe(1));
+    fireEvent.click(await screen.findByRole('button', { name: '保存修改并标记重设' }));
+    await waitFor(() => expect(saveBodies).toHaveLength(1));
+    expect((JSON.parse(saveBodies[0]!) as { previewSignature?: string }).previewSignature).toBe('sig-1');
+    // 409零写入：页面如实提示，并重新预览后再次打开确认弹窗
+    expect(await screen.findByText(/影响范围刚刚发生变化/)).toBeVisible();
+    await waitFor(() => expect(previewPosts).toBe(2));
+    fireEvent.click(screen.getByRole('button', { name: '保存修改并标记重设' }));
+    await waitFor(() => expect(saveBodies).toHaveLength(2));
+    expect((JSON.parse(saveBodies[1]!) as { previewSignature?: string }).previewSignature).toBe('sig-2');
+    expect(await screen.findByText(/已保存为第2版故事线资料/)).toBeVisible();
+  }, 20000);
 });

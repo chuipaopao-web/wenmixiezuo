@@ -109,6 +109,8 @@ export interface StorylineSelectionRequest {
   recommendationHash: string;
   preparationVersion: string;
   selectedLineIds: string[];
+  /** 72c3a62f复核第1项：勾选推荐线的正文快照，作者可编辑标题/描述；role由服务端按推荐裁定，前端不必回传。 */
+  selectedLines?: { id: string; title: string; description: string }[];
   addedLines: { title: string; description: string }[];
   shape: 'auto' | 'single' | 'multiple';
   ensemble: boolean;
@@ -131,11 +133,20 @@ export interface TimeMachineAdoptedView {
 }
 
 /** S1-A阶段二（第25节）：故事线资料——作者确认故事线后的正式版本对象。 */
+export interface StorylineMaterialLineView {
+  id: string;
+  role: 'main' | 'through' | 'stage';
+  title: string;
+  description: string;
+}
+
 export interface StorylineMaterialContentView {
   recommendationRunId: string;
   recommendationHash: string;
   preparationVersion: string;
   selectedLineIds: string[];
+  /** 72c3a62f复核第1项：材料自含勾选线正文（可直接阅读/编辑）；旧版本材料由服务端从原推荐回填。 */
+  selectedLines: StorylineMaterialLineView[];
   addedLines: { title: string; description: string }[];
   shape: 'auto' | 'single' | 'multiple';
   ensemble: boolean;
@@ -151,6 +162,11 @@ export interface StorylineMaterialView {
   draft: { content: unknown; baseRevision: number; updatedAt: string } | null;
 }
 
+/** 客户端提交的材料内容：勾选线正文的role由服务端按原推荐裁定，提交时不带（72c3a62f复核第1项）。 */
+export type StorylineMaterialContentInput = Omit<StorylineMaterialContentView, 'selectedLines'> & {
+  selectedLines: { id: string; title: string; description: string }[];
+};
+
 export interface StorylineMaterialPreviewView {
   currentRevision: number;
   unchanged: boolean;
@@ -158,7 +174,10 @@ export interface StorylineMaterialPreviewView {
   affectedBaseline: boolean;
   affectedRuns: { id: string; scheme: string | null; roundKey: string | null; state: string; alreadyMarked: boolean }[];
   affectedInFlight: number;
-  downstream: { volumes: 'not-created'; chains: 'not-created'; chapters: 'not-created' };
+  /** 已采用基线的真实卷概要数；卷/链/章三级对象尚未实现，如实标注 not-created。 */
+  downstream: { volumeOutlines: number; volumes: 'not-created'; chains: 'not-created'; chapters: 'not-created' };
+  /** 72c3a62f复核第3项：预览签名绑定下游版本，确认保存时原样带回，服务端事务内重算校验。 */
+  signature: string;
 }
 
 export interface TimeMachineStateView {
@@ -182,10 +201,10 @@ export async function startTimeMachineRecommendation(bookId: string, idempotency
   });
 }
 
-export async function startTimeMachineDesignRound(bookId: string, selection: StorylineSelectionRequest, idempotencyKey: string): Promise<{ runs: { id: string; scheme: string; state: string }[] }> {
+export async function startTimeMachineDesignRound(bookId: string, selection: StorylineSelectionRequest, idempotencyKey: string, expectedMaterialRevision?: number): Promise<{ runs: { id: string; scheme: string; state: string }[] }> {
   return request<{ runs: { id: string; scheme: string; state: string }[] }>(`/api/time-machine/books/${encodeURIComponent(bookId)}/design-runs`, {
     method: 'POST',
-    body: JSON.stringify({ selection, idempotencyKey })
+    body: JSON.stringify({ selection, idempotencyKey, ...(expectedMaterialRevision !== undefined ? { expectedMaterialRevision } : {}) })
   });
 }
 
@@ -211,21 +230,21 @@ export async function adoptTimeMachinePlan(bookId: string, input: { candidateId:
 }
 
 /** S1-A阶段二（第25.3节）：故事线资料的影响预览/草稿/确认保存。 */
-export async function previewStorylineMaterial(bookId: string, content: StorylineMaterialContentView, expectedRevision: number): Promise<StorylineMaterialPreviewView> {
+export async function previewStorylineMaterial(bookId: string, content: StorylineMaterialContentInput, expectedRevision: number): Promise<StorylineMaterialPreviewView> {
   return request<StorylineMaterialPreviewView>(`/api/time-machine/books/${encodeURIComponent(bookId)}/storyline-material/preview`, {
     method: 'POST',
     body: JSON.stringify({ content, expectedRevision })
   });
 }
 
-export async function saveStorylineMaterialDraft(bookId: string, content: StorylineMaterialContentView, baseRevision: number): Promise<{ baseRevision: number; updatedAt: string }> {
+export async function saveStorylineMaterialDraft(bookId: string, content: StorylineMaterialContentInput, baseRevision: number): Promise<{ baseRevision: number; updatedAt: string }> {
   return request<{ baseRevision: number; updatedAt: string }>(`/api/time-machine/books/${encodeURIComponent(bookId)}/storyline-material/draft`, {
     method: 'PUT',
     body: JSON.stringify({ content, baseRevision })
   });
 }
 
-export async function saveStorylineMaterial(bookId: string, input: { content: StorylineMaterialContentView; expectedRevision: number; idempotencyKey: string }): Promise<{ projection: StorylineMaterialView; markedRuns: number; unchanged: boolean; replayed: boolean }> {
+export async function saveStorylineMaterial(bookId: string, input: { content: StorylineMaterialContentInput; expectedRevision: number; previewSignature: string; idempotencyKey: string }): Promise<{ projection: StorylineMaterialView; markedRuns: number; unchanged: boolean; replayed: boolean }> {
   return request<{ projection: StorylineMaterialView; markedRuns: number; unchanged: boolean; replayed: boolean }>(`/api/time-machine/books/${encodeURIComponent(bookId)}/storyline-material`, {
     method: 'POST',
     body: JSON.stringify(input)

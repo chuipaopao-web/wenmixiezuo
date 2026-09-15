@@ -11,7 +11,9 @@ import {
   startTimeMachineDesignRound,
   startTimeMachineRecommendation,
   timeMachineRunBusy,
+  type StorylineMaterialContentInput,
   type StorylineMaterialContentView,
+  type StorylineMaterialLineView,
   type StorylineMaterialPreviewView,
   type StorylineSelectionRequest,
   type TimeMachineDesignResultView,
@@ -124,6 +126,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const [materialEditing, setMaterialEditing] = useState(false);
   const [materialFromDraft, setMaterialFromDraft] = useState(false);
   const [mSelected, setMSelected] = useState<string[]>([]);
+  const [mLines, setMLines] = useState<StorylineMaterialLineView[]>([]);
   const [mAdded, setMAdded] = useState<typeof ADD_LINE_PRESETS>([]);
   const [mShape, setMShape] = useState<'auto' | 'single' | 'multiple'>('auto');
   const [mEnsemble, setMEnsemble] = useState(true);
@@ -131,6 +134,8 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const [materialPreview, setMaterialPreview] = useState<StorylineMaterialPreviewView | null>(null);
   const materialConfirmRef = useRef<HTMLDialogElement | null>(null);
   const materialSaveKey = useRef<string | null>(null);
+  // 72c3a62f复核第2项：全书页确认时若故事线资料有改动，先走材料保存流，保存成功后用新资料版本自动开始设计
+  const designAfterMaterialSave = useRef<{ selection: StorylineSelectionRequest; key: string; signature: string; content: StorylineMaterialContentInput } | null>(null);
   const recommendStarted = useRef(false);
   const initializedRecommendation = useRef<string | null>(null);
   const addDialogRef = useRef<HTMLDialogElement | null>(null);
@@ -251,6 +256,15 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   }, [state, loadFailed, recommendRun, bookId, refresh, section]);
 
   const recommendation = recommendRun !== null && isRecommendation(recommendRun.result) ? recommendRun.result : null;
+  // 72c3a62f复核第1项：资料页改过的标题/描述在全书页同步显示（推荐原件不变，展示以正式资料为准）
+  const landingLines = useMemo(() => {
+    if (recommendation === null) return [];
+    if (storylineMaterial === null || storylineMaterial.content.recommendationRunId !== recommendRun?.id) return recommendation.lines;
+    return recommendation.lines.map(line => {
+      const edited = storylineMaterial.content.selectedLines.find(item => item.id === line.id);
+      return edited === undefined ? line : { ...line, title: edited.title, description: edited.description };
+    });
+  }, [recommendation, storylineMaterial, recommendRun?.id]);
 
   useEffect(() => {
     if (recommendation !== null && recommendRun && initializedRecommendation.current !== recommendRun.id) {
@@ -292,8 +306,13 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   const pendingRestored = useRef(false);
   const selectionSignature = useCallback((): string | null => {
     if (recommendRun === null || recommendationHashRef.current === null || state?.preparation?.version == null) return null;
-    return JSON.stringify([recommendRun.id, recommendationHashRef.current, state.preparation.version, selectedLineIds, addedLines.map(line => [line.title, line.description]), shape, ensemble, authorNote.trim()]);
-  }, [recommendRun, selectedLineIds, addedLines, shape, ensemble, authorNote, state?.preparation?.version]);
+    // 72c3a62f复核第1项：签名含勾选线正文（资料页可编辑），改标题/描述也会生成新键，不与旧请求混淆
+    const lineTexts = selectedLineIds.map(id => {
+      const kept = storylineMaterial?.content.selectedLines.find(item => item.id === id);
+      return kept === undefined ? id : `${id}:${kept.title}:${kept.description}`;
+    });
+    return JSON.stringify([recommendRun.id, recommendationHashRef.current, state.preparation.version, selectedLineIds, lineTexts, addedLines.map(line => [line.title, line.description]), shape, ensemble, authorNote.trim()]);
+  }, [recommendRun, selectedLineIds, addedLines, shape, ensemble, authorNote, state?.preparation?.version, storylineMaterial]);
   const recommendationHashRef = useRef<string | null>(null);
   useEffect(() => { recommendationHashRef.current = recommendRun?.recommendationHash ?? null; }, [recommendRun]);
   // 账号+书籍隔离的未决记录键；会话账号缺失时不落存储（退化为会话内useRef防重，不跨账号共享草稿）
@@ -378,6 +397,21 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
     }));
   }, [state, busy, anyBusy, recommendRun, bookId, clearPendingRecord]);
 
+  // 实际发送设计请求：持久化未决记录（响应未知/刷新后按原请求原键重试），4xx明确拒绝终结未决
+  const sendDesignRequest = (selection: StorylineSelectionRequest, key: string, signature: string, expectedMaterialRevision?: number) => {
+    pendingDesign.current = null;
+    pendingRetryDone.current = true; // 手动提交由本次交互反馈，不走挂载自动重试路径
+    const storageKey = pendingStorageKey();
+    if (storageKey !== null) {
+      try { window.sessionStorage.setItem(storageKey, JSON.stringify({ key, signature, selection } satisfies PendingDesignRecord)); } catch { /* 存储不可用时退化为会话内useRef防重 */ }
+    }
+    setSelectedScheme(null);
+    void runAction(() => startTimeMachineDesignRound(bookId, selection, key, expectedMaterialRevision).then(() => setSection('plan')).catch((error: unknown) => {
+      if (definitiveFailure(error)) clearPendingRecord(); // 服务端明确拒绝（4xx不可重试）：未决请求终结，不自动重试
+      throw error;
+    }));
+  };
+
   const startDesign = () => {
     if (recommendation === null || anyBusy || busy) return;
     if (recommendRun === null || recommendRun.recommendationHash == null || state?.preparation?.version == null) {
@@ -403,18 +437,61 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
       designKey.current = `design:${bookId}:${Date.now()}`;
       designKeySignature.current = signature;
     }
-    pendingDesign.current = null;
-    pendingRetryDone.current = true; // 手动提交由本次交互反馈，不走挂载自动重试路径
-    // 发送前持久化未决请求（完整选择+键，账号+书籍隔离；响应未知/刷新后按原请求原键重试）
-    const storageKey = pendingStorageKey();
-    if (storageKey !== null) {
-      try { window.sessionStorage.setItem(storageKey, JSON.stringify({ key: designKey.current, signature, selection } satisfies PendingDesignRecord)); } catch { /* 存储不可用时退化为会话内useRef防重 */ }
+    // 72c3a62f复核第2项：已有故事线资料时，设计必须基于当前正式资料版本，旧选择不能静默盖过新资料
+    const material = storylineMaterial;
+    if (material !== null) {
+      // 勾选线正文以正式资料为准（资料页可编辑）；资料没有的线（新推荐里新勾的）取推荐原文
+      const derivedLines = selectedLineIds.map(id => {
+        const fromMaterial = material.content.selectedLines.find(item => item.id === id);
+        if (fromMaterial !== undefined) return { id, title: fromMaterial.title, description: fromMaterial.description };
+        const fromRecommendation = recommendation.lines.find(item => item.id === id);
+        return { id, title: fromRecommendation?.title ?? '', description: fromRecommendation?.description ?? '' };
+      }).filter(line => line.title !== ''); // 找不到正文的线不带覆盖，由服务端按推荐补齐或明确拒绝
+      selection.selectedLines = derivedLines;
+      const sourceMatches = material.content.recommendationRunId === recommendRun.id;
+      const sameIds = material.content.selectedLineIds.length === selectedLineIds.length && material.content.selectedLineIds.every(id => selectedLineIds.includes(id));
+      const sameTexts = sameIds && derivedLines.every(line => {
+        const kept = material.content.selectedLines.find(item => item.id === line.id);
+        return kept !== undefined && kept.title === line.title && kept.description === line.description;
+      });
+      const sameAdded = JSON.stringify(selection.addedLines) === JSON.stringify(material.content.addedLines);
+      const unchangedSelection = sourceMatches && sameIds && sameTexts && sameAdded
+        && shape === material.content.shape && ensemble === material.content.ensemble
+        && authorNote.trim() === material.content.authorNote.trim();
+      if (!unchangedSelection) {
+        // 本次确认与正式资料不一致（或换了推荐来源）：先保存为新的资料版本，作者确认影响后自动开始设计
+        const content: StorylineMaterialContentInput = {
+          recommendationRunId: selection.recommendationRunId,
+          recommendationHash: selection.recommendationHash,
+          preparationVersion: selection.preparationVersion,
+          selectedLineIds: [...selectedLineIds],
+          selectedLines: derivedLines,
+          addedLines: selection.addedLines,
+          shape,
+          ensemble,
+          authorNote: authorNote.trim()
+        };
+        designAfterMaterialSave.current = { selection, key: designKey.current, signature, content };
+        materialSaveKey.current = `material-edit:${bookId}:${Date.now()}`;
+        void runAction(async () => {
+          const preview = await previewStorylineMaterial(bookId, content, material.revision);
+          if (preview.unchanged) {
+            // 服务端判定与现资料一致：直接用当前资料版本开始设计
+            const pending = designAfterMaterialSave.current;
+            designAfterMaterialSave.current = null;
+            if (pending !== null) sendDesignRequest(pending.selection, pending.key, pending.signature, material.revision);
+            return;
+          }
+          setMaterialPreview(preview);
+          materialConfirmRef.current?.showModal();
+          setFeedback({ tone: 'info', text: '故事线资料将保存为新版本；请确认影响范围，保存后自动开始设计。' });
+        });
+        return;
+      }
+      sendDesignRequest(selection, designKey.current, signature, material.revision);
+      return;
     }
-    setSelectedScheme(null);
-    void runAction(() => startTimeMachineDesignRound(bookId, selection, designKey.current!).then(() => setSection('plan')).catch((error: unknown) => {
-      if (definitiveFailure(error)) clearPendingRecord(); // 服务端明确拒绝（4xx不可重试）：未决请求终结，不自动重试
-      throw error;
-    }));
+    sendDesignRequest(selection, designKey.current, signature);
   };
 
   const retryRun = (runId: string) => { void runAction(() => retryTimeMachineRun(bookId, runId)); };
@@ -461,13 +538,16 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
   // —— 故事线资料（S1-A阶段二，第25节）：展示/编辑/草稿/确认保存 ——
   const materialSourceRun = storylineMaterial !== null ? runs.find(run => run.id === storylineMaterial.content.recommendationRunId && run.kind === 'recommend') ?? null : null;
   const materialSourceRecommendation = materialSourceRun !== null && isRecommendation(materialSourceRun.result) ? materialSourceRun.result : null;
-  const materialContentNow = (): StorylineMaterialContentView | null => {
+  const materialContentNow = (): StorylineMaterialContentInput | null => {
     if (storylineMaterial === null) return null;
     return {
       recommendationRunId: storylineMaterial.content.recommendationRunId,
       recommendationHash: storylineMaterial.content.recommendationHash,
       preparationVersion: storylineMaterial.content.preparationVersion,
       selectedLineIds: mSelected,
+      // 72c3a62f复核第1项：勾选线正文随材料保存（作者可编辑标题/描述）；id稳定，role由服务端按原推荐裁定。
+      // 只带前端已知正文的线（材料自含）；缺省的由服务端从原推荐补齐，绝不伪造空文本。
+      selectedLines: mLines.filter(line => mSelected.includes(line.id)).map(line => ({ id: line.id, title: line.title.trim(), description: line.description.trim() })),
       addedLines: mAdded.map(line => ({ title: line.title, description: line.description })),
       shape: mShape,
       ensemble: mEnsemble,
@@ -479,7 +559,10 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
     const draftContent = storylineMaterial.draft?.content;
     const fromDraft = draftContent !== null && draftContent !== undefined && typeof draftContent === 'object' && Array.isArray((draftContent as { selectedLineIds?: unknown }).selectedLineIds);
     const source = fromDraft ? draftContent as StorylineMaterialContentView : storylineMaterial.content;
+    // 旧草稿可能还没有selectedLines（72c3a62f前形成）：正文退回当前材料自含内容，不从最新推荐倒灌
+    const sourceLines = Array.isArray(source.selectedLines) && source.selectedLines.length > 0 ? source.selectedLines : storylineMaterial.content.selectedLines;
     setMSelected([...source.selectedLineIds]);
+    setMLines(sourceLines.map(line => ({ ...line })));
     setMAdded(source.addedLines.map(line => ({ id: `edit-${line.title}`, title: line.title, description: line.description })));
     setMShape(source.shape);
     setMEnsemble(source.ensemble);
@@ -487,6 +570,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
     setMaterialFromDraft(fromDraft);
     setMaterialPreview(null);
     materialSaveKey.current = null;
+    designAfterMaterialSave.current = null;
     setMaterialEditing(true);
     setFeedback(fromDraft ? { tone: 'info', text: '已恢复上次未保存的草稿。' } : null);
   };
@@ -514,23 +598,75 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
       materialConfirmRef.current?.showModal();
     });
   };
+  // 72c3a62f复核第3项：预览签名原样带回、服务端事务内重算；预览后下游/资料版本变化→409零写入，
+  // 前端刷新后重新生成预览，请作者按最新影响再次确认。全书页接力（designAfterMaterialSave）保存成功后自动开始设计。
   const confirmMaterialSave = () => {
     if (storylineMaterial === null) return;
-    const content = materialContentNow();
-    if (content === null || materialSaveKey.current === null) return;
+    const pendingDesignStart = designAfterMaterialSave.current;
+    const content = pendingDesignStart !== null ? pendingDesignStart.content : materialContentNow();
+    if (content === null || materialSaveKey.current === null || materialPreview === null) return;
     materialConfirmRef.current?.close();
-    void runAction(async () => {
-      const saved = await saveStorylineMaterial(bookId, { content, expectedRevision: storylineMaterial.revision, idempotencyKey: materialSaveKey.current! });
-      setMaterialEditing(false); setMaterialPreview(null); setMaterialFromDraft(false);
-      materialInit.current = `${bookId}:${saved.projection.revision}`;
-      // 这就是作者刚保存的正式内容：同步全书页确认区，不视为dirty覆盖
-      setSelectedLineIds(saved.projection.content.selectedLineIds);
-      setAddedLines(saved.projection.content.addedLines.map(line => ({ id: `material-${line.title}`, title: line.title, description: line.description })));
-      setAuthorNote(saved.projection.content.authorNote);
-      setShape(saved.projection.content.shape);
-      setEnsemble(saved.projection.content.ensemble);
-      setFeedback({ tone: 'info', text: saved.unchanged ? '内容与当前资料一致，无需保存。' : `已保存为第${saved.projection.revision}版故事线资料；基于旧版资料的${saved.markedRuns}套设计已标记需重新设计，旧结果保留可查看。` });
-    });
+    const baseRevision = storylineMaterial.revision;
+    const previewSignature = materialPreview.signature;
+    void (async () => {
+      if (busy) return;
+      setBusy(true); setFeedback(null);
+      try {
+        const saved = await saveStorylineMaterial(bookId, { content, expectedRevision: baseRevision, previewSignature, idempotencyKey: materialSaveKey.current! });
+        await refresh();
+        setMaterialEditing(false); setMaterialPreview(null); setMaterialFromDraft(false);
+        materialSaveKey.current = null;
+        materialInit.current = `${bookId}:${saved.projection.revision}`;
+        // 这就是作者刚保存的正式内容：同步全书页确认区，不视为dirty覆盖
+        setSelectedLineIds(saved.projection.content.selectedLineIds);
+        setAddedLines(saved.projection.content.addedLines.map(line => ({ id: `material-${line.title}`, title: line.title, description: line.description })));
+        setAuthorNote(saved.projection.content.authorNote);
+        setShape(saved.projection.content.shape);
+        setEnsemble(saved.projection.content.ensemble);
+        setFeedback({ tone: 'info', text: saved.unchanged ? '内容与当前资料一致，无需保存。' : `已保存为第${saved.projection.revision}版故事线资料；基于旧版资料的${saved.markedRuns}套设计已标记需重新设计，旧结果保留可查看。` });
+        if (pendingDesignStart !== null) {
+          designAfterMaterialSave.current = null;
+          // 全书页确认接力：资料新版本落库后，用新资料版本开始设计（同样走未决记录持久化）
+          pendingDesign.current = null;
+          pendingRetryDone.current = true;
+          const storageKey = pendingStorageKey();
+          if (storageKey !== null) {
+            try { window.sessionStorage.setItem(storageKey, JSON.stringify({ key: pendingDesignStart.key, signature: pendingDesignStart.signature, selection: pendingDesignStart.selection } satisfies PendingDesignRecord)); } catch { /* 存储不可用时退化为会话内useRef防重 */ }
+          }
+          setSelectedScheme(null);
+          try {
+            await startTimeMachineDesignRound(bookId, pendingDesignStart.selection, pendingDesignStart.key, saved.projection.revision);
+            await refresh();
+            setSection('plan');
+          } catch (designError) {
+            if (definitiveFailure(designError)) clearPendingRecord();
+            setFeedback({ tone: 'error', text: designError instanceof AuthorApiError ? designError.message : '资料已保存，但设计未能开始，请在「全书」再次确认。' });
+          }
+        }
+      } catch (error) {
+        if (error instanceof AuthorApiError && error.status === 409) {
+          try {
+            const fresh = await fetchTimeMachineDirectionState(bookId);
+            setState(fresh); setLoadFailed(false);
+            const freshMaterial = fresh.storylineMaterial ?? null;
+            if (freshMaterial === null) { designAfterMaterialSave.current = null; setMaterialEditing(false); setFeedback({ tone: 'error', text: '故事线资料状态已变化，请重新开始修改。' }); return; }
+            const freshPreview = await previewStorylineMaterial(bookId, content, freshMaterial.revision);
+            if (freshPreview.unchanged) {
+              setMaterialEditing(false); setMaterialPreview(null); designAfterMaterialSave.current = null;
+              setFeedback({ tone: 'info', text: '内容与当前资料一致，无需保存。' });
+              return;
+            }
+            setMaterialPreview(freshPreview);
+            materialConfirmRef.current?.showModal();
+            setFeedback({ tone: 'info', text: '影响范围刚刚发生变化，已按最新状态更新预览，请再次确认。' });
+          } catch (retryError) {
+            setFeedback({ tone: 'error', text: retryError instanceof AuthorApiError ? retryError.message : '操作未能完成，已保留当前结果' });
+          }
+        } else {
+          setFeedback({ tone: 'error', text: error instanceof AuthorApiError ? error.message : '操作未能完成，已保留当前结果' });
+        }
+      } finally { setBusy(false); }
+    })();
   };
 
   // “＋ 添加其他故事线”弹窗由全书确认区与资料编辑共用：加入目标随上下文切换（编辑资料时加入资料草稿）
@@ -615,6 +751,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
                 <p>老板，欢迎来到时光机。我们一起设计全书故事。</p>
                 <p className="tmd-wait-note">{feedback?.tone === 'error' && recommendRun === null ? '这次未能启动，请重试。' : '正在整理本书故事线，请您耐心等待。'}</p>
                 {recommendRun && <small>{recommendRun.progress}</small>}
+                {recommendBusy && <small>推荐在后台进行，你可以离开本页；完成后结果保留，回来继续查看。</small>}
                 {feedback?.tone === 'error' && recommendRun === null && <button type="button" className="tmd-restart" disabled={busy} onClick={restartRecommendation}>重新启动</button>}
               </div>
               <ClockCounterClockwiseIcon className="spin" />
@@ -671,7 +808,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
                   <button type="button" className="tmd-add-line" onClick={() => addDialogRef.current?.showModal()}>＋ 添加其他故事线</button>
                 </div>
                 <div className="tmd-line-grid">
-                  {recommendation.lines.map(line => (
+                  {landingLines.map(line => (
                     <label key={line.id} className={`tmd-line-card${selectedLineIds.includes(line.id) ? ' selected' : ''}`}>
                       <input
                         type="checkbox"
@@ -734,7 +871,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
               );
             })}
           </div>
-          {roundActive && <p className="tmd-note">三套方案独立进行：先完成的可先查看；某一套未完成不影响其他两套。</p>}
+          {roundActive && <p className="tmd-note">三套方案独立进行：先完成的可先查看；某一套未完成不影响其他两套。方案设计在后台进行，你可以离开本页；完成后结果保留，回来继续查看。</p>}
         </section>
       )}
 
@@ -779,16 +916,19 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
             <div className="tmd-material-edit">
               {materialFromDraft && <p className="tmd-note">正在继续上次未保存的草稿；「取消」会丢弃这些未保存改动。</p>}
               <section className="tmd-block">
-                <h4 className="tmd-section-title">主编推荐的故事线（勾选保留）</h4>
-                <div className="tmd-line-grid">
-                  {materialSourceRecommendation?.lines.map(line => (
-                    <label key={line.id} className={`tmd-line-card${mSelected.includes(line.id) ? ' selected' : ''}`}>
+                <h4 className="tmd-section-title">主编推荐的故事线（勾选保留，可直接修改）</h4>
+                {/* 72c3a62f复核第1项：标题/描述可直接编辑，稳定id；role由服务端按原推荐裁定，前端只读展示 */}
+                {mLines.map((line, index) => (
+                  <div key={line.id} className="tmd-material-added">
+                    <label className={`tmd-line-card${mSelected.includes(line.id) ? ' selected' : ''}`}>
                       <input type="checkbox" checked={mSelected.includes(line.id)} onChange={event => setMSelected(prev => event.target.checked ? [...prev, line.id] : prev.filter(id => id !== line.id))} />
-                      <span><strong>{line.title}</strong><small>{line.description}</small></span>
+                      <span><strong>{roleLabel(line.role)}</strong></span>
                     </label>
-                  ))}
-                </div>
-                <p className="tmd-note">推荐线的标题与描述来自主编推荐，不能改写；想调整方向可在下方添加自己的故事线或写补充要求。</p>
+                    <label>故事线名称<input aria-label={`推荐故事线${index + 1}名称`} value={line.title} maxLength={80} onChange={event => setMLines(prev => prev.map((item, i) => i === index ? { ...item, title: event.target.value } : item))} /></label>
+                    <label>想写怎样的故事<textarea aria-label={`推荐故事线${index + 1}描述`} rows={2} maxLength={500} value={line.description} onChange={event => setMLines(prev => prev.map((item, i) => i === index ? { ...item, description: event.target.value } : item))} /></label>
+                  </div>
+                ))}
+                <p className="tmd-note">标题与描述可直接修改，保存后形成新的正式版本；主编推荐原件保留在推荐记录中不变。取消勾选的线不会进入新版本。</p>
               </section>
               <section className="tmd-block">
                 <h4 className="tmd-section-title">你添加的故事线</h4>
@@ -831,17 +971,20 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
             <div className="tmd-material-view">
               <div className="tmd-material-head">
                 <strong>第{storylineMaterial.revision}版 · {storylineMaterial.createdBy === 'author-edit' ? '作者修改形成' : '作者确认形成'}</strong>
-                <button type="button" disabled={busy || materialSourceRecommendation === null} onClick={beginMaterialEdit}><PencilSimpleIcon /> 修改故事线资料</button>
+                <button type="button" disabled={busy} onClick={beginMaterialEdit}><PencilSimpleIcon /> 修改故事线资料</button>
               </div>
-              {materialSourceRecommendation === null && <p className="tmd-note">形成本资料的推荐已不在当前列表，暂不能在此基础上修改；可在「全书」重新确认故事线形成新版本。</p>}
+              {materialSourceRecommendation === null && <p className="tmd-note">形成本资料的推荐原文已不在当前列表；资料正文完整保留，仍可正常查看和修改。</p>}
               {storylineMaterial.draft !== null && <p className="tmd-note">有一份未保存的草稿（基于第{storylineMaterial.draft.baseRevision}版），点「修改故事线资料」可继续。</p>}
               <section className="tmd-block">
                 <h4 className="tmd-section-title">已确认的故事线（{storylineMaterial.content.selectedLineIds.length + storylineMaterial.content.addedLines.length}条）</h4>
                 <ul className="tmd-material-lines">
-                  {storylineMaterial.content.selectedLineIds.map(id => {
-                    const line = materialSourceRecommendation?.lines.find(item => item.id === id);
-                    return <li key={id}><span className="tmd-line-role">{line !== undefined ? roleLabel(line.role) : '推荐线'}</span><strong>{line?.title ?? id}</strong>{line !== undefined && <small>{line.description}</small>}</li>;
-                  })}
+                  {/* 72c3a62f复核第1项：材料自含正文，直接可读；不依赖推荐仍在最新12轮内 */}
+                  {storylineMaterial.content.selectedLines.map(line => (
+                    <li key={line.id}><span className="tmd-line-role">{roleLabel(line.role)}</span><strong>{line.title}</strong><small>{line.description}</small></li>
+                  ))}
+                  {storylineMaterial.content.selectedLines.length === 0 && storylineMaterial.content.selectedLineIds.map(id => (
+                    <li key={id}><span className="tmd-line-role">推荐线</span><strong>{id}</strong></li>
+                  ))}
                   {storylineMaterial.content.addedLines.map(line => (
                     <li key={`added-${line.title}`}><span className="tmd-line-role">作者添加</span><strong>{line.title}</strong><small>{line.description}</small></li>
                   ))}
@@ -886,7 +1029,8 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
           <div className="tmd-material-impact">
             <p>全书基线：{materialPreview.affectedBaseline ? '已采用的基线将标记为需重新设计' : '当前没有已采用的基线'}</p>
             <p>设计方案：{materialPreview.affectedRuns.length}套将标记为需重新设计{materialPreview.affectedInFlight > 0 ? `（其中${materialPreview.affectedInFlight}套仍在进行，完成后结果保留但不可采用）` : ''}；旧结果保留可查看。</p>
-            <p>卷、链、章规划：尚未创建</p>
+            <p>卷概要：{materialPreview.downstream.volumeOutlines > 0 ? `已采用方案含${materialPreview.downstream.volumeOutlines}卷概要，重新设计后更新` : '尚未创建'}</p>
+            <p>卷、链、章规划：尚未实现独立卷设计（如实标注）</p>
           </div>
         )}
         <div className="tmd-dialog-row">
