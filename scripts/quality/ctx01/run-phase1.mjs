@@ -10,6 +10,16 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+// 裸 global fetch（undici 内置）默认 headersTimeout=300 秒，长思考调用会触发
+// fetch failed/TypeError。与生产 ark-plan-model 适配器一致，使用放宽超时的 Agent。
+let dispatcher;
+try {
+  const undici = await import('undici');
+  dispatcher = new undici.Agent({ headersTimeout: 900_000, bodyTimeout: 900_000, connectTimeout: 30_000 });
+} catch {
+  dispatcher = undefined;
+}
+
 const BASE_URL = 'https://ark.cn-beijing.volces.com/api/coding';
 const ENDPOINT = `${BASE_URL}/v1/messages`;
 const TIMEOUT_MS = 900_000;
@@ -50,7 +60,8 @@ async function callModel(apiKey, request, logPath) {
         'content-type': 'application/json; charset=utf-8'
       },
       body: JSON.stringify(body),
-      signal: controller.signal
+      signal: controller.signal,
+      ...(dispatcher ? { dispatcher } : {})
     });
     const latencyMs = Date.now() - startedAt;
     if (!response.ok) {
