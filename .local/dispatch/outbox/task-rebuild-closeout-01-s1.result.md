@@ -1,5 +1,30 @@
 # REBUILD-CLOSEOUT-01 · S1-A 结果：结构化故事线确认与基线启动
 
+## K3·18f3c2a0复核后Agent Plan通道收尾与冻结（2026-09-16，提交9523942a，未部署）
+
+按主区task-rebuild-closeout-01.md顶部"18f3c2a0复核通过"执行：接手指定Agent Plan未提交文件，完成通道测试适配与文档收尾，全程使用指定Node v24.19.0（`codex-primary-runtime/dependencies/node/bin/node.exe`，未再用engine-strict=false），未调用真实模型、未部署。改动前指定文件diff已存`.local/dispatch-evidence/agent-plan-pre-k3-diff.patch`（337行）。提交9523942a（30文件，+274/-151）已推送worktree分支codex/auth-takeover-01-release；HANDOFF.md与docs/TIMEMACHINE_STORY_DESIGN.md按纪律未提交。
+
+**15项foundation适配（72/72通过，68原项+4新增反例）**：配置套件导入改相对路径、显式订阅缺凭据不退夹具、全岗位统一agent绑定、退役模型覆盖变量反例；ark套件开书/GLM矩阵改agent+/api/plan、新增旧Coding实例仅解码冻结任务反例、删与新专用Chat审查冲突的474直出行；图片套件双密钥统一选Agent、新增仅遗留按量密钥不可调用且失败不回退反例。
+
+**排查暴露并处理的三类漂移（junction重定向后真实显现）**：worktree的`node_modules/@wenmi/v7-backend`与`opening-runtime`原是指向主区陈旧dist的JUNCTION，掩盖了"已提交测试vs已提交源码"不一致。已将这两个junction重定向到worktree自身并以Node24.19重建dist（其余junction未动，time-machine-core含Codex未提交execution.ts受保护）。重定向后逐项定性：
+1. **cutover合同机械对齐**：v7-opening-agent-platform 3处plan/provider期望coding→agent（23/23过）、v7-runtime-prompt-compiler 1处（20/20过）、prompt-manifest-compiler passthrough期望与bad-binding反例改coding绑定。
+2. **名册漂移（5079844a/25611b2c已提交行为变更未同步测试）**：v7-opening-ranking 2项——5079844a明确移除开书三席截断、恢复GLM正式编制并取消停岗，测试按新合同改为"准入名次+全部在编规划成员"六人阵容及GLM进入设定编选（4/4过）；v7-creation-pipeline规划成员3→4并加memberPreferences恢复GLM接手场景（实测GLM被排到结构化末位原场景空转）。
+3. **闭包登记**：scripts/quality/agent-plan-connectivity.mjs补登verify-v7-runtime-source-closure.ts入口与package.json脚本，闭包回到69项旧债基线（creative-library/ctx01等台账旧债照旧，未放宽）。
+
+**超出移交清单的两处判断（请Codex追认）**：①legacy-opening四文件（registry/agent-roster/planning-editorial/setting-editorial-roster）校验器与绑定helper由coding翻agent——工厂已拒绝coding provider（'Coding Plan已停用'），不翻则legacy开书流运行时必坏，与Codex五文件同模式；②上述两个junction重定向属环境修正。
+
+**最终验证矩阵（本批全部实跑，Node v24.19.0）**：foundation三套+cutover 76/76；S1材料/选择+设定编部+开书平台/名次+创作管线 120/120；backend内部vitest 102/102；backend node-test回归五脚本 16/16；受影响第二批（封面/书名/确认一致/规划快照/规划树/提示词治理/申诉208/治理/规划编辑部/后端回归/节奏策略/生命周期/静态发布及9个单测文件）225/225；API tsc通过；legacy-opening与v7-backend dist均以Node24.19重建；闭包69项旧债基线、数据库边界仍失败且恰为原7项（未删门禁未加白名单）。
+
+**仍阻塞（如实保留，不因冻结冒称完成）**：真实Messages路径与长任务过审未验证、CTX未证明项照旧、通道生产验证未做、其余7项数据库边界未通过、正式发布未放行。
+
+## Codex复核18f3c2a0及通道接手（2026-09-16，未部署）
+
+资料save单事务边界修复通过：独立材料/选择/Agent配置24/24通过；数据库边界仍失败但仅原7文件（44.80秒合并运行），新增材料服务项已消除。事务嵌套说明限定为同一仓储实例transactionDepth，不声称能自动加入任意外部事务；当前ensureFromSelection仍由设计服务外层负责，不受影响。K3合规运行时偏差如实保留；本机Codex可用Node24.19，最终构建不接受关闭engine-strict替代。
+
+Codex补查自己留下的通道改动：foundation三套68项中53通过15失败（配置10、适配器4、图片1）。均记录为此次Agent切换待收尾，不归咎K3边界改动、不归入无关旧债。主要旧合同期望未更新且GLM新审查协议与通用测试冲突，尚不能据4项新测试宣称通道工程验收完毕。指定未提交Agent文件现在正式移交K3修正、补测、提交冻结，精确文件清单与步骤见原任务顶部“18f3c2a0复核通过”。其他脏文件不授权混入。
+
+下一批为Agent离线工程收尾，而非重复S1-A子集打包。最终共同候选构成已定S1-A+Agent，正式发布尚未放行；真实长任务、采用与生产通道验证仍须分别报告。
+
 ## Codex核定8caac9a5发布准备（2026-09-16，准备可继续，未批准切换）
 
 共同候选目标为S1-A+Agent Plan，后者尚未冻结，不将脏工作区打包。边界新增项须修，不接受白名单：独立实跑应用数据库边界8项失败（含storyline-material-service），同时Agent Plan配置4/4通过。资料save的事务SQL应移入同连接仓储同步事务封装；范围与测试写入原任务顶部。其余7项仍属未通过，不把整体称绿。

@@ -4,6 +4,24 @@
 
 ## 当前执行边界（覆盖下方旧的整包接续要求）
 
+### 18f3c2a0复核通过：K3接手Agent Plan离线收尾与冻结（2026-09-16，不部署）
+
+本批边界缺口关闭：Codex独立材料/选择/Agent配置24/24通过，边界恰剩原7项，未加白名单。旧回退树需补齐0126的结论保留；最终候选仍须在合规Node上验证，不重复仅S1-A的组装预演。
+
+明确移交：此前“不得提交CodexAgent差异”仅对下列本次指定文件解除。K3现在可审查、修正、补测并提交这些已存在的Codex未提交Agent Plan改动，不用等Codex再冻结。其他脏文件（尤其HANDOFF、主区正文/规格、老板删除文件）继续保护。
+
+接手文件：apps/api/src/infrastructure/models/{model-runtime-config.ts,model-adapter-factory.ts,ark-plan-model.ts,volcengine-ark-image-gateway.ts}；coauthoring-v7/backend/{agent-governance/agent-governance-registry.ts,agents/agent-roster.ts,character-memory/character-memory-runtime.ts,creation-runtime/creation-runtime.ts,planning-methods/planning-editorial-runtime.ts}；scripts/quality/{ctx01/run-phase1.mjs,agent-plan-connectivity.mjs}；tests/unit/agent-plan-cutover.test.ts；deploy/.env.production.example；docs/DEPLOY.md。允许修改三个直接相关foundation测试以及必要的同范围反例；不全库替换Coding字样。
+
+具体待办（Codex已实跑定位，不重新大范围侦察）：
+1. tests/foundation/model-runtime-config.test.ts 16项中10失败：默认岗位/公开名册切Agent、缺凭据状态、覆盖环境变量与退役ID测试仍按旧Coding语义。按新明确合同更新输入及期望：只Agent可运行，只有旧Coding不可发新请求，显式subscription缺凭据不得退夹具，无凭据且未显式启用仍可离线开发。有效Agent覆盖变量中的退役模型应拒绝；旧Coding配置不承担新模型覆盖。保留非法端点拒绝等安全反例。
+2. tests/foundation/ark-plan-model.test.ts 46项中4失败：前3项GLM开书/审查夹具仍用coding端点；第474行起旧Agent通用“直出”矩阵包含novel_reviewer，与新专用Chat审查冲突。对已授权Agent的GLM开书/审查分别验证/api/plan下Chat URL、低推理、messages与inputContext同源、用量、截断分类和不输出思维链；其他任务仍验证Messages路径。不能仅改成返回{}或删断言使测试变绿。旧Coding实例不代表有效工厂路由，工厂拒绝旧冻结任务的测试保留。
+3. tests/foundation/volcengine-ark-image-gateway.test.ts 6项中1失败：旧“专用凭据优先”与所有模型统一Agent新要求相反。验证双密钥时选Agent、仅专用密钥不可调用、失败不回退按量；不执行真实生图。
+4. DEPLOY第129行后的普通岗位Coding/专用图片优先文字仍与新表格冲突，原位改为统一Agent；凭据只环境变量，绝不写入代码、报告或归档。CTX继续新证据目录，不能混算旧套餐证据。
+5. 改动前记录指定文件的现有diff，保留功能语义；完成后原三套68项、新Agent配置4项及受影响S1定向套件、backend构建/API类型验证。失败逐项查原因，不统称旧债、不放宽门禁。其余7项数据库边界另行保留未通过。
+6. 使用明确Node24.19路径 C:/Users/MSIK/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe；先输出版本，配套npm入口先定位。不得再用engine-strict=false掩盖不合规运行时。只此版本下冻结共同候选，记录提交与准确文件清单，按已有授权推送留存，不部署。
+
+本次不需要新真实模型调用：已有八文字模型小探针仅证连通，Messages实际路径、长任务自然过审/HTTP采用及CTX尚未证明；冻结工程候选不冒称这些完成。通道收尾通过再准备最终候选/回退包的合规运行时预演，不再次向老板询问是否开始。生产releaseId、凭据生效与备份/在途检查仍留正式发布窗口；共同候选构成已经核定，不再把“等Codex选批次”列为阻碍。
+
 ### 8caac9a5发布准备复核：K3立即修新增边界并做离线预演（2026-09-16，不部署）
 
 Codex核定：S1-A与Agent Plan按共同候选版本准备，通道改动仍由Codex单独冻结；未冻结不打正式发布归档。K3可立即做下述边界修复，不等待再次批准。前端/API/Worker必须同一兼容发布窗口协调切换，但不能声称三者物理同时切换；现有浏览器旧标签页必须收到明确刷新提示且零任务创建，不能假设切换静态就刷新了全部客户端。
