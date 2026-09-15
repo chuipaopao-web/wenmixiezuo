@@ -7,8 +7,9 @@
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { resolve, basename } from 'node:path';
-import { writeFileSync, chmodSync } from 'node:fs';
+import { writeFileSync, chmodSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { createProbeBudgetGuard, decideProbeOutcome } from './s1a-probe-budget.mjs';
 
 const root = resolve(process.argv[2] ?? '');
 if (!root.startsWith('/tmp/wenmi-s1a-probe')) throw Error('Probe requires isolated /tmp/wenmi-s1a-probe workspace');
@@ -31,6 +32,8 @@ const { loadRuntimeConfig } = await moduleAt('apps/api/dist/infrastructure/runti
 const { bootstrapDatabase } = await moduleAt('apps/api/dist/infrastructure/db/bootstrap.js');
 const { createAppServer } = await moduleAt('apps/api/dist/http/app-server.js');
 const { ModelAdapterFactory } = await moduleAt('apps/api/dist/infrastructure/models/model-adapter-factory.js');
+const { thinkingTokenAllowance } = await moduleAt('apps/api/dist/infrastructure/models/model-runtime-config.js');
+const probeThinkingAllowance = (modelId, maxOutputTokens, promptBytes) => thinkingTokenAllowance(modelId, 'structured_planning', maxOutputTokens, Math.ceil(promptBytes / 3));
 
 // ---------- 确定性夹具（准备阶段专用；与浏览器harness同构，真实阶段不经过这里） ----------
 const settingStagePrompt = compiled => {
@@ -65,20 +68,33 @@ const fixtureGenerate = (provider, modelId, prompt) => {
   return { provider, modelId, output, inputTokens: 80, outputTokens: 160, cashCostCny: 0, state: 'succeeded' };
 };
 
-// ---------- 真实模型阶段（预算硬停止） ----------
+// ---------- 真实模型阶段（预算硬停止，30a6f053计量口径：成功与knownUsage失败都累计，未知单列不记0，发起前预留） ----------
 const config = loadRuntimeConfig();
 const factory = new ModelAdapterFactory(config.modelRuntime);
-let live = false, calls = 0, tokens = 0, cash = 0;
+let live = false;
 const log = event => console.log(JSON.stringify(event));
+const guard = createProbeBudgetGuard(BUDGET);
 const resolver = { resolve(provider, modelId, purpose) {
   const adapter = factory.resolve(provider, modelId, purpose);
   return { provider, modelId, async generate(request, signal) {
     if (!live) return fixtureGenerate(provider, modelId, request.prompt);
-    if (++calls > BUDGET.maxCalls || tokens > BUDGET.maxTokens) throw Error(`Probe budget reached: calls=${calls} tokens=${tokens}`);
-    const result = await adapter.generate(request, signal);
-    tokens += result.inputTokens + result.outputTokens; cash += result.cashCostCny ?? 0;
-    log({ event: 'model_complete', call: calls, model: result.modelId, input: result.inputTokens, output: result.outputTokens, cash: result.cashCostCny ?? 0 });
-    return result;
+    const promptBytes = Buffer.byteLength(request.prompt, 'utf8');
+    guard.beforeDispatch(String(request.requestId), { promptBytes, maxOutputTokens: request.maxOutputTokens, reasoningAllowance: probeThinkingAllowance(modelId, request.maxOutputTokens, promptBytes) });
+    try {
+      const result = await adapter.generate(request, signal);
+      guard.onSuccess(String(request.requestId), result);
+      log({ event: 'model_complete', model: result.modelId, input: result.inputTokens, output: result.outputTokens, cash: result.cashCostCny ?? 0 });
+      return result;
+    } catch (error) {
+      if (error && typeof error === 'object' && error.knownUsage && Number.isSafeInteger(error.knownUsage.inputTokens)) {
+        guard.onKnownFailure(String(request.requestId), error.knownUsage);
+        log({ event: 'model_failed_known', model: modelId, input: error.knownUsage.inputTokens, output: error.knownUsage.outputTokens, cause: error.causeCode ?? error.failureClass ?? 'none' });
+      } else {
+        guard.onUnknownFailure(String(request.requestId));
+        log({ event: 'model_failed_unknown', model: modelId });
+      }
+      throw error;
+    }
   } };
 } };
 
@@ -172,30 +188,53 @@ try {
   if (design.status !== 202 && design.status !== 200) throw Error('结构化确认失败：' + JSON.stringify(design.body).slice(0, 300));
   const created = design.body.data.runs;
   log({ event: 'design_round_created', runs: created.map(r => ({ id: r.id, scheme: r.scheme, state: r.state })) });
-  const adoptable = await waitFor('至少一套方案可采用', 45 * 60000, async () => {
+  // 终态判定（30a6f053）：三方案全终态失败→立即结束并写明各轮phase/error；全终态且有可采用→采用；否则继续等（有界）。
+  const roundsDetail = state => (state?.runs ?? []).filter(r => r.kind === 'design').map(r => ({ scheme: r.scheme, state: r.state, phase: r.phase ?? null, message: r.message ?? null }));
+  let outcome = null;
+  const outcomeDeadline = Date.now() + 45 * 60000;
+  for (;;) {
     const state = await getState(cookie);
-    const done = (state.runs ?? []).filter(r => r.kind === 'design' && r.state === 'succeeded' && r.result?.review?.pass === true);
-    const terminal = (state.runs ?? []).filter(r => r.kind === 'design').every(r => ['succeeded', 'failed'].includes(r.state));
-    return terminal && done.length > 0 ? done[0] : null;
-  });
-  const adopt = await call('POST', '/api/time-machine/books/' + bookId + '/adoptions', { candidateId: adoptable.id, revision: adoptable.result.revision, expectedRevision: 0, idempotencyKey: 'probe-adopt' }, cookie);
-  if (adopt.status !== 200) throw Error('HTTP采用失败：' + JSON.stringify(adopt.body).slice(0, 300));
-  const finalState = await getState(cookie);
-  const success = finalState.adopted !== null && finalState.adopted !== undefined;
-  const result = {
-    databaseFile, success, elapsedMs: Date.now() - startedAt,
-    modelCalls: calls, modelTokens: tokens, modelCashCny: Number(cash.toFixed(4)),
-    runs: (finalState.runs ?? []).map(r => ({ id: r.id, kind: r.kind, scheme: r.scheme, roundKey: r.roundKey, state: r.state, message: r.message ?? null })),
-    adopted: finalState.adopted && { revision: finalState.adopted.revision, member: finalState.adopted.member },
-    intent: (finalState.runs ?? []).find(r => r.kind === 'design')?.intent ?? null
+    const decision = decideProbeOutcome((state?.runs ?? []).filter(r => r.kind === 'design'));
+    if (decision.status === 'all-failed') {
+      outcome = { ...decision, finalState: state };
+      log({ event: 'all_schemes_failed_terminal', rounds: roundsDetail(state) });
+      break;
+    }
+    if (decision.status === 'adoptable') { outcome = { ...decision, finalState: state }; break; }
+    if (Date.now() > outcomeDeadline) throw Error('等待超时：方案未全部到达终态（' + JSON.stringify(roundsDetail(state)) + '）');
+    await wait(20000);
+  }
+  const finalState = outcome.finalState;
+  const usageSummary = guard.summary();
+  const baseResult = {
+    databaseFile, elapsedMs: Date.now() - startedAt,
+    usage: usageSummary,
+    rounds: roundsDetail(finalState),
+    intent: (finalState.runs ?? []).find(r => r.kind === 'design')?.intent ?? null,
+    recommend: { id: recRun.id, hash: selection.recommendationHash, version: selection.preparationVersion, lines: lines.map(l => l.id) }
   };
-  writeFileSync(resolve(root, 'result.json'), JSON.stringify(result, null, 2), { mode: 0o600 });
-  log({ event: 'probe_complete', success, modelCalls: calls, modelTokens: tokens, modelCashCny: result.modelCashCny, elapsedMs: result.elapsedMs });
-  if (!success) process.exitCode = 2;
+  if (outcome.status === 'all-failed') {
+    writeFileSync(resolve(root, 'result.json'), JSON.stringify({ ...baseResult, success: false, error: '三套方案全部终态失败，未执行HTTP采用' }, null, 2), { mode: 0o600 });
+    log({ event: 'probe_complete', success: false, usage: usageSummary, elapsedMs: baseResult.elapsedMs });
+    process.exitCode = 2;
+  } else {
+    const adoptable = outcome.run;
+    const adopt = await call('POST', '/api/time-machine/books/' + bookId + '/adoptions', { candidateId: adoptable.id, revision: adoptable.result.revision, expectedRevision: 0, idempotencyKey: 'probe-adopt' }, cookie);
+    if (adopt.status !== 200) throw Error('HTTP采用失败：' + JSON.stringify(adopt.body).slice(0, 300));
+    const afterAdopt = await getState(cookie);
+    const success = afterAdopt.adopted !== null && afterAdopt.adopted !== undefined;
+    const result = {
+      ...baseResult, success,
+      adopted: afterAdopt.adopted ? { revision: afterAdopt.adopted.revision, member: afterAdopt.adopted.member, scheme: adoptable.scheme } : null
+    };
+    writeFileSync(resolve(root, 'result.json'), JSON.stringify(result, null, 2), { mode: 0o600 });
+    log({ event: 'probe_complete', success, adoptedScheme: adoptable.scheme, usage: guard.summary(), elapsedMs: result.elapsedMs });
+    if (!success) process.exitCode = 2;
+  }
 } catch (error) {
-  const state = await getState('').catch(() => null);
-  writeFileSync(resolve(root, 'result.json'), JSON.stringify({ databaseFile, success: false, error: String(error?.message ?? error).slice(0, 500), modelCalls: calls, modelTokens: tokens, stateRuns: state?.runs?.map(r => ({ kind: r.kind, scheme: r.scheme, state: r.state, message: r.message ?? null })) ?? null }, null, 2), { mode: 0o600 });
-  log({ event: 'probe_failed', error: String(error?.message ?? error).slice(0, 500), modelCalls: calls, modelTokens: tokens });
+  const state = cookie ? await getState(cookie).catch(() => null) : null;
+  writeFileSync(resolve(root, 'result.json'), JSON.stringify({ databaseFile, success: false, error: String(error?.message ?? error).slice(0, 500), usage: guard.summary(), rounds: (state?.runs ?? []).filter(r => r.kind === 'design').map(r => ({ scheme: r.scheme, state: r.state, phase: r.phase ?? null, message: r.message ?? null })) }, null, 2), { mode: 0o600 });
+  log({ event: 'probe_failed', error: String(error?.message ?? error).slice(0, 500), usage: guard.summary() });
   process.exitCode = 2;
 } finally {
   await app.close(); db.close();

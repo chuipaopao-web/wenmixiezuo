@@ -22,6 +22,48 @@ function normalizeIdentifier(value:unknown,fallback:string,used:Set<string>):str
  let out=base;let n=2;while(used.has(out))out=`${base}-${n++}`;used.add(out);return out;
 }
 /** 骨架层ID归一化：线/期待/里程碑/卷概要的ID与全部交叉引用同步修正；返回线ID映射供卷卡条件与职责引用同步。 */
+/** suggestedVolumes引用归一化（系统职责，30a6f053）：模型常按显示名写“第一卷”或卷标题，
+ * 精确映射回卷概要id（按id/标题/第N卷序数）；无法映射的给精确字段路径抛错，交structured()一次局部修复。 */
+function normalizeSuggestedVolumes(skeleton:Record<string,unknown>):void{
+ const briefs=((skeleton.volumeBriefs??[]) as unknown[]).map(b=>record(b));
+ const byId=new Map<string,string>();const byTitle=new Map<string,string>();
+ briefs.forEach((b,index)=>{byId.set(String(b.id),String(b.id));if(typeof b.title==='string'&&b.title.trim())byTitle.set(b.title.trim(),String(b.id));});
+ const chineseOrdinal=(text:string):number|null=>{
+  const match=/^第([一二三四五六七八九十]{1,3})卷/.exec(text.trim());
+  if(!match)return null;
+  const digits='一二三四五六七八九'.split('');
+  const chars=match[1]!.split('');
+  let total=0;
+  for(let i=0;i<chars.length;i++){
+   const at=digits.indexOf(chars[i]!);
+   if(at>=0)total=chars.length===2&&chars[0]==='十'?10+at+1:total*10+at+1;
+   else if(chars[i]==='十')total=total===0?10:total*10;
+   else return null;
+  }
+  return total>0?total:null;
+ };
+ const resolve=(value:unknown):string|null=>{
+  const key=String(value).trim();
+  if(byId.has(key))return byId.get(key)!;
+  if(byTitle.has(key))return byTitle.get(key)!;
+  // 序数形式（第N卷或vN）映射到第N个卷概要的原始id；sanitize随后把原始id与引用一并归一化。
+  const ordinal=/^v([0-9]{1,3})$/u.exec(key)?Number(key.slice(1)):chineseOrdinal(key);
+  if(ordinal!==null&&ordinal>=1&&ordinal<=briefs.length)return String(record(briefs[ordinal-1]!).id);
+  return null;
+ };
+ ((skeleton.lines??[]) as unknown[]).forEach((line,lineIndex)=>{
+  const x=record(line);
+  ((x.milestones??[]) as unknown[]).forEach((milestone,milestoneIndex)=>{
+   const y=record(milestone);
+   const list=Array.isArray(y.suggestedVolumes)?y.suggestedVolumes as unknown[]:[];
+   const mapped=list.map((value,index)=>{
+    const resolved=resolve(value);
+    if(resolved===null)throw Error(`lines[${lineIndex}].milestones[${milestoneIndex}].suggestedVolumes[${index}]=${JSON.stringify(String(value))}无法对应卷概要；suggestedVolumes只填卷概要id（如v1），不写“第N卷”或卷名`);
+    return resolved;});
+   if(!mapped.length)throw Error(`lines[${lineIndex}].milestones[${milestoneIndex}].suggestedVolumes不能为空`);
+   y.suggestedVolumes=mapped;});
+ });
+}
 function sanitizeSkeletonIds(skeleton:Record<string,unknown>):{skeleton:Record<string,unknown>;lineMap:Map<string,string>}{
  const used=new Set<string>();const lineMap=new Map<string,string>();const briefMap=new Map<string,string>();
  const briefs=((skeleton.volumeBriefs??[]) as unknown[]).map(b=>{const x=record(b);const id=normalizeIdentifier(x.id,`v${briefMap.size+1}`,used);briefMap.set(String(x.id),id);return {...x,id};});
@@ -90,7 +132,7 @@ export class TimeMachineDesignService {
    if(!writers.length)throw Error('成员岗位尚未配置：planning_writer');
    const schemes=['A','B','C'].slice(0,writers.length) as string[];
    const keys=schemes.map(scheme=>`${key}#${scheme}`);
-   const created=schemes.map((scheme,index)=>({id:this.createRun(scope,'design',keys[index]!,scheme,key,{...base,members:{...base.members,writer:writers[index]!},selection:selectionSnapshot}),scheme}));
+   const created=schemes.map((scheme,index)=>{const reviewer=base.reviewers?.[index]??base.members.reviewer;return {id:this.createRun(scope,'design',keys[index]!,scheme,key,{...base,members:{...base.members,writer:writers[index]!,...(reviewer===undefined?{}:{reviewer})},selection:selectionSnapshot}),scheme};});
    this.db.exec('COMMIT');return created;
   }catch(e){if(this.db.isTransaction)this.db.exec('ROLLBACK');throw e;}
  }
@@ -130,12 +172,14 @@ export class TimeMachineDesignService {
   const row=this.db.prepare('SELECT state,error_code,snapshot_json,kind,scheme,round_key FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND id=?').get(scope.ownerId,scope.bookId,id) as {state:string;error_code:string|null;snapshot_json:string;kind:'recommend'|'design';scheme:string|null;round_key:string|null}|undefined;
   if(!row)throw Error('任务不存在');if(row.state!=='failed')return id;
   if(row.error_code==='unknown')throw new TimeMachineCallError('unknown','上次调用结果尚未确认，不能重复发送');
-  if(row.error_code!=='temporary'&&row.error_code!=='interrupted'){
+  // truncated=已知不完整的长度截断：同轮重排队，已完成卷/骨架等已保存步骤直接复用，只重试被截断的节点。
+  if(row.error_code!=='temporary'&&row.error_code!=='interrupted'&&row.error_code!=='truncated'){
    const snapshot=JSON.parse(row.snapshot_json) as TimeMachineSnapshot;
    const retryKey=`retry:${id}`;
    this.db.exec('BEGIN IMMEDIATE');try{const newId=this.createRun(scope,row.kind,retryKey,String(row.scheme??''),String(row.round_key??''),snapshot);this.db.exec('COMMIT');return newId;}
    catch(e){if(this.db.isTransaction)this.db.exec('ROLLBACK');throw e;}
   }
+  if(row.error_code==='truncated')this.steps.retryRunFailed(scope,id,'truncated');
   this.db.prepare("UPDATE tm2_design_runs SET state='queued',error_code=NULL,updated_at=? WHERE owner_id=? AND book_id=? AND id=? AND state='failed'").run(new Date().toISOString(),scope.ownerId,scope.bookId,id);return id;
  }
  async process(id:string):Promise<void>{
@@ -308,13 +352,51 @@ export class TimeMachineDesignService {
   };
   const methodNotes=await this.selectMethods(run,scope,snapshot,card);
   const policy=snapshot.wordPolicy?.policy??'chars-v1';
-  const skeletonPrompt=`设计全书骨架。只设计大方向，不写章情节。开篇第一章建立冲突和读者期待，末卷回答全书问题；故事线按需要分卷推进或提前收束，不要末卷强行关联所有线。尊重作者选择。先定宏观节奏：从方法库或你掌握的经典结构中选择一个宏观节奏框架（如三幕、四幕起承转合、五幕、六幕、七幕、八幕等），在方法笔记外明确记入structure字段；再把各幕按体量分为1—2卷，得出卷数（如四幕式常为4—8卷、五幕式可达10卷、六幕至八幕式常为6—8卷），网文常规单卷约30—60万字，低于20万字的卷要有明确结构理由。返回JSON {"structure":"选定的宏观节奏框架及每幕职责一句话","baseline":"全书基线和整体味道","ending":"最终回答","openingHooks":["开头约300字让读者留下的第一个钩子","第一章结束时读者想知道的问题","前三章建立的最大期待"],"words":{"target":全书字数,"min":null,"max":null,"hard":false,"policy":"${policy}"},"lines":[{"id":"英文ID","role":"main或through或stage","title":"标题","goal":"开场目标","answer":"收束标准","process":"过程方向一句话","parentIds":[],"milestones":[{"id":"英文ID","summary":"关键落点一句话","suggestedVolumes":["概要卷ID，连续多卷表示区间"],"importance":"required或flexible"}]}],"expectations":[{"id":"英文ID","opening":"开篇的期待","change":"读者想看到的变化","answer":"结尾的回应","lineIds":["关联线ID"]}],"relations":[{"from":"线ID","to":"线ID","kind":"push或conflict或reveal或meet","effect":"交织效果"}],"volumeBriefs":[{"id":"v1","title":"卷名","beat":"所属幕与位置，如：第一幕·起","goal":"本卷目标","words":{"target":本卷字数,"min":null,"max":null,"hard":false,"policy":"${policy}"}}]}。开书给了目标体量就用作全书words.target（软目标），未提供时由你按故事容量提出；各卷volumeBriefs的words.target合计必须等于全书words.target，由你分配。只有作者明确要求的关键落点标required，其余flexible。所有概述文字面向作者用中文书写；提到卷时用“第一卷”或卷名，不要写v1、v2等内部代号。\n结构化任务资料：${planningMaterial(card.fields,snapshot.intent,methodNotes)}`;
-  const skeletonRaw=await generate('skeleton',writer,skeletonPrompt,v=>{const p=record(v);if(typeof p.structure!=='string'||!p.structure.trim()||p.structure.length>600)throw Error('缺少宏观节奏结构说明');if(!Array.isArray(p.volumeBriefs)||!p.volumeBriefs.length||p.volumeBriefs.length>40)throw Error('分卷概要错误');return p;});
+  // 卷卡策略版本（30a6f053）：新快照per-volume-v1逐卷生成（有界输出）；旧快照缺省沿用每批两卷旧路径。
+  const perVolume=snapshot.volumeStrategy==='per-volume-v1';
+  const skeletonPrompt=`设计全书骨架。只设计大方向，不写章情节。开篇第一章建立冲突和读者期待，末卷回答全书问题；故事线按需要分卷推进或提前收束，不要末卷强行关联所有线。尊重作者选择。先定宏观节奏：从方法库或你掌握的经典结构中选择一个宏观节奏框架（如三幕、四幕起承转合、五幕、六幕、七幕、八幕等），在方法笔记外明确记入structure字段；再把各幕按体量分为1—2卷，得出卷数（如四幕式常为4—8卷、五幕式可达10卷、六幕至八幕式常为6—8卷），网文常规单卷约30—60万字，低于20万字的卷要有明确结构理由。返回JSON {"structure":"选定的宏观节奏框架及每幕职责一句话","baseline":"全书基线和整体味道","ending":"最终回答","openingHooks":["开头约300字让读者留下的第一个钩子","第一章结束时读者想知道的问题","前三章建立的最大期待"],"words":{"target":全书字数,"min":null,"max":null,"hard":false,"policy":"${policy}"},"lines":[{"id":"英文ID","role":"main或through或stage","title":"标题","goal":"开场目标","answer":"收束标准","process":"过程方向一句话","parentIds":[],"milestones":[{"id":"英文ID","summary":"关键落点一句话","suggestedVolumes":["概要卷ID，连续多卷表示区间"],"importance":"required或flexible"}]}],"expectations":[{"id":"英文ID","opening":"开篇的期待","change":"读者想看到的变化","answer":"结尾的回应","lineIds":["关联线ID"]}],"relations":[{"from":"线ID","to":"线ID","kind":"push或conflict或reveal或meet","effect":"交织效果"}],"volumeBriefs":[{"id":"v1","title":"卷名","beat":"所属幕与位置，如：第一幕·起","goal":"本卷目标","words":{"target":本卷字数,"min":null,"max":null,"hard":false,"policy":"${policy}"}}]}。开书给了目标体量就用作全书words.target（软目标），未提供时由你按故事容量提出；各卷volumeBriefs的words.target合计必须等于全书words.target，由你分配。只有作者明确要求的关键落点标required，其余flexible。suggestedVolumes与lineIds等引用字段只能填对应对象的id本身（如v1），不要写“第一卷”或卷名。${perVolume?'输出保持紧凑：每个自然语言字段一到两句话，milestones/relations只写必要项，不展开章情节或对话。':''}所有概述文字面向作者用中文书写；提到卷时用“第一卷”或卷名，不要写v1、v2等内部代号。\n结构化任务资料：${planningMaterial(card.fields,snapshot.intent,methodNotes)}`;
+  const skeletonRaw=await generate('skeleton',writer,skeletonPrompt,v=>{const p=record(v);if(typeof p.structure!=='string'||!p.structure.trim()||p.structure.length>600)throw Error('缺少宏观节奏结构说明');if(!Array.isArray(p.volumeBriefs)||!p.volumeBriefs.length||p.volumeBriefs.length>40)throw Error('分卷概要错误');normalizeSuggestedVolumes(p);return p;});
   // ID归一化是系统职责（第23.5节）：模型写出的非法字符就地修正并同步全部引用，不退回模型重写。
   const sanitized=sanitizeSkeletonIds(record(skeletonRaw));
   const skeleton=sanitized.skeleton;const lineMap=sanitized.lineMap;
   const briefs=skeleton.volumeBriefs as unknown[];const volumes:unknown[]=[];
+  // 归一化后的骨架线ID集合：卷卡预检按此核对引用（lineMap键是模型原始写法）。
+  const skeletonLineIds=new Set<string>(lineMap.values());
+  // 卷卡接受前预检（30a6f053）：结构/ID/引用按本卷就地校验，失败给出精确字段路径，一次局部修复；最终parseCandidate仍做全候选校验。
+  const validateVolumeCard=(item:Record<string,unknown>,briefId:string,index:number)=>{
+   const path=`volumes[${index}]（概要id=${briefId}）`;
+   if(String(item.id)!==String(briefId))throw Error(`${path}.id=${JSON.stringify(item.id)}与概要不符`);
+   const list=item.anchors;
+   if(!Array.isArray(list)||list.length!==2)throw Error(`${path}.anchors必须恰好2个（entry+exit），实得${Array.isArray(list)?list.length:'非数组'}`);
+   const kinds=new Set<string>();const ownAnchorIds=new Set<string>();
+   for(const anchor of list){const a=record(anchor);const anchorPath=`${path}.anchors[id=${JSON.stringify(a.id)}]`;
+    if(String(a.ownerEntityId)!==String(briefId))throw Error(`${anchorPath}.ownerEntityId=${JSON.stringify(a.ownerEntityId)}必须为本卷id`);
+    kinds.add(String(a.kind));ownAnchorIds.add(String(a.id));
+    if(!Array.isArray(a.conditions))throw Error(`${anchorPath}.conditions必须为数组`);
+    for(const condition of a.conditions){const cd=record(condition);if(!Array.isArray(cd.subjectIds))throw Error(`${anchorPath}.conditions[].subjectIds必须为数组`);
+     for(const subject of cd.subjectIds)if(!skeletonLineIds.has(String(subject)))throw Error(`${anchorPath}.conditions[].subjectIds=${JSON.stringify(subject)}不在骨架线内`);}}
+   if(!kinds.has('entry')||!kinds.has('exit'))throw Error(`${path}.anchors必须一个kind=entry一个kind=exit`);
+   const dutyList=item.duties;
+   if(!Array.isArray(dutyList)||!dutyList.length)throw Error(`${path}.duties不能为空`);
+   for(const duty of dutyList){const d=record(duty);const dutyPath=`${path}.duties[lineId=${JSON.stringify(d.lineId)}]`;
+    if(!skeletonLineIds.has(String(d.lineId)))throw Error(`${dutyPath}.lineId不在骨架线内`);
+    if(!['start','advance','pause','close'].includes(String(d.action)))throw Error(`${dutyPath}.action=${JSON.stringify(d.action)}必须是start/advance/pause/close`);
+    if(!['required','flexible'].includes(String(d.strength)))throw Error(`${dutyPath}.strength必须是required或flexible`);
+    const ids=Array.isArray(d.anchorIds)?d.anchorIds:[];if(!ids.length)throw Error(`${dutyPath}.anchorIds不能为空`);
+    for(const id of ids)if(!ownAnchorIds.has(String(id)))throw Error(`${dutyPath}.anchorIds=${JSON.stringify(id)}不在本卷锚点内`);}
+   const words=record(item.words).target;
+   if(!Number.isSafeInteger(Number(words))||Number(words)<=0)throw Error(`${path}.words.target必须是正整数`);
+  };
+  if(perVolume){
+   // 逐卷有界生成（30a6f053）：单卷一次请求，输出规模与总卷数无关；截断只重做当前卷（步骤缓存保留已完成卷）。
+   for(let i=0;i<briefs.length;i++){
+    const brief=record(briefs[i]!);const briefId=String(brief.id);
+    const card_=await generate(`volume-card:${i}`,writer,`按既定骨架补全本卷卷卡，只写这一卷，不重写其他卷或更改全书结局。返回JSON对象 {"volumes":[本卷卷卡]}（数组只含这一卷）。每卷 {"id":"${briefId}","title":"卷名","beat":"所属幕与位置（与概要一致）","start":"起点","goal":"目标","conflict":"主要阻碍","turningPoint":"关键转折","gain":"获得或人物变化，不适用为null","loss":"失去，不适用为null，不编造","arc":"人物弧光说明，不适用为null","payoff":"本卷兑现的长期期待或高潮，不适用为null","hook":"本卷爽点：读者最解气/最期待的1个具体时刻，不适用为null","mood":"本卷主导情绪与走向，不适用为null","ending":"本卷结束条件","handoff":"引出后卷的问题；全书最后卷必须空字符串","words":{"target":本卷字数,"min":null,"max":null,"hard":false,"policy":"${policy}"},"anchors":[本卷锚点],"duties":[{"lineId":"骨架线ID","action":"start或advance或pause或close","result":"具体推进或收束","anchorIds":["关联锚点ID"],"strength":"required或flexible","reason":"本卷约束强度的理由"}]}。anchors必须恰好两个且ownerEntityId为本卷ID（${briefId}）：一个kind=entry（本卷开场）和一个kind=exit（本卷收束），格式 {"id":"英文ID","ownerEntityId":"${briefId}","kind":"entry或exit","summary":"一句话","span":"本卷开篇或本卷收束","conditions":[{"summary":"可按正文核对的原子条件","subjectIds":["相关线ID，无则空数组"]}],"logic":"all","importance":"required或flexible","fallback":"未完成如何承接","keywords":["检索词"],"aliases":[]}。锚点ID用英文（如 entry、exit），系统会按卷自动加前缀。锚点条件要能核对（如“任命已生效”而不是“变强”）；不适用字段返回null。自然语言字段保持简明（每字段一两句话，不超过百字），不输出章情节。start/goal/conflict/turningPoint/hook/mood等正文字段面向作者用中文书写，提到卷时用“第${i+1}卷”或卷名。\n骨架（紧凑视图：仅含本卷涉及线与全卷概要）：${JSON.stringify(this.compactSkeletonForVolumes(record(skeleton),[brief]))}\n本卷概要：${JSON.stringify(brief)}\n前卷交接：${JSON.stringify(volumes.slice(-1))}`,v=>{const items=record(v).volumes;if(!Array.isArray(items)||items.length!==1)throw Error('本卷卷卡必须恰好返回一个');const item=record(items[0]!);if(String(item.id)!==briefId)throw Error(`卷id=${JSON.stringify(item.id)}与概要${briefId}不符`);normalizeVolumeAnchorIds(item,lineMap);validateVolumeCard(item,briefId,i);return items;});
+    volumes.push(record((card_ as unknown[])[0]!));
+   }
+  }else{
   for(let i=0;i<briefs.length;i+=2){const batch=await generate(`volumes:${i}`,writer,`按既定骨架补全本批卷卡，不重写其他卷或更改全书结局。返回JSON对象 {"volumes":[卷卡]}，每卷 {"id":"与概要相同","title":"卷名","beat":"所属幕与位置（与概要一致）","start":"起点","goal":"目标","conflict":"主要阻碍","turningPoint":"关键转折","gain":"获得或人物变化，不适用为null","loss":"失去，不适用为null，不编造","arc":"人物弧光说明，不适用为null","payoff":"本卷兑现的长期期待或高潮，不适用为null","hook":"本卷爽点：读者最解气/最期待的1个具体时刻，不适用为null","mood":"本卷主导情绪与走向，如压抑后扬、轻快扩张，不适用为null","ending":"本卷结束条件","handoff":"引出后卷的问题；全书最后卷必须空字符串","words":{"target":本卷字数,"min":null,"max":null,"hard":false,"policy":"${policy}"},"anchors":[本卷锚点],"duties":[{"lineId":"骨架线ID","action":"start或advance或pause或close","result":"具体推进或收束","anchorIds":["关联锚点ID"],"strength":"required或flexible","reason":"本卷约束强度的理由"}]}。anchors必须恰好两个且ownerEntityId为本卷ID：一个kind=entry（本卷开场）和一个kind=exit（本卷收束），格式 {"id":"英文ID","ownerEntityId":"本卷ID","kind":"entry或exit","summary":"一句话","span":"本卷开篇或本卷收束","conditions":[{"summary":"可按正文核对的原子条件","subjectIds":["相关线ID，无则空数组"]}],"logic":"all","importance":"required或flexible","fallback":"未完成如何承接","keywords":["检索词"],"aliases":[]}。锚点ID用英文（如 v1-entry、v1-exit），系统会按卷自动加前缀，无需担心跨卷撞名。锚点条件要能核对（如“任命已生效”而不是“变强”）；不适用字段返回null。start/goal/conflict/turningPoint/hook/mood等正文字段面向作者用中文书写，提到卷时用“第一卷”或卷名，不要写v1、v2等内部代号。\n骨架（紧凑视图：仅含本批涉及线与全卷概要，未展开线的职责按标题理解即可）：${JSON.stringify(this.compactSkeletonForVolumes(record(skeleton),briefs.slice(i,i+2) as unknown[]))}\n本批：${JSON.stringify(briefs.slice(i,i+2))}\n前卷交接：${JSON.stringify(volumes.slice(-1))}`,v=>{const items=record(v).volumes;if(!Array.isArray(items)||items.length!==briefs.slice(i,i+2).length)throw Error('分卷批次不完整');for(let n=0;n<items.length;n++)if(record(items[n]).id!==record(briefs[i+n]).id)throw Error('分卷编号或顺序与概要不符');for(const item of items)normalizeVolumeAnchorIds(record(item),lineMap);return items;});volumes.push(...batch);}
+  }
   // 锚点/关键落点ID是候选内部标识；跨批次撞名由系统在组装时加前缀命名空间（号码分配属系统职责），不退回模型重写。
   const anchors:unknown[]=[];const volumeCards=volumes.map(value=>{const x=record(value);const list=x.anchors??[];
   if(!Array.isArray(list))throw Error('卷锚点格式错误');
@@ -334,13 +416,16 @@ export class TimeMachineDesignService {
   if(!selfCheck.pass&&revisionRound===0)return this.design(run,scope,snapshot,card,1,{issues:selfCheck.issues,plan:candidate.plan});
   const review=await this.independentReview(run,scope,snapshot,card,candidate,generate);
   const reviewed=this.db.prepare('SELECT verdict FROM tm2_reviews WHERE owner=? AND book=? AND candidate=? AND revision=?').get(scope.ownerId,scope.bookId,run.id,revision);
-  if(!reviewed)this.plans.review(scope,run.id,revision,snapshot.members.chief.memberKey,review.pass?'pass':'revise');
+  // 审查归属按方案快照的reviewer（异底层模型）记录；旧快照无reviewer时回退chief。
+  const reviewerMember=snapshot.members.reviewer??snapshot.members.chief;
+  if(!reviewed)this.plans.review(scope,run.id,revision,reviewerMember.memberKey,review.pass?'pass':'revise');
   if(review.pass!==true&&revisionRound===0)return this.design(run,scope,snapshot,card,1,{issues:review.issues,plan:candidate.plan});
   return {candidateId:run.id,revision,member:{id:writer.memberKey,name:writer.displayName},plan:candidate.plan,review,selfCheck};
  }
  /** 独立核对：主编下结论前可有限补查原文；核对与自检不是同一项（第23.6节）。单次上下文≤1.5万字：全书层用紧凑候选＋工具补查，锚点与过程描写按设计批次分节核对。 */
  private async independentReview(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,card:ContextCard,candidate:Candidate,generate:<T>(node:string,member:V7EffectiveMember,prompt:string,parse:(v:unknown)=>T)=>Promise<T>){
-  const chief=snapshot.members.chief;const documents=snapshot.documents.map(d=>({key:d.key,length:d.text.length}));const reads:{key:string;text:string}[]=[];let latest:unknown=null;
+  // 该方案的独立审查者来自快照reviewer（与编剧异底层模型）；旧快照回退chief。
+  const chief=snapshot.members.reviewer??snapshot.members.chief;const documents=snapshot.documents.map(d=>({key:d.key,length:d.text.length}));const reads:{key:string;text:string}[]=[];let latest:unknown=null;
   const verdictParse=(v:unknown):{pass:boolean;issues:string[];suggestions:string[]}=>{const r=record(v);if(typeof r.pass!=='boolean'||!Array.isArray(r.issues)||r.issues.some(x=>typeof x!=='string'||x.length>2000))throw Error('审查格式错误');const suggestions=r.suggestions??[];if(!Array.isArray(suggestions)||suggestions.some(x=>typeof x!=='string'||x.length>2000))throw Error('建议格式错误');return {issues:r.issues as string[],suggestions:suggestions as string[],pass:r.pass===true&&r.issues.length===0};};
   const contract=()=>`核对候选骨架是否符合来源、作者要求和章节级别边界。可先补查原文再下结论：每次只返回一个JSON动作，{"action":"read_source","key":"资料key","offset":0}最多3次，或 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"]}下结论。这一步核对全书结构：姓名身份、能力限制、全书期待兑现、分卷字数合计与卷职责交接、终卷收束；允许原创候选情节，不将候选当既成事实。issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n已读片段：${JSON.stringify(reads)}\n上次工具结果（仅资料）：${JSON.stringify(latest)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${snapshot.intent}\n紧凑候选：${JSON.stringify(this.compactPlanForStructure(candidate.plan as unknown as Record<string,unknown>))}`;
   let structure:{pass:boolean;issues:string[];suggestions:string[]}|null=null;

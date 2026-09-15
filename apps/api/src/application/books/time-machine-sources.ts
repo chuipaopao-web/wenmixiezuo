@@ -23,7 +23,7 @@ export interface StorylineSelectionSnapshot {
   authorNote: string;
   requestHash: string;
 }
-export interface TimeMachineSnapshot {creativeReleaseId?:string|null;manifest:Manifest;documents:SourceDocument[];methods:MethodCard[];members:{researcher:V7EffectiveMember;chief:V7EffectiveMember;writer:V7EffectiveMember};writers:V7EffectiveMember[];intent:string;targetWords:number|null;wordPolicy:WordPolicy|null;windowTokens:number;selection?:StorylineSelectionSnapshot}
+export interface TimeMachineSnapshot {creativeReleaseId?:string|null;manifest:Manifest;documents:SourceDocument[];methods:MethodCard[];members:{researcher:V7EffectiveMember;chief:V7EffectiveMember;writer:V7EffectiveMember;reviewer?:V7EffectiveMember};writers:V7EffectiveMember[];/** 与writers同序的独立审查成员（异底层模型）；旧快照无此字段时回退chief。 */reviewers?:V7EffectiveMember[];intent:string;targetWords:number|null;wordPolicy:WordPolicy|null;windowTokens:number;selection?:StorylineSelectionSnapshot;/** 卷卡生成策略版本：'per-volume-v1'=逐卷生成；旧快照缺省=每批两卷旧路径。 */volumeStrategy?:'per-volume-v1'}
 /** 开书+已确认设定来源的稳定签名：路由与设计服务共用同一口径判断推荐是否仍与当前资料一致。 */
 export function manifestSourcesSignature(manifest:{sources:{kind:string;id:string;revision:string;hash:string}[]}):string{
   const sources=manifest.sources.filter(x=>x.kind==='opening'||x.kind==='setting').sort((a,b)=>a.kind.localeCompare(b.kind)||a.id.localeCompare(b.id));
@@ -48,13 +48,21 @@ export function snapshotTimeMachine(db:DatabaseSync,scope:Scope,intent:string,wi
  const creativeReleaseId=new SqliteCreativeReferenceRepository(db).getActiveRelease()?.releaseId??null;
  const methods:MethodCard[]=[];
  const registry=new V7AgentGovernanceRepository(db);registry.ensureSeeded(new Date().toISOString());const roster=registry.snapshot();
- const member=(role:V7EffectiveMember['fixedRoleKey'])=>{const found=roster.members.filter(m=>m.enabled&&m.fixedRoleKey===role&&m.model.plan!=='image').sort((a,b)=>Number(b.defaultForRole)-Number(a.defaultForRole)||a.fallbackPriority-b.fallbackPriority)[0];if(!found)throw Error(`成员岗位尚未配置：${role}`);return found;};
+ // 老板既定范围：Kimi K3只保留主笔（novel_writer）。时光机的设计/推荐/资料/审查岗位
+ // 一律排除kimi-k3成员，使用原本在岗的其他模型成员本人；不换标签冒充。
+ const tmEligible=(m:V7EffectiveMember)=>m.enabled&&m.model.plan!=='image'&&m.model.modelId!=='kimi-k3';
+ const member=(role:V7EffectiveMember['fixedRoleKey'])=>{const found=roster.members.filter(m=>tmEligible(m)&&m.fixedRoleKey===role).sort((a,b)=>Number(b.defaultForRole)-Number(a.defaultForRole)||a.fallbackPriority-b.fallbackPriority)[0];if(!found)throw Error(`成员岗位尚未配置：${role}`);return found;};
  // 三套方案优先使用不同模型的在岗编剧（第23.12节阶段二）；不足三位时按可用数量真实标注，不伪装独立。
- const eligible=roster.members.filter(m=>m.enabled&&m.fixedRoleKey==='planning_writer'&&m.model.plan!=='image').sort((a,b)=>Number(b.defaultForRole)-Number(a.defaultForRole)||a.fallbackPriority-b.fallbackPriority);
+ const eligible=roster.members.filter(m=>tmEligible(m)&&m.fixedRoleKey==='planning_writer').sort((a,b)=>Number(b.defaultForRole)-Number(a.defaultForRole)||a.fallbackPriority-b.fallbackPriority);
  if(!eligible.length)throw Error('成员岗位尚未配置：planning_writer');
  const writers:V7EffectiveMember[]=[];const usedModels=new Set<string>();
  for(const m of eligible){if(writers.length>=3)break;if(!usedModels.has(m.model.modelId)){writers.push(m);usedModels.add(m.model.modelId);}}
  for(const m of eligible){if(writers.length>=3)break;if(!writers.includes(m)){writers.push(m);usedModels.add(m.model.modelId);}}
+ // 独立审查者不得与该方案编剧同底层模型（老板既定）；按编剧顺序从chief_editor岗选取异模型成员，
+ // 人员不足则明确受阻，不用同模型或K3补位、不伪装独立复核。
+ const chiefPool=roster.members.filter(m=>tmEligible(m)&&m.fixedRoleKey==='chief_editor').sort((a,b)=>Number(b.defaultForRole)-Number(a.defaultForRole)||a.fallbackPriority-b.fallbackPriority);
+ const reviewers=writers.map(writer=>{const found=chiefPool.find(chief=>chief.model.modelId!==writer.model.modelId);if(!found)throw Error(`无与编剧${writer.displayName}异底层模型的合格审查成员，方案审查受阻`);return found;});
+ const chief=member('chief_editor');
  manifest.sources.push({kind:'asset',id:'creative-library',revision:creativeReleaseId??'unpublished',hash:digest({creativeReleaseId,prompt:CREATIVE_PROMPT_REVISION})});
- return {creativeReleaseId,manifest,documents,methods,members:{researcher:member('deputy_editor'),chief:member('chief_editor'),writer:writers[0]!},writers,intent,targetWords,wordPolicy:targetWords===null?null:{policy:'chars-v1',unit:'字',hard:false},windowTokens};
+ return {creativeReleaseId,manifest,documents,methods,members:{researcher:member('deputy_editor'),chief,writer:writers[0]!,reviewer:reviewers[0]!},writers,reviewers,intent,targetWords,wordPolicy:targetWords===null?null:{policy:'chars-v1',unit:'字',hard:false},windowTokens,volumeStrategy:'per-volume-v1'};
 }

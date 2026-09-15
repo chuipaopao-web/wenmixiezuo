@@ -67,7 +67,12 @@ export class TimeMachineModelGateway {
   }catch(error){
    let kind:TimeMachineCallError['kind']='unknown';
    if(error instanceof TimeMachineCallError)kind=error.kind;
-   else if(error instanceof ModelAdapterError)kind=error.outcomeUnknown?'unknown':error.failureClass==='authentication_failure'?'authentication':error.retryable?'temporary':'invalid';
+   else if(error instanceof ModelAdapterError){
+    // 长度截断按机器可读causeCode分型（不解析message）：known-incomplete结果，
+    // 恢复动作是拆分/续作而非用相同长请求盲重试；HTTP400等仍走原有failureClass分型。
+    if(error.causeCode==='output_length_limit')kind='truncated';
+    else kind=error.outcomeUnknown?'unknown':error.failureClass==='authentication_failure'?'authentication':error.retryable?'temporary':'invalid';
+   }
    else if(!dispatched)kind='authentication';
    const usage=error instanceof ModelAdapterError?error.knownUsage:undefined;
    const known=usage&&[usage.inputTokens,usage.outputTokens].every(n=>Number.isSafeInteger(n)&&n>=0)&&Number.isFinite(usage.cashCostCny)&&usage.cashCostCny>=0?usage:null;

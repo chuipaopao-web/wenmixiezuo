@@ -41,7 +41,9 @@ export class ModelAdapterError extends Error {
     public readonly retryable: boolean,
     public readonly statusCode?: number,
     public readonly outcomeUnknown = false,
-    public readonly knownUsage?: {inputTokens:number;outputTokens:number;cashCostCny:number}
+    public readonly knownUsage?: {inputTokens:number;outputTokens:number;cashCostCny:number},
+    /** 机器可读失败原因（兼容可选）：输出长度截断='output_length_limit'。调用方按此分型，不解析message文本。 */
+    public readonly causeCode?: 'output_length_limit'
   ) {
     super(message);
     this.name = 'ModelAdapterError';

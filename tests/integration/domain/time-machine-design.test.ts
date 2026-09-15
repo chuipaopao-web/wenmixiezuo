@@ -40,10 +40,12 @@ import {listTimeMachineTasks} from '../../../apps/api/src/application/books/time
 const contexts:TestContext[]=[];afterEach(()=>contexts.splice(0).forEach(c=>c.close()));
 function setup(){const c=createTestContext();contexts.push(c);const scope={ownerId:c.config.ownerId,bookId:'tm-book'};c.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run(scope.ownerId,'测试作者','2026-09-10','2026-09-10');new BookRepository(c.database).create(scope,'机甲会修仙','2026-09-10','active');c.database.prepare("INSERT INTO book_opening_blueprints VALUES('opening',?,?,1,'v1','male','fantasy','玄幻',?,?,'active','2026-09-10')").run(scope.ownerId,scope.bookId,JSON.stringify({protagonists:['林舟'],storyDirection:'无灵根修理工建立工坊'}),'a'.repeat(64));return {c,scope};}
 function output(prompt:string):unknown{
+ const record0=(v:unknown)=>v!==null&&typeof v==='object'?v as Record<string,unknown>:{};
  if(prompt.includes('核对短卡是否'))return {pass:true,issues:[]};
  if(prompt.includes('判断需要哪些方法'))return prompt.includes('上次工具结果（仅资料）：null')?{action:'search_methods',category:'',cursor:0}:{action:'ready',selected:[]};
  if(prompt.includes('你是主编，推荐'))return {greeting:'老板，我们现在设计全书骨架',lines:[{id:'growth',role:'main',title:'成长线',description:'林舟建立工坊',recommended:true}],structure:'single',reason:'聚焦修理工成长'};
  if(prompt.includes('设计全书骨架。只设计'))return {structure:'四幕起承转合：起于危机、承于扩张、转于公开冲突、合于公平生存',baseline:'轻快成长',ending:'建立工坊',openingHooks:['开头钩子','第一章钩子','前三章钩子'],words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'},lines:[{id:'main',role:'main',title:'工坊',goal:'立足',answer:'建立工坊',process:'从修理接单到建立工坊',parentIds:[],milestones:[{id:'ms1',summary:'第一台自装机甲完成',suggestedVolumes:['v1'],importance:'flexible'}]}],expectations:[{id:'promise',opening:'无灵根能否立足',change:'看到变化',answer:'以机甲立足',lineIds:['main']}],relations:[],volumeBriefs:[{id:'v1',title:'开张',goal:'建立工坊',words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'}}]};
+ if(prompt.includes('补全本卷卷卡')){const brief=JSON.parse(prompt.split('\n本卷概要：')[1]!.split('\n前卷交接：')[0].trim()) as {id:string;words?:{target?:unknown}};const id=String(brief.id);const target=Number(record0(brief.words).target??200000);return {volumes:[{id,title:'开张',start:'濒临倒闭',goal:'完成订单',conflict:'封锁',beat:'起',turningPoint:'机甲完成',gain:'伙伴',loss:null,arc:null,payoff:null,hook:null,mood:null,ending:'工坊建立',handoff:'',words:{target,min:null,max:null,hard:false,policy:'chars-v1'},anchors:[{id:'in',ownerEntityId:id,kind:'entry',summary:'店铺濒临倒闭',span:'本卷开篇',conditions:[{summary:'订单危机已经成立',subjectIds:['main']}],logic:'all',importance:'required',fallback:'未达成需修订开场',keywords:[],aliases:[]},{id:'out',ownerEntityId:id,kind:'exit',summary:'订单交付工坊立足',span:'本卷收束',conditions:[{summary:'订单交付完成',subjectIds:['main']}],logic:'all',importance:'required',fallback:'全书结束，未兑现期待单独跟踪',keywords:[],aliases:[]}],duties:[{lineId:'main',action:'close',result:'工坊建立',anchorIds:['out'],strength:'required',reason:'主线起点'}]}]};}
  if(prompt.includes('补全本批卷卡'))return {volumes:[{id:'v1',title:'开张',start:'濒临倒闭',goal:'完成订单',conflict:'封锁',beat:'起',turningPoint:'机甲完成',gain:'伙伴',loss:null,arc:null,payoff:null,hook:null,mood:null,ending:'工坊建立',handoff:'',words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'},anchors:[{id:'v1-in',ownerEntityId:'v1',kind:'entry',summary:'店铺濒临倒闭',span:'本卷开篇',conditions:[{summary:'订单危机已经成立',subjectIds:['main']}],logic:'all',importance:'required',fallback:'未达成需修订开场',keywords:[],aliases:[]},{id:'v1-out',ownerEntityId:'v1',kind:'exit',summary:'订单交付工坊立足',span:'本卷收束',conditions:[{summary:'订单交付完成',subjectIds:['main']}],logic:'all',importance:'required',fallback:'全书结束，未兑现期待单独跟踪',keywords:[],aliases:[]}],duties:[{lineId:'main',action:'close',result:'工坊建立',anchorIds:['v1-out'],strength:'required',reason:'主线起点'}]}]};
  if(prompt.includes('自检你刚完成')||prompt.includes('自检候选锚点'))return {pass:true,issues:[]};
  if(prompt.includes('核对候选锚点'))return {pass:true,issues:[],suggestions:[]};
@@ -289,7 +291,12 @@ describe('new time machine orchestration with real persistence and simulated mod
      lines:[{id:'main',role:'main',title:'工坊',goal:prose,answer:prose,process:prose,parentIds:[],milestones:[{id:'ms1',summary:prose,suggestedVolumes:['v1','v2','v3','v4','v5','v6','v7','v8','v9','v10'],importance:'flexible'}]}],
      expectations:[{id:'promise',opening:prose,change:prose,answer:prose,lineIds:['main']}],relations:[]};
    }
-   if(request.prompt.includes('补全本批卷卡')){
+   if(request.prompt.includes('补全本卷卷卡')){
+    // 30a6f053逐卷生成：每次请求只含一个卷概要，按其id产出单卷卡。
+    const brief=JSON.parse(request.prompt.split('\n本卷概要：')[1]!.split('\n前卷交接：')[0].trim()) as {id:string};
+    value={volumes:[volumeCard(Number(String(brief.id).slice(1)))]};
+   }
+   else if(request.prompt.includes('补全本批卷卡')){
     const ids=(JSON.parse(request.prompt.split('\n本批：')[1]!.split('\n')[0]!) as {id:string}[]).map(x=>x.id);
     value={volumes:ids.map(id=>volumeCard(Number(id.slice(1))))};
    }
@@ -321,10 +328,11 @@ describe('new time machine orchestration with real persistence and simulated mod
      expectations:[{...base.expectations[0]!,id:'期待',lineIds:['主线']}],
      volumeBriefs:[{...base.volumeBriefs[0]!,id:'第一卷'}]};
    }
-   if(request.prompt.includes('补全本批卷卡')){
+   if(request.prompt.includes('补全本卷卷卡')||request.prompt.includes('补全本批卷卡')){
     expect(request.prompt).toContain('"id":"line"');
     const card=output(request.prompt) as {volumes:Record<string,unknown>[]};
-    value={volumes:card.volumes.map(v=>({...(v as Record<string,unknown>),anchors:[{id:'开场-危机',ownerEntityId:'v1',kind:'entry',summary:'危机',span:'本卷开篇',conditions:[{summary:'危机成立',subjectIds:['line']}],logic:'all',importance:'required',fallback:'补开场',keywords:[],aliases:[]},{id:'收束-交付',ownerEntityId:'v1',kind:'exit',summary:'交付',span:'本卷收束',conditions:[{summary:'交付完成',subjectIds:['line']}],logic:'all',importance:'required',fallback:'补收束',keywords:[],aliases:[]}],duties:[{lineId:'line',action:'close',result:'工坊建立',anchorIds:['开场-危机','收束-交付'],strength:'required',reason:'主线'}]}))};
+    const briefId=(JSON.parse(request.prompt.split('\n本卷概要：')[1]!.split('\n前卷交接：')[0].trim()) as {id:string}).id;
+    value={volumes:card.volumes.map(v=>({...(v as Record<string,unknown>),anchors:[{id:'开场-危机',ownerEntityId:briefId,kind:'entry',summary:'危机',span:'本卷开篇',conditions:[{summary:'危机成立',subjectIds:['line']}],logic:'all',importance:'required',fallback:'补开场',keywords:[],aliases:[]},{id:'收束-交付',ownerEntityId:briefId,kind:'exit',summary:'交付',span:'本卷收束',conditions:[{summary:'交付完成',subjectIds:['line']}],logic:'all',importance:'required',fallback:'补收束',keywords:[],aliases:[]}],duties:[{lineId:'line',action:'close',result:'工坊建立',anchorIds:['开场-危机','收束-交付'],strength:'required',reason:'主线'}]}))};
    }
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
   }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=await designRun(service,scope,'成长线','bad-ids');await service.process(id);
