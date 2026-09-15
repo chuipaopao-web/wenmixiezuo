@@ -221,4 +221,31 @@ describe('K3 batch: volume-card inputs, storyline coverage, normalization audit'
   expect(timeMachineSynthesisHeadroom('deepseek-v4-pro',3000)).toBeUndefined();
   expect(timeMachineSynthesisHeadroom('doubao-seed-2.1-turbo',8000)).toBeUndefined();
  });
+ it('required close duty never checked by its linked anchors gets one precise local repair (run3 scheme C evidence)',async()=>{
+  const counters:Counters={skeletonAttempts:0,reviewMoreAttempts:0,seenPrompts:[]};
+  let cardAttempts=0;
+  const {scope,service}=setup({
+   skeleton:()=>({structure:'四幕起承转合',baseline:'轻快成长',ending:'建立工坊',openingHooks:['开头钩子','第一章钩子','前三章钩子'],words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'},
+    lines:[lineFor('main','main','工坊',['成长线']),lineFor('rival','through','机甲',['机甲线'])],
+    expectations:[{id:'promise',opening:'期待',change:'变化',answer:'回应',lineIds:['main']}],relations:[],volumeBriefs:[{id:'v1',title:'开张',goal:'建立工坊',words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'}}]}),
+   volume:(briefId)=>{
+    cardAttempts++;
+    const card=volumeCardFor(briefId,['main','rival']);
+    card.duties=[{lineId:'main',action:'advance',result:'推进',anchorIds:['out'],strength:'flexible',reason:'本卷职责'},{lineId:'rival',action:'close',result:'机甲谜团揭晓',anchorIds:['out'],strength:'required',reason:'本卷收束机甲线'}];
+    if(cardAttempts>1)card.anchors[1]!.conditions=[{summary:'机甲与灵气的关联已经揭晓',subjectIds:['rival']}]; // 修复：exit锚点条件把该线列为核对对象
+    return card;
+   },
+  },counters,'k3-close-book');
+  const rec=await recommend(service,scope,'k3-close-rec');
+  const created=service.startDesignRound(scope,selectionFor(rec,{addedLines:[{title:'机甲线',description:'机甲来历之谜'}]}),'k3-close-round');
+  const runId=created.find(x=>x.scheme==='A')!.id;
+  await service.process(runId);
+  const done=service.state(scope).find(r=>r.id===runId)!;
+  expect(done.state).toBe('succeeded');
+  expect(cardAttempts).toBe(2); // 精确报错后一次局部修复，不整轮推翻
+  const repairPrompt=counters.seenPrompts.filter(p=>p.includes('补全本卷卷卡'))[1]!;
+  expect(repairPrompt).toContain('上次输出未通过校验');
+  expect(repairPrompt).toContain('duties[lineId="rival"]');
+  expect(repairPrompt).toContain('收束无法按正文核对');
+ });
 });
