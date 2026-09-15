@@ -32,9 +32,9 @@ export class VolcengineArkImageGateway implements V7CoverImageGateway {
   private readonly endpoint: string;
 
   public constructor(env: NodeJS.ProcessEnv = process.env) {
-    // 专用图片凭证始终优先；没有专用凭证时，使用 Agent Plan 套餐中
-    // 已包含的 Seedream 权益。这里不接受 Coding Plan 或普通按量地址，
-    // 避免无意中切换到合同外的付费路线。
+    // 全模型统一Agent Plan：使用Agent Plan套餐中已包含的Seedream权益；
+    // 遗留专用按量密钥不参与选择，也不作失败回退。这里不接受Coding Plan
+    // 或普通按量地址，避免无意中切换到合同外的付费路线。
     const credential = imageCredential(env);
     this.apiKey = credential?.apiKey;
     this.endpoint = credential?.endpoint ?? ARK_IMAGE_ENDPOINT;
@@ -145,8 +145,7 @@ function nonEmpty(value: string | undefined): string | undefined {
 }
 
 function imageCredential(env: NodeJS.ProcessEnv): { apiKey: string; endpoint: string; kind: 'dedicated' | 'agent-plan' } | undefined {
-  const dedicated = nonEmpty(env.WENMI_ARK_IMAGE_API_KEY);
-  if (dedicated !== undefined) return { apiKey: dedicated, endpoint: ARK_IMAGE_ENDPOINT, kind: 'dedicated' };
+  // 全模型统一Agent Plan：遗留专用按量密钥不参与选择，也不作失败回退。
   const directAgentPlan = nonEmpty(env.WENMI_ARK_AGENT_PLAN_API_KEY);
   if (directAgentPlan !== undefined) return { apiKey: directAgentPlan, endpoint: ARK_AGENT_PLAN_IMAGE_ENDPOINT, kind: 'agent-plan' };
   return undefined;

@@ -120,16 +120,16 @@ sudo -u wenmi nano deploy/.env.production
 |------|------|
 | `WENMI_PUBLIC_ORIGIN` | `https://wenmixiezuo.com` |
 | `WENMI_ADMIN_ORIGIN` | `https://admin.wenmixiezuo.com` |
-| `WENMI_ARK_CODING_PLAN_API_KEY` | 火山方舟 Coding Plan API Key，供除高级编剧外的全部AI岗位使用 |
-| `WENMI_ARK_CODING_PLAN_*_MODEL` | Coding Plan 各岗位模型 ID |
-| `WENMI_ARK_AGENT_PLAN_API_KEY` | 火山方舟 Agent Plan API Key，供高级编剧 Kimi K3、视觉规划和套餐内 Seedream 封面使用 |
-| `WENMI_ARK_IMAGE_API_KEY` | 可选的图像生成专用 API Key；配置后优先于 Agent Plan 凭据 |
+| `WENMI_ARK_CODING_PLAN_API_KEY` | 历史配置，2026-09-16全模型Agent切换后不再用于新调用 |
+| `WENMI_ARK_AGENT_PLAN_*_MODEL` | Agent Plan 各岗位模型 ID，保持现有模型身份 |
+| `WENMI_ARK_AGENT_PLAN_API_KEY` | 所有文字模型及套餐内Seedream封面统一使用的Agent Plan凭据 |
+| `WENMI_ARK_IMAGE_API_KEY` | 历史专用凭据，统一Agent模式不使用、不作按量回退 |
 | `WENMI_ARK_IMAGE_MODEL_ID` | 可选的图像生成模型 ID；未配置时使用当前默认 Seedream 封面模型 |
 | `WENMI_WORKER_TOKEN` | 建议设置固定值（至少 32 字符） |
 
-> 常规创作岗位统一使用 Coding Plan。高级编剧清照固定使用 Agent Plan 的 `kimi-k3`，只有作者主动选择时才调用。封面默认使用 Agent Plan 套餐已包含的 Seedream 权益；如配置 `WENMI_ARK_IMAGE_API_KEY`，则只对封面优先使用该专用凭据。系统不会把 Coding Plan 凭据用于图片，也不会自动切换到合同外的普通按量地址。所有 Key 都只保存在服务器环境变量中，不能进入数据库、日志、任务上下文、备份、导出或 Git。
+> 全部文字模型（含常规创作岗位与高级编剧）统一使用 Agent Plan 套餐，旧 Coding Plan 凭据不再用于新调用、旧任务不会自动改路重发。封面使用 Agent Plan 套餐已包含的 Seedream 权益；历史 `WENMI_ARK_IMAGE_API_KEY` 专用凭据不参与选择，也不作失败后的按量回退。系统不会自动切换到合同外的普通按量地址。所有 Key 都只保存在服务器环境变量中，不能进入数据库、日志、任务上下文、备份、导出或 Git。
 
-GLM-5.2 与 GLM-5.3 使用 Coding Plan 共用凭证并登记在后台可配置模型目录，当前不默认绑定任何岗位；无需新增独立密钥。
+GLM-5.3 与 GLM-5.3 Flash 使用 Agent Plan 共用凭据并登记在后台可配置模型目录，当前不默认绑定任何岗位；GLM-5.2 已停用不再执行；无需新增独立密钥。
 
 ### 第五步：运行数据库迁移
 
@@ -549,10 +549,10 @@ printf 'restore_database=passed\nrestore_staging=%s\nbefore_restore=%s\n' "${RES
 | 香港云服务器（4C8G） | ~$25-40 | ~$300-480 |
 | 域名 wenmixiezuo.com | ~$1-2 | ~$12-15 |
 | Let's Encrypt 证书 | 免费 | 免费 |
-| 火山方舟模型 API | 按量计费 | 取决于创作量 |
+| 火山方舟 Agent Plan 套餐 | 套餐订阅 | 取决于套餐档位 |
 | **合计（不含模型）** | **~$26-42** | **~$312-495** |
 
-模型 API 费用取决于实际使用量。每章正文（约 3,000-5,000 字）的模型调用费用约为 ¥0.5-3.0 人民币，包含设定、规划、正文、审查和点评的全流程。
+模型调用已纳入火山方舟 Agent Plan 套餐订阅，不再按次按量计费；费用取决于套餐档位与续费周期。历史按量价格记录仅供对比，不作为当前成本依据。
 
 ## 故障排查
 

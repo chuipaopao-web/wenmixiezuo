@@ -43,6 +43,7 @@ const OPERATIONAL_ENTRY_DEFINITIONS = [
   { path: 'scripts/clean.mjs', invokedBy: 'package.json#scripts.clean' },
   { path: 'scripts/evaluation/production-backup-verify.ts', invokedBy: 'package.json#scripts.verify:backup' },
   { path: 'scripts/evaluation/subscription-model-connectivity.ts', invokedBy: 'package.json#scripts.runtime:model-connectivity' },
+  { path: 'scripts/quality/agent-plan-connectivity.mjs', invokedBy: 'package.json#scripts.quality:agent-plan-connectivity' },
   { path: 'scripts/quality/verify-v7-capability-cutover.ts', invokedBy: 'package.json#scripts.verify:capabilities' },
   { path: 'scripts/quality/verify-v7-runtime-source-closure.ts', invokedBy: 'package.json#scripts.verify:runtime-closure' },
   { path: 'scripts/release/assemble-v7-static.mjs', invokedBy: 'package.json#scripts.build:v7:static-release' },

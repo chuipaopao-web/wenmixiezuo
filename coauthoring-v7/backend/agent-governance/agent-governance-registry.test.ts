@@ -143,7 +143,7 @@ describe('V7统一成员与模型治理', () => {
     expect(opening.filter((member) => member.roleKey === 'chief_editor').map((member) => member.model.modelId))
       .toEqual(['deepseek-v4-pro', 'kimi-k3', 'glm-5.3']);
     expect(opening.filter((member) => member.roleKey === 'screenwriter').map((member) => member.model.modelId))
-      .toEqual(['deepseek-v4-pro', 'kimi-k3', 'glm-5.3']);
+      .toEqual(['deepseek-v4-pro', 'kimi-k3', 'doubao-seed-2.1-turbo', 'glm-5.3']);
 
     const creation = creationRosterFromGlobal(effective);
     expect(creation.filter((member) => member.roleKey === 'independent_reviewer').map((member) => member.model.modelId))

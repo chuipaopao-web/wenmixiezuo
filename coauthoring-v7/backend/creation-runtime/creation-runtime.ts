@@ -793,7 +793,7 @@ function member(memberKey: string, displayName: string, roleKey: V7CreationMembe
   return { memberKey, displayName, roleKey, fallbackPriority, defaultForRole, enabledByDefault: true, model, promptInstruction: '' };
 }
 
-function coding(modelId: string): V7CreationMemberDefinition['model'] { return { provider: 'volcengine-ark-coding-plan', modelId, plan: 'coding' }; }
+function coding(modelId: string): V7CreationMemberDefinition['model'] { return { provider: 'volcengine-ark-agent-plan', modelId, plan: 'agent' }; }
 function agent(modelId: string): V7CreationMemberDefinition['model'] { return { provider: 'volcengine-ark-agent-plan', modelId, plan: 'agent' }; }
 
 function jsonObject(output: string): Record<string, unknown> {

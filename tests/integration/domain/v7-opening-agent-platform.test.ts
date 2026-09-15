@@ -417,11 +417,8 @@ describe('V7开书Agent平台接入', () => {
       const adapter = factory.resolve(member.model.provider, member.model.modelId, 'structured_planning');
       expect(adapter.provider).toBe(member.model.provider);
       expect(adapter.modelId).toBe(member.model.modelId);
-      if (member.model.modelId === 'kimi-k3') {
-        expect(member.model).toMatchObject({ plan: 'agent', provider: 'volcengine-ark-agent-plan' });
-      } else {
-        expect(member.model).toMatchObject({ plan: 'coding', provider: 'volcengine-ark-coding-plan' });
-      }
+      // 统一Agent Plan后全部文本成员（含K3）都走Agent Plan绑定。
+      expect(member.model).toMatchObject({ plan: 'agent', provider: 'volcengine-ark-agent-plan' });
     }
   });
 
@@ -431,7 +428,7 @@ describe('V7开书Agent平台接入', () => {
     const app=await createAppServer(context.config,context.database,{v7OpeningModelAdapters:resolver});try{const cookie=await register(app,'creative-opening@example.com','方法测试','strong-pass-123');const started=await app.inject({method:'POST',url:'/api/v1/v7/opening-agent/tasks',headers:{...BROWSER_HEADERS,cookie},payload:{idea:'张三穿越三国成为修理工，希望逐渐改变身边人的生活。',idempotencyKey:'creative-opening-one'}});expect(started.statusCode).toBe(200);const taskId=started.json().data.taskId;await poll(app,cookie,taskId,['awaiting_author_confirmation']);expect(tools).toBe(3);const final=prompts.find(p=>p.includes('creativeReference')&&p.includes('用实际变化表现回报'));expect(final).toContain('不反复复述结果');expect(final).toContain('修理成果改善');expect(prompts.every(p=>JSON.stringify({messages:[{role:'user',content:p}]}).length<=15000)).toBe(true);}finally{await app.close();}
   });
 
-  it('账号隔离、幂等执行、追加候选，并严格按成员使用Coding Plan和Agent Plan', async () => {
+  it('账号隔离、幂等执行、追加候选，并统一按成员使用Agent Plan', async () => {
     context = createTestContext('wenmi-v7-opening-platform-');
     const resolver = new ScriptedResolver();
     const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
@@ -475,7 +472,7 @@ describe('V7开书Agent平台接入', () => {
         input_tokens: number; output_tokens: number;
       }>;
       expect(calls.map((call) => [call.member_key, call.model_id, call.plan, call.state])).toEqual([
-        ['planner-deepseek-v4-pro', 'deepseek-v4-pro', 'coding', 'succeeded'],
+        ['planner-deepseek-v4-pro', 'deepseek-v4-pro', 'agent', 'succeeded'],
         ['chief-kimi-k3', 'kimi-k3', 'agent', 'succeeded']
       ]);
       const owner = context.database.prepare(`
@@ -875,7 +872,7 @@ describe('V7开书Agent平台接入', () => {
       const calls = context.database.prepare(`
         SELECT member_key, plan FROM v7_opening_agent_model_calls WHERE task_id = ? ORDER BY rowid
       `).all(taskId) as unknown as Array<{ member_key: string; plan: string }>;
-      expect(calls[0]).toEqual({ member_key: 'planner-deepseek-v4-pro', plan: 'coding' });
+      expect(calls[0]).toEqual({ member_key: 'planner-deepseek-v4-pro', plan: 'agent' });
       expect(calls.at(-1)).toEqual({ member_key: 'chief-kimi-k3', plan: 'agent' });
       expect(context.database.prepare(`
         SELECT COUNT(*) AS count FROM v7_opening_agent_member_setting_events

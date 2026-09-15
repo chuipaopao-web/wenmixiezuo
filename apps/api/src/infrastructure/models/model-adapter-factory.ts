@@ -23,6 +23,7 @@ export class ModelAdapterFactory {
     if (provider === 'local-deterministic-writer' && modelId === 'wenmi-novel-writer-v1') return new DeterministicNovelWriterAdapter();
     if (provider === 'local-deterministic-candidate-b' && modelId === 'wenmi-novel-candidate-b-v1') return new DeterministicNovelCandidateBAdapter();
     if (provider === 'local-deterministic-reviewer' && modelId === 'wenmi-novel-reviewer-v1') return new DeterministicNovelReviewerAdapter();
+    if (provider === 'volcengine-ark-coding-plan') throw new Error('Coding Plan已停用；请基于Agent Plan创建新任务，旧任务不会自动改路重发');
     const endpoint = provider === this.config.endpoints.coding.provider
       ? this.config.endpoints.coding
       : provider === this.config.endpoints.agent.provider

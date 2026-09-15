@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // CTX-01 阶段一运行器（在服务器上运行，从环境变量读取套餐凭证，凭证不落盘不进日志）。
-// 对指定题材的请求文件逐个调用 deepseek-v4-pro（火山方舟 Coding Plan，/api/coding/v1/messages，
+// 对指定题材的请求文件逐个调用 deepseek-v4-pro（火山方舟 Agent Plan，/api/plan/v1/messages，
 // Anthropic 式报文，与 apps/api ark-plan-model 适配器同构），记录完整用量、耗时、停止原因。
 // 用法：node run-phase1.mjs <evidence目录> --genre <genreId> [--max-calls N]
 // 输入：evidence/samples/*.request.json（仅选中 --genre 指定题材）
@@ -20,7 +20,7 @@ try {
   dispatcher = undefined;
 }
 
-const BASE_URL = 'https://ark.cn-beijing.volces.com/api/coding';
+const BASE_URL = 'https://ark.cn-beijing.volces.com/api/plan';
 const ENDPOINT = `${BASE_URL}/v1/messages`;
 const TIMEOUT_MS = 900_000;
 
@@ -104,13 +104,18 @@ async function callModel(apiKey, request, logPath) {
 
 async function main() {
   const { evidenceDir, genre, maxCalls } = parseArgs();
-  const apiKey = process.env.WENMI_ARK_CODING_PLAN_API_KEY;
+  const apiKey = process.env.WENMI_ARK_AGENT_PLAN_API_KEY;
   if (typeof apiKey !== 'string' || apiKey.trim().length === 0) {
-    throw new Error('WENMI_ARK_CODING_PLAN_API_KEY 未配置，无法执行（不新增付费通道，受阻即终止）');
+    throw new Error('WENMI_ARK_AGENT_PLAN_API_KEY 未配置，无法执行（不新增付费通道，受阻即终止）');
   }
   const samplesDir = join(evidenceDir, 'samples');
   const outputsDir = join(evidenceDir, 'outputs');
   mkdirSync(outputsDir, { recursive: true });
+  const routeFile = join(evidenceDir, 'agent-plan-route.json');
+  if (!existsSync(routeFile) && readdirSync(outputsDir).length > 0) throw new Error('请用新证据目录运行Agent Plan样本，不得混入旧通道输出');
+  const route = { provider: 'volcengine-ark-agent-plan', baseUrl: BASE_URL };
+  if (existsSync(routeFile) && JSON.stringify(JSON.parse(readFileSync(routeFile, 'utf8'))) !== JSON.stringify(route)) throw new Error('证据目录通道不匹配');
+  if (!existsSync(routeFile)) writeFileSync(routeFile, JSON.stringify(route));
   const logPath = join(evidenceDir, 'run-log.jsonl');
 
   const requests = readdirSync(samplesDir)

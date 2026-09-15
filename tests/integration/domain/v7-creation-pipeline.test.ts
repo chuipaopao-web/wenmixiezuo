@@ -914,7 +914,7 @@ describe('V7全链路创作总线', () => {
     }
   });
 
-  it('三套方案可由三位准入编剧独立完成，作者也可重复选同一编剧', async () => {
+  it('三套方案可由多名准入编剧独立完成，作者也可重复选同一编剧', async () => {
     context = createTestContext('wenmi-v7-creation-distinct-writers-');
     const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: new CreationResolver() });
     try {
@@ -929,8 +929,9 @@ describe('V7全链路创作总线', () => {
       expect(roster.some((member) => ['structure_writer', 'commercial_writer', 'character_writer'].includes(member.roleKey))).toBe(false);
       expect(roster.some((member) => member.roleKey === 'outline_writer')).toBe(false);
       const planningMembers = roster.filter((member) => member.roleKey === 'planning_writer');
-      expect(planningMembers).toHaveLength(3);
-      expect(new Set(planningMembers.map((member) => member.memberKey)).size).toBe(3);
+      // 当前稳定编制为四位准入策划编剧（红玉/幼薇/苏映棠/陆青禾，a2203a3f起）。
+      expect(planningMembers).toHaveLength(4);
+      expect(new Set(planningMembers.map((member) => member.memberKey)).size).toBe(4);
       const first = planningMembers[0]!;
 
       const rejected = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/creation-workflows`, {
@@ -970,14 +971,23 @@ describe('V7全链路创作总线', () => {
       seedConfirmedBookTree(new V7PlanningTreeService(context.database, new SequenceIds(), new FixedClock()), ownerId, bookId);
 
       const created = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/creation-workflows`, {
-        volumeScopeId: 'volume-1', authorGoal: '第一卷先让主角活下来。', candidateCount: 3, idempotencyKey: 'creation-cover-workflow-0001'
+        volumeScopeId: 'volume-1', authorGoal: '第一卷先让主角活下来。', candidateCount: 3,
+        // 共享名册刻意把GLM排在结构化方案末位（runtime-rosters structuredOutputMembers），
+        // 默认三席位不会分配到GLM；为保留"明确失败后接手"场景，显式指定GLM出任第二席。
+        memberPreferences: { option_2: 'planner-glm-5-3' },
+        idempotencyKey: 'creation-cover-workflow-0001'
       });
       expect(created.statusCode).toBe(200);
       const workflowId = created.json().data.workflowId as string;
       const partial = await pollWorkflow(app, cookie, bookId, workflowId, 'volume_decision');
       expect(partial).toMatchObject({ status: 'waiting_for_you', completedOptions: 3, expectedOptions: 3 });
       expect(partial.options).toHaveLength(3);
-      expect(new Set(partial.options.map((item: { memberKey: string }) => item.memberKey)).size).toBe(2);
+      const optionMemberKeys = partial.options.map((item: { memberKey: string }) => item.memberKey);
+      // GLM失败项由下一位未占用的准入成员（陆青禾/doubao）接手，三套分属三位实际成员；
+      // 失败成员名下不得留有方案，冒充完成即违背"如实显示实际成员"。
+      expect(new Set(optionMemberKeys).size).toBe(3);
+      expect(optionMemberKeys).not.toContain('planner-glm-5-3');
+      expect(optionMemberKeys).toContain('planner-doubao-turbo');
       expect(partial.chiefReview).not.toBeNull();
       expect(context.database.prepare(`SELECT state FROM v7_creation_model_calls
         WHERE owner_id=? AND book_id=? AND workflow_id=? AND model_id='glm-5.3' AND run_kind='option'`)
@@ -985,7 +995,7 @@ describe('V7全链路创作总线', () => {
       expect(context.database.prepare(`SELECT MAX(member_count) AS count FROM (
         SELECT COUNT(*) AS member_count FROM v7_creation_options
         WHERE owner_id=? AND book_id=? AND workflow_id=? GROUP BY member_key
-      )`).get(ownerId, bookId, workflowId)).toEqual({ count: 2 });
+      )`).get(ownerId, bookId, workflowId)).toEqual({ count: 1 });
     } finally {
       await app.close();
     }

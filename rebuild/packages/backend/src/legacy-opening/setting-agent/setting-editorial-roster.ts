@@ -34,7 +34,7 @@ export function validateSettingEditorialRoster(members = V7_SETTING_MEMBERS): st
   if (new Set(members.map((memberDefinition) => memberDefinition.memberKey)).size !== members.length) errors.push('成员编号不得重复');
   for (const memberDefinition of members) {
     if (memberDefinition.model.modelId === 'kimi-k3' && memberDefinition.model.plan !== 'agent') errors.push('Kimi K3必须使用Agent Plan');
-    if (memberDefinition.model.modelId !== 'kimi-k3' && memberDefinition.model.plan !== 'coding') errors.push(`${memberDefinition.displayName}必须使用Coding Plan`);
+    if (memberDefinition.model.modelId !== 'kimi-k3' && memberDefinition.model.plan !== 'agent') errors.push(`${memberDefinition.displayName}必须使用Agent Plan`);
   }
   return errors;
 }
@@ -50,7 +50,7 @@ function member(
 }
 
 function coding(modelId: string): V7MemberModelBinding {
-  return { provider: 'volcengine-ark-coding-plan', modelId, plan: 'coding' };
+  return { provider: 'volcengine-ark-agent-plan', modelId, plan: 'agent' };
 }
 
 function agent(modelId: string): V7MemberModelBinding {

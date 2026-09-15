@@ -120,8 +120,8 @@ export function validatePlanningEditorialRoster(members: readonly V7PlanningMemb
     if (isKimiK3 && (memberDefinition.model.plan !== 'agent' || memberDefinition.model.provider !== 'volcengine-ark-agent-plan')) {
       errors.push(`${memberDefinition.memberKey}：Kimi K3必须使用Agent Plan`);
     }
-    if (!isKimiK3 && (memberDefinition.model.plan !== 'coding' || memberDefinition.model.provider !== 'volcengine-ark-coding-plan')) {
-      errors.push(`${memberDefinition.memberKey}：普通规划成员必须使用Coding Plan`);
+    if (!isKimiK3 && (memberDefinition.model.plan !== 'agent' || memberDefinition.model.provider !== 'volcengine-ark-agent-plan')) {
+      errors.push(`${memberDefinition.memberKey}：普通规划成员必须使用Agent Plan`);
     }
   }
   for (const roleKey of ['chief_editor', 'planning_writer', 'continuity_editor'] as const) {
@@ -259,7 +259,7 @@ function member(
 }
 
 function coding(modelId: string): V7MemberModelBinding {
-  return { provider: 'volcengine-ark-coding-plan', modelId, plan: 'coding' };
+  return { provider: 'volcengine-ark-agent-plan', modelId, plan: 'agent' };
 }
 
 function agent(modelId: 'kimi-k3'): V7MemberModelBinding {

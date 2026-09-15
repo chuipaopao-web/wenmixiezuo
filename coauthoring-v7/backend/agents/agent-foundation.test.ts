@@ -56,9 +56,15 @@ assert.deepEqual(validateMemberModelPolicy({
   model: { provider: 'volcengine-ark-coding-plan', modelId: 'kimi-k3', plan: 'coding' }
 }), ['chief-kimi-k3：Kimi K3必须使用火山方舟Agent Plan']);
 
+const deepseekChief = V7_OPENING_MEMBERS.find((item) => item.memberKey === 'chief-deepseek-v4-pro')!;
+assert.deepEqual(validateMemberModelPolicy({
+  ...deepseekChief,
+  model: { provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro', plan: 'coding' }
+}), ['chief-deepseek-v4-pro：普通成员必须使用火山方舟Agent Plan']);
+
 for (const member of V7_OPENING_MEMBERS.filter((item) => item.model.modelId !== 'kimi-k3')) {
-  assert.equal(member.model.provider, 'volcengine-ark-coding-plan');
-  assert.equal(member.model.plan, 'coding');
+  assert.equal(member.model.provider, 'volcengine-ark-agent-plan');
+  assert.equal(member.model.plan, 'agent');
 }
 
 const defaultChiefChain = buildOpeningFallbackChain('chief_editor');
@@ -84,6 +90,9 @@ assert.deepEqual(memberAvailability(kimiChief, { codingPlan: true, agentPlan: fa
   available: false, reason: 'Agent Plan凭证未配置'
 });
 assert.deepEqual(memberAvailability(defaultChiefChain[0]!, { codingPlan: true, agentPlan: false }), {
+  available: false, reason: 'Agent Plan凭证未配置'
+});
+assert.deepEqual(memberAvailability(defaultChiefChain[0]!, { codingPlan: false, agentPlan: true }), {
   available: true, reason: null
 });
 

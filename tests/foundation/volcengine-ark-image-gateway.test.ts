@@ -14,6 +14,7 @@ afterEach(() => {
 describe('火山方舟封面图片网关', () => {
   it('专用图片凭据缺失时只使用文秘专用Agent Plan套餐凭据', () => {
     expect(new VolcengineArkImageGateway({ WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-plan-key' }).configured).toBe(true);
+    expect(new VolcengineArkImageGateway({ WENMI_ARK_IMAGE_API_KEY: 'dedicated-image-key' }).configured).toBe(false);
     expect(new VolcengineArkImageGateway({
       ANTHROPIC_BASE_URL: 'https://ark.cn-beijing.volces.com/api/plan/',
       ANTHROPIC_AUTH_TOKEN: 'compatible-agent-plan-key'
@@ -22,7 +23,7 @@ describe('火山方舟封面图片网关', () => {
     expect(new VolcengineArkImageGateway({}).configured).toBe(false);
   });
 
-  it('专用图片凭据优先，并按Seedream当前协议请求base64图片', async () => {
+  it('双密钥时统一选择Agent Plan套餐凭据，并按Seedream当前协议请求base64图片', async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => jsonResponse({
       data: [{ b64_json: PNG.toString('base64') }]
     }));
@@ -37,10 +38,11 @@ describe('火山方舟封面图片网关', () => {
     expect(result.mimeType).toBe('image/png');
     expect(result.buffer).toEqual(PNG);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, init] = fetchMock.mock.calls[0]!;
-    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer dedicated-image-key');
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe('https://ark.cn-beijing.volces.com/api/plan/v3/images/generations');
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer agent-plan-key');
     expect(JSON.parse(String(init?.body))).toMatchObject({
-      model: 'doubao-seedream-5-0-260128',
+      model: 'doubao-seedream-5.0-lite',
       size: '2K',
       response_format: 'b64_json',
       output_format: 'png',
@@ -48,6 +50,24 @@ describe('火山方舟封面图片网关', () => {
       sequential_image_generation: 'disabled',
       watermark: false
     });
+  });
+
+  it('仅遗留专用按量密钥不可调用，供应商失败也不回退按量路线', async () => {
+    const dedicatedOnly = new VolcengineArkImageGateway({ WENMI_ARK_IMAGE_API_KEY: 'dedicated-image-key' });
+    expect(dedicatedOnly.configured).toBe(false);
+    await expect(dedicatedOnly.generate({ requestId: 'cover-dedicated-only', prompt: PROMPT })).rejects.toThrow('封面画师当前未值班');
+
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ error: { message: '请求参数无效' } }), {
+      status: 400,
+      headers: { 'content-type': 'application/json' }
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const gateway = new VolcengineArkImageGateway({
+      WENMI_ARK_IMAGE_API_KEY: 'dedicated-image-key',
+      WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-plan-key'
+    });
+    await expect(gateway.generate({ requestId: 'cover-no-fallback', prompt: PROMPT })).rejects.toThrow('请求参数无效');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('Agent Plan套餐凭据使用专属图片入口和套餐内Seedream标识', async () => {

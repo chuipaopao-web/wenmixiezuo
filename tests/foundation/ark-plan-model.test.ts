@@ -39,20 +39,30 @@ describe('火山方舟严格套餐适配器', () => {
     ['glm-5.3-flash','opening_design',false],['deepseek-v4-pro','opening_design',false]
   ] as const)('%s/%s只为已验证开书设计切换Chat协议',async(modelId,executionKind,chat)=>{
     const fetchImpl=vi.fn<typeof fetch>(async(url,init)=>{
-      expect(String(url)).toBe(`https://ark.cn-beijing.volces.com/api/coding/${chat?'v3/chat/completions':'v1/messages'}`);
+      expect(String(url)).toBe(`https://ark.cn-beijing.volces.com/api/plan/${chat?'v3/chat/completions':'v1/messages'}`);
       const body=JSON.parse(String(init?.body));
       expect(JSON.parse(adapter.inputContext({...request,...(executionKind?{executionKind}:{})}))).toEqual(chat?{messages:body.messages}:{system:body.system,messages:body.messages});
       if(chat)expect(body).toMatchObject({thinking:{type:'enabled'},reasoning_effort:'low',max_tokens:14000});
       else expect(body).not.toHaveProperty('reasoning_effort');
       return Response.json(chat?{choices:[{message:{content:'{}'}}],usage:{prompt_tokens:100,completion_tokens:500}}:{content:[{type:'text',text:'{}'}]});
     });
-    const adapter=new ArkPlanModelAdapter({plan:'coding',provider:'volcengine-ark-coding-plan',modelId,baseUrl:'https://ark.cn-beijing.volces.com/api/coding',apiKey:'test',purpose:'structured_planning'},fetchImpl);
+    const adapter=new ArkPlanModelAdapter({plan:'agent',provider:'volcengine-ark-agent-plan',modelId,baseUrl:'https://ark.cn-beijing.volces.com/api/plan',apiKey:'test',purpose:'structured_planning'},fetchImpl);
     await adapter.generate({...request,maxOutputTokens:6000,...(executionKind?{executionKind}:{})});
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+  it('旧Coding Plan实例仅解码冻结任务，不再切换Chat协议',async()=>{
+    const fetchImpl=vi.fn<typeof fetch>(async(url)=>{
+      expect(String(url)).toBe('https://ark.cn-beijing.volces.com/api/coding/v1/messages');
+      return Response.json({content:[{type:'text',text:'{}'}]});
+    });
+    const adapter=new ArkPlanModelAdapter({plan:'coding',provider:'volcengine-ark-coding-plan',modelId:'glm-5.3',
+      baseUrl:'https://ark.cn-beijing.volces.com/api/coding',apiKey:'test',purpose:'novel_reviewer'},fetchImpl);
+    await adapter.generate({...request,maxOutputTokens:3000});
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
   it.each(['glm-5.3','glm-5.3-flash'])('%s审查走套餐Chat低推理并保留补充指令与完整计量', async modelId => {
     const fetchImpl=vi.fn<typeof fetch>(async (url,init)=>{
-      expect(String(url)).toBe('https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions');
+      expect(String(url)).toBe('https://ark.cn-beijing.volces.com/api/plan/v3/chat/completions');
       const body=JSON.parse(String(init?.body));
       expect(body).toMatchObject({model:modelId,thinking:{type:'enabled'},reasoning_effort:'low',max_tokens:11000});
       expect(body).not.toHaveProperty('system');
@@ -60,15 +70,15 @@ describe('火山方舟严格套餐适配器', () => {
       expect(body.messages[1]).toEqual({role:'user',content:request.prompt});
       return Response.json({choices:[{message:{content:'{"verdict":"pass"}',reasoning_content:'not-returned'},finish_reason:'stop'}],usage:{prompt_tokens:979,completion_tokens:573}});
     });
-    const adapter=new ArkPlanModelAdapter({plan:'coding',provider:'volcengine-ark-coding-plan',modelId,
-      baseUrl:'https://ark.cn-beijing.volces.com/api/coding',apiKey:'test',purpose:'novel_reviewer'},fetchImpl);
+    const adapter=new ArkPlanModelAdapter({plan:'agent',provider:'volcengine-ark-agent-plan',modelId,
+      baseUrl:'https://ark.cn-beijing.volces.com/api/plan',apiKey:'test',purpose:'novel_reviewer'},fetchImpl);
     const result=await adapter.generate({...request,maxOutputTokens:3000,supplementalInstructions:'保留普通人能力边界'});
     expect(result).toMatchObject({output:'{"verdict":"pass"}',inputTokens:979,outputTokens:573,cashCostCny:0});
     expect(JSON.stringify(result)).not.toContain('not-returned');expect(fetchImpl).toHaveBeenCalledOnce();
   });
   it.each(['empty','malformed','rejected'])('GLM Chat %s不伪装完成且不自动重试',async mode=>{
     const fetchImpl=vi.fn<typeof fetch>(async()=>mode==='malformed'?new Response('{'):mode==='rejected'?Response.json({error:{message:'unsupported'}},{status:400}):Response.json({choices:[{message:{content:null},finish_reason:'length'}],usage:{completion_tokens:11000}}));
-    const adapter=new ArkPlanModelAdapter({plan:'coding',provider:'volcengine-ark-coding-plan',modelId:'glm-5.3',baseUrl:'https://ark.cn-beijing.volces.com/api/coding',apiKey:'test',purpose:'novel_reviewer'},fetchImpl);
+    const adapter=new ArkPlanModelAdapter({plan:'agent',provider:'volcengine-ark-agent-plan',modelId:'glm-5.3',baseUrl:'https://ark.cn-beijing.volces.com/api/plan',apiKey:'test',purpose:'novel_reviewer'},fetchImpl);
     await expect(adapter.generate(request)).rejects.toMatchObject({outcomeUnknown:mode==='malformed'});
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
@@ -471,16 +481,17 @@ describe('火山方舟严格套餐适配器', () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it('GLM 5.3 的短设定、结构化规划和证据审校都走可见直出，余量按提示词规模折算', async () => {
+  it('GLM 5.3 的短设定与结构化规划走可见直出，余量按提示词规模折算', async () => {
     // 2026-09-02 生产实证：固定1k余量会被GLM失控的隐式思考全部烧穿（思考
     // 4.4万~5.1万字符、max_tokens截断、零可见文字，成功率跌至9%）。直出路由
     // 改为按提示词长度折算的动态余量；测试夹具提示词极短，取保底 8_000。
+    // 证据审校不列入本通用直出矩阵：Agent Plan下GLM审查有专用低推理Chat合同，
+    // 由上方"审查走套餐Chat低推理并保留补充指令与完整计量"用例覆盖。
     const smallPromptHeadroom = 8_000;
     for (const [purpose, maxOutputTokens, expectedBudget, omitThinking] of [
       ['discussion', 100, smallPromptHeadroom, true],
       ['discussion', 4_000, 16_000, false],
-      ['structured_planning', 15_000, smallPromptHeadroom, true],
-      ['novel_reviewer', 100, smallPromptHeadroom, true]
+      ['structured_planning', 15_000, smallPromptHeadroom, true]
     ] as const) {
       const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
         const body = JSON.parse(String(init?.body)) as { max_tokens?: number; thinking?: { type?: string; budget_tokens?: number } };

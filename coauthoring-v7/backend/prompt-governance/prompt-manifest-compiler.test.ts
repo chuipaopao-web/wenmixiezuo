@@ -91,7 +91,7 @@ describe('V7 prompt governance', () => {
     expect(first.compiledPromptHash).toBe(sha256(first.compiledPrompt));
     expect(first.skillVersionIds).toEqual(['skill.data-boundary@3', 'skill.option-differentiation@1']);
     expect(first.workstationKey).toBe('full_book_route');
-    expect(first).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro', plan: 'coding', maxOutputTokens: 12_000 });
+    expect(first).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro', plan: 'agent', maxOutputTokens: 12_000 });
     expect(first.compiledPrompt).not.toContain('memberSupplement');
     expect(first.compiledPrompt).not.toContain('owner-1');
     expect(first.compiledPrompt).not.toContain('source-hash');
@@ -141,7 +141,7 @@ describe('V7 prompt governance', () => {
       taskContract: contract,
       contextPack: { ...context, content: { key: 'ark-secret-value-123456789' } }, allowedTools: [], createdAt: now })).toThrow('疑似密钥');
     expect(() => compilePromptManifest({ manifestId: 'bad-binding', memberKey: 'm', modelProfileKey: 'glm-5.3',
-      provider: 'volcengine-ark-agent-plan', modelId: 'glm-5.3', plan: 'agent', maxOutputTokens: 6_000,
+      provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3', plan: 'coding', maxOutputTokens: 6_000,
       governanceRevision: 1, temperature: .6, rolePrompt: role, workstationPrompt: workstation, genreProfile: null,
       skills: V7_SKILL_PROMPT_ASSETS.filter((item) => ['skill.data-boundary', 'skill.option-differentiation'].includes(item.assetKey)),
       taskContract: contract, contextPack: context, allowedTools: [], createdAt: now })).toThrow('具体模型绑定');

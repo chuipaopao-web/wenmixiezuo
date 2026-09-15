@@ -32,6 +32,7 @@
     "dev": "npm run build -w @wenmi/contracts && concurrently --kill-others-on-fail --names API,WORKER,AUTHOR,ADMIN --prefix-colors cyan,magenta,green,yellow \"npm run dev -w @wenmi/api\" \"npm run dev -w @wenmi/worker\" \"npm run dev -w @wenmi/v7-author-app\" \"npm run dev -w @wenmi/v7-admin-console\"",
     "migrate": "npm run migrate -w @wenmi/api",
     "runtime:model-connectivity": "tsx scripts/evaluation/subscription-model-connectivity.ts",
+    "quality:agent-plan-connectivity": "node scripts/quality/agent-plan-connectivity.mjs",
     "verify:backup": "tsx scripts/evaluation/production-backup-verify.ts",
     "start": "node scripts/start.mjs",
     "test": "npm run test:fast",

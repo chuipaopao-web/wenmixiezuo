@@ -55,8 +55,8 @@ export function validateCharacterRoster(members: readonly V7CharacterMemberDefin
     if (kimi && (candidate.model.plan !== 'agent' || candidate.model.provider !== 'volcengine-ark-agent-plan')) {
       errors.push(`${candidate.memberKey}：Kimi K3必须使用Agent Plan`);
     }
-    if (!kimi && (candidate.model.plan !== 'coding' || candidate.model.provider !== 'volcengine-ark-coding-plan')) {
-      errors.push(`${candidate.memberKey}：普通人物资料成员必须使用Coding Plan`);
+    if (!kimi && (candidate.model.plan !== 'agent' || candidate.model.provider !== 'volcengine-ark-agent-plan')) {
+      errors.push(`${candidate.memberKey}：普通人物资料成员必须使用Agent Plan`);
     }
   }
   return errors;
@@ -344,7 +344,7 @@ function member(
 }
 
 function coding(modelId: string): V7CharacterMemberDefinition['model'] {
-  return { provider: 'volcengine-ark-coding-plan', modelId, plan: 'coding' };
+  return { provider: 'volcengine-ark-agent-plan', modelId, plan: 'agent' };
 }
 
 function agent(modelId: string): V7CharacterMemberDefinition['model'] {

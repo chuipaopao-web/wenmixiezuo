@@ -60,12 +60,12 @@ const DETERMINISTIC_PROFILE: RoleModelProfile = {
  * 目录必须独立于 roleProfiles，否则“暂时不使用”会被误实现成“无法配置”。
  */
 export const additionalConfigurablePlanProfiles = [
-  { provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro', plan: 'coding' },
-  { provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-flash', plan: 'coding' },
-  { provider: 'volcengine-ark-coding-plan', modelId: 'kimi-k2.7-code', plan: 'coding' },
-  { provider: 'volcengine-ark-coding-plan', modelId: 'doubao-seed-2.1-turbo', plan: 'coding' },
-  { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3-flash', plan: 'coding' },
-  { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3', plan: 'coding' },
+  { provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro', plan: 'agent' },
+  { provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-flash', plan: 'agent' },
+  { provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.7-code', plan: 'agent' },
+  { provider: 'volcengine-ark-agent-plan', modelId: 'doubao-seed-2.1-turbo', plan: 'agent' },
+  { provider: 'volcengine-ark-agent-plan', modelId: 'glm-5.3-flash', plan: 'agent' },
+  { provider: 'volcengine-ark-agent-plan', modelId: 'glm-5.3', plan: 'agent' },
   { provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k3', plan: 'agent' },
   { provider: 'volcengine-ark-agent-plan', modelId: 'minimax-m3', plan: 'agent' }
 ] as const satisfies readonly RoleModelProfile[];
@@ -221,25 +221,25 @@ function deterministicProfiles(): Record<NovelRoleKey, RoleModelProfile> {
   return Object.fromEntries(novelRoleKeys.map((role) => [role, { ...DETERMINISTIC_PROFILE }])) as Record<NovelRoleKey, RoleModelProfile>;
 }
 
-function codingPlanProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, RoleModelProfile> {
+function agentPlanProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, RoleModelProfile> {
   const codingProfile = (envKey: string, fallback: string): RoleModelProfile => {
-    const modelId = currentPlanModelId(env['WENMI_ARK_CODING_PLAN_' + envKey + '_MODEL'], fallback);
+    const modelId = currentPlanModelId(env['WENMI_ARK_AGENT_PLAN_' + envKey + '_MODEL'], fallback);
     return {
-      provider: 'volcengine-ark-coding-plan',
+      provider: 'volcengine-ark-agent-plan',
       modelId,
-      plan: 'coding'
+      plan: 'agent'
     };
   };
   const deepSeekPro = codingProfile('DEEPSEEK', 'deepseek-v4-pro');
   const deepSeekFlash = codingProfile('DEEPSEEK_FLASH', 'deepseek-v4-flash');
   const doubao = codingProfile('DOUBAO', 'doubao-seed-2.1-turbo');
   const kimiK27: RoleModelProfile = {
-    provider: 'volcengine-ark-coding-plan',
+    provider: 'volcengine-ark-agent-plan',
     modelId: currentPlanModelId(
-      firstNonEmpty(env.WENMI_ARK_CODING_PLAN_KIMI_K27_MODEL, env.WENMI_ARK_CODING_PLAN_KIMI_MODEL),
+      firstNonEmpty(env.WENMI_ARK_AGENT_PLAN_KIMI_K27_MODEL, env.WENMI_ARK_AGENT_PLAN_KIMI_MODEL),
       'kimi-k2.7-code'
     ),
-    plan: 'coding'
+    plan: 'agent'
   };
   return {
     chief_editor: { ...deepSeekPro },
@@ -296,7 +296,7 @@ export function loadModelRuntimeConfig(
         'coding',
         firstNonEmpty(env.WENMI_ARK_CODING_PLAN_BASE_URL) ?? 'https://ark.cn-beijing.volces.com/api/coding'
       ),
-      apiKey: codingKey
+      apiKey: undefined // 历史结构仅供解码，不允许继续发起Coding Plan调用。
     },
     agent: {
       plan: 'agent',
@@ -309,15 +309,11 @@ export function loadModelRuntimeConfig(
     }
   };
   const missingCredentials: ModelRuntimeConfig['missingCredentials'] = [];
-  if (codingKey === undefined) missingCredentials.push('coding-plan');
   if (agentKey === undefined) missingCredentials.push('agent-plan');
-  // Coding Plan 承担全部常规岗位；只要它可用，常规创作即可运行。
-  // Agent Plan 只服务作者主动选择的高级编剧 Kimi K3，缺失时由席位可用性单独禁用。
-  const activeMode: ModelRuntimeMode = requestedMode === 'subscription-plan' && codingKey !== undefined
-    ? 'subscription-plan'
-    : 'deterministic';
+  // 显式订阅模式缺密钥仍保持订阅模式，由调用入口明确拒绝，不能退回夹具冒充完成。
+  const activeMode: ModelRuntimeMode = requestedMode;
   const roleProfiles = activeMode === 'subscription-plan'
-    ? codingPlanProfiles(env)
+    ? agentPlanProfiles(env)
     : deterministicProfiles();
   return {
     requestedMode,

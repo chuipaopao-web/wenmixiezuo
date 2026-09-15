@@ -50,7 +50,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
   ) {
     this.provider = options.provider;
     this.modelId = options.modelId;
-    this.#glmReviewChat = options.plan === 'coding' && options.purpose === 'novel_reviewer'
+    this.#glmReviewChat = options.plan === 'agent' && options.purpose === 'novel_reviewer'
       && ['glm-5.3', 'glm-5.3-flash'].includes(options.modelId);
     this.#endpoint = `${assertPlanBaseUrl(options.plan, options.baseUrl)}${this.#glmReviewChat ? '/v3/chat/completions' : '/v1/messages'}`;
     if (options.apiKey.trim().length === 0) throw new Error(`${planDisplayName(options.plan)}凭证未配置`);
@@ -58,12 +58,12 @@ export class ArkPlanModelAdapter implements ModelAdapter {
 
   public inputContext(request: Pick<ModelRequest, 'prompt' | 'supplementalInstructions' | 'executionKind'>): string {
     const system = appendSupplement(this.options.systemPrompt ?? defaultSystemPromptForPurpose(this.options.purpose), request.supplementalInstructions);
-    const chat = this.#glmReviewChat || (this.options.plan === 'coding' && this.modelId === 'glm-5.3' && this.options.purpose === 'structured_planning' && request.executionKind === 'opening_design');
+    const chat = this.#glmReviewChat || (this.options.plan === 'agent' && this.modelId === 'glm-5.3' && this.options.purpose === 'structured_planning' && request.executionKind === 'opening_design');
     return JSON.stringify(chat ? {messages:[{role:'system',content:system},{role:'user',content:request.prompt}]} : {system,messages:[{role:'user',content:request.prompt}]});
   }
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
-    const glmChat = this.#glmReviewChat || (this.options.plan === 'coding'
+    const glmChat = this.#glmReviewChat || (this.options.plan === 'agent'
       && this.modelId === 'glm-5.3' && this.options.purpose === 'structured_planning'
       && request.executionKind === 'opening_design');
     const endpoint = glmChat ? `${assertPlanBaseUrl(this.options.plan, this.options.baseUrl)}/v3/chat/completions` : this.#endpoint;

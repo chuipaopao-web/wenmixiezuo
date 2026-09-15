@@ -120,10 +120,10 @@ export function validateMemberModelPolicy(memberDefinition: V7OpeningMemberDefin
       errors.push(`${memberDefinition.memberKey}：Kimi K3必须使用火山方舟Agent Plan`);
     }
   } else if (
-    memberDefinition.model.plan !== 'coding'
-    || memberDefinition.model.provider !== 'volcengine-ark-coding-plan'
+    memberDefinition.model.plan !== 'agent'
+    || memberDefinition.model.provider !== 'volcengine-ark-agent-plan'
   ) {
-    errors.push(`${memberDefinition.memberKey}：普通成员必须使用火山方舟Coding Plan`);
+    errors.push(`${memberDefinition.memberKey}：普通成员必须使用火山方舟Agent Plan`);
   }
   return errors;
 }
@@ -229,7 +229,7 @@ function member(
 }
 
 function coding(modelId: string): V7MemberModelBinding {
-  return { provider: 'volcengine-ark-coding-plan', modelId, plan: 'coding' };
+  return { provider: 'volcengine-ark-agent-plan', modelId, plan: 'agent' };
 }
 
 function agent(modelId: 'kimi-k3'): V7MemberModelBinding {

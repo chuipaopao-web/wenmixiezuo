@@ -204,8 +204,8 @@ export function validateGlobalAgentRegistry(members: readonly V7GlobalMemberDefi
     names.add(candidate.displayName);
     if (!(candidate.modelProfileKey in V7_MODEL_PROFILE_LABELS)) errors.push(`模型档案未登记：${candidate.modelProfileKey}`);
     if (candidate.modelProfileKey === 'kimi-k3' && candidate.model.plan !== 'agent') errors.push(`${candidate.displayName}的Kimi K3必须使用Agent Plan`);
-    if (!['kimi-k3', 'doubao-seedream'].includes(candidate.modelProfileKey) && candidate.model.plan !== 'coding') {
-      errors.push(`${candidate.displayName}的文本模型必须使用Coding Plan`);
+    if (!['kimi-k3', 'doubao-seedream'].includes(candidate.modelProfileKey) && candidate.model.plan !== 'agent') {
+      errors.push(`${candidate.displayName}的文本模型必须使用Agent Plan`);
     }
   }
   const minimums: Record<V7FixedRoleKey, number> = {
@@ -271,9 +271,7 @@ function visual(
 }
 
 function modelBinding(profileKey: string): V7MemberModelBinding {
-  return profileKey === 'kimi-k3'
-    ? { provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k3', plan: 'agent' }
-    : { provider: 'volcengine-ark-coding-plan', modelId: profileKey, plan: 'coding' };
+  return { provider: 'volcengine-ark-agent-plan', modelId: profileKey, plan: 'agent' };
 }
 
 function modelSignature(model: Readonly<{ provider: string; modelId: string; plan: string }>): string {

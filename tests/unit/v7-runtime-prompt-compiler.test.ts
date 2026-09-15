@@ -33,7 +33,7 @@ describe('V7运行时提示词分层编译', () => {
     expect(result.manifest.roleKey).toBe('planning_writer');
     expect(result.manifest.workstationKey).toBe('chapter_outline');
     expect(result.manifest).toMatchObject({
-      provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3', plan: 'coding', maxOutputTokens: 12_000
+      provider: 'volcengine-ark-agent-plan', modelId: 'glm-5.3', plan: 'agent', maxOutputTokens: 12_000
     });
     expect(result.manifest.compiledPrompt).toContain('本章让张三第一次独立带队');
     expect(result.manifest.compiledPrompt).toContain('把当前链责任变成可以直接写的章纲');
