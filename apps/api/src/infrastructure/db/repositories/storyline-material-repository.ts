@@ -38,6 +38,27 @@ const MATERIAL_COLUMNS = 'id,revision,content_json,content_hash,created_by,creat
 export class StorylineMaterialRepository {
   constructor(private readonly db: DatabaseSync) {}
 
+  /** 同步事务工作单元（8caac9a5复核：save的幂等查询/CAS/预览签名复核/版本写入/失效标记归同一回调事务，应用层不再直接exec）。
+   * BEGIN IMMEDIATE…成功只COMMIT一次；回调异常（含返回Promise的异步误用）先ROLLBACK再抛原异常。
+   * 复用现有连接，不另开连接；嵌套调用（调用方已持有事务，如startDesignRound经ensureFromSelection）并入外层、不再BEGIN。 */
+  private transactionDepth = 0;
+  runInTransaction<T>(operation: () => T): T {
+    if (this.transactionDepth > 0) return operation();
+    this.db.exec('BEGIN IMMEDIATE');
+    this.transactionDepth = 1;
+    try {
+      const result = operation();
+      if (result instanceof Promise) throw new Error('事务工作单元必须同步完成，不接受含await的异步操作。');
+      this.db.exec('COMMIT');
+      this.transactionDepth = 0;
+      return result;
+    } catch (error) {
+      if (this.db.isTransaction) this.db.exec('ROLLBACK');
+      this.transactionDepth = 0;
+      throw error;
+    }
+  }
+
   current(ownerId: string, bookId: string): StorylineMaterialRow | undefined {
     return this.db.prepare(`SELECT ${MATERIAL_COLUMNS} FROM tm2_storyline_materials WHERE owner=? AND book=? ORDER BY revision DESC LIMIT 1`).get(ownerId, bookId) as StorylineMaterialRow | undefined;
   }

@@ -195,13 +195,12 @@ export class TimeMachineStorylineMaterialService {
     if (typeof previewSignature !== 'string' || !previewSignature.trim() || previewSignature.length > 200) throw bad('请先查看影响预览，再确认保存');
     const facts = {preparationVersion: preparationVersion!, manifestSignature};
     const snapshot = this.validateContent(scope, rawContent, preparationVersion, manifestSignature);
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
+    // 8caac9a5复核：幂等查询/CAS/预览签名复核/版本写入/失效标记归仓储同一回调事务，应用层不再直接exec
+    return this.materials.runInTransaction(() => {
       const prior = this.materials.findByIdempotencyKey(scope.ownerId, scope.bookId, idempotencyKey);
       if (prior) {
         if (prior.content_hash !== snapshot.requestHash) throw bad('同一操作编号已对应其他修改，请刷新页面后重新保存', 409);
         const projection = this.current(scope)!;
-        this.db.exec('COMMIT');
         return {projection, markedRuns: 0, unchanged: false, replayed: true};
       }
       const current = this.materials.current(scope.ownerId, scope.bookId);
@@ -217,7 +216,6 @@ export class TimeMachineStorylineMaterialService {
       }
       if (current && current.content_hash === snapshot.requestHash) {
         const projection = this.current(scope)!;
-        this.db.exec('COMMIT');
         return {projection, markedRuns: 0, unchanged: true, replayed: false};
       }
       const now = new Date().toISOString();
@@ -228,12 +226,8 @@ export class TimeMachineStorylineMaterialService {
       // 保存生效后草稿已被新正式版本取代，避免旧草稿误导后续编辑
       this.materials.upsertDraft(scope.ownerId, scope.bookId, row.content_json, row.revision, now);
       const projection = this.current(scope)!;
-      this.db.exec('COMMIT');
       return {projection, markedRuns, unchanged: false, replayed: false};
-    } catch (e) {
-      if (this.db.isTransaction) this.db.exec('ROLLBACK');
-      throw e;
-    }
+    });
   }
 
   /** 保存草稿：覆盖式，不失效任何后续（第25.2节）。 */
