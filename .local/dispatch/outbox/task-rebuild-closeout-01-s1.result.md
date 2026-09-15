@@ -1,5 +1,29 @@
 # REBUILD-CLOSEOUT-01 · S1-A 结果：结构化故事线确认与基线启动
 
+## K3·9523942a复核通过后最终候选验证（2026-09-16，已完成，未切换生产）
+
+按原任务顶部"9523942a复核通过"连续执行。冻结提交**ab8464c4**（=9523942a+RB-21代码核对值同步1行；构建门禁verify-function-management要求，已验证差异仅来自本批legacy-opening两文件，RB-21正文无通道表述）。候选归档sha256 `097aeb571514a0c4293adecbf014ecfc8d3787b8dd885f33b27384ea4658de4e`（git archive LF，解包于`.local/dispatch/final-candidate/candidate`）。
+
+**步骤1—3已完成（全部Node v24.19.0，配套npm 11.19.1独立安装于final-candidate/npm-home，未绕过engines，未用engine-strict=false）**：
+1. 独立构建：npm ci后`node_modules/@wenmi/*`九个workspace依赖逐一readlink验证全部落在归档目录内，未读主区/worktree旧dist；time-machine-core为已提交源码（含retryRunFailed），未复制主区未提交文件。`npm run build`全量通过（contracts/v7-backend/api/worker+静态发布包），releaseId `ffa140770069b0ff40db`（14文件，manifest sha256前8位3ebf60bc），`verify:v7:static-release`通过。
+2. 迁移：空库0001→0126全部应用、重复执行applied=[]零新增、currentVersion=126；tm2_storyline_materials/material_drafts表存在、tm2_design_runs.needs_redesign列存在。
+3. 回退：复用既有old树（a7614958+保留0126迁移文件），拷贝本批新迁移库后旧代码迁移器applied=[]零新增正常放行（fail-closed保护前提满足）；旧API（releaseId wm-v7-20260905-231552-0a69443）在0126库上启动、`/health`数据库读取正常（worker离线为预期，探针后已停止进程）。未改主区、未写生产库、未停生产服务。
+4. 真实通道探针（合成输入"1+1"，每模型1次共7次≤8上限，可见输出≤14字≪256 tokens，单请求90秒/总10分钟内有富余）：经真实ModelAdapterFactory/ArkPlanModelAdapter——6模型走`/api/plan/v1/messages`实际Messages路径、glm-5.3走opening_design专用`/api/plan/v3/chat/completions` Chat路径，**7/7成功**（deepseek-v4-pro/flash、kimi-k3、kimi-k2.7-code、doubao-seed-2.1-turbo、glm-5.3-flash+glm-5.3）。用量全部已知（unknown=0）：输入63-97 tokens/次；适配器默认推理余量记录在案（glm系8000、其余0）。凭据仅从HKCU用户环境变量进程内读取，未落盘未输出；无鉴权/套餐/协议错误；未保存思维链。
+
+**步骤4端到端预算声明（启动前写入，不扩大）**：调用≤100次、预算token≤600000、外层墙钟≤3600秒（原任务核定上限）；复用s1a-http-real-probe合成样本（60万字机甲修仙样本）一轮：真实HTTP推荐→结构化确认→方案→审查→通过才HTTP采用；不强行改verdict、不降低审核标准。平台适配声明：脚本`/tmp`隔离门禁在本机Windows不可达，将在隔离副本`D:\tmp\wenmi-s1a-probe-final`运行且仅放宽该一行路径检查（隔离语义保留），被测产品代码为冻结构建dist不改。run4实测单套方案45—75分钟，3600秒上限内可能无法到达可采用终态——届时按具体节点如实报告，不以超时冒充通过。
+
+**步骤4端到端结果（39分钟自然终局，未触墙钟；真实HTTP链路完整走通到审查节点，未采用——如实不过审）**：推荐✓（deepseek-v4-pro真实生成5条故事线，recommendationHash/preparationVersion齐全）→结构化确认✓（HTTP 202创建A/B/C三方案）→方案与审查终局：**C生成完成但审查verdict=revise（review-anchors:2:revision-1，pass=0，诚实质量门禁拦截，未强行改判）**；**A技术失败于volume-card:3（invalid/request_failure/http-400/usage-unavailable，未知用量1次按预留19,971 tokens单列）**；**B技术失败于volume-card:0（truncated/technical_failure/http-200/usage-known，glm-5.3输出11,000 tokens触长度上限，已知失败14,120 tokens）**。三套均不可采用→按合同未执行HTTP采用，产物与隔离库（probe-2ea0437b…sqlite）保留在`D:\tmp\wenmi-s1a-probe-final`。用量：总27次调用≤100；已知成功25次199,485 tokens+已知失败14,120=knownTotal 213,605，保守口径budgetCommitted 233,576≤600,000；用时2,352秒≤3,600。探针脚本一处适配已声明（/tmp门禁→wenmi-s1a-probe路径包含检查，diff仅1行），看门狗硬限3600秒未触发。
+
+**步骤5最终结论**：冻结提交**ab8464c4**（9523942a+RB-21核对值1行同步），归档sha256 `097aeb571514a0c4293adecbf014ecfc8d3787b8dd885f33b27384ea4658de4e`；全部依赖路径经readlink验证在归档内（九个@wenmi workspace包）；构建运行时Node v24.19.0+npm 11.19.1（未绕过engines）；迁移/回退结论如步骤2—3（0126幂等、旧代码fail-closed前提下零新增放行、旧API健康读取正常、回退包必须保留新迁移文件）。通道结论：Messages与GLM Chat双路径7/7连通且用量全部已知；真实链路推荐/确认/生成/审查节点全部真实走通，但**本轮无可采用方案（C需修订、A/B节点级技术失败），不满足"自然过审+HTTP采用"放行条件**——按合同这是诚实未过审结果，不冒充成功；A的400与B的截断为下一批定点收束节点（与既有run3/run4截断/400清单同类）。**仍保留未通过项（未改白名单未略过）**：数据库边界恰原7项、闭包69项台账旧债、verify:full其余旧债（cutover/迁移期望/创作链夹具/tsc夹具）逐项保留；CTX跨题材不在本批。本阶段仅验证未切换生产，交Codex一次性核定。
+
+## Codex复核9523942a（2026-09-16，通道改动通过，最终候选验证继续）
+
+独立实跑foundation三套+cutover76/76通过（1.32秒）。必要legacy-opening校验同步与两个链接指向自身的修正接受。隔离已提交core源码包含retryRunFailed；开发node_modules/time-machine-core仍指主区，不以此处测试替代最终归档闭包，最终候选需完全自包含依赖并重新构建。
+
+授权SSH只读实测：/opt/wenmi/RELEASE_ID=wm-v7-20260914-151504-a7614958，apps链接同版source/apps，API/Worker active，df可用5.7G（49G/88%）。初始沙箱拒绝网络/密钥文件读取，经工具批准只读调用完成；未读取密钥内容、未改服务或配置。备份门槛未验证，不能凭剩余空间数字放行。
+
+下一步K3按原任务顶部“9523942a复核通过”连续进行共同候选自包含构建、迁移回退、实际适配器小探针及既定预算内真实链路验证，不再次准备清单或等待逐步批准。未发布，未把工程通过当真实长文质量通过。
+
 ## K3·18f3c2a0复核后Agent Plan通道收尾与冻结（2026-09-16，提交9523942a，未部署）
 
 按主区task-rebuild-closeout-01.md顶部"18f3c2a0复核通过"执行：接手指定Agent Plan未提交文件，完成通道测试适配与文档收尾，全程使用指定Node v24.19.0（`codex-primary-runtime/dependencies/node/bin/node.exe`，未再用engine-strict=false），未调用真实模型、未部署。改动前指定文件diff已存`.local/dispatch-evidence/agent-plan-pre-k3-diff.patch`（337行）。提交9523942a（30文件，+274/-151）已推送worktree分支codex/auth-takeover-01-release；HANDOFF.md与docs/TIMEMACHINE_STORY_DESIGN.md按纪律未提交。
