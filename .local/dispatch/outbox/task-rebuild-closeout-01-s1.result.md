@@ -1,5 +1,29 @@
 # REBUILD-CLOSEOUT-01 · S1-A 结果：结构化故事线确认与基线启动
 
+## Codex核定8caac9a5发布准备（2026-09-16，准备可继续，未批准切换）
+
+共同候选目标为S1-A+Agent Plan，后者尚未冻结，不将脏工作区打包。边界新增项须修，不接受白名单：独立实跑应用数据库边界8项失败（含storyline-material-service），同时Agent Plan配置4/4通过。资料save的事务SQL应移入同连接仓储同步事务封装；范围与测试写入原任务顶部。其余7项仍属未通过，不把整体称绿。
+
+允许本机S1-A已提交子集的干净构建/迁移兼容预演，不需要为此等生产releaseId核实；最终发布仍需运行态复核和回退验证。清单所称真实模型未过审“不阻塞”不作为Codex放行结论；工程候选可准备，正式发布需单列实际模型可用性与过审采用证据。前后端同窗也必须处理旧浏览器标签页，而非假定全员已加载新静态。
+
+## K3·8caac9a5复核后边界修复与本机预演（2026-09-16，未发布）
+
+按主区task-rebuild-closeout-01.md顶部"8caac9a5发布准备复核"执行：先修资料服务新增数据库边界，再做已提交S1-A子集的本机构建与迁移兼容预演。未混入Codex未提交的Agent Plan改动，未修改生产，未重复已关闭的恢复测试，未调用真实模型。改动在隔离worktree（分支codex/auth-takeover-01-release）。
+
+**边界修复（提交18f3c2a0）**：`StorylineMaterialRepository`新增`runInTransaction<T>`同步回调（BEGIN IMMEDIATE、成功只COMMIT一次、回调异常或返回Promise先ROLLBACK再抛、transactionDepth>0嵌套并入外层不再BEGIN）；`time-machine-storyline-material-service.ts`的save()改为整体走该回调，应用层已无`.prepare(`/`.exec(`（grep验证无匹配）。`ensureFromSelection`未动，仍由startDesignRound事务负责。
+
+**验证（本批实跑）**：材料/选择集成20/20通过、API tsc通过。边界测试`tests/contract/application-database-boundary.test.ts`仍失败（整体未绿，符合预期）——违规逐名恰为原7项：admin/rebuild-control-service、books/book-synopsis-service、books/setting-time-machine-handoff、books/time-machine-design-service、books/time-machine-sources、books/time-machine-task-list、creative-reference/runtime；storyline-material-service新增项已消除，未删门禁、未改白名单。
+
+**本机预演（`.local/dispatch/release-rehearsal/`，candidate=18f3c2a0、old=a7614958两归档）**：
+1. 干净构建：git archive（LF）解包→`npm ci --engine-strict=false`（**环境偏差：本机node v24.15.0低于要求>=24.16.0，已如实记录**）→contracts/v7-backend/api/worker构建+`build:v7:static-release`+`verify:v7:static-release`全过（releaseId ffa140770069b0ff40db，14文件，manifest sha256前8位3ebf60bc）。
+2. 迁移：空库0001→0126全部应用、重复执行零新增（currentVersion=126）；tm2_storyline_materials/drafts表与needs_redesign列存在。bootstrap调用需`config={projectRoot, releaseId}`。
+3. **回退验证关键发现**：旧代码迁移器在0126库上缺0126文件时fail-closed拒绝启动（`已执行迁移文件缺失：0126_storyline_materials.sql`）；把0126文件复制进old树后零新增正常启动、旧代码读写冒烟正常（needs_redesign默认0透明）。**结论：回退包必须保留新迁移文件**——"纯加法向前兼容"不能代替回退验证（old树中该文件系为验证回退路径手工复制，非旧版本自带）。
+4. 范围声明：预演限本机离线，服务器门禁属发布前检查非本机预演前置；现网releaseId未只读复核。
+
+**清单更正**：原任务"K3·S1-A发布准备清单"小节已原位更正——待发布范围改为`a7614958..18f3c2a0`共45提交（25触代码）；增量迁移段改为回退实证结论；run5行改为"不能由K3核为不阻塞，正式发布决定需Codex单列风险与可用性证据"；CTX行改为"不得转成安全长度承诺"；§5发布步骤基准改为10bcf7e5+18f3c2a0、补回退包保留迁移文件与旧标签页零任务创建；§6最小剩余工作三项更新；新增§7本机子集预演记录。本报告下方"K3·S1-A发布准备清单"小节两处过时表述已同步更正。
+
+**仍阻塞（如实标注）**：①模型通道恢复（冻结+密钥授权+验证）；②Codex核定最终批次构成（S1-A＋Agent Plan共同候选，run5自然过审风险需Codex单列）；③发布窗口服务器只读复核现网releaseId。三项齐备前不构建正式候选、不上传、不部署。
+
 ## Codex复核10bcf7e5通过（2026-09-16，关闭未决恢复缺口，未部署）
 
 独立核对本次五文件差异，产品只修改四处材料确定性拒绝retryable:false；幂等回放优先保持。材料/选择集成20/20（40.66秒）、页面24/24（7.15秒）独立实跑通过。真实HTTP测试验证v2存在时冻结v1请求409、不可重试、当前版本2且同键两次均零新轮；页面测试验证清除后再刷新不重发。结合前批冻结版本修复，本项恢复缺口关闭。无需再为此问题反复重测或等待批准。
@@ -10,10 +34,10 @@
 
 按原任务顶部"10bcf7e5复核通过"完成，清单全文在原任务文件原位（"K3·S1-A发布准备清单"小节），此处留结论与证据要点：
 
-- **现网差距**：现网`wm-v7-20260914-151504-a7614958`（9d3d26b5发布记录；匿名只读核实首页200/API在线，releaseId需发布前服务器只读复核）。待发布`a7614958..10bcf7e5`共44提交（24个触运行时代码）；增量迁移仅`0126_storyline_materials.sql`纯加法，向前兼容、代码回滚不要求回退迁移。
+- **现网差距**：现网`wm-v7-20260914-151504-a7614958`（9d3d26b5发布记录；匿名只读核实首页200/API在线，releaseId需发布前服务器只读复核）。待发布`a7614958..18f3c2a0`共45提交（25个触运行时代码，含边界修复）；增量迁移仅`0126_storyline_materials.sql`纯加法——但经本机回退实证：旧代码迁移器缺0126文件时fail-closed拒绝启动，**代码回滚包必须保留新迁移文件**（详见上方8caac9a5预演小节）。
 - **协调发布**：现网前端为旧设计请求合同，新后端自e58856a1拒绝旧intent入口——API/Worker/V7静态必须同窗一批（DEPLOY既定要求），不可拆"先API后静态"；新后端对现网其余路径兼容（现网无0126表、无书有资料，旧请求走建v1路径不触发版本门禁）。
 - **Agent Plan通道**：Codex未提交差异不暂存/不提交/不包含。同批判断：Coding Plan 2026-09-16 00:29已InvalidSubscription，S1-A功能全部依赖模型调用——通道恢复必须先于或与S1-A同批，且通道验证独立于本包验收；生产实际调用状态未只读核实，如实标注。
-- **证据与缺口逐项**：恢复机制/集成链路/浏览器三宽度通过不阻塞；run5未自然过审未采用——不阻塞工程发布但发布说明与后台状态不得宣称质量已验；CTX跨题材未完不阻塞（15000字符默认值不宣称已验证）；verify:full旧债需Codex逐项核定（boundary新增storyline-material-service一项为本批真实新增）。
+- **证据与缺口逐项**：恢复机制/集成链路/浏览器三宽度通过不阻塞；run5未自然过审未采用——不阻塞工程发布但发布说明与后台状态不得宣称质量已验；CTX跨题材未完不阻塞（15000字符默认值不宣称已验证）；verify:full旧债需Codex逐项核定（boundary新增storyline-material-service一项已于18f3c2a0修复，余原7项不变）。
 - **结论**：代码包具备候选构建条件；**整批发布尚不可执行**。最小剩余工作：①模型通道恢复（冻结+密钥授权+验证）；②Codex核定批次构成及boundary新增项处置；③发布窗口服务器只读复核现网releaseId。三项齐备前不构建候选、不上传。
 
 ## Codex复核422a48c7（2026-09-16，恢复主问题通过，冲突合同待补）
