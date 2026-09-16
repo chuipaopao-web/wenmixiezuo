@@ -6,6 +6,8 @@ import {V7AgentGovernanceRepository} from '../../infrastructure/db/repositories/
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
 import {TIME_MACHINE_CARD_TEMPLATE_REVISION} from './time-machine-card-template.js';
 import {SqliteCreativeReferenceRepository} from '../../infrastructure/db/repositories/creative-reference-repository.js';
+import {NodeEvaluationRepository} from '../../infrastructure/db/repositories/node-evaluation-repository.js';
+import {resolveNodeMember} from '../evaluation/node-policy-dispatch.js';
 import {CREATIVE_PROMPT_REVISION} from '../creative-reference/runtime.js';
 export interface SourceDocument {key:string;text:string}
 export interface MethodCard {id:string;name:string;category:string;intro:string;usage:string}
@@ -25,7 +27,7 @@ export interface StorylineSelectionSnapshot {
   authorNote: string;
   requestHash: string;
 }
-export interface TimeMachineSnapshot {creativeReleaseId?:string|null;manifest:Manifest;documents:SourceDocument[];methods:MethodCard[];members:{researcher:V7EffectiveMember;chief:V7EffectiveMember;writer:V7EffectiveMember;reviewer?:V7EffectiveMember};writers:V7EffectiveMember[];/** 与writers同序的独立审查成员（异底层模型）；旧快照无此字段时回退chief。 */reviewers?:V7EffectiveMember[];intent:string;targetWords:number|null;wordPolicy:WordPolicy|null;windowTokens:number;selection?:StorylineSelectionSnapshot;/** 卷卡生成策略版本：'per-volume-v1'=逐卷生成；旧快照缺省=每批两卷旧路径。 */volumeStrategy?:'per-volume-v1'}
+export interface TimeMachineSnapshot {creativeReleaseId?:string|null;manifest:Manifest;documents:SourceDocument[];methods:MethodCard[];members:{researcher:V7EffectiveMember;chief:V7EffectiveMember;writer:V7EffectiveMember;reviewer?:V7EffectiveMember};writers:V7EffectiveMember[];/** 与writers同序的独立审查成员（异底层模型）；旧快照无此字段时回退chief。 */reviewers?:V7EffectiveMember[];intent:string;targetWords:number|null;wordPolicy:WordPolicy|null;windowTokens:number;selection?:StorylineSelectionSnapshot;/** 卷卡生成策略版本：'per-volume-v1'=逐卷生成；旧快照缺省=每批两卷旧路径。 */volumeStrategy?:'per-volume-v1';/** MODEL-NODE-EVAL节点策略派工（新增可选字段，旧快照无此字段=现状行为）：仅当节点家族存在策略/已应用排名时写入；在途快照创建后不再变化；null=该家族全部候选已暂停，调用点诚实受阻。 */nodeDispatch?:Record<string,V7EffectiveMember|null>}
 /** 开书+已确认设定来源的稳定签名：路由与设计服务共用同一口径判断推荐是否仍与当前资料一致。 */
 export function manifestSourcesSignature(manifest:{sources:{kind:string;id:string;revision:string;hash:string}[]}):string{
   const sources=manifest.sources.filter(x=>x.kind==='opening'||x.kind==='setting').sort((a,b)=>a.kind.localeCompare(b.kind)||a.id.localeCompare(b.id));
@@ -66,5 +68,23 @@ export function snapshotTimeMachine(db:DatabaseSync,scope:Scope,intent:string,wi
  const reviewers=writers.map(writer=>{const found=chiefPool.find(chief=>chief.model.modelId!==writer.model.modelId);if(!found)throw Error(`无与编剧${writer.displayName}异底层模型的合格审查成员，方案审查受阻`);return found;});
  const chief=member('chief_editor');
  manifest.sources.push({kind:'asset',id:'creative-library',revision:creativeReleaseId??'unpublished',hash:digest({creativeReleaseId,prompt:CREATIVE_PROMPT_REVISION})});
- return {creativeReleaseId,manifest,documents,methods,members:{researcher:member('deputy_editor'),chief,writer:writers[0]!,reviewer:reviewers[0]!},writers,reviewers,intent,targetWords,wordPolicy:targetWords===null?null:{policy:'chars-v1',unit:'字',hard:false},windowTokens,volumeStrategy:'per-volume-v1'};
+ // MODEL-NODE-EVAL节点策略派工（合同"上岗与恢复"）：仅当某节点家族存在暂停策略或已应用排名时
+ // 才写入覆盖（默认关闭=现状行为）；冻结进快照，在途任务不回溯。审查家族候选排除全部编剧模型，
+ // 保持生成/审查异模型的既定约束；全部候选被暂停时这里不失败，由调用点如实报"暂无合格成员"。
+ const evalRepo=new NodeEvaluationRepository(db);
+ const nodeDispatch:Record<string,V7EffectiveMember|null>={};
+ const rankedFor=(family:string)=>{const r=evalRepo.appliedRanking(family,'all');if(!r)return null;const entries=(JSON.parse(r.entries_json) as {rank:number;modelId:string}[]).filter(e=>e.rank>0).toSorted((a,b)=>a.rank-b.rank);return entries.map(e=>e.modelId);};
+ const dispatchFor=(family:string,candidates:V7EffectiveMember[])=>{
+  const policies=evalRepo.nodePolicies(family),ranked=rankedFor(family);
+  if(!policies.length&&!ranked)return; // 无策略无排名：默认关闭
+  const result=resolveNodeMember({candidates,policies,rankedModelIds:ranked});
+  if(result.member)nodeDispatch[family]=result.member;
+  else if(result.policyApplied)nodeDispatch[family]=null; // 全部候选已暂停：冻结受阻标记，调用点诚实报"暂无合格成员"
+ };
+ const deputyPool=roster.members.filter(m=>tmEligible(m)&&m.fixedRoleKey==='deputy_editor').sort((a,b)=>Number(b.defaultForRole)-Number(a.defaultForRole)||a.fallbackPriority-b.fallbackPriority);
+ for(const family of ['card-extract','card-merge','card-finalize'])dispatchFor(family,deputyPool);
+ for(const family of ['skeleton','volume-card','volumes-batch','self-check','self-check-anchors','revise','methods-select','methods-creative'])dispatchFor(family,eligible);
+ const reviewPool=chiefPool.filter(chief=>!writers.some(writer=>writer.model.modelId===chief.model.modelId));
+ for(const family of ['recommend-with-intent','review-source','review-anchors'])dispatchFor(family,reviewPool);
+ return {creativeReleaseId,manifest,documents,methods,members:{researcher:member('deputy_editor'),chief,writer:writers[0]!,reviewer:reviewers[0]!},writers,reviewers,intent,targetWords,wordPolicy:targetWords===null?null:{policy:'chars-v1',unit:'字',hard:false},windowTokens,volumeStrategy:'per-volume-v1',...(Object.keys(nodeDispatch).length?{nodeDispatch}:{})};
 }

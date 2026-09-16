@@ -14,6 +14,7 @@ import {TIME_MACHINE_CARD_TEMPLATE_REVISION,cardContractFor,planningMaterial} fr
 import {packCardSources} from './time-machine-source-pages.js';
 import {prepareCardMerge,cardMergeGuidance} from './time-machine-card-merge.js';
 import {CreativeReferenceRuntime,creativeSupplement,CREATIVE_DESIGN_GUIDANCE} from '../creative-reference/runtime.js';
+import {nodeFamilyFor} from '../evaluation/node-policy-dispatch.js';
 interface Run {id:string;owner_id:string;book_id:string;kind:'recommend'|'design';snapshot_json:string;state:string;result_json:string|null;error_code:string|null}
 type ReviewAction={action:'read_source';key:string;offset:number}|{action:'verdict';issues:string[];suggestions:string[];pass:boolean;hasMoreIssues:boolean};
 function json(text:string):unknown{return JSON.parse(text.trim().replace(/^```(?:json)?\s*/u,'').replace(/\s*```$/u,''));}
@@ -244,6 +245,13 @@ export class TimeMachineDesignService {
   }catch(error){const code=error instanceof TimeMachineCallError?error.kind:'needs_review';this.db.prepare("UPDATE tm2_design_runs SET state='failed',error_code=?,error_message=?,updated_at=? WHERE id=?").run(code,error instanceof TimeMachineCallError?`${error.kind}/${error.diagnosticCode??'local'}`:error instanceof Error?`${error.name}: ${error.message}`.slice(0,300):'unknown',new Date().toISOString(),id);}
  }
  private async call(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,node:string,member:V7EffectiveMember,prompt:string):Promise<string>{
+  // MODEL-NODE-EVAL节点策略派工（合同"上岗与恢复"）：快照构建时按节点家族冻结的承担成员覆盖传入成员；
+  // null=该家族全部候选已暂停派工（待复测），诚实受阻，不静默回退到被暂停成员；无该家族记录=现状行为。
+  if(snapshot.nodeDispatch&&Object.prototype.hasOwnProperty.call(snapshot.nodeDispatch,nodeFamilyFor(node))){
+   const dispatched=snapshot.nodeDispatch[nodeFamilyFor(node)];
+   if(!dispatched)throw Error(`节点${nodeFamilyFor(node)}的全部候选成员已被暂停派工（待复测），暂无合格成员承担；请在后台节点评测页复测或恢复后重试`);
+   member=dispatched;
+  }
   if(snapshot.creativeReleaseId!==undefined&&/^(recommend|skeleton|volumes|self|review)/u.test(node)){
    const selected=this.db.prepare('SELECT result_json FROM creative_reference_sessions WHERE owner_id=? AND book_id=? AND session_id=?').get(scope.ownerId,scope.bookId,`${run.id}:creative`) as {result_json:string|null}|undefined;
    if(selected?.result_json)prompt+=node.startsWith('skeleton')?'\n'+CREATIVE_DESIGN_GUIDANCE:creativeSupplement(JSON.parse(selected.result_json));
