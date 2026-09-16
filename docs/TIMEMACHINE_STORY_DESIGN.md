@@ -1074,3 +1074,17 @@ Codex端到端验证三套方案无可采用后定点处理：A卷卡3遇HTTP400
 **节点策略派工接线（6a81418d，默认关闭）**：`node-policy-dispatch.ts`（nodeFamilyFor节点家族映射与registry口径一致/resolveNodeMember/nodeFallbackOrder纯函数）；快照构建按节点家族冻结承担成员进可选`nodeDispatch`字段——无策略无排名不写入（旧快照无此字段=现状逐字节一致）、全部候选暂停冻结null受阻标记、pending_retest不算暂停；review家族候选保持排除全部编剧模型（生成/审查异模型约束不因派工破坏）；设计服务`call()`集中解析覆盖（structured/repair/author-N/review全部调用点一处生效），遇null诚实失败报"暂无合格成员"不静默回退到被暂停成员。15项离线测试（映射/纯函数/快照集成/设计服务生效含默认关闭一致性与受阻不发出模型调用），tsc过。
 
 **未完成项（如实）**：初筛批次未跑完；验证阶段（保留样本≥10次、异模型盲评质量评审、分歧复核）未开始；排名应用与"不稳定模型被排除由候补接替"的真实证明未做；隔离新书端到端未做；GLM5.3卷卡暂停派工状态沿用，待复测数据出来后按合同处理。
+
+### 25.10.1 验证第一波与老板两次执行补充（2026-09-17凌晨，K3执行，未发布）
+
+**验证第一波批次model-node-eval-b1-validation完成**：8节点×4候选×10保留holdout样本（计划320案例，实际307请求+1未知/240.6万token，上限400/1200万内；断点续跑未重复任何已完成案例）。技术层成绩（一次技术交付=结构且输出合同通过，质量盲评另计）：
+- 全ok 10/10：card-extract四候选、skeleton四候选、volume-card四候选、volumes-batch四候选；card-finalize（ds-flash/ds-pro/k3）、card-merge（ds-flash/ds-pro/doubao）、review-anchors（doubao/k2.7）。
+- 部分通过：card-finalize doubao 7ok+3合同错（短卡引用不存在/JSON不可解析=模型幻觉）→技术交付70%<90%门槛；card-merge glm-flash 9+1；review-anchors ds-flash 9+1供应商错误、glm-flash 9+1；review-source doubao 9+1。
+- **提前淘汰（真实触发3例）**：review-source ds-pro 2/4、glm-flash 5/7、k3 4/6——各2次模型合同失败后判定剩余全过也<90%，停止剩余资格测试并标记early-eliminated（失败归因模型，按节点处理不跨节点）；review-source仅doubao进入质量机检环节，若质量不达标该节点如实标"暂无合格模型"不凑前三。
+- 失败归因汇总：模型合同问题13例（doubao幻觉引用3、review-source淘汰6、glm-flash 2、ds-flash 1、doubao review-source 1）；供应商2例（ds-flash review-anchors 1次、usage未知1例单独计unknown口径）。无429/限流。
+
+**老板三点补充落地（87d48c9b，离线测试10项全过）**：①技术成功与质量合格分开——排名准入的技术交付率改为"结构且输出合同通过"，堵住合同错误被排除盲评后仍算技术成功的漏洞（doubao card-finalize 7/10按此定义不达90%门槛，不进合格前三）；②盲评加防误放——主判通过案例按序号确定性每3抽1异模型复核，抽查不过=分歧null=未定不自动算过；评审可靠性校准（已知正确cleanPlan应判过/已知缺陷flawedPlan应判不过），校准不过的评审其结论quality_note标注"仅供参考"，校准结果落.local/eval/judge-calibration.json（幂等）；③合并核算——仓储budgetTotals全批次分账+合计一并展示，不以独立账本绕合同总上限；9条volumes-batch失真案例的作废原因及实际消耗（11.0万token）落档.local/eval/invalidations.json（untracked工件，源备份库可查）。
+
+**老板六点补充落地（ac18b999，离线测试41项全过+tsc过）**：①不重启整批——续跑跳过全部已完成run/case；②进度行——每组完成打印完成数/计划数、当前节点×模型、最近结果时间、账本累计、按实测均值ETA；③失败归因分类器eval-failure-attribution（模型/供应商/评测工具/未定；评测工具问题走作废流程不归咎模型）；提前淘汰如上述真实触发；④入围标准不降——准入仍n≥10+双90%+零关键漏失+审查零漏报误报≤10%；⑤并发核查——合同授权全局2同模型1，原运行器串行未用上授权并发，已改worker池2（执行器信号量保证同模型1），超时600s/429退避[5s,20s]维持合同原值未提高；⑥自动接续——验证完成后直接启动评审批次（见25.10.2），排名与隔离端到端随后连续执行，不等待逐步确认。
+
+**迁移0128（纯增量，数据全保留）**：tm2_eval_run重建扩展status CHECK增加early-eliminated（SQLite不能改CHECK，按原列定义重建+INSERT全量拷贝，操作前整库备份.local/eval/node-model-eval.pre-migration-0128.bak.sqlite）。
