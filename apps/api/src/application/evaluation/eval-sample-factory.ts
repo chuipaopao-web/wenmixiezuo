@@ -51,6 +51,18 @@ interface GenreSeed {
   readonly openingBeat: string;
   readonly conflict: string;
   readonly paragraphs: readonly string[];
+  /**
+   * 按题材手工编写的合格方案内容（失真⑤教训：跨题材通用措辞会让干净方案与来源矛盾，
+   * 审查模型合法判不过——干净方案必须在每个题材下都经得起"忠于来源"核对）。
+   */
+  readonly plan: {
+    readonly baseline: string;
+    readonly v1: { readonly goal: string; readonly briefGoal: string; readonly start: string; readonly turningPoint: string; readonly gain: string; readonly ending: string; readonly inCondition: string; readonly outCondition: string; readonly mainDuty: string; readonly rivalDuty: string };
+    readonly v2: { readonly goal: string; readonly briefGoal: string; readonly start: string; readonly turningPoint: string; readonly gain: string; readonly ending: string; readonly inCondition: string; readonly outCondition: string; readonly mainDuty: string; readonly rivalDuty: string };
+    readonly milestones: { readonly main: readonly string[]; readonly rival: readonly string[] };
+    readonly expectations: readonly { opening: string; change: string; answer: string; lineIds: readonly string[] }[];
+    readonly relations: readonly { from: string; to: string; kind: string; effect: string }[];
+  };
 }
 
 const GENRES: readonly GenreSeed[] = [
@@ -67,7 +79,38 @@ const GENRES: readonly GenreSeed[] = [
       '父亲留下的笔记本里夹着一张星髓矿脉的手绘地图，边缘用红笔标着一个他从未听过的地名。',
       '第一次试机那天，整个街区都听见了引擎的轰鸣。没有灵根的驾驶员，靠的是齿轮与杠杆的精密配合。',
       '行会的最后通牒贴在铺子门口：三日内停业，否则以私造机甲论处。'
-    ]
+    ],
+    plan: {
+      baseline: '轻快成长，靠手艺与制度取胜',
+      v1: {
+        goal: '林舟用机甲修理手艺在街区站稳脚跟，让小铺开起来', briefGoal: '林舟用手艺打开局面、小铺立足',
+        start: '林舟在废弃机甲堆里发现一台刻着他父亲名字的旧机甲，被卷入行会垄断的修理行当',
+        turningPoint: '行会下最后通牒要求停业，林舟当众修好一台三品灵师都束手的机甲，用手艺赢得第一批认可',
+        gain: '第一批伙伴与街坊口碑', ending: '小铺在行会封锁中存活，手艺路径得到公开验证',
+        inCondition: '林舟发现父亲旧机甲已经发生', outCondition: '林舟的手艺得到第一次公开验证（当众修好疑难机甲）',
+        mainDuty: '主线确立：从被轻视到用手艺立足', rivalDuty: '行会压制首次落到具体行动：最后通牒与停业威胁，林舟付出可见代价'
+      },
+      v2: {
+        goal: '林舟把手艺变成被制度承认的工坊，正面打破无灵根者不得开业的行规', briefGoal: '林舟建立被制度承认的工坊，正面回应行会垄断',
+        start: '立足初成，行会的压制升级为正面封锁：断料、挖人、诬告',
+        turningPoint: '公开评测会上林舟以精密手艺击破行会垄断条款，无灵根者开业获得制度承认',
+        gain: '正式注册的机甲工坊与行业话语权', ending: '兑现"无灵根修理工以机甲修理手艺立足"的开篇承诺，行会垄断被实际打破',
+        inCondition: '第一卷小铺立足成果成立', outCondition: '无灵根者开业获得制度承认，行会垄断被打破',
+        mainDuty: '主线推进：从立足到建立被承认的工坊', rivalDuty: '对抗正面爆发并在终卷收束：公开评测击破垄断条款'
+      },
+      milestones: {
+        main: ['林舟第一次用手艺证明自己（修好父亲的旧机甲）', '手艺公开验证，小铺在封锁中存活', '获得制度承认，工坊正式注册'],
+        rival: ['行会最后通牒首次落到林舟身上', '公开评测会正面冲突，双方亮出底牌', '垄断条款被击破，对抗在终卷收束']
+      },
+      expectations: [
+        { opening: '无灵根者能否在行会压制下立足', change: '看到林舟用手艺而非灵根取胜', answer: '第一卷公开验证初步回应，第二卷制度承认最终回应', lineIds: ['main'] },
+        { opening: '行会封锁会不会压垮小铺', change: '想看封锁如何被一步步正面打破', answer: '终卷垄断条款在公开评测中被击破', lineIds: ['rival', 'main'] }
+      ],
+      relations: [
+        { from: 'rival', to: 'main', kind: 'conflict', effect: '行会的每次升级都倒逼林舟把手艺磨成制度性优势' },
+        { from: 'main', to: 'rival', kind: 'push', effect: '林舟的每次公开成功都迫使行会把压制升级到更台面化的手段' }
+      ]
+    }
   },
   {
     genre: '历史融合',
@@ -82,7 +125,38 @@ const GENRES: readonly GenreSeed[] = [
       '他把徭役编成轮换表贴在城门口，第一天有人撕了，第二天有人来看，第三天有人开始按表上工。',
       '敌军的第一波云梯架上城头时，新编的保甲队第一次没有溃散。',
       '守将在城楼里摆酒，酒过三巡问他：你这法子，能教给别的城吗？'
-    ]
+    ],
+    plan: {
+      baseline: '务实轻捷，靠组织与制度取胜',
+      v1: {
+        goal: '沈恪以现代组织方法重建保甲，让守城体系运转起来', briefGoal: '沈恪重建保甲、理清粮台',
+        start: '沈恪在城头醒来，城外连营十里，接手保甲册时发现册上三分之一名字已不在城中',
+        turningPoint: '敌军第一波云梯上架时，新编保甲队第一次没有溃散，制度初显力量',
+        gain: '守将的初步信任与按表上工的民众', ending: '保甲重建初见成效，第一轮守城站稳，粮草台账理清',
+        inCondition: '沈恪城头醒来、接手保甲册已经发生', outCondition: '新编保甲队在第一波攻城中没有溃散',
+        mainDuty: '主线确立：从册上死籍到保甲初建', rivalDuty: '守将不信任与豪强抵制首次落到具体阻挠：撕轮换表、锁粮仓'
+      },
+      v2: {
+        goal: '沈恪把保甲法变成可持续的制度，化解守将私兵观念与豪强抵制', briefGoal: '沈恪以制度撑过决战、化解三大矛盾',
+        start: '守城初稳，豪强抵制编户与粮草掣肘浮出水面',
+        turningPoint: '守城决战中以保甲轮换与粮台制度撑过围攻，守将当众问"这法子能教给别的城吗"',
+        gain: '制度被全军承认，豪强编户纳入正轨', ending: '兑现"以现代组织方法重建保甲、在守城战中证明制度力量"的开篇承诺',
+        inCondition: '第一卷保甲重建与粮草台账成果成立', outCondition: '保甲制度撑过守城决战并获得全军承认',
+        mainDuty: '主线推进：从保甲初建到制度被承认', rivalDuty: '三大矛盾在守城决战中正面爆发并逐一收束'
+      },
+      milestones: {
+        main: ['重新点数保甲册，重建第一支轮值队', '第一波攻城保甲队未溃散，制度初显力量', '保甲法被守将与全军承认并可外推'],
+        rival: ['轮换表被撕、粮仓数目对不上，抵制落到具体行动', '守城决战三大矛盾同时爆发', '守将信服、豪强编户入轨、粮草制度定型，对抗收束']
+      },
+      expectations: [
+        { opening: '沈恪能否在四十日粮草内守住孤城', change: '看到组织方法而非私兵蛮勇取胜', answer: '第一卷保甲队未溃散初步回应，第二卷制度被承认最终回应', lineIds: ['main'] },
+        { opening: '守将与豪强的抵制会不会拖垮守城', change: '想看抵制如何被制度逐一化解', answer: '终卷守将信服、豪强入轨', lineIds: ['rival', 'main'] }
+      ],
+      relations: [
+        { from: 'rival', to: 'main', kind: 'conflict', effect: '守将与豪强的每次阻挠都倒逼沈恪把保甲法磨得更可执行' },
+        { from: 'main', to: 'rival', kind: 'push', effect: '沈恪的每次守城成效都迫使反对者把抵制摆到台面上' }
+      ]
+    }
   },
   {
     genre: '都市感情',
@@ -97,7 +171,38 @@ const GENRES: readonly GenreSeed[] = [
       '院办的电话打到急诊科，措辞很客气，意思很清楚：那份病历不要再查了。',
       '他们在天台交换了各自掌握的半份证据，拼在一起，正好是一份完整的召回记录。',
       '发布会前十分钟，许照把工牌摘下来放进口袋。从今天起他只说真话，不管以什么身份。'
-    ]
+    ],
+    plan: {
+      baseline: '现实向克制，靠专业与真相推进',
+      v1: {
+        goal: '许照在院方低调要求下保住病历证据，查清两起事故的关联', briefGoal: '许照保住证据、与记者拼合证据链',
+        start: '许照值夜班第三十七小时，推进来一个和三年前事故症状完全相同的病人',
+        turningPoint: '院办电话要求停止追查，许照选择与记者交换各自掌握的半份证据',
+        gain: '拼成一份完整的召回记录与彼此的信任', ending: '证据链拼合完成，两人从对立转为并肩',
+        inCondition: '相同症状病人入院已经发生', outCondition: '两半证据拼成一份完整的召回记录',
+        mainDuty: '主线确立：从似曾相识的监护数据到保住证据', rivalDuty: '院方低调要求与单位施压首次落到具体动作：电话警告、病历封存'
+      },
+      v2: {
+        goal: '许照与记者把召回真相公之于众，同时守住各自的专业底线', briefGoal: '许照公开召回真相、两人关系落定',
+        start: '证据在手，医院与器械公司的压制升级为职业威胁',
+        turningPoint: '发布会前十分钟许照摘下工牌：从今天起只说真话，公开召回被压下的证据',
+        gain: '真相公开与两人的关系落定', ending: '兑现"从对立到并肩、揭开器械召回被压下真相"的开篇承诺',
+        inCondition: '第一卷证据链与并肩关系成立', outCondition: '召回真相在发布会上公开',
+        mainDuty: '主线推进：从证据在手到公开真相', rivalDuty: '压制在发布会前达到顶点并被正面击破'
+      },
+      milestones: {
+        main: ['许照发现两起事故监护数据一致', '与记者交换半份证据拼成完整召回记录', '摘下工牌公开真相'],
+        rival: ['院办电话与病历封存，压制落到具体行动', '发布会前的最后施压与反制', '召回真相公开，压制失效，对抗收束']
+      },
+      expectations: [
+        { opening: '许照会不会在压力下沉默', change: '看到专业人选择说真话的代价与底气', answer: '第一卷保住证据初步回应，第二卷公开真相最终回应', lineIds: ['main'] },
+        { opening: '医院与公司的压制会不会埋掉真相', change: '想看两人如何把压力顶回去', answer: '终卷发布会公开召回记录', lineIds: ['rival', 'main'] }
+      ],
+      relations: [
+        { from: 'rival', to: 'main', kind: 'conflict', effect: '院方与公司的每次施压都倒逼许照把证据链做得无懈可击' },
+        { from: 'main', to: 'rival', kind: 'push', effect: '许照的每一步接近真相都迫使对方把压制升级' }
+      ]
+    }
   }
 ];
 
@@ -148,57 +253,54 @@ export function buildFixture(genre: EvalGenre, lengthBand: EvalLengthBand): Synt
   const words = { target: 400000, min: null, max: null, hard: false, policy: 'chars-v1' };
   // 干净方案必须是"按文学量规真该判过"的方案（两轮校准失真教训）：
   // 结构自述与卷数一致、里程碑有逐步节点、期待有推进与回应、关系落到具体效果、卷级内容无占位符。
+  // 干净方案必须是"按文学量规真该判过"的方案（三轮校准失真+跨题材矛盾教训）：
+  // 结构自述与卷数一致、里程碑有逐步节点、期待有推进与回应、关系落到具体效果、卷级内容无占位符，
+  // 且全部内容来自本题材seed.plan（手工编写与来源一致），不用跨题材通用措辞。
+  const plan = seed.plan;
   const skeleton: Record<string, unknown> = {
     structure: '两卷起承式：第一卷"起"完成立足，第二卷"承转合"完成扩张、正面冲突与兑现',
-    baseline: '轻快成长，靠手艺与制度取胜',
+    baseline: plan.baseline,
     ending: seed.premise.split('，')[0],
     openingHooks: [`开篇钩子：${seed.openingBeat}`, '第一章末读者想知道他如何破局', '前三章建立最大期待：证明自己'],
     words,
     lines: [
       { id: 'main', role: 'main', title: authorStorylines[0].title, goal: '立足', answer: seed.premise.split('，')[0], process: '从被轻视到被需要', parentIds: [], covers: [authorStorylines[0].title], milestones: [
-        { id: 'ms1', summary: `${seed.protagonist}第一次用手艺证明自己`, suggestedVolumes: ['v1'], importance: 'required' },
-        { id: 'ms1b', summary: '手艺路径得到公开验证，小铺在封锁中存活', suggestedVolumes: ['v1'], importance: 'flexible' },
-        { id: 'ms1c', summary: '获得行业制度性承认，完成从被轻视到被需要', suggestedVolumes: ['v2'], importance: 'required' }
+        { id: 'ms1', summary: plan.milestones.main[0]!, suggestedVolumes: ['v1'], importance: 'required' },
+        { id: 'ms1b', summary: plan.milestones.main[1]!, suggestedVolumes: ['v1'], importance: 'flexible' },
+        { id: 'ms1c', summary: plan.milestones.main[2]!, suggestedVolumes: ['v2'], importance: 'required' }
       ] },
       { id: 'rival', role: 'through', title: authorStorylines[1].title, goal: '压制主角', answer: '对抗线全书贯穿并在终卷收束', process: '逐步升级的正面对抗', parentIds: [], covers: [authorStorylines[1].title], milestones: [
-        { id: 'ms2', summary: `${seed.conflict}的封锁首次落到主角身上`, suggestedVolumes: ['v1'], importance: 'flexible' },
-        { id: 'ms3', summary: '正面冲突爆发，双方亮出底牌', suggestedVolumes: ['v2'], importance: 'flexible' },
-        { id: 'ms4', summary: '垄断被实际打破，对抗在终卷收束', suggestedVolumes: ['v2'], importance: 'required' }
+        { id: 'ms2', summary: plan.milestones.rival[0]!, suggestedVolumes: ['v1'], importance: 'flexible' },
+        { id: 'ms3', summary: plan.milestones.rival[1]!, suggestedVolumes: ['v2'], importance: 'flexible' },
+        { id: 'ms4', summary: plan.milestones.rival[2]!, suggestedVolumes: ['v2'], importance: 'required' }
       ] }
     ],
-    expectations: [
-      { id: 'promise', opening: '主角能否在压制下立足', change: '看到主角用方法而非运气取胜', answer: '第一卷公开验证初步回应，第二卷制度承认最终回应', lineIds: ['main'] },
-      { id: 'promise-rival', opening: '垄断封锁会不会压垮主角', change: '想看封锁如何被一步步正面打破', answer: '终卷垄断被实际打破', lineIds: ['rival', 'main'] }
-    ],
-    relations: [
-      { from: 'rival', to: 'main', kind: 'conflict', effect: `${seed.conflict}的每次升级都倒逼${seed.protagonist}把手艺磨成制度性优势` },
-      { from: 'main', to: 'rival', kind: 'push', effect: `${seed.protagonist}的每次公开成功都迫使对抗方把压制升级到更台面化的手段` }
-    ],
+    expectations: plan.expectations.map((e, i) => ({ id: i === 0 ? 'promise' : 'promise-rival', opening: e.opening, change: e.change, answer: e.answer, lineIds: [...e.lineIds] })),
+    relations: plan.relations.map(r => ({ from: r.from, to: r.to, kind: r.kind, effect: r.effect })),
     volumeBriefs: [
-      { id: 'v1', title: '立足', beat: '起·立足', goal: `${seed.protagonist}找到不靠天赋也能立足的手艺路径`, words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' } },
-      { id: 'v2', title: '扩张', beat: '承转合·扩张与兑现', goal: `${seed.protagonist}把手艺变成被制度承认的位置，正面回应${seed.conflict}`, words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' } }
+      { id: 'v1', title: '立足', beat: '起·立足', goal: plan.v1.briefGoal, words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' } },
+      { id: 'v2', title: '扩张', beat: '承转合·扩张与兑现', goal: plan.v2.briefGoal, words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' } }
     ]
   };
-  const volumeOf = (id: string, overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
-    id, title: id === 'v1' ? '立足' : '扩张', beat: id === 'v1' ? '起·立足' : '承转合·扩张与兑现',
-    start: id === 'v1' ? `${seed.openingBeat}，${seed.protagonist}被卷入${seed.conflict}` : `立足初成，${seed.conflict}的压力升级为正面封锁`,
-    goal: id === 'v1' ? `${seed.protagonist}找到不靠天赋也能立足的手艺路径` : `${seed.protagonist}把手艺变成被制度承认的位置`,
-    conflict: seed.conflict,
-    turningPoint: id === 'v1' ? `${seed.protagonist}第一次用方法而非运气化解${seed.conflict}带来的危机，赢得初步认可` : `与${seed.conflict}的正面冲突爆发，${seed.protagonist}以积累的手艺与规则取胜`,
-    gain: id === 'v1' ? '第一批伙伴与街坊口碑' : '行业内的正式位置与话语权', loss: null, arc: null, payoff: null, hook: null, mood: null,
-    ending: id === 'v1' ? `${seed.protagonist}的小铺在封锁中存活，手艺路径得到公开验证` : `兑现「${seed.premise.split('，')[0]}」的开篇承诺，垄断被实际打破`,
-    handoff: id === 'v1' ? '封锁升级为正面对抗，引出第二卷' : '终卷：对抗线收束，全书问题在此卷回答',
-    words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' },
-    anchors: [
-      { id: 'in', ownerEntityId: id, kind: 'entry', summary: '开场状态成立', span: '本卷开篇', conditions: [{ summary: id === 'v1' ? `${seed.openingBeat}已经发生` : '第一卷立足成果成立', subjectIds: ['main'] }], logic: 'all', importance: 'required', fallback: '补开场戏', keywords: [], aliases: [] },
-      { id: 'out', ownerEntityId: id, kind: 'exit', summary: '收束条件达成', span: '本卷收束', conditions: [{ summary: id === 'v1' ? '主角的手艺路径得到第一次公开验证' : '主角以手艺与规则赢得正式位置', subjectIds: ['main', 'rival'] }], logic: 'all', importance: 'required', fallback: '补收束戏', keywords: [], aliases: [] }
-    ],
-    duties: [
-      { lineId: 'main', action: id === 'v1' ? 'start' : 'advance', result: id === 'v1' ? '主线确立：从被轻视到找到立足手艺' : '主线推进：从立足到被制度承认', anchorIds: [`${id}:out`], strength: 'required', reason: '主线本卷必须推进' },
-      { lineId: 'rival', action: 'advance', result: id === 'v1' ? `${seed.conflict}的压制首次落到具体行动，主角付出可见代价` : '对抗正面爆发并在终卷收束，垄断被实际打破', anchorIds: [], strength: 'required', reason: '作者确认对抗线全书贯穿，本卷须有真实去向' }
-    ],
-    ...overrides
-  });
+  const volumeOf = (id: string, overrides: Record<string, unknown> = {}): Record<string, unknown> => {
+    const vp = id === 'v1' ? plan.v1 : plan.v2;
+    return {
+      id, title: id === 'v1' ? '立足' : '扩张', beat: id === 'v1' ? '起·立足' : '承转合·扩张与兑现',
+      start: vp.start, goal: vp.goal, conflict: seed.conflict, turningPoint: vp.turningPoint,
+      gain: vp.gain, loss: null, arc: null, payoff: null, hook: null, mood: null,
+      ending: vp.ending, handoff: id === 'v1' ? '对抗升级，引出第二卷' : '终卷：对抗线收束，全书问题在此卷回答',
+      words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' },
+      anchors: [
+        { id: 'in', ownerEntityId: id, kind: 'entry', summary: '开场状态成立', span: '本卷开篇', conditions: [{ summary: vp.inCondition, subjectIds: ['main'] }], logic: 'all', importance: 'required', fallback: '补开场戏', keywords: [], aliases: [] },
+        { id: 'out', ownerEntityId: id, kind: 'exit', summary: '收束条件达成', span: '本卷收束', conditions: [{ summary: vp.outCondition, subjectIds: ['main', 'rival'] }], logic: 'all', importance: 'required', fallback: '补收束戏', keywords: [], aliases: [] }
+      ],
+      duties: [
+        { lineId: 'main', action: id === 'v1' ? 'start' : 'advance', result: vp.mainDuty, anchorIds: [`${id}:out`], strength: 'required', reason: '主线本卷必须推进' },
+        { lineId: 'rival', action: 'advance', result: vp.rivalDuty, anchorIds: [], strength: 'required', reason: '作者确认对抗线全书贯穿，本卷须有真实去向' }
+      ],
+      ...overrides
+    };
+  };
   const cleanPlan: Record<string, unknown> = { ...skeleton, anchors: [], volumes: [volumeOf('v1'), volumeOf('v2')] };
   // 反例植入三类已知错误：①分卷字数合计≠全书target；②作者确认对抗线在第二卷无任何职责去向（干净方案两卷均有承接）；
   // ③锚点条件把将来承诺当已达成（“获得认可后”不可按正文核对）。

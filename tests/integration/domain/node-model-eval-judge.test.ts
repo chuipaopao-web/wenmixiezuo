@@ -174,6 +174,22 @@ describe('评审可靠性校准样本', () => {
     expect(flawedVolumes[1]!.duties).toHaveLength(0); // seededError②：对抗线（及主线）第二卷无去向
     expect(flawedVolumes[0]!.duties.map(d => d.lineId)).toContain('rival'); // 缺陷只在第二卷，v1仍承接
   });
+  it('干净方案在每个题材下与来源一致（防跨题材通用措辞：失真⑤教训）', () => {
+    const protagonists: Record<string, string> = { 玄幻成长: '林舟', 历史融合: '沈恪', 都市感情: '许照' };
+    for (const genre of Object.keys(protagonists)) {
+      for (const band of ['short', 'medium', 'long'] as const) {
+        const f = buildFixture(genre as '玄幻成长', band);
+        const text = JSON.stringify(f.cleanPlan);
+        expect(text).toContain(protagonists[genre]!); // 本题材主角必须出现
+        for (const [other, name] of Object.entries(protagonists)) {
+          if (other !== genre) expect(text).not.toContain(name); // 不得含其他题材主角（跨题材污染）
+        }
+        // 对抗线职责在本题材下承接
+        const volumes = f.cleanPlan.volumes as { duties: { lineId: string }[] }[];
+        for (const v of volumes) expect(v.duties.map(d => d.lineId)).toContain('rival');
+      }
+    }
+  });
 });
 
 describe('预算合并核算（仓储）', () => {
