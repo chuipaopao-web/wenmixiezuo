@@ -127,7 +127,7 @@ export function buildFixture(genre: EvalGenre, lengthBand: EvalLengthBand): Synt
     { title: `${seed.protagonist}的核心成长线`, note: `${seed.premise}` },
     { title: `${seed.conflict}的对抗线`, note: '作者明确要求这条线全书贯穿，不得中途消失' }
   ] as const;
-  const intent = `作者选择：主线为「${authorStorylines[0].title}」，贯穿线「${authorStorylines[1].title}」。目标体量40万字，轻松向，不虐主。`;
+  const intent = `作者选择：主线为「${authorStorylines[0].title}」，贯穿线「${authorStorylines[1].title}」。目标体量40万字，轻松向，不虐主，不得让对抗线中途消失。`;
   const documents = [
     // 与生产time-machine-sources.ts一致的三段式来源key（kind:id:revision），模型以此作为sourceKeys。
     { key: 'opening:main:1', text: openingText },

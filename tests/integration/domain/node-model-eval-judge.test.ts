@@ -50,6 +50,25 @@ describe('盲评提示与结论解析', () => {
     expect(buildJudgePrompt('volume-card', fixture, '{}')).toContain('具体事件');
     expect(buildJudgePrompt('card-extract', fixture, '{}')).toContain('忠于所给资料');
   });
+  it('评审资料口径与候选实际所见对齐（防资料错配误判）', () => {
+    // card-extract：候选只见开篇/设定分页，评审不得拿意图页与故事线标题判"遗漏"
+    const extractPrompt = buildJudgePrompt('card-extract', fixture, '{}');
+    expect(extractPrompt).not.toContain('intent:author:1');
+    expect(extractPrompt).not.toContain('不虐主');
+    for (const line of fixture.authorStorylines) expect(extractPrompt).not.toContain(line.title);
+    expect(extractPrompt).toContain('候选从未见过');
+    // card-finalize：任务禁止把故事方向放偏好栏，评审不得反向要求
+    const finalizePrompt = buildJudgePrompt('card-finalize', fixture, '{}');
+    expect(finalizePrompt).toContain('不得把故事方向误放为风格偏好');
+    expect(finalizePrompt).toContain('intent:author:1');
+    // card-merge：评审资料是分页短卡内容而非原始全文（原始分页正文含"档扩写第"扩写标记，短卡字段不含）
+    const mergePrompt = buildJudgePrompt('card-merge', fixture, '{}');
+    expect(mergePrompt).toContain('cardFields');
+    expect(mergePrompt).not.toContain('档扩写第');
+    // skeleton/volume：全量资料+故事线标题（候选所见一致）
+    expect(buildJudgePrompt('skeleton', fixture, '{}')).toContain('intent:author:1');
+    for (const line of fixture.authorStorylines) expect(buildJudgePrompt('volumes-batch', fixture, '{}')).toContain(line.title);
+  });
   it('结论解析：pass/fail合法；非JSON/缺字段/无理由判false均拒绝', () => {
     expect(parseJudgeVerdict('{"pass":true,"issues":[]}').pass).toBe(true);
     expect(parseJudgeVerdict('前文噪音{"pass":false,"issues":["转折是空话"]}').issues).toEqual(['转折是空话']);

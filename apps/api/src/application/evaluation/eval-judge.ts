@@ -14,7 +14,11 @@ import { buildFixture, type SyntheticFixture, type EvalGenre, type EvalLengthBan
  * - 评审调用计入独立批次账本（含评审口径），参数版本记录在judge_source。
  */
 
-export const JUDGE_CONFIG_ID = 'blind-v1(t=0.2,max=2000)';
+export const JUDGE_CONFIG_ID = 'blind-v2(t=0.2,max=2000)';
+// v2：评审资料口径按节点对齐候选实际所见（card-extract不见意图页/故事线标题；card-merge输入是分页短卡；
+// card-finalize任务禁止把故事方向放偏好栏），并给出节点任务说明——此前评审按候选从未见过的资料判"遗漏"，
+// 属评审资料错配（card-extract 35例与card-finalize 12例已作废重评，见invalidations.json）。
+// v1：初版盲评。
 // v2：cleanPlan修正为两卷真实承接作者确认对抗线（v1六名评审一致误判clean=工具失真，v1校准记录作废不重用）
 export const CALIBRATION_CONFIG_ID = 'calibration-v2(t=0.2,max=2000)';
 
@@ -34,11 +38,31 @@ function rubricFor(nodeKey: string): string {
   return '评审要点：输出是否完成该节点用途且忠于输入资料。';
 }
 
-/** 盲评提示：只给资料与候选输出，不透露候选出自哪个模型。 */
+/** 节点任务说明：评审必须按候选实际被布置的任务与实际可见资料评价，不按候选从未见过的资料判"遗漏"。 */
+function taskNoteFor(nodeKey: string): string {
+  if (nodeKey === 'card-extract') return '该节点候选的任务：只从所给开篇/设定分页提取短卡字段（生产流程此处不提供作者意图页与作者故事线标题，候选从未见过它们）。只评其对所给资料的归纳质量；不得因未提取资料中不存在的作者要求、故事线标题或意图页内容而判不过。';
+  if (nodeKey === 'card-merge') return '该节点候选的任务：把若干分页短卡归并成一张短卡（保留字段内容、去重与合理归类）。候选输入是下面给出的分页短卡内容，不是原始资料全文；只评归并是否忠于输入短卡、归类是否合理。';
+  if (nodeKey === 'card-finalize') return '该节点候选的任务：按合同纠正最终短卡的分类——premise必须归纳故事核心方向、protagonists必须保留主角、不得把故事方向误放为风格偏好栏。不得因preferences/prohibitions未收录故事线标题而判不过（任务明确禁止把故事方向当风格偏好）。';
+  return '';
+}
+
+/** 评审可见资料：与候选在该节点实际所见对齐（card-extract排除意图页；card-merge给分页短卡内容）。 */
+function judgeMaterialsFor(nodeKey: string, fixture: SyntheticFixture): { materials: unknown; authorLines: readonly string[] } {
+  if (nodeKey === 'card-extract') {
+    return { materials: fixture.documents.filter(d => !d.key.startsWith('intent:')).map(d => ({ key: d.key, text: d.text })), authorLines: [] };
+  }
+  if (nodeKey === 'card-merge') {
+    return { materials: { cardFields: fixture.cardFields }, authorLines: fixture.authorStorylines.map(a => a.title) };
+  }
+  return { materials: fixture.documents.map(d => ({ key: d.key, text: d.text })), authorLines: fixture.authorStorylines.map(a => a.title) };
+}
+
+/** 盲评提示：只给候选实际可见的资料与节点任务说明，不透露候选出自哪个模型。 */
 export function buildJudgePrompt(nodeKey: string, fixture: SyntheticFixture, candidateOutput: string): string {
-  const materials = fixture.documents.map(d => ({ key: d.key, text: d.text }));
-  const authorLines = fixture.authorStorylines.map(a => a.title);
-  return `你是独立文学评审。下面是一份合成新书资料（含作者已确认故事线）和某参评成员在该资料上完成的"${nodeKey}"节点输出。请按量规判断这次输出是否达到可交付质量：结构合同已由机器另行核验，你只评文学与事实质量，不重复检查JSON字段。${rubricFor(nodeKey)}作者已确认故事线：${JSON.stringify(authorLines)}。只返回JSON {"pass":true或false,"issues":["具体质量问题，无则空数组"]}，不解释过程，不评价资料本身。pass=false必须给出可定位的具体问题；没有具体问题不得判false。\n资料：${JSON.stringify(materials)}\n候选输出：${candidateOutput}`;
+  const { materials, authorLines } = judgeMaterialsFor(nodeKey, fixture);
+  const taskNote = taskNoteFor(nodeKey);
+  const authorPart = authorLines.length ? `作者已确认故事线：${JSON.stringify(authorLines)}。` : '';
+  return `你是独立文学评审。下面是一份合成新书资料（含作者已确认故事线）和某参评成员在该资料上完成的"${nodeKey}"节点输出。请按量规判断这次输出是否达到可交付质量：结构合同已由机器另行核验，你只评文学与事实质量，不重复检查JSON字段。${rubricFor(nodeKey)}${taskNote}${authorPart}只返回JSON {"pass":true或false,"issues":["具体质量问题，无则空数组"]}，不解释过程，不评价资料本身。pass=false必须给出可定位的具体问题；没有具体问题不得判false。\n资料：${JSON.stringify(materials)}\n候选输出：${candidateOutput}`;
 }
 
 /** 解析评审结论；非JSON或字段不符抛错（调用方按unknown处理，不猜）。 */
