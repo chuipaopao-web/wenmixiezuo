@@ -1,6 +1,9 @@
 # 文秘写作当前交接
 
+2026-09-17 K3·盲评硬停+四失真修正+排除接替证明（9b37dae5/4e6fd372/fdeda1dc/5401205a已推送，未发布）：blind-v2评审139/236案例（过123/不过1/分歧15），judging账本346+54/400按合同硬停，97案例未评不追加。评审校准：k3/doubao/glm-flash通过（正式证据）；ds-pro/ds-flash/glm-5.3/k2.7未过（仅供参考）。四处评审侧工具失真按"集中同因先查工具"全捕获：cleanPlan未承接对抗线→cleanPlan占位符（评审意见文学上成立，充实后ds-pro验通过/缺陷精确命中）→评审资料口径与候选所见错配（card-extract从未见意图页却被判遗漏，修正后同批0/10变10/10）→审查干净样本占位符致误报统计失真（正例32条作废、负例召回保留、审查以充实夹具重测中）。工具失真烧掉约三成评审预算，全部落档invalidations.json。排名预览：card-finalize doubao below_threshold（技术交付70%）；card-merge ds-pro质量85.7%不达标；volume-card仅2合格；volumes-batch未评完。排除接替证明：隔离副本全链路，doubao暂停后从派工候补消失，第1名暂停k3接替。待授权决策点：①judging续批97案例（评审max2000对大方案偏紧）；②审查重测后最终排名；③端到端待合格名单齐。派工默认关闭未上线。证据见s1.result顶部与docs 25.10.2。
+
 2026-09-17 K3·验证第一波完成+老板两次执行补充（87d48c9b/ac18b999/d161e3cc已推送，未发布）：验证批次32/32组完成（307+1未知请求/240.6万token，上限400/1200万内，续跑零重复）。card-extract/skeleton/volume-card/volumes-batch四候选全10/10；card-finalize doubao 7ok+3合同错=技术交付70%<90%门槛（老板点名案例坐实）；review-source三模型提前淘汰（ds-pro/glm-flash/k3各2次模型合同失败即停，不跨节点），仅doubao 9/10进质量机检。补充落地：技术交付含输出合同（堵合同错误绕过盲评漏洞）、盲评主判通过每3抽1复核防误放+评审校准（校准不过结论仅供参考）、budgetTotals合并核算、失败归因分类器、提前淘汰（小样本初筛不启用）、并发2用上授权额度、每组进度行。迁移0128扩展run状态（数据全保留）。评审批次进行中（独立账本400/1200万）；ds-pro/ds-flash评审校准未过clean探针，其结论将标注仅供参考。技术ok≠质量合格；排名应用与隔离端到端未做。证据见s1.result顶部与docs 25.10.1。
+
 
 2026-09-16 K3·初筛全批完成+工具失真修正（9c5cfb46/1bd000dc已推送，未发布）：56/56 run、117+9请求/96.3万+19.3万token（上限400/1200万内）。每格n=2=小样本初筛不作排名依据。7模型全通：card-merge/review-anchors；glm-5.3按节点分化——card-merge/skeleton/volume-card/review-anchors通过，card-finalize+volumes-batch+card-extract共5次截断0/2；doubao/k2.7 card-extract幻觉引用；ds-flash 3次供应商错误、glm-flash 1次供应商内容审查；review-source补查循环5例属已知口径偏差（第二批methods-select）。volumes-batch初筛"全灭"查实=评测校验器误套逐卷60字合同到批路径（工具bug非模型集体不行），已修正+反例+作废9失真案例重跑全2/2（备份与预算账本保留）。验证前置缺口：输出工件未保存、setName元数据失真、盲评未实现，修复后启动验证第一波（≤4候选/节点）。B:/弹窗=MSYS把start /b的/b转B:/路径，与评测无关，未造成中断或重复调用。证据见s1.result顶部小节。
 
