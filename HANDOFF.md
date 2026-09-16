@@ -1,5 +1,87 @@
 # 文秘写作当前交接
 
+2026-09-16 MODEL-NODE-EVAL第一阶段落地（K3，未发布）：离线前置验收全过——0127五表/22节点登记/执行器（预算硬停/断点/unknown单列/重启对账）/排名准入（Wilson/门槛/去重前三/可复算）/42项新增离线测试；既有套件317/319（schemes2项为3b87663d前既有旧债已报Codex）。真实通道打通（名册7文字模型；skeleton×DeepSeek Pro冒烟通过176秒）；初筛工具key格式修正后批次model-node-eval-b1进行中（独立预算400/1200万分账）。后台"节点评测"服务+路由+页签已建未上线。worktree分支已推96718541。初筛未完成、验证阶段/排名应用/隔离端到端未做，不称完成；证据见原s1.result顶部"K3·MODEL-NODE-EVAL第一阶段"。
+
+2026-09-16 老板新增MODEL-NODE-EVAL授权：全模型按实际节点实测、后台显示速度稳定性质量、合格前三承担岗位，不反复固定GLM试错。原inbox/task-rebuild-closeout-01.md顶部已落实详细连续开发/真实测试合同，覆盖前批只离线限制（仍不新增付费、不直接切生产）。K3接手实施：先C反馈修复，再评测存储/后台/排名派工和分批真实验证；当前无新榜单或线上停岗操作，不冒称完成。
+
+2026-09-16 Codex复核d7fc67f5：独立70/70通过，C确有自检抢先耗尽唯一修订的调度缺口。K3按原任务顶部“d7fc67f5复核通过”离线改为先收齐自检与独立审查再统一一次修订，复核上限不增加；另验证隔离B单dispatch门禁（retry本身不是单节点）。不真实调用、不部署，不再停等作者技术决策。
+
+2026-09-16 Codex复核1f831c6a：独立9/9通过，8000仅待实测（实际GLM32000/DeepSeek20000），预算已近限不追加调用。截断先抛错，DB无正文不证明全用于思考；A没到原失败卷，C不推给老板。K3按原任务顶部“1f831c6a复核”做离线预算请求测试/安全统计/C修订溯源，不部署。
+
+2026-09-16 Codex核查ab8464c4探针：三方案均不可采用，A400具体原因尚缺，B卷卡落默认3000预算、11000截断，C12条审查问题需局部核对修订。原任务顶部“ab8464c4端到端未通过”已写K3连续执行范围，复用成功步骤、隔离副本、累计预算不重置，不从开书重跑、不发布。原证据D:/tmp/wenmi-s1a-probe-final只读。
+
+2026-09-16 Codex复核9523942a：独立76/76通过，legacy同步与两链接修正接受。现网只读核实仍a7614958、API/Worker active、可用5.7G（未验证备份余量）。K3按原任务顶部“9523942a复核通过”连续做自包含共同候选构建/迁移回退/真实适配器验证，不再只写清单，不直接部署。core开发链接仍主区，候选必须归档内闭包；未把主区未提交内容并入。
+
+2026-09-16 Codex复核18f3c2a0通过：独立24/24，新增边界项消除、仅原7项未过。下一批正式移交指定CodexAgent未提交文件给K3离线收尾/冻结（原任务顶部“18f3c2a0复核通过”含文件清单，覆盖此前禁止提交该组的限制）。三套foundation现53/68，15失败必须收束，不当旧债。Node24.19明确路径在任务；不再绕过engine-strict，不重复子集预演，不部署。其他脏文件保留。
+
+2026-09-16 发布准备已复核：S1-A+Agent Plan共同候选目标；Agent差异仍由Codex冻结。K3立即按原inbox任务顶部“8caac9a5发布准备复核”修资料save新增数据库边界（仓储同步事务，不加白名单），再做已提交S1-A子集离线预演，不碰生产、不混入Codex改动。边界独立实跑8失败项、Agent配置4/4通过；未过审真实模型仍待发布风险核定，不能径称不阻塞。
+
+2026-09-16 Codex复核10bcf7e5通过：独立材料/选择20/20、页面24/24，未决恢复缺口关闭。K3下一批只按原inbox/task-rebuild-closeout-01.md顶部“10bcf7e5复核通过”整理发布准备清单，不再返修本项、不部署、不混入CodexAgent Plan未提交差异；真实质量/CTX/全量旧债与通道生产切换另列。证据见原s1.result顶部。
+
+2026-09-16 Codex复核422a48c7：版本冻结/传递已修，页面24/24独立通过；旧版本冲突后端retryable:true而测试mock false，临时改真实值复跑证实未决记录不清（测试已恢复原文）。K3仅按原inbox任务顶部“422a48c7复核后K3接续”统一确定性冲突合同并补真实HTTP测试，不重做其他成果、不部署；详情见原s1.result顶部。已提交成果可推送留存，无需重复批准，不能混入Codex未提交Agent Plan差异。
+
+2026-09-16 Codex复核1dbed5cd：材料/选择/Agent Plan三套23/23通过；前端未决记录遗漏expectedMaterialRevision，已有资料且设计请求未到服务器就断网时刷新重试409，尚未整体验收。K3下一步只补完整请求持久化与恢复反例，不部署、不混入Codex通道差异。原任务inbox/task-rebuild-closeout-01.md顶部“1dbed5cd复核后K3接续”为执行入口，s1.result顶部为复核记录。Agent Plan八文字模型已连通，不能继续称必须续费Coding才能测试；真实长任务与生产切换未完成。
+
+2026-09-16老板授权全模型统一Agent Plan；Codex已在auth-release修改模型配置/名册/协议分支和封面凭据选择，配置4/4+S1回归28/28+backend构建/API类型检查通过，新增无密钥连通性脚本。未确认真实接口、未更新生产凭据、未部署；隔离HANDOFF有准确文件清单。K3并行资料页修改保留，不混合提交；用户密钥不得进入文档、代码或日志。原“套餐到期必须续Coding”已由本次通道切换要求替代。
+
+2026-09-16 Codex复核72c3a62f：整包暂不发布。独立材料/解析两套21/21通过，但推荐线正文不可编辑，旧selection可覆盖最新材料，预览未绑定下游版本，旧卷planning-context未拦失效基线，工作UI仍显示内部步骤/错误审查成员。具体离线修复在原task顶部“72c3a62f复核后K3接续”，证据在原s1.result.md顶部。run5未采用、CTX部分完成，不认可三阶段全部完成；套餐到期不影响离线修复，暂停新模型调用，不让老板决定技术重跑。
+
+2026-09-15老板澄清：展示与编辑对象为时光机“故事线资料结果”，开书信息仅作呈现/编辑体验参考，不修改开书页面或新增开书权威来源。确认保存后以新故事线资料重设全书基线及后续卷链章，不强制重新推荐故事线；正文保留。原任务“最新接管”段与TIMEMACHINE_STORY_DESIGN第25.2节已原位纠正，K3按修正后合同执行；前置14b58cae定点修复顺序不变。本次仅文档修正，未开发部署。
+
+2026-09-15 Codex复核14b58cae：未通过完整交付验收。发现隔离源码缺retryRunFailed而依赖链接借用主区未提交核心包；新volume-card节点漏正式短卡及对应旧卷修订输入；lines≤6硬提示与合法多选冲突。独立两套12/12通过但受跨区依赖污染，不能证明源码闭包。run3只读账本255419已知tokens/31调用、采用0，A审查截断/B骨架截断/C修订后仍revise。决定K3先按原task顶部“14b58cae复核后K3第一批”补源闭包/输入/节点策略及反例，再一次有界真实探针；不原样重跑、不发布。完整核查在原s1.result.md顶部，后续UI/资料编辑与CTX-01保留。
+
+2026-09-15最新派工改由Kimi K3开发：原task-rebuild-closeout-01.md顶部已加入资料结果直接展示、作者编辑与后续规划版本失效规则；正式方案见docs/TIMEMACHINE_STORY_DESIGN.md第25节。先核对auth-release实际HEAD（最近14b58cae）与s1.result.md，收尾当前生成修复，再按原任务实施UI/资料编辑及CTX-01；不重做已关闭S0/账号门禁、不扩S2—S6。K3开发不等于恢复产品内K3设计岗位。已有正文保留，保存修改前预览影响，失效与新版本同事务；CTX-01未实测，不承诺安全长度。此轮仅本地方案更新，未开发或部署。
+
+2026-09-15复核30a6f053真实探针：三方案全部失败未采用，不发布。Codex只读账本核实13调用已知130536 tokens+1未知（GLM50900漏失败79636）；12000是8000输出+4000推理请求预算，不能当供应商硬上限；C实际kimi-k3违反仅主笔要求，A最终ID错误。截图已查看两张，1440视觉报告误读已纠正。下一批具体动作在原task-rebuild-closeout-01.md S1-A顶部30a6f053段：GLM修探针计量/终态、截断分类/逐卷有界生成、局部合同验证与既定成员准入，再一次同60万字真实探针；全量旧债仍待收束，不扩S2。原s1.result.md已有最新Codex结论。
+
+2026-09-15核查S1-A d5e4b0d1：72bd24e1真实账号接线及持久化门禁两项关闭，Codex独立后端7/7、页面13/13通过。GLM继续按原task-rebuild-closeout-01.md S1-A顶部仅收束正常点击/截图、单合成样本真实模型与既有全量门禁精确阻碍清单；原报告s1.result.md更新，不新增任务。JS点击/DOM溢出不能当完整交互视觉通过，真实模型未验、全量门禁未通过，尚未发布；不重做S0或已关闭修复，不扩S2。
+
+2026-09-15核查S1-A3a84dc98：前轮快照一致性、事务读取器、仓储和HTTP采用证据保留；新发现sessionStorage身份键只在测试写入，产品无写入方，需复用AuthorAccountContext.account.userId；真实设定门禁仍mock，补持久化中间态验证。仅两项定点动作在原task-rebuild-closeout-01.md S1-A顶部，不再重复六项或S0。浏览器/模型/全量债尚未通过，未批准发布；本轮只代码核查未独立运行。
+
+2026-09-15 S1-A90328d31集中核查未通过：已实际开发但快照intent与来源文档/hash不一致、事务外就绪读取、页面轮询覆盖编辑、useRef刷新丢幂等键及新增db边界违规需修。集中动作写在原inbox/task-rebuild-closeout-01.md S1-A顶部，原s1.result.md追加Codex结论；不另建返工文档。不发布、不做S0/S2，保留局部测试，GLM先定点修复和反例再补隔离浏览器/真实链路。旧基线失败不豁免本批新增违规。
+
+2026-09-15 S1-A具体任务已准备在原inbox/task-rebuild-closeout-01.md的S1-A段，未另建方案。Codex查9d24ffdf：design-runs只设定门禁+intent，前端故事线仅拼文字，缺推荐来源/确认版本验证。定为结构化selection、来源校验、同事务快照与设计轮、防重及刷新恢复，复用现有snapshot_json不建新库；明确真实持久化反例和命令。交GLM仅隔离实施S1-A，完成后集中验收再安排前后端协调发布，不做S0/S2。此轮文档交付不代表代码修好。
+
+2026-09-15复核GLM9d24ffdf：S0 v3修复和隔离测试成果保留，仍有末次health未判失败、停止状态非零误判等，不批准复用、不继续优先返修。S1 e2eb71da只新增HTTP测试，未改业务代码；ready使用mock且前后payload不同，不能证明真实设定确认至基线闭环。已在原s0.codex-review.md顶部集中更新，未新建评审文档。执行服从e9800b9d收紧方案：负责人先准备具体S1方案，GLM不再按旧整包任务自行探针/扫描；不重跑已通过且未受影响的测试。本轮未部署。
+
+2026-09-15按老板要求修订开发流程Skill及DEVELOPMENT_WORKFLOW第2.1：任何开发者派工前核实代码入口/缺口/技术路线，提供最小充分资料与具体验收；失败返工先复核根因，保留已通过成果，中文报告可用功能/未完成/上线及可核实耗时用量。同步任务模板、dispatch README及总路线，撤销REBUILD-CLOSEOUT-01整包自行接续方式：S0部分通过、维护工具暂禁复用，不再优先返修；S1须负责人定位后补具体方案，当前未标可实施。仅规则与文档变更，未开发/部署产品；总重构目标不变。
+
+2026-09-15 S0报告已核查，部分通过不能关闭：182f3bc9仍有事后失败删维护快照、恢复未核对版本/健康与返回值、stop失败未门禁、指纹吞读取错误、生产锁读测试变量等缺陷。集中要求.local/dispatch/outbox/task-rebuild-closeout-01-s0.codex-review.md，GLM隔离修一次，不重做生产维护；原25项证据保留。本地文档不自动同步线上，主线e493c87a未集成入b3915f68；cron待核查。S1继续新书至基线（RB19—22相关），卷链章为S2/S3，不让工具返修或全表盘点阻断产品工作。
+
+2026-09-15老板要求继续完成整体重构，沿用GLM5.3实施、Codex安排验收。连续任务.local/dispatch/inbox/task-rebuild-closeout-01.md（REBUILD-CLOSEOUT-01）已准备，待老板手动触发。执行文档顶部已纠正身份待开发的过时状态，并排定S0集成/工具→S1新书时光机闭环→S2分卷→S3链人物分章→S4正文结算→S5全部RB缺口→S6整体验收清理；仅更新文档，尚未执行产品开发或再次部署。维护脚本除diff失败恢复外，发现for内i=0不能重置连续零窗口、健康超时仍继续及完整性/外键弱校验，S0隔离修复，不重复生产VACUUM。
+
+2026-09-14备份空间恢复已完成并核查：Codex于15:55:29Z独立SSH确认当前同版本API/Worker正常、库59,162,624B、可用6,558,179,328B、新完整集20260914T155159Z-545284 marker与报告一致。GLM维护/备份日志通过，旧书和历史备份未删，不重复维护。核查记录.local/dispatch/outbox/task-auth-takeover-01-backup-space-recovery.codex-review.md。工具fa5f3a7d仍有逻辑比较失败后无条件恢复服务问题，暂不批准复用/自动维护，未来仅隔离修失败路径，不因此否认本次成功结果。未来定时备份未实测。
+
+2026-09-14上线后工具e0d895a6构建顺序修复已核对实际diff与干净构建证据；备份空间缺口仍存在。Codex选择先验证后原地整理SQLite空闲页，任务.local/dispatch/inbox/task-auth-takeover-01-backup-space-recovery.md交GLM：隔离验证/rowid依赖/一致维护保护点/峰值预算后，真实任务窗口满足才维护，恢复API及Worker，再验证正式备份。纠正GLM“Worker无需停”“112MB峰值”“03:00必失败”的过强结论。不删逻辑数据/备份、不恢复库、不重复产品发布。
+
+2026-09-14 AUTH-TAKEOVER-01正式上线：GLM清16纯代码目录释放6.26GB，新完整备份20260914T151137Z-537907已验证，0125应用，新版wm-v7-20260914-151504-a7614958。Codex于15:27:58Z独立SSH核查apps链接指新版本、API/Worker active、health ok/ready。GLM上线账号/权限/改密/跨owner日志已读；未删除旧书和备份。现时余量6,047,502,336B低于上次备份需求约7.26GB，下一次定时备份空间仍有风险；现场构建顺序缺陷尚待源脚本修复。后续任务.local/dispatch/inbox/task-auth-takeover-01-postrelease-followup.md，只修工具与只读空间核算，不重复部署。兼容回退为已组装wm-auth-takeover-r1-rollback-20260914-153000，旧现网原件不能替代0125兼容包。
+
+2026-09-14空间checks-fix纯代码工具通过范围内验收：Codex核查find显式失败处理、逐项刷新保护、23项日志与脚本/清单hash一致，未独立重跑Linux。任务.local/dispatch/inbox/task-auth-takeover-01-space-release-execute.md授权GLM仅清冻结16纯代码目录、恢复当前备份并满足门禁后继续已授权正式发布；老板已授权旧代码清理，不另要求作者数据YES。数据快照/书级/备份/VACUUM不在执行范围，仍保留。本轮尚未实际清理或上线。
+
+2026-09-14空间final-fix脚本v3与26项日志已核对，仍有原合同两项缺口：scan_has_data进程替换未检查find失败，freeze_fp管道可吞遍历失败；保护链接只启动读取、进程清单非逐项刷新，报告实时复检不成立。定点任务.local/dispatch/inbox/task-auth-takeover-01-space-plan-checks-fix.md，16纯代码目录范围不扩，不重做DB/回退，不生产删除/发布。
+
+2026-09-14清理方案返工1已核查：数据库v2事务内保护/余额及冻结草稿修复成立，83项日志已交；文件删除阶段无重新校验、信号trap未退出、临时引用文件漏清、深层真实数据探测不足、T2被data保护无条件拒绝，回退源快照head5000却称全量。任务.local/dispatch/inbox/task-auth-takeover-01-space-plan-final-fix.md仅收束工具，优先独立验收纯代码16目录，作者数据删除仍待精确确认，未生产清理/发布。
+
+2026-09-14 GLM扩大清理方案已交，Codex代码审查未通过执行验收：cleanup-db保护校验在COMMIT之后、草稿/FTS整表删除，cleanup-files忽略yes/无强制hash且固定/tmp计划文件，assemble-rollback硬链接后覆写RELEASE_ID/chown可能连带现网。任务.local/dispatch/inbox/task-auth-takeover-01-space-plan-revision-1.md修具体安全缺陷及合成反例；目录/书/备份清单尚未批准执行，生产未删未发布。清理宏观范围已授权，不重复问方向。
+
+2026-09-14老板扩大清理范围：各用户旧书、关联数据和已替换旧版本数据可清，用户账号必须保留。已原位修订.local/dispatch/inbox/task-auth-takeover-01-space-plan.md，纳入旧书/副本/旧备份影响盘点，保留账号登录权限/owner映射/会员权益余额、当前创作库和运行/发布回退必需品。GLM先交冻结清单、dry-run脚本及合成验证；永久删除仍按AGENTS第4节先具体影响预览、YES和二次确认，本轮未删生产数据，不扩容。
+
+2026-09-14 GLM正式发布被空间阻断，冻结a7614958已合并但未上传/迁移/切换；报告仅剩1.5G，backup.sh要求快照+5GiB，凌晨备份已失败。Codex核对纠正：main.js相同不证明现网是0125兼容回退；原survey时最新完整备份约36.6小时非48小时；瞬时任务分布不是30秒窗口。下一任务.local/dispatch/inbox/task-auth-takeover-01-space-plan.md仅做旧发布包精确清理影响预览及完整兼容回退核查，不授权删除/扩容/备份搬迁/生产切换。旧数据及备份保留。
+
+2026-09-14老板明确将正式发布交GLM，已下任务.local/dispatch/inbox/task-auth-takeover-01-production-release.md，覆盖此前本批“不合入/不部署”限制；从ed9152c9验收分支隔离集成并按实时空间/备份/兼容回退/全任务连续30秒清零门禁发布，禁止取消任务、恢复数据库和删除作者数据。结果outbox/task-auth-takeover-01-production-release.result.md，Codex复核。当前仅安排，尚未声称已发布。
+
+2026-09-14 AUTH-TAKEOVER-01 Linux预验收束：实现d11e0b2b、HEAD ed9152c9，Codex核对实际差异、两脚本本地hash与Linux原始记录一致，cleanup源码误删/审计内容比较两项已关闭；GLM日志迁移19/19、演练32/32及假占用/源码保留通过。本轮为代码和证据验收，未独立重跑Linux。验收记录.local/dispatch/outbox/task-auth-takeover-01-linux-preflight.codex-accepted.md。下一步完整差异合并与实时生产门禁核对，不继续返工已关闭项；尚未合入/上线，PG未实施，磁盘和在途窗口须重查。
+
+2026-09-14 AUTH-TAKEOVER-01返工4（643fe3e1/实现b32141a0）已交19项迁移、32项演练及构建/隔离/manifest证据；代码复查发现cleanup误删MIG_TEST指向的项目migrate-test.py，审计内容比较实际仍只比行数。集中小修任务.local/dispatch/inbox/task-auth-takeover-01-linux-preflight-final-fix.md，不重做身份实现/64项测试，不部署。主流程证据保留，最终工具验收待这两处关闭。
+
+2026-09-14 AUTH-TAKEOVER-01返工3（216c95ea）报告29/30，未验收通过；实际脚本权益seed使用不存在period_tokens且跳过，0125失败注入错表且仅打印不判失败，P0账号只数行、跨owner只grep data、启动未验证监听PID。已指明0057正确权益字段及临时0125确定性故障注入方式，交GLM任务.local/dispatch/inbox/task-auth-takeover-01-linux-preflight-revision-4.md集中闭环。保持已有身份修复和64项结果，不部署、不重做产品。
+
+2026-09-14 AUTH-TAKEOVER-01补交2 8fb574c0已检查提交脚本和27项日志，仍未通过发布工具验收：候选构建根路径越出仓库、drill清理通配/tmp/hdr-*、缺启动端口/实例隔离、回退脚本与实际archive构建路径不一致、0125在造历史数据前已执行而未验证旧数据升级。任务.local/dispatch/inbox/task-auth-takeover-01-linux-preflight-revision-3.md交GLM修具体缺陷及相称验证。64项已有结果保留，不要求重做身份功能，不部署。
+
+2026-09-14 AUTH-TAKEOVER-01预验返工1（8277a411）已核对GLM原始日志，11文件64项通过；此前Codex称合计74是算术错误，现纠正为64。尚未认可发布：回退包仍Windows构建，证据目录仅vitest日志，缺Linux构建/25项演练脚本与原始记录、完整hash，0125历史数据/失败原子性及基线影响仍需证据。继续任务.local/dispatch/inbox/task-auth-takeover-01-linux-preflight-revision-2.md，补交而非重做身份修复，不部署。本轮未独立重跑Linux。
+
+2026-09-14 AUTH-TAKEOVER-01 Linux预验d68c8294报告核查未通过发布验收：Linux类型检查失败、真实改密超时未查因、三阶段回退未完成、测试总数64与表格合计74矛盾，指定证据目录未找到；本轮没有独立重跑Linux测试。GLM继续执行.local/dispatch/inbox/task-auth-takeover-01-linux-preflight-revision-1.md，补构建/诊断/完整演练/原始证据，不部署、不改生产。此前本地身份修复验收仍有效，不代表Linux或PG已完成。
+
 2026-09-14老板要求可交GLM的全部委派，Codex只做范围判断与关键验收。发布准备GLM d2555484已交付但清单有错误：Worker依赖被误写无需重启、回退旧v1-only竟要求重置用户密码、生产库预验措辞不当、基线确认归属夸大。下一任务.local/dispatch/inbox/task-auth-takeover-01-linux-preflight.md让GLM纠正并连续完成Linux隔离构建/测试/迁移回退预验；允许既有授权目标的隔离暂存，不允许正式切换或改生产库。结果outbox/task-auth-takeover-01-linux-preflight.result.md。尚未认可本次可直接生产发布。
 
 2026-09-14下一步已安排GLM执行AUTH-TAKEOVER-01发布准备，任务.local/dispatch/inbox/task-auth-takeover-01-release-prep.md：在原隔离分支合并最新主线、修正式发布工具的退出/清理/重入问题，复验并交付明确平台的发布清单。不重做已通过身份修复，不扩PG/时光机，本批不推送/合入主工作区/部署。结果outbox/task-auth-takeover-01-release-prep.result.md，随后Codex验收发布物与生产门禁。
