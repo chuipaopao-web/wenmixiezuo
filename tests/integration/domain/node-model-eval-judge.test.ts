@@ -143,6 +143,18 @@ describe('评审可靠性校准样本', () => {
     expect(flawedPrompt).toContain('主角已经获得全城认可');
     expect(buildCalibrationCases(fixture)[0]!.prompt).not.toContain('主角已经获得全城认可');
   });
+  it('干净方案两卷真实承接作者确认对抗线；缺陷方案第二卷无任何职责（防探针自身失真）', () => {
+    const cleanVolumes = fixture.cleanPlan.volumes as { duties: { lineId: string }[] }[];
+    expect(cleanVolumes).toHaveLength(2);
+    for (const v of cleanVolumes) {
+      const lineIds = v.duties.map(d => d.lineId);
+      expect(lineIds).toContain('main');
+      expect(lineIds).toContain('rival'); // 作者明确要求对抗线全书贯穿：clean必须承接，否则评审按量规判不过=探针失真
+    }
+    const flawedVolumes = fixture.flawedPlan.volumes as { duties: { lineId: string }[] }[];
+    expect(flawedVolumes[1]!.duties).toHaveLength(0); // seededError②：对抗线（及主线）第二卷无去向
+    expect(flawedVolumes[0]!.duties.map(d => d.lineId)).toContain('rival'); // 缺陷只在第二卷，v1仍承接
+  });
 });
 
 describe('预算合并核算（仓储）', () => {

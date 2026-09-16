@@ -173,11 +173,16 @@ export function buildFixture(genre: EvalGenre, lengthBand: EvalLengthBand): Synt
       { id: 'in', ownerEntityId: id, kind: 'entry', summary: '开场状态成立', span: '本卷开篇', conditions: [{ summary: '开局困境已经成立', subjectIds: ['main'] }], logic: 'all', importance: 'required', fallback: '补开场戏', keywords: [], aliases: [] },
       { id: 'out', ownerEntityId: id, kind: 'exit', summary: '收束条件达成', span: '本卷收束', conditions: [{ summary: '本卷目标已经达成', subjectIds: ['main', 'rival'] }], logic: 'all', importance: 'required', fallback: '补收束戏', keywords: [], aliases: [] }
     ],
-    duties: [{ lineId: 'main', action: id === 'v1' ? 'start' : 'advance', result: '主线推进', anchorIds: [`${id}:out`], strength: 'required', reason: '主线本卷必须推进' }],
+    duties: [
+      { lineId: 'main', action: id === 'v1' ? 'start' : 'advance', result: '主线推进', anchorIds: [`${id}:out`], strength: 'required', reason: '主线本卷必须推进' },
+      // 作者明确要求对抗线全书贯穿不得中途消失：干净方案两卷都必须真实承接（校准探针失真修正——
+      // 此前duties只有主线，六名评审按"作者已确认故事线是否被真实承接"量规一致判cleanPlan不过，属工具bug非评审集体不可靠）。
+      { lineId: 'rival', action: 'advance', result: id === 'v1' ? '对抗压力初显' : '对抗正面升级', anchorIds: [], strength: 'required', reason: '作者确认对抗线全书贯穿，本卷须有真实去向' }
+    ],
     ...overrides
   });
   const cleanPlan: Record<string, unknown> = { ...skeleton, anchors: [], volumes: [volumeOf('v1'), volumeOf('v2')] };
-  // 反例植入三类已知错误：①分卷字数合计≠全书target；②作者确认对抗线在卷职责中无任何去向；
+  // 反例植入三类已知错误：①分卷字数合计≠全书target；②作者确认对抗线在第二卷无任何职责去向（干净方案两卷均有承接）；
   // ③锚点条件把将来承诺当已达成（“获得认可后”不可按正文核对）。
   const flawedPlan: Record<string, unknown> = {
     ...skeleton,

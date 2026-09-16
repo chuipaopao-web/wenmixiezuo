@@ -15,7 +15,8 @@ import { buildFixture, type SyntheticFixture, type EvalGenre, type EvalLengthBan
  */
 
 export const JUDGE_CONFIG_ID = 'blind-v1(t=0.2,max=2000)';
-export const CALIBRATION_CONFIG_ID = 'calibration-v1(t=0.2,max=2000)';
+// v2：cleanPlan修正为两卷真实承接作者确认对抗线（v1六名评审一致误判clean=工具失真，v1校准记录作废不重用）
+export const CALIBRATION_CONFIG_ID = 'calibration-v2(t=0.2,max=2000)';
 
 /** 主判通过案例的抽查密度：每3个抽1个（按pending序号确定性，可复现）。 */
 export const SPOT_CHECK_EVERY = 3;
