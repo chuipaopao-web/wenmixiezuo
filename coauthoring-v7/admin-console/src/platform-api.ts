@@ -817,6 +817,40 @@ export function updateV7UnifiedTaskPolicy(taskKind: string, input: Record<string
   });
 }
 
+// MODEL-NODE-EVAL节点评测（实时成绩，与上方静态历史报告分离展示）
+export interface V7NodeModelSummary {
+  modelProfileKey: string;
+  modelId: string;
+  publicName: string;
+  state: 'untested' | 'in_progress' | 'small_sample' | 'qualified' | 'below_threshold' | 'suspended' | 'pending_retest';
+  stats: {
+    n: number; technicalDeliveryRate: number; qualityPassRate: number | null; firstTrySuccessRate: number;
+    wilsonLowerBound: number; medianMs: number | null; p95Ms: number | null; p95SmallSample: boolean;
+    truncationCount: number; timeoutCount: number; unknownCount: number;
+    avgTokens: number | null; totalTokens: number; avgRetries: number;
+    seededErrorRecall: number | null; cleanFalseAlarmRate: number | null; criticalMissCount: number;
+  } | null;
+  admissionReasons: readonly string[];
+  policy: { state: string; reason: string; policyVersion: number } | null;
+}
+export interface V7NodeEvaluationView {
+  nodeKey: string; purpose: string; memberRole: string; batch: number; budgetClass: number; promptVersion: string;
+  runCount: number; finishedRuns: number; latestActivityAt: string | null;
+  models: V7NodeModelSummary[];
+  ranking: { id: string; revision: number; status: string; createdAt: string; entries: unknown } | null;
+  rankingStale: boolean;
+}
+export const fetchV7NodeEvaluations = (signal?: AbortSignal): Promise<{ nodes: V7NodeEvaluationView[] }> =>
+  platformRequest('/api/v1/admin/v7/node-evaluations', signal === undefined ? {} : { signal });
+export const computeV7NodeRanking = (nodeKey: string): Promise<{ id: string; qualifiedTop: number }> =>
+  platformRequest('/api/v1/admin/v7/node-evaluations/rankings/compute', { method: 'POST', body: JSON.stringify({ nodeKey }) });
+export const applyV7NodeRanking = (rankingId: string): Promise<{ applied: boolean }> =>
+  platformRequest(`/api/v1/admin/v7/node-evaluations/rankings/${encodeURIComponent(rankingId)}/apply`, { method: 'POST', body: '{}' });
+export const rollbackV7NodeRanking = (rankingId: string): Promise<{ rolledBack: boolean }> =>
+  platformRequest(`/api/v1/admin/v7/node-evaluations/rankings/${encodeURIComponent(rankingId)}/rollback`, { method: 'POST', body: '{}' });
+export const setV7NodePolicy = (input: { nodeKey: string; modelProfileKey: string; state: 'active' | 'suspended' | 'pending_retest'; reason: string }): Promise<{ updated: boolean }> =>
+  platformRequest('/api/v1/admin/v7/node-evaluations/policies', { method: 'POST', body: JSON.stringify(input) });
+
 export const fetchV7PromptContextSummary = (signal?: AbortSignal): Promise<V7PromptContextSummary> =>
   platformRequest('/api/v1/admin/v7/prompt-context/summary', signal === undefined ? {} : { signal });
 

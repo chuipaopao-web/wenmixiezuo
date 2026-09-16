@@ -129,9 +129,10 @@ export function buildFixture(genre: EvalGenre, lengthBand: EvalLengthBand): Synt
   ] as const;
   const intent = `作者选择：主线为「${authorStorylines[0].title}」，贯穿线「${authorStorylines[1].title}」。目标体量40万字，轻松向，不虐主。`;
   const documents = [
-    { key: 'opening:main', text: openingText },
-    { key: 'setting:world', text: settingText },
-    { key: 'intent:author', text: intent }
+    // 与生产time-machine-sources.ts一致的三段式来源key（kind:id:revision），模型以此作为sourceKeys。
+    { key: 'opening:main:1', text: openingText },
+    { key: 'setting:world:1', text: settingText },
+    { key: 'intent:author:1', text: intent }
   ];
   const srcOpening = sourceKey('opening', 'main', '1');
   const srcSetting = sourceKey('setting', 'world', '1');

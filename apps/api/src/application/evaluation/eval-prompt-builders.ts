@@ -43,8 +43,8 @@ function evalManifest(sample: BuiltSample) {
   const hash = (s: string) => createHash('sha256').update(s).digest('hex');
   return {
     sources: [
-      { kind: 'opening', id: 'main', revision: '1', hash: hash(sample.fixture.documents.find(d => d.key === 'opening:main')!.text) },
-      { kind: 'setting', id: 'world', revision: '1', hash: hash(sample.fixture.documents.find(d => d.key === 'setting:world')!.text) },
+      { kind: 'opening', id: 'main', revision: '1', hash: hash(sample.fixture.documents.find(d => d.key === 'opening:main:1')!.text) },
+      { kind: 'setting', id: 'world', revision: '1', hash: hash(sample.fixture.documents.find(d => d.key === 'setting:world:1')!.text) },
       { kind: 'intent', id: 'author', revision: '1', hash: hash(sample.fixture.intent) }
     ],
     templateRevision: TIME_MACHINE_CARD_TEMPLATE_REVISION,
@@ -66,9 +66,9 @@ export function buildEvalPrompt(nodeKey: string, sample: BuiltSample): string {
   const card = evalCard(sample);
   switch (nodeKey) {
     case 'card-extract': {
-      // 源：design-service.ts:317 — cardContract + 分页资料
+      // 源：design-service.ts:317 — cardContract + 分页资料（生产传分页数组本身，非包裹对象）
       const contract = cardContractFor(TIME_MACHINE_CARD_TEMPLATE_REVISION);
-      const page = { documents: f.documents.filter(d => !d.key.startsWith('intent:')) };
+      const page = f.documents.filter(d => !d.key.startsWith('intent:'));
       return `${contract}\n这可能是一部分资料，未知保持空，来源key不可创造。\n${JSON.stringify(page)}`;
     }
     case 'card-merge': {

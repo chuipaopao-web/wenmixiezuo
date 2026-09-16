@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { openingRanking, ROLES, MEMBER_SLOTS, memberNameWithModel } from '@wenmi/agent-catalog';
 import {MemberWorkspace} from './MemberWorkspace';
+import {NodeEvaluationPanel} from './NodeEvaluationPanel';
 import { ArrowClockwise, CheckCircle, Robot, WarningCircle } from '@phosphor-icons/react';
 import { publicMemberIdentity, V7_MEMBER_AVATAR_SIZE, V7_MEMBER_AVATAR_SPRITE } from '../../backend/agent-governance/member-identities';
 import {
@@ -15,7 +16,7 @@ export function UnifiedAgentGovernance(): React.JSX.Element {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [tab, setTab] = useState<'members' | 'evaluation' | 'policies'>('members');
+  const [tab, setTab] = useState<'members' | 'evaluation' | 'nodeEval' | 'policies'>('members');
   const [memberKey,setMemberKey]=useState<string|null>(()=>new URL(location.href).searchParams.get('member'));
   useEffect(()=>{const restore=()=>setMemberKey(new URL(location.href).searchParams.get('member'));window.addEventListener('popstate',restore);return()=>window.removeEventListener('popstate',restore);},[]);
   function openMember(key:string|null){const url=new URL(location.href);url.searchParams.set('section','agents');if(key)url.searchParams.set('member',key);else url.searchParams.delete('member');history.pushState({},'',url);setMemberKey(key);}
@@ -62,9 +63,11 @@ export function UnifiedAgentGovernance(): React.JSX.Element {
     <div className="prompt-context-tabs" role="tablist" aria-label="成员管理">
       <button role="tab" aria-selected={tab === 'members'} onClick={() => changeTab('members')}>全部成员（{data.summary.memberCount}）</button>
       <button role="tab" aria-selected={tab === 'evaluation'} onClick={() => changeTab('evaluation')}>模型速度与准入</button>
+      <button role="tab" aria-selected={tab === 'nodeEval'} onClick={() => changeTab('nodeEval')}>节点评测</button>
       <button role="tab" aria-selected={tab === 'policies'} onClick={() => changeTab('policies')}>任务参数</button>
     </div>
     {tab === 'evaluation' && <><SettingEvaluation data={data}/><OpeningEvaluation data={data}/></>}
+    {tab === 'nodeEval' && <NodeEvaluationPanel/>}
     {tab === 'members' && <>
     <p>文字岗位各9位，封面画师2位。待验证 {data.summary.candidateCount ?? 0} 位，未绑定 {data.summary.unboundCount ?? 0} 位。成员身份已建立不代表所有节点都已准入；开书接单单独标注。</p>
     <div className="admin-context-filters">

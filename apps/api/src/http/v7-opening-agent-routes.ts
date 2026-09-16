@@ -10,6 +10,7 @@ import { V7BookTitleDesignService } from '../application/books/v7-book-title-des
 import { V7BookCoverDesignService } from '../application/books/v7-book-cover-design-service.js';
 import { V7UnifiedEditorialDepartmentService } from '../application/books/v7-unified-editorial-department-service.js';
 import { V7AgentGovernanceService } from '../application/agents/v7-agent-governance-service.js';
+import { V7NodeEvaluationService } from '../application/agents/v7-node-evaluation-service.js';
 import { designTaskLimit } from '../application/books/v7-design-task-view.js';
 import { success } from '../contracts/api.js';
 import { SystemClock, UuidGenerator } from '../domain/ids.js';
@@ -96,6 +97,40 @@ export async function registerV7OpeningAgentRoutes(
   app.get('/api/v1/admin/v7/agent-governance', async (request) => {
     requireAdministrator(request);
     return success(unifiedGovernance.adminView(), request.id);
+  });
+
+  // MODEL-NODE-EVAL节点评测后台（合同"后台UI"节）：实时成绩与静态历史报告分离展示。
+  const nodeEvaluation = new V7NodeEvaluationService(database);
+  app.get('/api/v1/admin/v7/node-evaluations', async (request) => {
+    requireAdministrator(request);
+    return success({ nodes: nodeEvaluation.adminView() }, request.id);
+  });
+  app.post<{ Body: { nodeKey?: string } }>('/api/v1/admin/v7/node-evaluations/rankings/compute', async (request) => {
+    const administrator = requireAdministrator(request);
+    const nodeKey = String(request.body?.nodeKey ?? '');
+    return success(nodeEvaluation.computeRanking(nodeKey, administrator.userId), request.id);
+  });
+  app.post<{ Params: { rankingId: string } }>('/api/v1/admin/v7/node-evaluations/rankings/:rankingId/apply', async (request) => {
+    const administrator = requireAdministrator(request);
+    nodeEvaluation.applyRanking(administrator.userId, request.params.rankingId);
+    return success({ applied: true }, request.id);
+  });
+  app.post<{ Params: { rankingId: string } }>('/api/v1/admin/v7/node-evaluations/rankings/:rankingId/rollback', async (request) => {
+    const administrator = requireAdministrator(request);
+    nodeEvaluation.rollbackRanking(administrator.userId, request.params.rankingId);
+    return success({ rolledBack: true }, request.id);
+  });
+  app.post<{ Body: { nodeKey?: string; modelProfileKey?: string; state?: string; reason?: string } }>('/api/v1/admin/v7/node-evaluations/policies', async (request) => {
+    const administrator = requireAdministrator(request);
+    const body = request.body ?? {};
+    const state = String(body.state ?? '');
+    if (!['active', 'suspended', 'pending_retest'].includes(state)) throw new Error('策略状态无效');
+    nodeEvaluation.setNodePolicy(administrator.userId, String(body.nodeKey ?? ''), String(body.modelProfileKey ?? ''), state as 'active' | 'suspended' | 'pending_retest', String(body.reason ?? ''));
+    return success({ updated: true }, request.id);
+  });
+  app.post('/api/v1/admin/v7/node-evaluations/suspension-rules/evaluate', async (request) => {
+    const administrator = requireAdministrator(request);
+    return success({ suspended: nodeEvaluation.evaluateSuspensionRules(administrator.userId) }, request.id);
   });
 
   app.patch<{
