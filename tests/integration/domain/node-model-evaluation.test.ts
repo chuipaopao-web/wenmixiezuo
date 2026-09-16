@@ -318,3 +318,46 @@ describe('节点登记表', () => {
     expect(matchEvalNode('card-finalize')!.nodeKey).toBe('card-finalize');
   });
 });
+
+describe('输出工件保存（盲评引用依据）', () => {
+  it('成功/合同错误的可见输出落盘且artifact_path入库；失败无工件', async () => {
+    const { c, repo } = setup();
+    const { mkdtempSync, readFileSync, existsSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const artifactDir = mkdtempSync(join(tmpdir(), 'eval-artifacts-'));
+    repo.ensureBudget('batch-1', 10, 10_000_000);
+    createRun(repo, 'run-art', 3);
+    const executor = new NodeEvaluationExecutor(c.database, { estimateTokens: () => 100, artifactDir });
+    const adapter: EvalAdapter = {
+      async generate(req) {
+        if (req.prompt.includes('截断')) throw new EvalCallError('truncated', '截断：max_tokens');
+        if (req.prompt.includes('坏合同')) return { output: '不是JSON', usage: { inputTokens: 10, outputTokens: 5, reasoningTokens: 0 } };
+        return { output: '{"ok":true,"内容":"可见输出正文"}', usage: { inputTokens: 10, outputTokens: 5, reasoningTokens: 0 } };
+      }
+    };
+    const plan = makePlan(repo, 'run-art', [sample('art-ok'), sample('art-bad', '坏合同'), sample('art-trunc', '截断')]);
+    await executor.execute(plan, adapter);
+    const cases = repo.casesForRun('run-art');
+    expect(cases.map(x => x.outcome).toSorted()).toEqual(['contract_error', 'ok', 'truncated']);
+    const okCase = cases.find(x => x.outcome === 'ok')!;
+    expect(okCase.artifact_path).toBeTruthy();
+    const saved = JSON.parse(readFileSync(join(artifactDir, okCase.artifact_path!), 'utf8')) as { output: string; modelProfileKey: string; nodeKey: string };
+    expect(saved.output).toContain('可见输出正文');
+    expect(saved.modelProfileKey).toBe('deepseek-v4-pro');
+    expect(saved.nodeKey).toBe('skeleton');
+    const badCase = cases.find(x => x.outcome === 'contract_error')!;
+    expect(badCase.artifact_path).toBeTruthy(); // 合同错误也有可见输出，供失败证据引用
+    expect(existsSync(join(artifactDir, badCase.artifact_path!))).toBe(true);
+    const truncCase = cases.find(x => x.outcome === 'truncated')!;
+    expect(truncCase.artifact_path).toBeNull(); // 无可见输出不落盘
+  });
+  it('未配置artifactDir时行为与现状一致（artifact_path为null）', async () => {
+    const { c, repo } = setup();
+    repo.ensureBudget('batch-1', 10, 10_000_000);
+    createRun(repo, 'run-no-art', 1);
+    const executor = new NodeEvaluationExecutor(c.database, { estimateTokens: () => 100 });
+    await executor.execute(makePlan(repo, 'run-no-art', [sample('no-art')]), okAdapter());
+    expect(repo.casesForRun('run-no-art')[0]!.artifact_path).toBeNull();
+  });
+});

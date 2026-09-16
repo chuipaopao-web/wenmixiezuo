@@ -95,14 +95,17 @@ async function main(): Promise<void> {
   const untested: { model: string; reason: string }[] = [];
   for (const profileKey of roster.filter(k => !targets.includes(k))) untested.push({ model: profileKey, reason: '本批未列入' });
 
-  const executor = new NodeEvaluationExecutor(db, {});
+  const executor = new NodeEvaluationExecutor(db, { artifactDir: resolve(dirname(args.db), 'artifacts') });
   const sampleSetId = `eval-${args.phase}-v1`;
+  // 阶段→样本集：validation用保留holdout样本（与调参screen分离）；此前误把phase直传setName，
+  // 运行时虽恰好落到holdout组合，但setName元数据失真，已修正。
+  const setName = args.phase === 'screen' ? 'screen' as const : 'holdout' as const;
   const summary: { node: string; model: string; status: string; cases: number; ok: number; contractFail: number; truncated: number; other: number }[] = [];
 
   for (const nodeKey of args.nodes) {
     const node = findEvalNode(nodeKey);
     if (!node) { console.error(`未登记节点：${nodeKey}，跳过`); continue; }
-    const samples = buildSamples(nodeKey, args.phase);
+    const samples = buildSamples(nodeKey, setName);
     for (const modelProfileKey of targets) {
       // 装配检查：模型未在套餐角色配置中=未测（不静默漏项）
       let probeOk = true;

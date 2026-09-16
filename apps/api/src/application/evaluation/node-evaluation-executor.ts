@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { NodeEvaluationRepository } from '../../infrastructure/db/repositories/node-evaluation-repository.js';
 
@@ -80,6 +82,9 @@ export interface ExecutorOptions {
   readonly rateLimitBackoffMs: readonly number[]; // 默认[5000,20000]
   readonly timeoutMs: number;           // 单case超时，默认600000
   readonly estimateTokens: (text: string) => number; // 保守估计，用于预留
+  /** 输出工件保存目录（受控本地artifact，合同"记录与存储"节）：设置后成功/合同错误的可见输出落盘供盲评引用；
+   * 只存可见输出，密钥与思维链不入盘；写盘失败不抹掉已计费结果，artifact_path如实为null。 */
+  readonly artifactDir?: string;
 }
 
 const DEFAULT_OPTIONS: ExecutorOptions = {
@@ -213,6 +218,22 @@ export class NodeEvaluationExecutor {
       const durationMs = Date.parse(finishedAt) - Date.parse(startedAt);
       this.release(plan.modelProfileKey);
 
+      // 输出工件：成功/合同错误的可见输出落盘（盲评引用依据）；截断/超时等无可见输出不落盘。
+      // 写盘失败不抹掉已计费结果，artifact_path如实为null。
+      let artifactPath: string | null = null;
+      if (output !== null && this.options.artifactDir) {
+        try {
+          const name = `${plan.runId.replace(/[^A-Za-z0-9_-]/gu, '_')}__${sample.sampleHash}__${attemptSeq}.json`;
+          mkdirSync(this.options.artifactDir, { recursive: true });
+          writeFileSync(join(this.options.artifactDir, name), JSON.stringify({
+            nodeKey: plan.nodeKey, modelProfileKey: plan.modelProfileKey, sampleHash: sample.sampleHash,
+            genre: sample.genre, lengthBand: sample.lengthBand, timeSlot: sample.timeSlot, kind: sample.kind,
+            configVersion: plan.configVersion, promptVersion: plan.promptVersion, output
+          }), 'utf8');
+          artifactPath = name;
+        } catch { artifactPath = null; }
+      }
+
       const usageKnown = usage !== null && usage.inputTokens !== null && usage.outputTokens !== null;
       const actualTokens = usageKnown ? usage!.inputTokens! + usage!.outputTokens! + (usage!.reasoningTokens ?? 0) : null;
       this.repo.insertCase({
@@ -224,7 +245,7 @@ export class NodeEvaluationExecutor {
         input_tokens: usage?.inputTokens ?? null, output_tokens: usage?.outputTokens ?? null, reasoning_tokens: usage?.reasoningTokens ?? null,
         usage_known: usageKnown ? 1 : 0, reserved_tokens: reservedTokens, retry_count: retryCount,
         queued_at: queuedAt, started_at: startedAt, finished_at: finishedAt, queue_ms: queueMs, duration_ms: durationMs,
-        error_code: errorCode, artifact_path: null, provider_model_version: providerModelVersion
+        error_code: errorCode, artifact_path: artifactPath, provider_model_version: providerModelVersion
       });
       this.repo.settle(plan.batchId, plan.runId, { requests: 1, reservedTokens, actualTokens });
     }
