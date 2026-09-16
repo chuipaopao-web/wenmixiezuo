@@ -146,38 +146,56 @@ export function buildFixture(genre: EvalGenre, lengthBand: EvalLengthBand): Synt
     prohibitions: [{ text: '不得让作者确认的对抗线中途消失', sourceKeys: [srcIntent] }]
   };
   const words = { target: 400000, min: null, max: null, hard: false, policy: 'chars-v1' };
+  // 干净方案必须是"按文学量规真该判过"的方案（两轮校准失真教训）：
+  // 结构自述与卷数一致、里程碑有逐步节点、期待有推进与回应、关系落到具体效果、卷级内容无占位符。
   const skeleton: Record<string, unknown> = {
-    structure: '四幕起承转合：第一幕立足、第二幕扩张、第三幕危机、第四幕兑现',
+    structure: '两卷起承式：第一卷"起"完成立足，第二卷"承转合"完成扩张、正面冲突与兑现',
     baseline: '轻快成长，靠手艺与制度取胜',
     ending: seed.premise.split('，')[0],
     openingHooks: [`开篇钩子：${seed.openingBeat}`, '第一章末读者想知道他如何破局', '前三章建立最大期待：证明自己'],
     words,
     lines: [
-      { id: 'main', role: 'main', title: authorStorylines[0].title, goal: '立足', answer: seed.premise.split('，')[0], process: '从被轻视到被需要', parentIds: [], covers: [authorStorylines[0].title], milestones: [{ id: 'ms1', summary: '第一次证明自己', suggestedVolumes: ['v1'], importance: 'required' }] },
-      { id: 'rival', role: 'through', title: authorStorylines[1].title, goal: '压制主角', answer: '对抗线全书贯穿并在终卷收束', process: '逐步升级的正面对抗', parentIds: [], covers: [authorStorylines[1].title], milestones: [{ id: 'ms2', summary: '第一次正面冲突', suggestedVolumes: ['v2'], importance: 'flexible' }] }
+      { id: 'main', role: 'main', title: authorStorylines[0].title, goal: '立足', answer: seed.premise.split('，')[0], process: '从被轻视到被需要', parentIds: [], covers: [authorStorylines[0].title], milestones: [
+        { id: 'ms1', summary: `${seed.protagonist}第一次用手艺证明自己`, suggestedVolumes: ['v1'], importance: 'required' },
+        { id: 'ms1b', summary: '手艺路径得到公开验证，小铺在封锁中存活', suggestedVolumes: ['v1'], importance: 'flexible' },
+        { id: 'ms1c', summary: '获得行业制度性承认，完成从被轻视到被需要', suggestedVolumes: ['v2'], importance: 'required' }
+      ] },
+      { id: 'rival', role: 'through', title: authorStorylines[1].title, goal: '压制主角', answer: '对抗线全书贯穿并在终卷收束', process: '逐步升级的正面对抗', parentIds: [], covers: [authorStorylines[1].title], milestones: [
+        { id: 'ms2', summary: `${seed.conflict}的封锁首次落到主角身上`, suggestedVolumes: ['v1'], importance: 'flexible' },
+        { id: 'ms3', summary: '正面冲突爆发，双方亮出底牌', suggestedVolumes: ['v2'], importance: 'flexible' },
+        { id: 'ms4', summary: '垄断被实际打破，对抗在终卷收束', suggestedVolumes: ['v2'], importance: 'required' }
+      ] }
     ],
-    expectations: [{ id: 'promise', opening: '主角能否在压制下立足', change: '看到主角用方法而非运气取胜', answer: '以手艺与制度赢得认可', lineIds: ['main'] }],
-    relations: [{ from: 'rival', to: 'main', kind: 'conflict', effect: '对抗压力推动成长' }],
+    expectations: [
+      { id: 'promise', opening: '主角能否在压制下立足', change: '看到主角用方法而非运气取胜', answer: '第一卷公开验证初步回应，第二卷制度承认最终回应', lineIds: ['main'] },
+      { id: 'promise-rival', opening: '垄断封锁会不会压垮主角', change: '想看封锁如何被一步步正面打破', answer: '终卷垄断被实际打破', lineIds: ['rival', 'main'] }
+    ],
+    relations: [
+      { from: 'rival', to: 'main', kind: 'conflict', effect: `${seed.conflict}的每次升级都倒逼${seed.protagonist}把手艺磨成制度性优势` },
+      { from: 'main', to: 'rival', kind: 'push', effect: `${seed.protagonist}的每次公开成功都迫使对抗方把压制升级到更台面化的手段` }
+    ],
     volumeBriefs: [
-      { id: 'v1', title: '立足', beat: '第一幕·起', goal: '打开局面', words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' } },
-      { id: 'v2', title: '扩张', beat: '第二幕·承', goal: '建立根基', words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' } }
+      { id: 'v1', title: '立足', beat: '起·立足', goal: `${seed.protagonist}找到不靠天赋也能立足的手艺路径`, words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' } },
+      { id: 'v2', title: '扩张', beat: '承转合·扩张与兑现', goal: `${seed.protagonist}把手艺变成被制度承认的位置，正面回应${seed.conflict}`, words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' } }
     ]
   };
   const volumeOf = (id: string, overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
-    id, title: id === 'v1' ? '立足' : '扩张', beat: id === 'v1' ? '第一幕·起' : '第二幕·承',
-    start: '开局困境已成立', goal: '本卷目标', conflict: seed.conflict, turningPoint: '关键转折事件',
-    gain: '伙伴与口碑', loss: null, arc: null, payoff: null, hook: null, mood: null,
-    ending: '本卷结束条件达成', handoff: id === 'v1' ? '引出扩张' : '',
+    id, title: id === 'v1' ? '立足' : '扩张', beat: id === 'v1' ? '起·立足' : '承转合·扩张与兑现',
+    start: id === 'v1' ? `${seed.openingBeat}，${seed.protagonist}被卷入${seed.conflict}` : `立足初成，${seed.conflict}的压力升级为正面封锁`,
+    goal: id === 'v1' ? `${seed.protagonist}找到不靠天赋也能立足的手艺路径` : `${seed.protagonist}把手艺变成被制度承认的位置`,
+    conflict: seed.conflict,
+    turningPoint: id === 'v1' ? `${seed.protagonist}第一次用方法而非运气化解${seed.conflict}带来的危机，赢得初步认可` : `与${seed.conflict}的正面冲突爆发，${seed.protagonist}以积累的手艺与规则取胜`,
+    gain: id === 'v1' ? '第一批伙伴与街坊口碑' : '行业内的正式位置与话语权', loss: null, arc: null, payoff: null, hook: null, mood: null,
+    ending: id === 'v1' ? `${seed.protagonist}的小铺在封锁中存活，手艺路径得到公开验证` : `兑现「${seed.premise.split('，')[0]}」的开篇承诺，垄断被实际打破`,
+    handoff: id === 'v1' ? '封锁升级为正面对抗，引出第二卷' : '终卷：对抗线收束，全书问题在此卷回答',
     words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' },
     anchors: [
-      { id: 'in', ownerEntityId: id, kind: 'entry', summary: '开场状态成立', span: '本卷开篇', conditions: [{ summary: '开局困境已经成立', subjectIds: ['main'] }], logic: 'all', importance: 'required', fallback: '补开场戏', keywords: [], aliases: [] },
-      { id: 'out', ownerEntityId: id, kind: 'exit', summary: '收束条件达成', span: '本卷收束', conditions: [{ summary: '本卷目标已经达成', subjectIds: ['main', 'rival'] }], logic: 'all', importance: 'required', fallback: '补收束戏', keywords: [], aliases: [] }
+      { id: 'in', ownerEntityId: id, kind: 'entry', summary: '开场状态成立', span: '本卷开篇', conditions: [{ summary: id === 'v1' ? `${seed.openingBeat}已经发生` : '第一卷立足成果成立', subjectIds: ['main'] }], logic: 'all', importance: 'required', fallback: '补开场戏', keywords: [], aliases: [] },
+      { id: 'out', ownerEntityId: id, kind: 'exit', summary: '收束条件达成', span: '本卷收束', conditions: [{ summary: id === 'v1' ? '主角的手艺路径得到第一次公开验证' : '主角以手艺与规则赢得正式位置', subjectIds: ['main', 'rival'] }], logic: 'all', importance: 'required', fallback: '补收束戏', keywords: [], aliases: [] }
     ],
     duties: [
-      { lineId: 'main', action: id === 'v1' ? 'start' : 'advance', result: '主线推进', anchorIds: [`${id}:out`], strength: 'required', reason: '主线本卷必须推进' },
-      // 作者明确要求对抗线全书贯穿不得中途消失：干净方案两卷都必须真实承接（校准探针失真修正——
-      // 此前duties只有主线，六名评审按"作者已确认故事线是否被真实承接"量规一致判cleanPlan不过，属工具bug非评审集体不可靠）。
-      { lineId: 'rival', action: 'advance', result: id === 'v1' ? '对抗压力初显' : '对抗正面升级', anchorIds: [], strength: 'required', reason: '作者确认对抗线全书贯穿，本卷须有真实去向' }
+      { lineId: 'main', action: id === 'v1' ? 'start' : 'advance', result: id === 'v1' ? '主线确立：从被轻视到找到立足手艺' : '主线推进：从立足到被制度承认', anchorIds: [`${id}:out`], strength: 'required', reason: '主线本卷必须推进' },
+      { lineId: 'rival', action: 'advance', result: id === 'v1' ? `${seed.conflict}的压制首次落到具体行动，主角付出可见代价` : '对抗正面爆发并在终卷收束，垄断被实际打破', anchorIds: [], strength: 'required', reason: '作者确认对抗线全书贯穿，本卷须有真实去向' }
     ],
     ...overrides
   });
