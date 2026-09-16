@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
 import { NodeEvaluationRepository } from '../../../apps/api/src/infrastructure/db/repositories/node-evaluation-repository.js';
-import { buildJudgePrompt, parseJudgeVerdict, judgePoolFor, loadJudgmentInput } from '../../../apps/api/src/application/evaluation/eval-judge.js';
+import { buildJudgePrompt, parseJudgeVerdict, judgePoolFor, loadJudgmentInput, buildCalibrationCases, shouldSpotCheck, SPOT_CHECK_EVERY, CALIBRATION_CONFIG_ID } from '../../../apps/api/src/application/evaluation/eval-judge.js';
 import { buildFixture } from '../../../apps/api/src/application/evaluation/eval-sample-factory.js';
 import type { EvalCaseRow } from '../../../apps/api/src/infrastructure/db/repositories/node-evaluation-repository.js';
 
@@ -102,5 +102,71 @@ describe('评审输入加载', () => {
     expect(loadJudgmentInput(dir, { ...base, artifact_path: 'missing.json' })).toBeNull();
     expect(loadJudgmentInput(dir, { ...base, artifact_path: 'bad.json' })).toBeNull();
     expect(loadJudgmentInput(dir, { ...base, artifact_path: null })).toBeNull();
+  });
+});
+
+describe('主判通过抽查（防误放）', () => {
+  it('按序号确定性每3抽1，可复现', () => {
+    expect(SPOT_CHECK_EVERY).toBe(3);
+    expect([0, 1, 2, 3, 4, 5, 6].map(shouldSpotCheck)).toEqual([true, false, false, true, false, false, true]);
+    // 抽查与评审池轮换用同一序号：judgePoolFor(index+1)取到的复核模型必异于主评审（排除参数生效）
+    const roster = ['a', 'b', 'c', 'd'];
+    for (const index of [0, 3, 6, 9]) {
+      const primary = judgePoolFor('x', roster, index);
+      const checker = judgePoolFor('x', roster, index + 1, primary ?? undefined);
+      expect(checker).not.toBe(primary);
+    }
+  });
+});
+
+describe('评审可靠性校准样本', () => {
+  const fixture = buildFixture('玄幻成长', 'medium');
+  it('三探针：已知正确应判过、两类量规下已知缺陷应判不过', () => {
+    const cases = buildCalibrationCases(fixture);
+    expect(cases.map(c => c.label)).toEqual(['clean-skeleton', 'flawed-skeleton', 'flawed-volume']);
+    expect(cases.map(c => c.expectPass)).toEqual([true, false, false]);
+    const flawed = cases.filter(c => !c.expectPass);
+    for (const probe of flawed) {
+      expect(probe.seededErrors).toEqual(fixture.seededErrors);
+      expect(probe.seededErrors.length).toBeGreaterThanOrEqual(3);
+    }
+    // 校准提示仍是盲评提示：不含任何模型身份；clean与flawed输出不同
+    for (const probe of cases) {
+      for (const modelId of ['deepseek-v4-pro', 'glm-5.3', 'kimi-k3', 'doubao-seed-2.1-turbo']) expect(probe.prompt).not.toContain(modelId);
+    }
+    expect(cases[0]!.prompt).not.toBe(cases[1]!.prompt);
+    expect(CALIBRATION_CONFIG_ID).toContain('calibration');
+  });
+  it('校准样本植入的错误真实存在于flawedPlan输出中', () => {
+    const flawedPrompt = buildCalibrationCases(fixture)[1]!.prompt;
+    // 锚点“主角已经获得全城认可”（将来承诺当已达成）必须出现在评审可见输出里，否则探针失效
+    expect(flawedPrompt).toContain('主角已经获得全城认可');
+    expect(buildCalibrationCases(fixture)[0]!.prompt).not.toContain('主角已经获得全城认可');
+  });
+});
+
+describe('预算合并核算（仓储）', () => {
+  it('budgetTotals汇总全部批次分账与合计，合计=各账之和', () => {
+    const { repo } = setup();
+    repo.createRun({
+      id: 'run-bt-1', batch_id: 'batch-a', node_key: 'skeleton', length_band: 'all', member_role: 'writer',
+      model_profile_key: 'm1', provider: 'p', model_id: 'm1', model_plan: 'agent',
+      config_version: 'cfg', prompt_version: 'pv', phase: 'validation', status: 'succeeded', sample_set_id: 's', planned_cases: 1
+    });
+    repo.ensureBudget('batch-a', 400, 12_000_000);
+    repo.ensureBudget('batch-b', 400, 12_000_000);
+    expect(repo.tryReserve('batch-a', 'run-bt-1', 2, 1000)).toBe(true);
+    repo.settle('batch-a', 'run-bt-1', { requests: 1, reservedTokens: 500, actualTokens: 300 });
+    repo.settle('batch-a', 'run-bt-1', { requests: 1, reservedTokens: 500, actualTokens: null });
+    const all = repo.budgetTotals();
+    expect(all.batches.map(b => b.batch_id).sort()).toEqual(['batch-a', 'batch-b']);
+    const a = all.batches.find(b => b.batch_id === 'batch-a')!;
+    expect(a.actual_requests).toBe(1);
+    expect(a.unknown_requests).toBe(1);
+    expect(a.actual_tokens).toBe(300);
+    expect(a.unknown_tokens).toBe(500);
+    expect(all.totals.actual_requests).toBe(all.batches.reduce((s, b) => s + b.actual_requests, 0));
+    expect(all.totals.unknown_tokens).toBe(all.batches.reduce((s, b) => s + b.unknown_tokens, 0));
+    expect(all.totals.actual_requests + all.totals.unknown_requests).toBeGreaterThanOrEqual(2);
   });
 });

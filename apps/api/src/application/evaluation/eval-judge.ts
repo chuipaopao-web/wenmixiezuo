@@ -8,10 +8,20 @@ import { buildFixture, type SyntheticFixture, type EvalGenre, type EvalLengthBan
  * - 文学质量不以关键词或JSON合格替代：生成节点结构通过的输出由异底层模型按节点量规盲评。
  * - 盲评：提示不透露输出来自哪个模型/成员；评审模型不得给自己评分（judgePoolFor排除本案例模型）。
  * - 分歧复核：主评审判不过→第二名异模型复核；两人一致不过=0，一人过一人不过=null（评审分歧单独统计，不凑数）。
+ * - 抽查误放：主判通过的case按序号确定性抽查（shouldSpotCheck），异模型复核；抽查不过→分歧null=未定，不自动算过。
+ * - 评审校准：评审模型先用已知正确（cleanPlan应判过）与已知缺陷（flawedPlan应判不过）样本验证可靠性；
+ *   校准不过的评审其结论在quality_note标注"仅供参考"（buildCalibrationCases / CALIBRATION_CONFIG_ID）。
  * - 评审调用计入独立批次账本（含评审口径），参数版本记录在judge_source。
  */
 
 export const JUDGE_CONFIG_ID = 'blind-v1(t=0.2,max=2000)';
+export const CALIBRATION_CONFIG_ID = 'calibration-v1(t=0.2,max=2000)';
+
+/** 主判通过案例的抽查密度：每3个抽1个（按pending序号确定性，可复现）。 */
+export const SPOT_CHECK_EVERY = 3;
+export function shouldSpotCheck(caseIndex: number): boolean {
+  return caseIndex % SPOT_CHECK_EVERY === 0;
+}
 
 export interface JudgeVerdict { readonly pass: boolean; readonly issues: string[] }
 
@@ -60,4 +70,26 @@ export function loadJudgmentInput(artifactDir: string, caseRow: EvalCaseRow): { 
     output = parsed.output;
   } catch { return null; }
   return { fixture: buildFixture(caseRow.genre as EvalGenre, caseRow.length_band as EvalLengthBand), output };
+}
+
+export interface CalibrationCase {
+  readonly label: 'clean-skeleton' | 'flawed-skeleton' | 'flawed-volume';
+  readonly nodeKey: string;
+  readonly prompt: string;
+  readonly expectPass: boolean;
+  readonly seededErrors: readonly string[];
+}
+
+/**
+ * 评审可靠性校准样本（不落库，结果写judge-calibration.json）：
+ * 已知正确的cleanPlan应判过；植入三类已知错误的flawedPlan应判不过
+ * （skeleton量规覆盖字数合计与作者故事线去向，volume量规覆盖锚点条件可核对）。
+ * 三项全符合预期=校准通过；任何一项不符=校准不过，该评审的结论仅供参考。
+ */
+export function buildCalibrationCases(fixture: SyntheticFixture): CalibrationCase[] {
+  return [
+    { label: 'clean-skeleton', nodeKey: 'skeleton', prompt: buildJudgePrompt('skeleton', fixture, JSON.stringify(fixture.cleanPlan)), expectPass: true, seededErrors: [] },
+    { label: 'flawed-skeleton', nodeKey: 'skeleton', prompt: buildJudgePrompt('skeleton', fixture, JSON.stringify(fixture.flawedPlan)), expectPass: false, seededErrors: fixture.seededErrors },
+    { label: 'flawed-volume', nodeKey: 'volume-card', prompt: buildJudgePrompt('volume-card', fixture, JSON.stringify(fixture.flawedPlan)), expectPass: false, seededErrors: fixture.seededErrors }
+  ];
 }

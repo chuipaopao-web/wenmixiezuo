@@ -139,6 +139,23 @@ export class NodeEvaluationRepository {
     return this.db.prepare('SELECT * FROM tm2_eval_budget WHERE batch_id=?').get(batchId) as unknown as EvalBudgetRow | undefined;
   }
 
+  /**
+   * 合并核算：全部批次账本的分账明细与合计。
+   * 初筛/验证/盲评/重试/端到端可分账记录，但总量必须一并展示（合同：不以新建独立账本绕过总上限）。
+   */
+  budgetTotals(): {
+    batches: EvalBudgetRow[];
+    totals: { actual_requests: number; unknown_requests: number; reserved_requests: number; actual_tokens: number; unknown_tokens: number; reserved_tokens: number };
+  } {
+    const batches = this.db.prepare('SELECT * FROM tm2_eval_budget ORDER BY started_at').all() as unknown as EvalBudgetRow[];
+    const totals = { actual_requests: 0, unknown_requests: 0, reserved_requests: 0, actual_tokens: 0, unknown_tokens: 0, reserved_tokens: 0 };
+    for (const b of batches) {
+      totals.actual_requests += b.actual_requests; totals.unknown_requests += b.unknown_requests; totals.reserved_requests += b.reserved_requests;
+      totals.actual_tokens += b.actual_tokens; totals.unknown_tokens += b.unknown_tokens; totals.reserved_tokens += b.reserved_tokens;
+    }
+    return { batches, totals };
+  }
+
   /** 进程重启对账：新进程没有在途调用，旧进程的悬空预留归零（实耗/未知列绝不清零）。 */
   reconcileReservedOnBoot(batchId: string): void {
     this.db.prepare('UPDATE tm2_eval_budget SET reserved_requests=0,reserved_tokens=0,updated_at=? WHERE batch_id=?').run(new Date().toISOString(), batchId);
