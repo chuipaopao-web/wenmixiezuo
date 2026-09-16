@@ -290,3 +290,103 @@ describe('30a6f053 targeted fixes',()=>{
   expect(String(e2.diagnosticCode)).toContain('/textchars-0');
   expect(String(e2.diagnosticCode)).toContain('/rsntok-900');
  });
+ // d7fc67f5复核后C反馈调度：自检+独立审查收齐阻塞→统一修订一次→复核。六场景反例。
+ function feedbackResolver(c:TestContext,counters:{volumeAttempts:Record<string,number>,skeletonAttempts:number,seenPrompts:string[]},behavior:{selfCheckIssues?:string[];reviewIssues?:string[];reviewSuggestions?:string[];failSecondReview?:boolean;reviewThrows?:boolean},callCount:{n:number},allPrompts:string[]){
+  const base=makeGateway(c,{},counters);let selfCheckN=0;let reviewN=0;
+  return (provider:string,modelId:string)=>{const adapter=base(provider,modelId);return {...adapter,async generate(request:{prompt:string},signal?:AbortSignal){
+   callCount.n++;allPrompts.push(request.prompt);
+   if(request.prompt.includes('自检你刚完成')){selfCheckN++;
+    if(selfCheckN===1&&behavior.selfCheckIssues?.length)return {provider,modelId,output:JSON.stringify({pass:false,issues:behavior.selfCheckIssues}),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded' as const};}
+   if(request.prompt.includes('核对候选锚点')){reviewN++;
+    if(behavior.reviewThrows)throw new ModelAdapterError('套餐端点暂时不可用','technical_failure',true,503,false,undefined,undefined);
+    const fail=reviewN===1?behavior.reviewIssues?.length:(behavior.failSecondReview?behavior.reviewIssues?.length:0);
+    if(fail)return {provider,modelId,output:JSON.stringify({pass:false,issues:behavior.reviewIssues,suggestions:behavior.reviewSuggestions??[]}),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded' as const};}
+   return adapter.generate(request,signal);}};};
+ }
+ function feedbackSetup(bookId:string,behavior:Parameters<typeof feedbackResolver>[2]){
+  const counters={volumeAttempts:{},skeletonAttempts:0,seenPrompts:[]};const callCount={n:0};const allPrompts:string[]=[];
+  const c=createTestContext();contexts.push(c);const scope={ownerId:c.config.ownerId,bookId};
+  c.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run(scope.ownerId,'调度作者','2026-09-16','2026-09-16');
+  new BookRepository(c.database).create(scope,'调度书','2026-09-16','active');
+  c.database.prepare("INSERT INTO book_opening_blueprints VALUES('opening',?,?,1,'v1','male','fantasy','玄幻',?,?,'active','2026-09-16')").run(scope.ownerId,scope.bookId,JSON.stringify({protagonists:['林舟'],storyDirection:'无灵根修理工建立工坊'}),'a'.repeat(64));
+  const service=new TimeMachineDesignService(c.database,new TimeMachineModelGateway(c.database,feedbackResolver(c,counters,behavior,callCount,allPrompts)),64000);
+  (service as unknown as {_prerequisiteReader?:(s:{ownerId:string;bookId:string})=>{ready:boolean;message:string;version:string|null}})._prerequisiteReader=()=>({ready:true,message:'已确认',version:'fb'});
+  return {c,scope,service,counters,callCount,allPrompts};
+ }
+ async function feedbackRun(x:ReturnType<typeof feedbackSetup>){
+  const rec=await recommend(x.service,x.scope);
+  const created=x.service.startDesignRound(x.scope,selectionFor(rec,'fb'),'fb-round');
+  const runId=created.find(r=>r.scheme==='A')!.id;
+  await x.service.process(runId);
+  return {runId,run:x.service.state(x.scope).find(r=>r.id===runId)!};
+ }
+ const revisionSteps=(c:TestContext,runId:string,round:number)=>c.database.prepare("SELECT id FROM tm2_steps WHERE id LIKE ?").all(`${runId}:%revision-${round}`) as {id:string}[];
+ const reviewRows=(c:TestContext,runId:string)=>c.database.prepare('SELECT revision,verdict FROM tm2_reviews WHERE candidate=? ORDER BY revision').all(runId) as {revision:number;verdict:string}[];
+ it('反馈调度：初稿自检失败+审查另有问题→两类问题带来源进入同一次修订，建议不升级，复核绑修订版（d7fc67f5项3）',async()=>{
+  const x=feedbackSetup('fb1-book',{selfCheckIssues:['自检问题S：卷1收束越界'],reviewIssues:['审查问题R：伙伴分流未兑现'],reviewSuggestions:['文学建议T：可加强氛围']});
+  const {runId,run}=await feedbackRun(x);
+  expect(run.state).toBe('succeeded');
+  const revisionPrompts=x.counters.seenPrompts.filter(p=>p.includes('上轮意见'));
+  expect(revisionPrompts.length).toBeGreaterThan(0);
+  for(const p of revisionPrompts){
+   expect(p).toContain('自检问题S：卷1收束越界');
+   expect(p).toContain('审查问题R：伙伴分流未兑现');
+   expect(p).not.toContain('文学建议T'); // suggestions不自动升级必改
+  }
+  expect(revisionPrompts.some(p=>p.includes('"sources":["self-check"]'))).toBe(true);
+  expect(revisionPrompts.some(p=>p.includes('"sources":["review"]'))).toBe(true);
+  expect(revisionSteps(x.c,runId,1).length).toBeGreaterThan(0);
+  expect(revisionSteps(x.c,runId,2)).toHaveLength(0); // 自动修订最多一次
+  expect(reviewRows(x.c,runId)).toEqual([{revision:1,verdict:'revise'},{revision:2,verdict:'pass'}]); // 初稿审查绑初稿、复核绑修订版（候选revision仓储1起）
+  const reviewCalls=x.allPrompts.filter(p=>p.includes('核对候选锚点'));
+  expect(reviewCalls.length).toBe(2); // 自检失败不再跳过审查：初稿与修订版各审一次（含被拦截的初稿失败响应）
+ });
+ it('反馈调度：仅自检失败→修订只含自检问题；初稿审查pass如实记录',async()=>{
+  const x=feedbackSetup('fb2-book',{selfCheckIssues:['自检问题S']});
+  const {runId,run}=await feedbackRun(x);
+  expect(run.state).toBe('succeeded');
+  const revisionPrompts=x.counters.seenPrompts.filter(p=>p.includes('上轮意见'));
+  expect(revisionPrompts.length).toBeGreaterThan(0);
+  expect(revisionPrompts[0]).toContain('自检问题S');
+  expect(revisionPrompts[0]).not.toContain('"sources":["review"]');
+  expect(reviewRows(x.c,runId)).toEqual([{revision:1,verdict:'pass'},{revision:2,verdict:'pass'}]);
+  expect(revisionSteps(x.c,runId,2)).toHaveLength(0);
+ });
+ it('反馈调度：仅审查失败→修订只含审查问题；全通过→零修订步骤不为凑流程重修',async()=>{
+  const only=feedbackSetup('fb3-book',{reviewIssues:['审查问题R']});
+  const {runId}=await feedbackRun(only);
+  const prompts=only.counters.seenPrompts.filter(p=>p.includes('上轮意见'));
+  expect(prompts.length).toBeGreaterThan(0);
+  expect(prompts[0]).toContain('审查问题R');
+  expect(prompts[0]).toContain('"sources":["review"]');
+  expect(prompts[0]).not.toContain('"sources":["self-check"]');
+  expect(reviewRows(only.c,runId)).toEqual([{revision:1,verdict:'revise'},{revision:2,verdict:'pass'}]);
+  const clean=feedbackSetup('fb4-book',{});
+  const {runId:cleanRun,run}=await feedbackRun(clean);
+  expect(run.state).toBe('succeeded');
+  expect(revisionSteps(clean.c,cleanRun,1)).toHaveLength(0); // 全通过不重修
+  expect(reviewRows(clean.c,cleanRun)).toEqual([{revision:1,verdict:'pass'}]);
+ });
+ it('反馈调度：修订后审查仍阻塞→诚实revise不加轮不强制pass；审查技术失败走原边界；重入不重复调用',async()=>{
+  const stuck=feedbackSetup('fb5-book',{reviewIssues:['审查问题R：仍未收敛'],failSecondReview:true});
+  const {runId,run}=await feedbackRun(stuck);
+  expect(run.state).toBe('succeeded');
+  expect(reviewRows(stuck.c,runId)).toEqual([{revision:1,verdict:'revise'},{revision:2,verdict:'revise'}]);
+  expect(revisionSteps(stuck.c,runId,2)).toHaveLength(0); // 无revisionRound=2
+  expect((run.result as {review:{pass:boolean}}).review.pass).toBe(false); // 诚实未过审
+  const broken=feedbackSetup('fb6-book',{reviewThrows:true});
+  const rec=await recommend(broken.service,broken.scope);
+  const created=broken.service.startDesignRound(broken.scope,selectionFor(rec,'fb'),'fb-round');
+  const brokenId=created.find(r=>r.scheme==='A')!.id;
+  await broken.service.process(brokenId);
+  const failed=broken.service.state(broken.scope).find(r=>r.id===brokenId)!;
+  expect(failed.state).toBe('failed'); // 审查技术失败走原边界，不送审不可解析候选、不转修订
+  expect(reviewRows(broken.c,brokenId)).toHaveLength(0);
+  expect(revisionSteps(broken.c,brokenId,1)).toHaveLength(0);
+  // 崩溃重入不重复模型调用：成功run再次process零新增。
+  const again=feedbackSetup('fb7-book',{});
+  const {runId:againId}=await feedbackRun(again);
+  const before=again.callCount.n;
+  await again.service.process(againId);
+  expect(again.callCount.n).toBe(before);
+ });

@@ -525,13 +525,31 @@ export class TimeMachineDesignService {
   const structureCheck=await generate('self-check',writer,`自检你刚完成的全书方案草案的结构部分。返回 {"pass":true或false,"issues":["具体问题"]}。逐项检查：分卷字数合计是否等于全书预算；主支线过程与关键落点建议卷是否合理；职责strength是否与故事需要一致；每卷payoff是否兑现开篇期待；终卷是否收束全书。发现问题只描述问题，不重写方案；没有问题pass=true。\n作者选择：${snapshot.intent}\n紧凑候选：${JSON.stringify(this.compactPlanForStructure(planObject))}`,selfParse);
   const anchorCheck=await generate('self-check-anchors',writer,`自检候选锚点与条件。返回 {"pass":true或false,"issues":["具体问题"]}。逐项检查：每卷开场/收束锚点条件能否按正文核对，是否存在把将来承诺当已达成。发现问题只描述问题，不重写方案；没有问题pass=true。\n锚点清单：${JSON.stringify(this.anchorsSelfCheckSection(planObject))}`,selfParse);
   const selfCheck={issues:[...structureCheck.issues,...anchorCheck.issues],pass:structureCheck.pass&&anchorCheck.pass};
-  if(!selfCheck.pass&&revisionRound===0)return this.design(run,scope,snapshot,card,1,{issues:selfCheck.issues,plan:candidate.plan});
+  // d7fc67f5复核后C反馈调度（2026-09-16）：自检与独立审查先在**同一初稿**上收齐阻塞问题，
+  // 再统一进入唯一一次自动修订（修订后自检与审查照常复检，任一阻塞仍存在即诚实revise，
+  // 不强制pass、不存在revisionRound=2；已通过不为凑流程重修）。此前自检在round0失败即
+  // 提前返修，审查问题产出时修订轮已用尽，11/12真实问题从未进入修订输入（25.9项3）。
+  // 版本适用性：审查verdict绑定本round候选revision（初稿审查记录绑初稿、复核绑修订版）；
+  // 旧快照恢复的run若缺初稿审查步骤，该步骤真实执行（步骤缓存按step id+输入hash存取，
+  // 不存在拿不同输入的旧缓存冒充本次汇总）；已冻结候选/审查历史不回写。
   const review=await this.independentReview(run,scope,snapshot,card,candidate,generate);
   const reviewed=this.db.prepare('SELECT verdict FROM tm2_reviews WHERE owner=? AND book=? AND candidate=? AND revision=?').get(scope.ownerId,scope.bookId,run.id,revision);
   // 审查归属按方案快照的reviewer（异底层模型）记录；旧快照无reviewer时回退chief。
   const reviewerMember=snapshot.members.reviewer??snapshot.members.chief;
   if(!reviewed)this.plans.review(scope,run.id,revision,reviewerMember.memberKey,review.pass?'pass':'revise');
-  if(review.pass!==true&&revisionRound===0)return this.design(run,scope,snapshot,card,1,{issues:review.issues,plan:candidate.plan});
+  if(revisionRound===0){
+   // 汇总阻塞：每条保留来源；完全相同的文本去重并合并来源，语义相近不机械合并、不丢失；
+   // suggestions是文学建议，不自动升级为必改。
+   const unified:{issue:string;sources:string[]}[]=[];
+   for(const [source,list] of [['self-check',selfCheck.issues],['review',review.pass?[]:review.issues]] as const){
+    for(const issue of list){
+     const hit=unified.find(item=>item.issue===issue);
+     if(hit){if(!hit.sources.includes(source))hit.sources.push(source);}
+     else unified.push({issue,sources:[source]});
+    }
+   }
+   if(unified.length)return this.design(run,scope,snapshot,card,1,{issues:unified,plan:candidate.plan});
+  }
   return {candidateId:run.id,revision,member:{id:writer.memberKey,name:writer.displayName},plan:candidate.plan,review,selfCheck};
  }
  /** 独立核对：主编下结论前可有限补查原文；核对与自检不是同一项（第23.6节）。单次上下文≤1.5万字：全书层用紧凑候选＋工具补查，锚点与过程描写按设计批次分节核对。 */
