@@ -1088,3 +1088,17 @@ Codex端到端验证三套方案无可采用后定点处理：A卷卡3遇HTTP400
 **老板六点补充落地（ac18b999，离线测试41项全过+tsc过）**：①不重启整批——续跑跳过全部已完成run/case；②进度行——每组完成打印完成数/计划数、当前节点×模型、最近结果时间、账本累计、按实测均值ETA；③失败归因分类器eval-failure-attribution（模型/供应商/评测工具/未定；评测工具问题走作废流程不归咎模型）；提前淘汰如上述真实触发；④入围标准不降——准入仍n≥10+双90%+零关键漏失+审查零漏报误报≤10%；⑤并发核查——合同授权全局2同模型1，原运行器串行未用上授权并发，已改worker池2（执行器信号量保证同模型1），超时600s/429退避[5s,20s]维持合同原值未提高；⑥自动接续——验证完成后直接启动评审批次（见25.10.2），排名与隔离端到端随后连续执行，不等待逐步确认。
 
 **迁移0128（纯增量，数据全保留）**：tm2_eval_run重建扩展status CHECK增加early-eliminated（SQLite不能改CHECK，按原列定义重建+INSERT全量拷贝，操作前整库备份.local/eval/node-model-eval.pre-migration-0128.bak.sqlite）。
+
+### 25.10.2 盲评批次与三处评审侧工具失真修正（2026-09-17凌晨，K3执行，未发布）
+
+**教训复用**：volumes-batch"全灭先查工具"的原则在盲评阶段连续三次生效——凡失败高度集中于同一原因/同一样本/同一节点，先怀疑评测工具，不先判评审或候选模型。
+
+**失真①校准探针cleanPlan未承接对抗线（26770737）**：v1校准6/6评审一致把"已知正确"cleanPlan判不过。核查：作者明确要求对抗线全书贯穿，而fixture的cleanPlan两卷duties只有主线——按"作者已确认故事线是否被真实承接"量规，评审合法判不过，属探针自身不干净。修正volumeOf加对抗线职责+钉住测试；CALIBRATION_CONFIG_ID升v2；失真期间3条评审结论作废重评。
+
+**失真②校准探针cleanPlan为占位符方案（4e6fd372）**：v2首轮ds-pro仍判clean不过。一次性诊断探针（judge-calib-diag.ts，消耗3次调用入judging账本）取得完整issues：卷级字段全是"本卷目标/关键转折事件"占位符、四幕结构与两卷矛盾、里程碑/期待/关系单薄——评审意见文学上成立，cleanPlan只是结构合法而非文学合格。充实为结构一致、里程碑分步（主线3+对抗线3）、期待有推进回应（2条）、关系具体（2条）、卷级内容无占位符的真正合格方案；ds-pro复测clean=pass、两条flawed=fail（并精确指出v2未来承诺锚点与duties空缺）。
+
+**失真③评审资料口径与候选所见错配（9b37dae5，blind-v2）**：校准通过后正式评审card-extract出现14评0过、跨评审对同一原因（"遗漏作者明确要求40万字/轻松向/不虐主"）——核查：card-extract候选按生产流程（design-service.ts:317过滤intent页）**从未见过作者意图页**，评审却按含intent的全量资料判"遗漏"；card-finalize生产任务明确禁止把故事方向放偏好栏，评审反向要求preferences收录故事线标题；fixture的prohibitions来源标注intent页但意图页文本无该句。修正：buildJudgePrompt按节点对齐候选实际所见资料+节点任务说明（card-extract排除意图页与故事线标题、card-merge给分页短卡、card-finalize写明任务禁令）；intent文本补"不得让对抗线中途消失"使卡字段来源可核对；JUDGE_CONFIG_ID升blind-v2；47例（card-extract35+card-finalize12）作废重评；钉住测试覆盖。修正后同一批card-extract输出重评10/10通过——再次证明是资料错配不是候选质量问题。
+
+**评审校准最终结果（calibration-v2）**：通过=kimi-k3/doubao-seed-2.1-turbo/glm-5.3-flash（其结论作正式证据）；未过=deepseek-v4-pro（flawed-skeleton漏检一次，单次校准存在随机性，如实标注）、deepseek-v4-flash（clean误判）、glm-5.3与kimi-k2.7-code（探针调用失败）——四者结论quality_note标注"仅供参考"不作准入依据。
+
+**作废与消耗（全部落档.local/eval/invalidations.json，预算账本绝不清零）**：v1校准约21次、失真期评审3例、47例错配评审、诊断3次，消耗均保留在judging账本；judging账本从400上限中已耗约158+未知21，剩余约242——全量236案例评审（含复核/抽查）预计不足，预算硬停时未评案例保持未评审如实标注，不隐形追加、不降低抽查/复核标准凑数。
