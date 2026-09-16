@@ -1,5 +1,15 @@
 # REBUILD-CLOSEOUT-01 · S1-A 结果：结构化故事线确认与基线启动
 
+## K3·节点策略派工接线（2026-09-16，提交6a81418d+8fa64720已推送，未发布）
+
+按MODEL-NODE-EVAL合同"上岗与恢复"节，把排名/暂停策略接到新任务快照派工，默认关闭：
+
+- **快照侧**（time-machine-sources.ts）：构建时按节点家族解析承担成员，冻结进可选`nodeDispatch`字段。无策略无排名不写入（旧快照无此字段=现状逐字节一致）；applied排名合格前三按名次承担、其余在岗成员候补；suspended排除；全部候选暂停冻结**null受阻标记**（不静默回退）；pending_retest不算暂停；审查家族（recommend-with-intent/review-source/review-anchors）候选=主编池排除全部编剧模型，生成/审查异模型约束不因派工破坏。
+- **调用侧**（time-machine-design-service.ts）：`call()`开头集中解析——快照nodeDispatch命中节点家族即覆盖传入成员（structured/`:repair`/`:author-N`/review全部调用点一处生效，review的chief变量同走call）；命中null诚实失败报"该节点全部候选成员已被暂停派工（待复测），暂无合格成员承担"，run按needs_review失败、不发出该节点模型调用、不伪装仍在工作。
+- **纯函数**（evaluation/node-policy-dispatch.ts）：nodeFamilyFor与node-registry的matchEvalNode口径一致（含:repair/:author-N/:revision-N后缀归族）；resolveNodeMember/nodeFallbackOrder可测可复算。
+- **验证**：新增15项离线测试（家族映射17断言/纯函数7场景/快照集成4场景/设计服务生效3场景——含默认关闭时提取调用仍由在岗首选deepseek-v4-pro承担、card-extract暂停deepseek后实际由glm-5.3承担、全部暂停时run诚实失败且推荐提示未发出）；API tsc过；评测三套件42/42；设计相关36/38（time-machine-schemes 2项失败为3b87663d前既有旧债，已报Codex核定断言顺序，非本批引入）。
+- **如实边界**：派工只影响新任务快照，在途任务不回溯；排名应用/真实证明"不稳定模型被排除候补接替"仍待验证阶段数据；初筛批次（28/56 run已完成）仍在后台跑，glm-5.3在card-finalize ok=0/2、skeleton×glm-5.3-flash ok=1/2为当前信号，全批数据以tm2_eval_case为准，小样本不称稳定结论。
+
 ## K3·MODEL-NODE-EVAL第一阶段（2026-09-16，初筛进行中，未发布）
 
 按原任务顶部MODEL-NODE-EVAL合同连续实施。离线前置验收项全部落地并有反例：迁移0127五表（预算预留/实耗/未知分列、重启不归零）、22节点登记（首批四类堵点8节点）、执行器（原子预留硬停/幂等断点/并发2同模型1/429退避/unknown单列/重启对账）、排名准入（Wilson下界/n≥10/技术90%/质量90%/关键约束零漏失/审查零漏报误报≤10%/同底层去重前三/可复算/应用回滚只影响新快照）。离线测试22+13+7项全过；既有domain套件317/319，time-machine-schemes 2项失败经git历史核对为3b87663d前资料版本门禁与旧断言顺序的既有旧债（期望"已有新时光机任务"而实际先命中"故事线资料版本已变化"门禁），非本批引入，留Codex核定断言顺序。
