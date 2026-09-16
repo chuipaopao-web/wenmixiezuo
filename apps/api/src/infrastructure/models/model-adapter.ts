@@ -47,6 +47,18 @@ export interface VendorFailureDiagnostic {
   param?: string;
 }
 
+/** 截断安全统计（2026-09-16 1f831c6a复核项2）：只存数值/枚举——停止原因、可见文本
+ * 字符数（长度，不存内容）、是否含推理块、供应商明确上报的分项token；分项未上报
+ * 一律null，不按总差值猜测。绝不包含部分正文、思维链、提示词或密钥；不改变
+ * known/unknown计量，截断仍是失败。 */
+export interface TruncationDiagnostic {
+  stopReason: string;
+  visibleTextChars: number;
+  thinkingBlocksPresent: boolean;
+  reasoningTokens: number | null;
+  visibleTokens: number | null;
+}
+
 export class ModelAdapterError extends Error {
   public constructor(
     message: string,
@@ -57,7 +69,8 @@ export class ModelAdapterError extends Error {
     public readonly knownUsage?: {inputTokens:number;outputTokens:number;cashCostCny:number},
     /** 机器可读失败原因（兼容可选）：输出长度截断='output_length_limit'。调用方按此分型，不解析message文本。 */
     public readonly causeCode?: 'output_length_limit',
-    public readonly vendorDiagnostic?: VendorFailureDiagnostic
+    public readonly vendorDiagnostic?: VendorFailureDiagnostic,
+    public readonly truncationDiagnostic?: TruncationDiagnostic
   ) {
     super(message);
     this.name = 'ModelAdapterError';

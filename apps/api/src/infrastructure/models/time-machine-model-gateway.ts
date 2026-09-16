@@ -85,7 +85,10 @@ export class TimeMachineModelGateway {
    // 白名单机器token（供应商code/参数名/请求ID）可并入diagnosticCode供离线诊断；供应商自由文本永不进入。
    const vendor=error instanceof ModelAdapterError?error.vendorDiagnostic:undefined;
    const vendorPart=vendor?`${vendor.code?`/vendor-${vendor.code}`:''}${vendor.param?`/param-${vendor.param}`:''}${vendor.requestId?`/req-${vendor.requestId}`:''}`:'';
-   const diagnostic=error instanceof ModelAdapterError?`${error.failureClass}/http-${error.statusCode??'none'}/usage-${known?'known':'unavailable'}${vendorPart}`:undefined;
+   // 截断安全统计（数值/枚举）：区分"有部分正文也截断"与"无正文截断"；分项token未上报为null。
+   const trunc=error instanceof ModelAdapterError?error.truncationDiagnostic:undefined;
+   const truncPart=trunc?`/stop-${trunc.stopReason}/textchars-${trunc.visibleTextChars}/thinking-${trunc.thinkingBlocksPresent?'yes':'no'}/rsntok-${trunc.reasoningTokens??'null'}/vistok-${trunc.visibleTokens??'null'}`:'';
+   const diagnostic=error instanceof ModelAdapterError?`${error.failureClass}/http-${error.statusCode??'none'}/usage-${known?'known':'unavailable'}${vendorPart}${truncPart}`:undefined;
    throw new TimeMachineCallError(kind,kind==='unknown'?'模型结果需要核对，已保留调用记录':'本次成员调用未完成，已保留进度',diagnostic);
   }
  }

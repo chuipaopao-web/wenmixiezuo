@@ -1,9 +1,10 @@
 import {describe,it,expect,afterEach} from 'vitest';
 import {createTestContext,type TestContext} from '../../helpers/test-context.js';
 import {BookRepository} from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
-import {TimeMachineDesignService} from '../../../apps/api/src/application/books/time-machine-design-service.js';
+import {TimeMachineDesignService,timeMachineSynthesisHeadroom} from '../../../apps/api/src/application/books/time-machine-design-service.js';
 import {TimeMachineModelGateway} from '../../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
 import {ModelAdapterError} from '../../../apps/api/src/infrastructure/models/model-adapter.js';
+import {ArkPlanModelAdapter} from '../../../apps/api/src/infrastructure/models/ark-plan-model.js';
 import {snapshotTimeMachine} from '../../../apps/api/src/application/books/time-machine-sources.js';
 import {StorylineSelectionInput} from '../../../apps/api/src/application/books/storyline-selection.js';
 // 30a6f053复核定点修复的反例与回归：长度截断分类、逐卷生成与截断恢复、suggestedVolumes归一化、
@@ -187,7 +188,7 @@ describe('30a6f053 targeted fixes',()=>{
   expect(String(error.diagnosticCode)).not.toContain('too large');
   expect(String(error.message)).not.toContain('too large');
  });
- it('volume-card节点并入8000综合节点组获思考余量（6000实跑证伪：DeepSeek翻思考烧满10000、GLM烧满14000双截断），其他节点分类不变（ab8464c4端到端B节点）',async()=>{
+ it('volume-card节点并入8000综合节点组获思考余量（6000实跑证伪：DeepSeek上报10000触顶、GLM上报14000触顶双截断，可见量未知），其他节点分类不变（ab8464c4端到端B节点）',async()=>{
   const seen:{node:string;maxOutputTokens:number}[]=[];
   const counters={volumeAttempts:{},skeletonAttempts:0,seenPrompts:[]};
   const c=createTestContext();contexts.push(c);const scope={ownerId:c.config.ownerId,bookId:'budget-book'};
@@ -244,3 +245,48 @@ describe('30a6f053 targeted fixes',()=>{
   expect(done.state).toBe('succeeded');
  });
 });
+ it('8000策略经真实适配器到请求体：网关预留=max_tokens+输入字节+2048且不越窗口（1f831c6a复核项1）',async()=>{
+  const c=createTestContext();contexts.push(c);const scope={ownerId:c.config.ownerId,bookId:'gw3-book'};
+  c.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run(scope.ownerId,'预留作者','2026-09-16','2026-09-16');
+  new BookRepository(c.database).create(scope,'预留书','2026-09-16','active');
+  for(const [modelId,expectedMaxTokens] of [['glm-5.3',32_000],['deepseek-v4-pro',20_000]] as const){
+   let sentMaxTokens=0;
+   const fetchImpl=async (_url:unknown,init?:{body?:unknown})=>{sentMaxTokens=(JSON.parse(String(init?.body)) as {max_tokens:number}).max_tokens;return Response.json({content:[{type:'text',text:'{}'}],usage:{input_tokens:5,output_tokens:8}});};
+   const adapter=new ArkPlanModelAdapter({plan:'agent',provider:'volcengine-ark-agent-plan',modelId,baseUrl:'https://ark.cn-beijing.volces.com/api/plan',apiKey:'test',purpose:'structured_planning'},fetchImpl as typeof fetch);
+   const headroom=timeMachineSynthesisHeadroom(modelId,8000)!;
+   const prompt='卷'.repeat(4500);
+   const id=`call-reserve-${modelId}`;
+   await new TimeMachineModelGateway(c.database,()=>adapter).generate({scope,id,memberId:`planner-${modelId}`,provider:'volcengine-ark-agent-plan',modelId,prompt,maxOutputTokens:8000,thinkingHeadroomTokens:headroom,windowTokens:64000,temperature:0.6});
+   expect(sentMaxTokens).toBe(expectedMaxTokens);
+   const input=adapter.inputContext!({prompt});
+   const row=c.database.prepare('SELECT reserved_tokens FROM tm2_model_calls WHERE id=?').get(id) as {reserved_tokens:number};
+   expect(row.reserved_tokens).toBe(Buffer.byteLength(input,'utf8')+expectedMaxTokens+2048);
+   expect(row.reserved_tokens).toBeLessThanOrEqual(64000);
+  }
+ });
+ it('截断统计并入diagnosticCode：区分有无部分正文，正文/思维链不落库不进诊断（1f831c6a复核项2）',async()=>{
+  const c=createTestContext();contexts.push(c);const scope={ownerId:c.config.ownerId,bookId:'gw4-book'};
+  c.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run(scope.ownerId,'截断作者','2026-09-16','2026-09-16');
+  new BookRepository(c.database).create(scope,'截断书','2026-09-16','active');
+  const mkAdapter=(payload:unknown)=>new ArkPlanModelAdapter({plan:'agent',provider:'volcengine-ark-agent-plan',modelId:'deepseek-v4-pro',baseUrl:'https://ark.cn-beijing.volces.com/api/plan',apiKey:'test',purpose:'structured_planning'},(async()=>Response.json(payload)) as typeof fetch);
+  const call=(id:string,adapter:ArkPlanModelAdapter)=>new TimeMachineModelGateway(c.database,()=>adapter).generate({scope,id,memberId:'planner-deepseek-v4-pro',provider:'volcengine-ark-agent-plan',modelId:'deepseek-v4-pro',prompt:'你好',maxOutputTokens:6000,windowTokens:64000,temperature:0.6}).catch(error=>error as {kind:string;message:string;diagnosticCode?:string});
+  // 有部分正文也截断
+  const partial='{"volumes":[{"id":"v1"';
+  const e1=await call('call-trunc-partial',mkAdapter({content:[{type:'thinking',thinking:'SECRET-THINKING'},{type:'text',text:partial}],stop_reason:'max_tokens',usage:{input_tokens:100,output_tokens:1000}}));
+  expect(e1.kind).toBe('truncated');
+  expect(String(e1.diagnosticCode)).toContain('/stop-max_tokens');
+  expect(String(e1.diagnosticCode)).toContain(`/textchars-${partial.length}`);
+  expect(String(e1.diagnosticCode)).toContain('/thinking-yes');
+  expect(String(e1.diagnosticCode)).toContain('/rsntok-null');
+  expect(String(e1.diagnosticCode)).not.toContain('volumes');
+  expect(String(e1.diagnosticCode)).not.toContain('SECRET');
+  expect(e1.message).not.toContain(partial);
+  const row1=c.database.prepare("SELECT state,error_class,output_text,input_tokens,output_tokens FROM tm2_model_calls WHERE id='call-trunc-partial'").get() as {state:string;error_class:string;output_text:string|null;input_tokens:number;output_tokens:number};
+  expect(row1).toMatchObject({state:'failed',error_class:'truncated',output_text:null,input_tokens:100,output_tokens:1000});
+  // 无正文截断（供应商明确上报分项才记录）
+  const e2=await call('call-trunc-empty',mkAdapter({content:[{type:'thinking',thinking:'x'}],stop_reason:'length',usage:{input_tokens:50,output_tokens:900,output_tokens_details:{reasoning_tokens:900}}}));
+  expect(e2.kind).toBe('truncated');
+  expect(String(e2.diagnosticCode)).toContain('/stop-length');
+  expect(String(e2.diagnosticCode)).toContain('/textchars-0');
+  expect(String(e2.diagnosticCode)).toContain('/rsntok-900');
+ });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ArkPlanModelAdapter } from '../../apps/api/src/infrastructure/models/ark-plan-model.js';
 import { ModelAdapterError } from '../../apps/api/src/infrastructure/models/model-adapter.js';
+import { timeMachineSynthesisHeadroom } from '../../apps/api/src/application/books/time-machine-design-service.js';
 
 const request = {
   requestId: 'request-plan-1',
@@ -644,5 +645,82 @@ describe('火山方舟严格套餐适配器', () => {
       { model: 'kimi-k2.7-code', maxTokens: 100 + 16_000 },
       { model: 'deepseek-v4-flash', maxTokens: 100 + 16_000 }
     ]);
+  });
+});
+
+describe('volume-card节点请求预算参数表（1f831c6a复核项1：断言到mock fetch请求体）', () => {
+  // 与服务端timeMachineSynthesisHeadroom同源配对（生产如何产生override，测试就如何传入），
+  // 期望值是硬编码回归表：prompt='只回复结果'（5字符）时GLM动态余量=max(8000,ceil(5/3))=8000。
+  const cases = [
+    ['glm-5.3', 3000, 11_000, undefined],
+    ['glm-5.3', 6000, 14_000, undefined],
+    ['glm-5.3', 8000, 32_000, undefined],
+    ['deepseek-v4-pro', 3000, 3_000, 'disabled'],
+    ['deepseek-v4-pro', 6000, 10_000, 'enabled'],
+    ['deepseek-v4-pro', 8000, 20_000, 'enabled'],
+    ['kimi-k3', 3000, 3_000, 'disabled'],
+    ['kimi-k3', 8000, 12_000, 'enabled']
+  ] as const;
+  it.each(cases)('%s可见预算%d：max_tokens=%d、thinking=%s（与综合余量策略配对）', async (modelId, budget, expectedMaxTokens, expectedThinking) => {
+    const headroom = timeMachineSynthesisHeadroom(modelId, budget);
+    if (budget < 8000) expect(headroom).toBeUndefined();
+    if (budget === 8000 && modelId === 'glm-5.3') expect(headroom).toBe(24_000);
+    if (budget === 8000 && modelId === 'deepseek-v4-pro') expect(headroom).toBe(12_000);
+    if (budget === 8000 && modelId === 'kimi-k3') expect(headroom).toBeUndefined();
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { max_tokens?: number; thinking?: { type?: string; budget_tokens?: number } };
+      expect(body.max_tokens).toBe(expectedMaxTokens);
+      if (expectedThinking === undefined) expect(body).not.toHaveProperty('thinking');
+      else {
+        expect(body.thinking?.type).toBe(expectedThinking);
+        // DeepSeek/Kimi显式enabled时声明预算恒为默认折算4000（端点不保证遵守，如实记录不匹配）；
+        // 与max_tokens中实际余量（6000→4000、8000→12000/4000）的差异不得静默。
+        if (expectedThinking === 'enabled') expect(body.thinking?.budget_tokens).toBe(4_000);
+      }
+      return Response.json({ content: [{ type: 'text', text: '{}' }], usage: { input_tokens: 5, output_tokens: 8 } });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId,
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'structured_planning'
+    }, fetchImpl);
+    await adapter.generate({ ...request, maxOutputTokens: budget, ...(headroom !== undefined ? { thinkingHeadroomTokens: headroom } : {}) });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+});
+
+describe('截断安全统计（1f831c6a复核项2：只存数值/枚举，分项未上报为null）', () => {
+  const makeAdapter = (fetchImpl: ReturnType<typeof vi.fn<typeof fetch>>) => new ArkPlanModelAdapter({
+    plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'structured_planning'
+  }, fetchImpl);
+  it('有部分正文也截断：可见字符数>0、推理块存在、分项null（供应商未上报）', async () => {
+    const partial = '{"volumes":[{"id":"v1"';
+    const fetchImpl = vi.fn<typeof fetch>(async () => Response.json({
+      content: [{ type: 'thinking', thinking: 'SECRET-THINKING' }, { type: 'text', text: partial }],
+      stop_reason: 'max_tokens', usage: { input_tokens: 100, output_tokens: 1000 }
+    }));
+    const error = await makeAdapter(fetchImpl).generate({ ...request, maxOutputTokens: 6000 }).catch((e) => e as ModelAdapterError);
+    expect(error).toBeInstanceOf(ModelAdapterError);
+    expect(error.causeCode).toBe('output_length_limit');
+    expect(error.truncationDiagnostic).toEqual({
+      stopReason: 'max_tokens', visibleTextChars: partial.length,
+      thinkingBlocksPresent: true, reasoningTokens: null, visibleTokens: null
+    });
+    // 统计只含数值/枚举：部分正文与思维链不进入任何诊断字段。
+    expect(JSON.stringify(error.truncationDiagnostic)).not.toContain('volumes');
+    expect(JSON.stringify(error.truncationDiagnostic)).not.toContain('SECRET-THINKING');
+    expect(error.message).not.toContain(partial);
+  });
+  it('无正文截断：可见字符数=0，与有部分正文可区分；供应商明确分项才记录', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => Response.json({
+      content: [{ type: 'thinking', thinking: 'SECRET-THINKING' }],
+      stop_reason: 'length',
+      usage: { input_tokens: 100, output_tokens: 1000, output_tokens_details: { reasoning_tokens: 800 } }
+    }));
+    const error = await makeAdapter(fetchImpl).generate({ ...request, maxOutputTokens: 6000 }).catch((e) => e as ModelAdapterError);
+    expect(error.truncationDiagnostic).toEqual({
+      stopReason: 'length', visibleTextChars: 0,
+      thinkingBlocksPresent: true, reasoningTokens: 800, visibleTokens: null
+    });
   });
 });

@@ -1,5 +1,5 @@
 import { Agent, type Dispatcher } from 'undici';
-import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from './model-adapter.js';
+import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult, type TruncationDiagnostic } from './model-adapter.js';
 import { evidenceGuidance } from './model-evidence-guidance.js';
 import { assertPlanBaseUrl, thinkingTokenAllowance, usesGlmVisibleOutputRoute, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
 
@@ -17,7 +17,12 @@ export interface ArkPlanModelOptions {
 interface ArkMessagesResponse {
   content?: Array<{ type?: string; text?: string; thinking?: string }>;
   stop_reason?: string;
-  usage?: { input_tokens?: number; output_tokens?: number };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    // 供应商明确上报的输出分项（如有）；缺失时不得按差值猜测。
+    output_tokens_details?: { reasoning_tokens?: number; text_tokens?: number };
+  };
 }
 
 interface ArkChatResponse {
@@ -160,10 +165,12 @@ export class ArkPlanModelAdapter implements ModelAdapter {
       // The provider finished with a known incomplete result; causeCode carries the
       // machine-readable length-limit classification so bounded callers recover by
       // splitting work instead of blind-retrying the same oversized request.
+      // 截断统计只保留数值/枚举：可见字符数（长度非内容）、推理块有无、供应商明确
+      // 上报的分项token；未上报为null，不按差值猜。正文/思维链不落库、不进诊断。
       throw new ModelAdapterError(`${planDisplayName(this.options.plan)}输出达到长度上限，内容未完整交付（${body.stop_reason}）`,
         'technical_failure', true, response.status, false,
         {inputTokens:finiteTokenCount(body.usage?.input_tokens),outputTokens:finiteTokenCount(body.usage?.output_tokens),cashCostCny:0},
-        'output_length_limit');
+        'output_length_limit', undefined, truncationStats(body));
     }
     const output = body.content?.filter((item) => item.type === 'text' && typeof item.text === 'string').map((item) => item.text!.trim()).filter(Boolean).join('\n').trim();
     if (output === undefined || output.length === 0) throw new ModelAdapterError(
@@ -233,8 +240,26 @@ function longRequestDispatcher(timeoutMs: number): Dispatcher {
   return dispatcher;
 }
 
-function describeEmptyResponse(body: ArkMessagesResponse): string {
+/** 截断安全统计：stopReason白名单字符过滤；只返回数值/枚举，分项token未上报为null。 */
+function truncationStats(body: ArkMessagesResponse): TruncationDiagnostic {
   const blocks = Array.isArray(body.content) ? body.content : [];
+  const visibleTextChars = blocks.reduce(
+    (total, item) => total + (item.type === 'text' && typeof item.text === 'string' ? item.text.length : 0),
+    0
+  );
+  const thinkingBlocksPresent = blocks.some(
+    (item) => item.type === 'thinking' || (typeof item.thinking === 'string' && item.thinking.length > 0)
+  );
+  const details = body.usage?.output_tokens_details;
+  const reasoningTokens = typeof details?.reasoning_tokens === 'number' && Number.isSafeInteger(details.reasoning_tokens)
+    ? details.reasoning_tokens : null;
+  const visibleTokens = typeof details?.text_tokens === 'number' && Number.isSafeInteger(details.text_tokens)
+    ? details.text_tokens : null;
+  const stopReason = String(body.stop_reason ?? 'unknown').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24) || 'unknown';
+  return { stopReason, visibleTextChars, thinkingBlocksPresent, reasoningTokens, visibleTokens };
+}
+
+function describeEmptyResponse(body: ArkMessagesResponse): string {  const blocks = Array.isArray(body.content) ? body.content : [];
   const types = [...new Set(blocks.map((item) => item.type).filter((value): value is string => typeof value === 'string'))];
   const thinkingCharacters = blocks.reduce(
     (total, item) => total + (typeof item.thinking === 'string' ? item.thinking.length : 0),
