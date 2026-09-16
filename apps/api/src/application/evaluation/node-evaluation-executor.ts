@@ -45,6 +45,17 @@ export interface EvalAdapter {
   generate(request: EvalAdapterRequest): Promise<EvalAdapterResponse>;
 }
 
+/** 合同校验器可返回的语义分析（质量/评审信号）；抛EvalContractError表示合同未过。 */
+export interface EvalCaseAnalysis {
+  readonly qualityPass?: boolean | null;
+  readonly qualityNote?: string;
+}
+
+/** 评测合同错误：critical=true表示关键约束漏失（准入零漏失项），error_code以critical:前缀入库。 */
+export class EvalContractError extends Error {
+  constructor(message: string, readonly critical = false) { super(message); }
+}
+
 export interface EvalRunPlan {
   readonly runId: string;
   readonly batchId: string;
@@ -59,8 +70,8 @@ export interface EvalRunPlan {
   readonly temperature: number;
   readonly thinkingHeadroomTokens?: number;
   readonly samples: readonly EvalSample[];
-  /** 输出合同校验；抛错=contract_error。 */
-  readonly validate: (output: string) => void;
+  /** 输出合同校验；抛EvalContractError=contract_error（critical=true记关键约束漏失）。返回语义分析存quality_*列。 */
+  readonly validate: (output: string) => EvalCaseAnalysis | void;
 }
 
 export interface ExecutorOptions {
@@ -141,6 +152,8 @@ export class NodeEvaluationExecutor {
       let outcome: string = 'unknown';
       let technicalOk = 0;
       let contractOk: number | null = null;
+      let qualityPass: number | null = null;
+      let qualityNote: string | null = null;
       let httpStatus: number | null = null;
       let errorCode: string | null = null;
       let usage: EvalAdapterResponse['usage'] = null;
@@ -171,15 +184,18 @@ export class NodeEvaluationExecutor {
           }
         }
         try {
-          plan.validate(output!);
+          const analysis = plan.validate(output!);
           outcome = 'ok';
           technicalOk = 1;
           contractOk = 1;
+          qualityPass = analysis?.qualityPass === undefined || analysis?.qualityPass === null ? null : analysis.qualityPass ? 1 : 0;
+          qualityNote = analysis?.qualityNote?.slice(0, 300) ?? null;
         } catch (contractError) {
           outcome = 'contract_error';
           technicalOk = 1; // 技术交付成功（有可见输出），合同未过
           contractOk = 0;
-          errorCode = contractError instanceof Error ? contractError.message.slice(0, 200) : 'contract';
+          const critical = contractError instanceof EvalContractError && contractError.critical;
+          errorCode = `${critical ? 'critical:' : ''}${contractError instanceof Error ? contractError.message.slice(0, 200) : 'contract'}`;
         }
       } catch (error) {
         if (error instanceof EvalCallError) {
@@ -204,7 +220,7 @@ export class NodeEvaluationExecutor {
         sample_hash: sample.sampleHash, attempt_seq: attemptSeq, genre: sample.genre, length_band: sample.lengthBand,
         time_slot: sample.timeSlot, sample_kind: sample.kind, input_hash: inputHash, config_version: plan.configVersion,
         prompt_version: plan.promptVersion, http_status: httpStatus, outcome, technical_ok: technicalOk, contract_ok: contractOk,
-        quality_pass: null, quality_note: null, judge_source: null, judge_model_id: null,
+        quality_pass: qualityPass, quality_note: qualityNote, judge_source: null, judge_model_id: null,
         input_tokens: usage?.inputTokens ?? null, output_tokens: usage?.outputTokens ?? null, reasoning_tokens: usage?.reasoningTokens ?? null,
         usage_known: usageKnown ? 1 : 0, reserved_tokens: reservedTokens, retry_count: retryCount,
         queued_at: queuedAt, started_at: startedAt, finished_at: finishedAt, queue_ms: queueMs, duration_ms: durationMs,
