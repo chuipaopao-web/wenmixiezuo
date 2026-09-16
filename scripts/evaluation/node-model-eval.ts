@@ -43,7 +43,7 @@ function parseArgs(): Args {
   };
 }
 
-class ProductionEvalAdapter implements EvalAdapter {
+export class ProductionEvalAdapter implements EvalAdapter {
   constructor(private readonly factory: ModelAdapterFactory) {}
   async generate(request: EvalAdapterRequest): Promise<EvalAdapterResponse> {
     const adapter = this.factory.resolve(request.provider, request.modelId, 'structured_planning'); // 与生产时间机器网关一致
@@ -167,4 +167,7 @@ async function main(): Promise<void> {
   db.close();
 }
 
-main().catch(error => { console.error('评测运行器失败：', error instanceof Error ? error.message : error); process.exitCode = 1; });
+// 仅直接调用时执行main（judge脚本复用ProductionEvalAdapter的import不触发评测主流程）
+if (process.argv[1]?.replace(/\\/gu, '/').endsWith('/scripts/evaluation/node-model-eval.ts')) {
+  main().catch(error => { console.error('评测运行器失败：', error instanceof Error ? error.message : error); process.exitCode = 1; });
+}

@@ -1,0 +1,63 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { EvalCaseRow } from '../../infrastructure/db/repositories/node-evaluation-repository.js';
+import { buildFixture, type SyntheticFixture, type EvalGenre, type EvalLengthBand } from './eval-sample-factory.js';
+
+/**
+ * MODEL-NODE-EVAL验证阶段质量盲评（合同"准入与排名"节）：
+ * - 文学质量不以关键词或JSON合格替代：生成节点结构通过的输出由异底层模型按节点量规盲评。
+ * - 盲评：提示不透露输出来自哪个模型/成员；评审模型不得给自己评分（judgePoolFor排除本案例模型）。
+ * - 分歧复核：主评审判不过→第二名异模型复核；两人一致不过=0，一人过一人不过=null（评审分歧单独统计，不凑数）。
+ * - 评审调用计入独立批次账本（含评审口径），参数版本记录在judge_source。
+ */
+
+export const JUDGE_CONFIG_ID = 'blind-v1(t=0.2,max=2000)';
+
+export interface JudgeVerdict { readonly pass: boolean; readonly issues: string[] }
+
+/** 节点家族量规（只写可文学判断的维度；结构/字段合同已由机检覆盖，不重复评）。 */
+function rubricFor(nodeKey: string): string {
+  if (nodeKey.startsWith('card-')) return '评审要点：归纳是否忠于所给资料（无编造人物/设定/前提）、关键事实（主角身份、核心限制、故事方向、作者明确要求）有无遗漏或反向改写、分栏归类是否合理。不要求逐字照搬或固定长度。';
+  if (nodeKey === 'skeleton') return '评审要点：宏观节奏与分卷是否服务故事容量；作者已确认故事线是否被真实承接（不是只挂名）；期待是否有提出、有推进、有回应；关系与落点是否具体可信；是否越界写章情节。';
+  if (nodeKey === 'volume-card' || nodeKey === 'volumes-batch') return '评审要点：转折是否为读者能理解的具体事件或选择及其后果（不是"关键行动、重大牺牲"式空话）；开场/收束与锚点条件是否一致且可按正文核对；职责分配与该线收束是否匹配；爽点/情绪是否具体。';
+  return '评审要点：输出是否完成该节点用途且忠于输入资料。';
+}
+
+/** 盲评提示：只给资料与候选输出，不透露候选出自哪个模型。 */
+export function buildJudgePrompt(nodeKey: string, fixture: SyntheticFixture, candidateOutput: string): string {
+  const materials = fixture.documents.map(d => ({ key: d.key, text: d.text }));
+  const authorLines = fixture.authorStorylines.map(a => a.title);
+  return `你是独立文学评审。下面是一份合成新书资料（含作者已确认故事线）和某参评成员在该资料上完成的"${nodeKey}"节点输出。请按量规判断这次输出是否达到可交付质量：结构合同已由机器另行核验，你只评文学与事实质量，不重复检查JSON字段。${rubricFor(nodeKey)}作者已确认故事线：${JSON.stringify(authorLines)}。只返回JSON {"pass":true或false,"issues":["具体质量问题，无则空数组"]}，不解释过程，不评价资料本身。pass=false必须给出可定位的具体问题；没有具体问题不得判false。\n资料：${JSON.stringify(materials)}\n候选输出：${candidateOutput}`;
+}
+
+/** 解析评审结论；非JSON或字段不符抛错（调用方按unknown处理，不猜）。 */
+export function parseJudgeVerdict(text: string): JudgeVerdict {
+  const match = text.match(/\{[\s\S]*\}/u);
+  if (!match) throw new Error('评审输出非JSON');
+  const parsed = JSON.parse(match[0]) as Record<string, unknown>;
+  if (typeof parsed.pass !== 'boolean' || !Array.isArray(parsed.issues) || parsed.issues.some(i => typeof i !== 'string')) throw new Error('评审结论格式错误');
+  if (parsed.pass === false && (parsed.issues as string[]).length === 0) throw new Error('判false必须给出具体问题');
+  return { pass: parsed.pass, issues: (parsed.issues as string[]).slice(0, 10) };
+}
+
+/**
+ * 评审模型候选顺序：排除本案例模型（不给自己评分），按给定名册顺序轮换起点以分散负载。
+ * 复核时跳过主评审（secondary=true再排除primary）。
+ */
+export function judgePoolFor(caseModelId: string, roster: readonly string[], caseIndex: number, excludePrimary?: string): string | null {
+  const eligible = roster.filter(m => m !== caseModelId && m !== excludePrimary);
+  if (!eligible.length) return null;
+  return eligible[caseIndex % eligible.length]!;
+}
+
+/** 读取案例的输出工件与对应样本fixture；工件缺失返回null（调用方如实跳过，不伪造评审）。 */
+export function loadJudgmentInput(artifactDir: string, caseRow: EvalCaseRow): { fixture: SyntheticFixture; output: string } | null {
+  if (!caseRow.artifact_path) return null;
+  let output: string;
+  try {
+    const parsed = JSON.parse(readFileSync(join(artifactDir, caseRow.artifact_path), 'utf8')) as { output?: unknown };
+    if (typeof parsed.output !== 'string') return null;
+    output = parsed.output;
+  } catch { return null; }
+  return { fixture: buildFixture(caseRow.genre as EvalGenre, caseRow.length_band as EvalLengthBand), output };
+}

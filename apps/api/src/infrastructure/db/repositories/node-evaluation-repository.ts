@@ -114,6 +114,19 @@ export class NodeEvaluationRepository {
       .all(nodeKey, lengthBand, configVersion, phase) as unknown as EvalCaseRow[];
   }
 
+  /** 盲评取数：validation阶段、生成节点（审查节点质量信号已有机检）、结构通过、输出工件在案、尚未评审的case。 */
+  casesNeedingJudgment(): EvalCaseRow[] {
+    return this.db.prepare(`SELECT c.* FROM tm2_eval_case c JOIN tm2_eval_run r ON r.id=c.run_id
+      WHERE r.phase='validation' AND c.outcome='ok' AND c.node_key NOT LIKE 'review%' AND c.judge_source IS NULL AND c.artifact_path IS NOT NULL
+      ORDER BY c.node_key,c.model_profile_key,c.queued_at`).all() as unknown as EvalCaseRow[];
+  }
+
+  /** 写回盲评结论（quality_pass=null=评审分歧单独统计；judge_source含配置版本，judge_model_id记录评审模型，可含复核）。 */
+  setCaseJudgment(id: string, input: { quality_pass: number | null; quality_note: string | null; judge_source: string; judge_model_id: string }): void {
+    this.db.prepare('UPDATE tm2_eval_case SET quality_pass=?,quality_note=?,judge_source=?,judge_model_id=? WHERE id=?')
+      .run(input.quality_pass, input.quality_note, input.judge_source, input.judge_model_id, id);
+  }
+
   // ---- 预算账本（预留+实耗+未知分列；重启不归零）----
   ensureBudget(batchId: string, limitRequests: number, limitTokens: number): EvalBudgetRow {
     const now = new Date().toISOString();
