@@ -1041,3 +1041,22 @@ Codex端到端验证三套方案无可采用后定点处理：A卷卡3遇HTTP400
 **单节点真实调用许可闸门（d7fc67f5复核项4）**：`single-dispatch-permit.ts`仅隔离探针使用（生产装配不引用、生产执行器不变）。绑定run+step登记attempt+快照冻结模型（ModelRequest无modelId字段，模型在resolver装配侧核对）+输入hash（消耗时从tm2_model_calls录入许可文件）；先消耗再dispatch（宁可未知不重复），消耗状态持久化persistPath，重启不重置；其余一切dispatch（后续卷卡/其他run/未登记attempt/模型不符/许可已消耗）在网络前以不可重试拒绝阻止。fake fetch四反例：目标恰好一次且hash入档、目标成功后卷1零触网、重启新实例仍阻止、三类非法dispatch零消耗。
 
 **下轮真实验证的强制门禁（替代"约一次/约5-10分钟"口径）**：节点=B方案run（f07a2919-ffe1-462e-aafa-282e88e94c6e）同轮retry的volume-card:0单步骤；输入=该步骤登记attempt（服务claim时落tm2_attempts）+快照模型glm-5.3；请求上限=max_tokens 32000（可见8000+综合余量24000）、网关预留约40k<64000窗口；许可文件=`.local/dispatch/recovery/single-call-permit.json`；停止条件=许可消耗后一切dispatch被闸门阻止（run如实失败invalid属预期，已成功步骤缓存保留）；调用硬上限=1次真实dispatch（无合同内自动重试——截断/invalid不自动重发，temporary由闸门第二击阻止）；墙钟硬上限=单请求适配器超时（90秒级）+轮询余量，总计≤600秒。预算记账沿用累计口径不清零。观察项=新截断统计（stop/textchars/thinking/rsntok）与可见输出是否形成可提交卷卡。
+
+### 25.10 MODEL-NODE-EVAL首批基础设施与初筛通道（2026-09-16，K3执行，未发布）
+
+按原任务顶部MODEL-NODE-EVAL合同连续实施的第一阶段成果。当前状态：**初筛真实批次进行中，尚无成绩榜/名册切换上线，不称已完成**。
+
+**已完成的离线基础设施（验收前置项，全部有反例测试）**：
+- 迁移0127（纯增量）：tm2_eval_run/case/budget/ranking/node_policy五表；预算预留/实耗/未知分列持久化，重启不归零；密钥与思维链不入库。
+- 节点登记表`node-registry.ts`：22个真实调用点nodeKey（用途/岗位/预算档位/合同摘要/提示版本/源文件行号），首批四类堵点8节点（card-extract/card-merge/card-finalize/skeleton/volume-card/volumes-batch/review-source/review-anchors），推荐/检索/自检/修订第二批，其余已实现节点第三批；未实现功能不编造评测。
+- 执行器：发送前原子预留（超限即budget-stopped不多发一次）、case幂等断点续传（终态跳过不重复计费）、全局并发2同模型1、429指数退避（用尽记终态不无限重试）、unknown单独计量（供应商未上报用量按预留额转unknown列，不按0）、重启对账reconcileReservedOnBoot（悬空预留归零，实耗/未知绝不清零——冒烟实跑暴露的kill后悬空预留）。
+- 排名准入：Wilson下界排序、n≥10、一次技术交付≥90%、质量通过≥90%、关键约束零漏失（critical:前缀入库）、审查零漏报+误报≤10%、同底层modelId去重取前三、n<20的p95标小样本、不足三名显示实际数量不凑数、排名同输入可复算、应用/回滚只影响新任务快照。
+- 离线测试：执行器/仓储/排名22项+样本提示13项+后台服务7项；既有domain套件317/319（time-machine-schemes 2项失败经git历史核对为3b87663d前资料版本门禁与旧断言顺序既有旧债，非本批引入，已报Codex）。
+
+**合成样本与提示层**：三题材（历史融合/玄幻成长/都市感情）×三长度档×两时间段；生成节点screen2/holdout10正例，审查节点正反各半（植入3类已知错误测漏报、干净候选测误报）；调参screen与保留holdout样本hash分离不混用。提示镜像生产模板：cardContractFor/planningMaterial/prepareCardMerge/timeMachineReviewChecks直接import复用，骨架/卷卡/审查内联模板按生产动态分支（目标体量/作者故事线承接/紧凑规则/短卡注入）复现，漂移防护测试断言关键语句仍在生产源码。已知偏差诚实标注：review-source的read_source补查动作循环属流程编排，列入第二批methods-select评测，本批评估已提供回查片段后的verdict决策回合，不谎称覆盖补查能力。
+
+**真实通道与初筛（进行中）**：ProductionEvalAdapter桥接ModelAdapterFactory（structured_planning与生产时间机器网关一致），错误分型429/unknown/鉴权/截断（output_length_limit）/供应商白名单code；运行器scripts/evaluation/node-model-eval.ts（同批次id重跑自动断点续传）。名册枚举7个文字模型（agent-catalog TEXT_MODELS除已停用glm-5.2；MiniMax仅后缀表未登记名册不枚举；缺权限/装配失败明确标未测不静默漏项）。冒烟真实验证：skeleton×DeepSeek Pro合同通过（1337入/12713出token，176秒，用量known）。**工具修正**：初筛首发发现card-extract评测提示的来源key为两段式而生产parseCard要求三段式kind:id:revision（time-machine-sources.ts格式）——属评测工具bug非模型问题，已修正并对齐生产分页结构；修正前5次真实请求的证据行已删除（预算账本保留真实消耗5请求/43078token，不蒸发烧掉的事实），修正后card-extract×DeepSeek Pro/Flash均ok=2/2。初筛批次model-node-eval-b1（预算独立账本400请求/1200万token，与此前端到端预算分账）正在跑，结果以tm2_eval_case为准。
+
+**后台"节点评测"视图（已建未上线）**：V7NodeEvaluationService（视图状态分层：未测/进行中/小样本/合格/不达标/暂停/待复测，名册7模型全列不静默漏项；排名计算只接受保留验证样本，初筛样本拒绝生成排名；应用/回滚写node_policy含rankingRevision+policyVersion单调递增；自动暂停规则=连续3次技术失败或5次内2次截断→暂停派工待复测）+6条admin路由（requireAdministrator）+admin-console新页签（与"模型速度与准入"静态历史报告同页分离展示，不冒充实时成绩；前三/样本数/成功率/median/p95/截断超时/token/准入原因/应用回滚/手工暂停复测）。
+
+**未完成项（如实）**：初筛批次未跑完；验证阶段（保留样本≥10次、异模型盲评质量评审、分歧复核）未开始；排名应用与"不稳定模型被排除由候补接替"的真实证明未做；隔离新书端到端未做；GLM5.3卷卡暂停派工状态沿用，待复测数据出来后按合同处理。
