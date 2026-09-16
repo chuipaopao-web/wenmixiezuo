@@ -1055,7 +1055,19 @@ Codex端到端验证三套方案无可采用后定点处理：A卷卡3遇HTTP400
 
 **合成样本与提示层**：三题材（历史融合/玄幻成长/都市感情）×三长度档×两时间段；生成节点screen2/holdout10正例，审查节点正反各半（植入3类已知错误测漏报、干净候选测误报）；调参screen与保留holdout样本hash分离不混用。提示镜像生产模板：cardContractFor/planningMaterial/prepareCardMerge/timeMachineReviewChecks直接import复用，骨架/卷卡/审查内联模板按生产动态分支（目标体量/作者故事线承接/紧凑规则/短卡注入）复现，漂移防护测试断言关键语句仍在生产源码。已知偏差诚实标注：review-source的read_source补查动作循环属流程编排，列入第二批methods-select评测，本批评估已提供回查片段后的verdict决策回合，不谎称覆盖补查能力。
 
-**真实通道与初筛（进行中）**：ProductionEvalAdapter桥接ModelAdapterFactory（structured_planning与生产时间机器网关一致），错误分型429/unknown/鉴权/截断（output_length_limit）/供应商白名单code；运行器scripts/evaluation/node-model-eval.ts（同批次id重跑自动断点续传）。名册枚举7个文字模型（agent-catalog TEXT_MODELS除已停用glm-5.2；MiniMax仅后缀表未登记名册不枚举；缺权限/装配失败明确标未测不静默漏项）。冒烟真实验证：skeleton×DeepSeek Pro合同通过（1337入/12713出token，176秒，用量known）。**工具修正**：初筛首发发现card-extract评测提示的来源key为两段式而生产parseCard要求三段式kind:id:revision（time-machine-sources.ts格式）——属评测工具bug非模型问题，已修正并对齐生产分页结构；修正前5次真实请求的证据行已删除（预算账本保留真实消耗5请求/43078token，不蒸发烧掉的事实），修正后card-extract×DeepSeek Pro/Flash均ok=2/2。初筛批次model-node-eval-b1（预算独立账本400请求/1200万token，与此前端到端预算分账）正在跑，结果以tm2_eval_case为准。
+**真实通道与初筛（56/56已完成，小样本不称稳定结论）**：ProductionEvalAdapter桥接ModelAdapterFactory（structured_planning与生产时间机器网关一致），错误分型429/unknown/鉴权/截断（output_length_limit）/供应商白名单code；运行器scripts/evaluation/node-model-eval.ts（同批次id重跑自动断点续传）。名册枚举7个文字模型（agent-catalog TEXT_MODELS除已停用glm-5.2；MiniMax仅后缀表未登记名册不枚举；缺权限/装配失败明确标未测不静默漏项）。冒烟真实验证：skeleton×DeepSeek Pro合同通过（1337入/12713出token，176秒，用量known）。**工具修正①**：初筛首发发现card-extract评测提示的来源key为两段式而生产parseCard要求三段式kind:id:revision（time-machine-sources.ts格式）——属评测工具bug非模型问题，已修正并对齐生产分页结构；修正前5次真实请求的证据行已删除（预算账本保留真实消耗5请求/43078token，不蒸发烧掉的事实），修正后card-extract×DeepSeek Pro/Flash均ok=2/2。
+
+**初筛全批结果**（批次model-node-eval-b1，56 run全succeeded；每格n=2共同样本=小样本初筛，仅用于筛结构/协议可工作候选，不作排名依据；实耗117实际请求+9未知/96.3万+19.3万token，上限400/1200万内）：
+- card-extract：ds-pro/ds-flash/glm-flash/k3均2/2；k2.7 1/2（1次幻觉引用）；doubao 0/2（2次"短卡引用不存在"=模型幻觉来源key）；glm-5.3 0/2（1截断225s+1次JSON不可解析）。
+- card-finalize：仅glm-5.3 0/2（2次max_tokens截断，各约250s），其余6模型2/2。
+- card-merge / review-anchors：7模型全2/2（glm-5.3在review-anchors最慢325s但结构通过）。
+- skeleton：glm-flash 1/2（1次供应商400 SensitiveContentDetected=供应商内容审查，非模型质量问题），其余6模型2/2。
+- volume-card：ds-flash 1/2（1次供应商technical_failure），其余6模型2/2。
+- volumes-batch：ds-flash 0/2（2次供应商technical_failure）、glm-5.3 0/2（2次max_tokens截断，543s/626s）；其余5模型2/2（**工具修正②后**，见下）。
+- review-source：ds-pro/glm-flash/k3/doubao 2/2；glm-5.3 1/2；ds-flash/k2.7 0/2——失败均为"已提供回查片段仍要求补查"，即模型选择继续read_source而非下verdict；该口径属本批已知偏差（补查动作循环列入第二批methods-select评测），记合同错误并注明，不等同审查质量结论。
+- **失败分类汇总**：模型合同问题——glm-5.3共5次截断（card-extract1/card-finalize2/volumes-batch2，与生产历史上报一致，按节点处理不一票否决全岗位）+1次JSON不可解析、doubao card-extract幻觉引用2次、k2.7 card-extract幻觉引用1次；供应商/通道——ds-flash 3次technical_failure（volume-card1/volumes-batch2）、glm-flash 1次SensitiveContentDetected；流程口径——review-source补查循环5例（上注）。无429/限流；排队时间另列未混入生成耗时。
+
+**工具修正②（9c5cfb46）**：volumes-batch初筛曾7模型"全灭"，其中5模型9案例失败原因同为"卷卡字段超60字"——核查发现评测校验器误把逐卷（volume-card）路径的逐字段≤60字+6000字符上限套到批量路径，而生产批路径（design-service批分支）只验批次完整/编号顺序+锚点数组形态，且批提示从未声明60字规则：双重失真（校验比生产严+提示未告知规则），属工具bug非模型集体不行。已对齐生产批合同并补漂移防护反例（批路径超60字通过/缺卷与锚点非数组拒绝/逐卷路径保持强制，43/43+tsc过）；9条失真案例作废删除（操作前整库备份.local/eval/node-model-eval.pre-volumes-batch-fix.bak.sqlite，预算账本保留真实消耗），5个受影响run以修正校验器重跑全部2/2（glm-5.3截断与ds-flash供应商错误证据维持有效未重跑）。**诚实边界**：重跑通过只证明结构合同，质量未评；输出工件此前未落盘（artifact_path全空），验证阶段盲评所需工件保存为下一批前置。
 
 **后台"节点评测"视图（已建未上线）**：V7NodeEvaluationService（视图状态分层：未测/进行中/小样本/合格/不达标/暂停/待复测，名册7模型全列不静默漏项；排名计算只接受保留验证样本，初筛样本拒绝生成排名；应用/回滚写node_policy含rankingRevision+policyVersion单调递增；自动暂停规则=连续3次技术失败或5次内2次截断→暂停派工待复测）+6条admin路由（requireAdministrator）+admin-console新页签（与"模型速度与准入"静态历史报告同页分离展示，不冒充实时成绩；前三/样本数/成功率/median/p95/截断超时/token/准入原因/应用回滚/手工暂停复测）。
 
