@@ -82,6 +82,26 @@ describe('火山方舟严格套餐适配器', () => {
     await expect(adapter.generate(request)).rejects.toMatchObject({outcomeUnknown:mode==='malformed'});
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
+  it('供应商400提取白名单诊断token（code/参数名/请求ID），自由文本不进入诊断', async () => {
+    const fetchImpl=vi.fn<typeof fetch>(async()=>Response.json(
+      {error:{code:'InvalidParameter',message:'the max_tokens parameter is too large because visible plus reasoning exceeded',param:'max_tokens'}},
+      {status:400,headers:{'x-request-id':'req-diag-001'}}));
+    const adapter=new ArkPlanModelAdapter({plan:'agent',provider:'volcengine-ark-agent-plan',modelId:'deepseek-v4-pro',baseUrl:'https://ark.cn-beijing.volces.com/api/plan',apiKey:'test-secret-key',purpose:'structured_planning'},fetchImpl);
+    const error=await adapter.generate({...request,maxOutputTokens:3000}).catch(e=>e);
+    expect(error).toMatchObject({failureClass:'request_failure',retryable:false,statusCode:400,
+      vendorDiagnostic:{code:'InvalidParameter',param:'max_tokens',requestId:'req-diag-001'}});
+    // 自由文本（原因描述）与密钥不进入诊断token；message仍走原有脱敏摘要
+    expect(JSON.stringify(error.vendorDiagnostic)).not.toContain('too large');
+    expect(JSON.stringify(error.vendorDiagnostic)).not.toContain('test-secret-key');
+    expect(String(error.message)).not.toContain('test-secret-key');
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+  it('供应商400非JSON正文或缺字段时诊断为空，不猜解析', async () => {
+    const fetchImpl=vi.fn<typeof fetch>(async()=>new Response('<html>Bad Request</html>',{status:400}));
+    const adapter=new ArkPlanModelAdapter({plan:'agent',provider:'volcengine-ark-agent-plan',modelId:'deepseek-v4-pro',baseUrl:'https://ark.cn-beijing.volces.com/api/plan',apiKey:'test',purpose:'structured_planning'},fetchImpl);
+    const error=await adapter.generate({...request,maxOutputTokens:3000}).catch(e=>e);
+    expect(error).toMatchObject({failureClass:'request_failure',statusCode:400,vendorDiagnostic:undefined});
+  });
   it.each(['glm-5.2', 'kimi-k2.7-code'])('%s短结构审查省略不支持的关闭思考参数', async modelId => {
     const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
       const body = JSON.parse(String(init?.body));

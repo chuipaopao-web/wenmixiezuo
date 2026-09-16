@@ -172,4 +172,75 @@ describe('30a6f053 targeted fixes',()=>{
    expect(reviewer!.model.modelId).not.toBe('kimi-k3');
   }
  });
+ it('gateway diagnosticCode并入白名单供应商token，自由文本永不进入（ab8464c4端到端A节点）',async()=>{
+  const c=createTestContext();contexts.push(c);const scope={ownerId:c.config.ownerId,bookId:'gw2-book'};
+  c.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run(scope.ownerId,'诊断作者','2026-09-16','2026-09-16');
+  new BookRepository(c.database).create(scope,'诊断书','2026-09-16','active');
+  const adapter={provider:'volcengine-ark-agent-plan',modelId:'deepseek-v4-pro',async generate(){
+   throw new ModelAdapterError('套餐返回400：{"error":{"code":"InvalidParameter","message":"max_tokens too large because budget exceeded","param":"max_tokens"}}','request_failure',false,400,false,undefined,undefined,{code:'InvalidParameter',param:'max_tokens',requestId:'req-abc-123'});}};
+  const error=await new TimeMachineModelGateway(c.database,()=>adapter).generate({scope,id:`call-vendor-${Date.now()}`,memberId:'planner-deepseek-v4-pro',provider:'volcengine-ark-agent-plan',modelId:'deepseek-v4-pro',prompt:'你好',maxOutputTokens:100,windowTokens:64000,temperature:0.6}).catch(e=>e as {kind:string;diagnosticCode?:string});
+  expect(error.kind).toBe('invalid');
+  expect(String(error.diagnosticCode)).toContain('http-400');
+  expect(String(error.diagnosticCode)).toContain('/vendor-InvalidParameter');
+  expect(String(error.diagnosticCode)).toContain('/param-max_tokens');
+  expect(String(error.diagnosticCode)).toContain('/req-req-abc-123');
+  expect(String(error.diagnosticCode)).not.toContain('too large');
+  expect(String(error.message)).not.toContain('too large');
+ });
+ it('volume-card节点显式6000可见预算对齐自身3000字合同，其他节点分类不变（ab8464c4端到端B节点）',async()=>{
+  const seen:{node:string;maxOutputTokens:number}[]=[];
+  const counters={volumeAttempts:{},skeletonAttempts:0,seenPrompts:[]};
+  const c=createTestContext();contexts.push(c);const scope={ownerId:c.config.ownerId,bookId:'budget-book'};
+  c.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run(scope.ownerId,'预算作者','2026-09-16','2026-09-16');
+  new BookRepository(c.database).create(scope,'预算书','2026-09-16','active');
+  c.database.prepare("INSERT INTO book_opening_blueprints VALUES('opening',?,?,1,'v1','male','fantasy','玄幻',?,?,'active','2026-09-16')").run(scope.ownerId,scope.bookId,JSON.stringify({protagonists:['林舟'],storyDirection:'无灵根修理工建立工坊'}),'a'.repeat(64));
+  const base=makeGateway(c,{},counters);
+  const capturing=(provider:string,modelId:string)=>{const adapter=base(provider,modelId);return {...adapter,async generate(request:{prompt:string;maxOutputTokens:number},signal?:AbortSignal){
+   const prompt=request.prompt;
+   const node=prompt.includes('设计全书骨架。只设计')?'skeleton':prompt.includes('补全本卷卷卡')?'volume-card':prompt.includes('核对候选锚点')?'review-anchors':'other';
+   seen.push({node,maxOutputTokens:request.maxOutputTokens});
+   return adapter.generate(request,signal);}};};
+  const service=new TimeMachineDesignService(c.database,new TimeMachineModelGateway(c.database,capturing),64000);
+  (service as unknown as {_prerequisiteReader?:(s:{ownerId:string;bookId:string})=>{ready:boolean;message:string;version:string|null}})._prerequisiteReader=()=>({ready:true,message:'已确认',version:'pb'});
+  const rec=await recommend(service,scope);
+  const created=service.startDesignRound(scope,selectionFor(rec,'pb'),'pb-round');
+  await service.process(created.find(x=>x.scheme==='A')!.id);
+  const volumeCards=seen.filter(s=>s.node==='volume-card');
+  expect(volumeCards.length).toBeGreaterThan(0);
+  expect(volumeCards.every(s=>s.maxOutputTokens===6000)).toBe(true);
+  expect(seen.find(s=>s.node==='skeleton')?.maxOutputTokens).toBe(8000);
+  expect(seen.find(s=>s.node==='review-anchors')?.maxOutputTokens).toBe(8000);
+ });
+ it('修订轮输入确实包含待修问题与原卷及其锚点，不整轮无差别重写（ab8464c4端到端C节点）',async()=>{
+  const counters={volumeAttempts:{},skeletonAttempts:0,seenPrompts:[]};
+  const c=createTestContext();contexts.push(c);const scope={ownerId:c.config.ownerId,bookId:'rev-book'};
+  c.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run(scope.ownerId,'修订作者','2026-09-16','2026-09-16');
+  new BookRepository(c.database).create(scope,'修订书','2026-09-16','active');
+  c.database.prepare("INSERT INTO book_opening_blueprints VALUES('opening',?,?,1,'v1','male','fantasy','玄幻',?,?,'active','2026-09-16')").run(scope.ownerId,scope.bookId,JSON.stringify({protagonists:['林舟'],storyDirection:'无灵根修理工建立工坊'}),'a'.repeat(64));
+  // 自检（self-check）首轮给出真实问题，触发既有局部修订轮；第二轮通过。
+  const issueText='卷1收束锚点条件要求已抵达县城，但收束文字只到决定前往，收束与条件不一致';
+  let selfChecked=false;
+  const base=makeGateway(c,{},counters);
+  const reviewing=(provider:string,modelId:string)=>{const adapter=base(provider,modelId);return {...adapter,async generate(request:{prompt:string},signal?:AbortSignal){
+   if(request.prompt.includes('自检你刚完成')&&!selfChecked){selfChecked=true;
+    return {provider,modelId,output:JSON.stringify({pass:false,issues:[issueText]}),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded' as const};}
+   return adapter.generate(request,signal);}};};
+  const service=new TimeMachineDesignService(c.database,new TimeMachineModelGateway(c.database,reviewing),64000);
+  (service as unknown as {_prerequisiteReader?:(s:{ownerId:string;bookId:string})=>{ready:boolean;message:string;version:string|null}})._prerequisiteReader=()=>({ready:true,message:'已确认',version:'rv'});
+  const rec=await recommend(service,scope);
+  const created=service.startDesignRound(scope,selectionFor(rec,'rv'),'rv-round');
+  await service.process(created.find(x=>x.scheme==='A')!.id);
+  // 修订轮（revision-1）卷卡提示词：必须含待修问题原文+原卷内容+原卷锚点，且标注“不是作者新增设定”。
+  const revisionCardPrompts=counters.seenPrompts.filter(p=>p.includes('补全本卷卷卡')&&p.includes('上轮意见'));
+  expect(revisionCardPrompts.length).toBeGreaterThan(0);
+  for(const prompt of revisionCardPrompts){
+   expect(prompt).toContain(issueText);
+   expect(prompt).toContain('不是作者新增设定');
+   expect(prompt).toContain('交付完成'); // 原卷exit锚点summary（volumeCardFor）
+   expect(prompt).toContain('濒临倒闭'); // 原卷start
+  }
+  // 自检首轮的原始问题驱动了修订；第二轮自检与独立审查通过后整个run成功，未强行改判。
+  const done=service.state(scope).find(r=>r.id===created.find(x=>x.scheme==='A')!.id)!;
+  expect(done.state).toBe('succeeded');
+ });
 });

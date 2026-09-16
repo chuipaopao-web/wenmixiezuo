@@ -270,7 +270,11 @@ export class TimeMachineDesignService {
   // v2卷卡含锚点/字数/职责理由，DeepSeek结构化规划思考常超6k；8k可见输出+4k思考余量避免推理耗尽max_tokens后零可见文字。
   // 资料提取/合并是封闭的证据任务，5000走既有结构化直出策略；6000会开启额外思考，
   // 生产曾两次耗尽10000输出token而没有可提交短卡。创造性设计仍使用原预算。
-  const maxOutputTokens=node.startsWith('methods:')||node.startsWith('skeleton')||node.startsWith('volumes:')||node.startsWith('review')||node.startsWith('self')?8000:node.startsWith('card:')||node.startsWith('merge:')||node==='card-finalize'?5000:3000;
+  // volume-card单卷合同自身硬预算是3000字（中文字符≈1token起步，加JSON结构开销），
+  // 落默认3000可见token必然低于合同上限——ab8464c4端到端B节点GLM因此触顶11000截断
+  // （可见/思考分项供应商未上报，不声称全是思考烧穿；可见预算低于合同是确定性配置矛盾）。
+  // 卷卡显式给6000有界可见预算对齐自身合同，不全局调大、不关闭思考。
+  const maxOutputTokens=node.startsWith('methods:')||node.startsWith('skeleton')||node.startsWith('volumes:')||node.startsWith('review')||node.startsWith('self')?8000:node.startsWith('volume-card:')?6000:node.startsWith('card:')||node.startsWith('merge:')||node==='card-finalize'?5000:3000;
   const thinkingHeadroomTokens=timeMachineSynthesisHeadroom(member.model.modelId,maxOutputTokens);
   // 第22.4节：同一暂时性错误最多2次自动重试；预算/未知/格式错误不自动重发。
   for(let autoRetry=0;;autoRetry++){

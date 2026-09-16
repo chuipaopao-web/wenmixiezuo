@@ -82,7 +82,10 @@ export class TimeMachineModelGateway {
    const known=usage&&[usage.inputTokens,usage.outputTokens].every(n=>Number.isSafeInteger(n)&&n>=0)&&Number.isFinite(usage.cashCostCny)&&usage.cashCostCny>=0?usage:null;
    this.db.prepare("UPDATE tm2_model_calls SET state=?,error_class=?,input_tokens=?,output_tokens=?,cash_micros=?,completed_at=? WHERE id=? AND state='working'").run(kind==='unknown'?'unknown':'failed',kind,known?.inputTokens??null,known?.outputTokens??null,known?Math.round(known.cashCostCny*1000000):null,new Date().toISOString(),request.id);
    // Do not echo provider errors, prompts, credentials or stack traces to the author.
-   const diagnostic=error instanceof ModelAdapterError?`${error.failureClass}/http-${error.statusCode??'none'}/usage-${known?'known':'unavailable'}`:undefined;
+   // 白名单机器token（供应商code/参数名/请求ID）可并入diagnosticCode供离线诊断；供应商自由文本永不进入。
+   const vendor=error instanceof ModelAdapterError?error.vendorDiagnostic:undefined;
+   const vendorPart=vendor?`${vendor.code?`/vendor-${vendor.code}`:''}${vendor.param?`/param-${vendor.param}`:''}${vendor.requestId?`/req-${vendor.requestId}`:''}`:'';
+   const diagnostic=error instanceof ModelAdapterError?`${error.failureClass}/http-${error.statusCode??'none'}/usage-${known?'known':'unavailable'}${vendorPart}`:undefined;
    throw new TimeMachineCallError(kind,kind==='unknown'?'模型结果需要核对，已保留调用记录':'本次成员调用未完成，已保留进度',diagnostic);
   }
  }

@@ -37,6 +37,16 @@ export interface ModelAdapter {
 
 export type ModelFailureClass = 'technical_failure' | 'authentication_failure' | 'request_failure';
 
+/** 白名单脱敏的供应商失败诊断（2026-09-16 ab8464c4端到端A节点400缺具体原因）。
+ * 只允许机器可读token：供应商错误code、请求ID、参数名；绝不包含供应商自由文本、
+ * 提示词、密钥、思维链或作者内容。网关可将这些token并入diagnosticCode供离线诊断，
+ * 不得把供应商正文透传给作者UI。 */
+export interface VendorFailureDiagnostic {
+  code?: string;
+  requestId?: string;
+  param?: string;
+}
+
 export class ModelAdapterError extends Error {
   public constructor(
     message: string,
@@ -46,7 +56,8 @@ export class ModelAdapterError extends Error {
     public readonly outcomeUnknown = false,
     public readonly knownUsage?: {inputTokens:number;outputTokens:number;cashCostCny:number},
     /** 机器可读失败原因（兼容可选）：输出长度截断='output_length_limit'。调用方按此分型，不解析message文本。 */
-    public readonly causeCode?: 'output_length_limit'
+    public readonly causeCode?: 'output_length_limit',
+    public readonly vendorDiagnostic?: VendorFailureDiagnostic
   ) {
     super(message);
     this.name = 'ModelAdapterError';

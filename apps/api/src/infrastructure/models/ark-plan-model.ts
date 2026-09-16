@@ -130,7 +130,8 @@ export class ArkPlanModelAdapter implements ModelAdapter {
       );
     }
     if (!response.ok) {
-      const detail = sanitize(await response.text().catch(() => ''), this.options.apiKey).slice(0, 240);
+      const rawDetail = await response.text().catch(() => '');
+      const detail = sanitize(rawDetail, this.options.apiKey).slice(0, 240);
       const message = `${planDisplayName(this.options.plan)}返回${response.status}${detail.length === 0 ? '' : `：${detail}`}`;
       const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
       const failureClass = retryable
@@ -138,7 +139,8 @@ export class ArkPlanModelAdapter implements ModelAdapter {
         : response.status === 401 || response.status === 403
           ? 'authentication_failure'
           : 'request_failure';
-      throw new ModelAdapterError(message, failureClass, retryable, response.status);
+      throw new ModelAdapterError(message, failureClass, retryable, response.status, false, undefined, undefined,
+        vendorFailureDiagnostic(rawDetail, response.headers));
     }
     let body: ArkMessagesResponse;
     try {
@@ -300,6 +302,25 @@ function finiteTokenCount(value: number | undefined): number {
 
 function sanitize(value: string, secret: string): string {
   return secret.length === 0 ? value : value.replaceAll(secret, '***');
+}
+
+/** 从供应商错误响应提取白名单机器token（code/请求ID/参数名），自由文本一律不取。 */
+function vendorFailureDiagnostic(rawBody: string, headers: Headers): import('./model-adapter.js').VendorFailureDiagnostic | undefined {
+  const token = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined;
+    const cleaned = value.replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 80);
+    return cleaned.length > 0 ? cleaned : undefined;
+  };
+  let code: string | undefined;
+  let param: string | undefined;
+  try {
+    const parsed = JSON.parse(rawBody) as { error?: { code?: unknown; param?: unknown }; code?: unknown; param?: unknown };
+    code = token(parsed?.error?.code) ?? token(parsed?.code);
+    param = token(parsed?.error?.param) ?? token(parsed?.param);
+  } catch { /* 非JSON正文不猜解析 */ }
+  const requestId = token(headers.get('x-request-id') ?? headers.get('x-tt-logid'));
+  if (code === undefined && param === undefined && requestId === undefined) return undefined;
+  return { ...(code !== undefined ? { code } : {}), ...(param !== undefined ? { param } : {}), ...(requestId !== undefined ? { requestId } : {}) };
 }
 
 function isAborted(signal: AbortSignal | undefined): boolean {
