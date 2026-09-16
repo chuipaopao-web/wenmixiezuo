@@ -126,6 +126,12 @@ export class NodeEvaluationRepository {
     return this.db.prepare('SELECT * FROM tm2_eval_budget WHERE batch_id=?').get(batchId) as unknown as EvalBudgetRow | undefined;
   }
 
+  /** 进程重启对账：新进程没有在途调用，旧进程的悬空预留归零（实耗/未知列绝不清零）。 */
+  reconcileReservedOnBoot(batchId: string): void {
+    this.db.prepare('UPDATE tm2_eval_budget SET reserved_requests=0,reserved_tokens=0,updated_at=? WHERE batch_id=?').run(new Date().toISOString(), batchId);
+    this.db.prepare("UPDATE tm2_eval_run SET reserved_requests=0,reserved_tokens=0 WHERE batch_id=? AND status IN ('queued','working')").run(batchId);
+  }
+
   /** 预留（发送前）。返回false=预算硬停：预留后任一口径超限即拒绝本次发送。 */
   tryReserve(batchId: string, runId: string, requests: number, tokens: number): boolean {
     this.db.exec('BEGIN IMMEDIATE');

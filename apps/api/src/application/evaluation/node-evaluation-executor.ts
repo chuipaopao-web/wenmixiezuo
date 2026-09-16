@@ -71,7 +71,7 @@ export interface EvalRunPlan {
   readonly thinkingHeadroomTokens?: number;
   readonly samples: readonly EvalSample[];
   /** 输出合同校验；抛EvalContractError=contract_error（critical=true记关键约束漏失）。返回语义分析存quality_*列。 */
-  readonly validate: (output: string) => EvalCaseAnalysis | void;
+  readonly validate: (output: string, sample: EvalSample) => EvalCaseAnalysis | void;
 }
 
 export interface ExecutorOptions {
@@ -184,7 +184,7 @@ export class NodeEvaluationExecutor {
           }
         }
         try {
-          const analysis = plan.validate(output!);
+          const analysis = plan.validate(output!, sample);
           outcome = 'ok';
           technicalOk = 1;
           contractOk = 1;

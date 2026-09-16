@@ -262,8 +262,29 @@ describe('排名版本应用与回滚', () => {
   });
 });
 
-describe('节点派工策略', () => {
-  it('暂停模型按节点隔离；policy_version单调递增', () => {
+describe('重启对账', () => {
+  it('悬空预留重启归零，实耗/未知列绝不清零', async () => {
+    const { c, repo } = setup();
+    repo.ensureBudget('batch-1', 10, 10_000_000);
+    createRun(repo, 'run-1', 2);
+    const executor = new NodeEvaluationExecutor(c.database, { estimateTokens: () => 100 });
+    // 模拟旧进程在途被kill：手动留一笔悬空预留
+    repo.tryReserve('batch-1', 'run-1', 1, 500);
+    const adapter = okAdapter(null); // unknown用量
+    await executor.execute(makePlan(repo, 'run-1', [sample('s1')], { maxOutputTokens: 40 }), adapter);
+    const before = repo.readBudget('batch-1')!;
+    expect(before.reserved_requests).toBe(1); // 旧悬空预留仍在
+    expect(before.unknown_requests).toBe(1);
+    repo.reconcileReservedOnBoot('batch-1');
+    const after = repo.readBudget('batch-1')!;
+    expect(after.reserved_requests).toBe(0);
+    expect(after.reserved_tokens).toBe(0);
+    expect(after.unknown_requests).toBe(1); // 实耗/未知绝不清零
+    expect(after.unknown_tokens).toBe(before.unknown_tokens);
+  });
+});
+
+describe('节点派工策略', () => {  it('暂停模型按节点隔离；policy_version单调递增', () => {
     const { repo } = setup();
     repo.upsertNodePolicy('skeleton', 'glm-5.3', 'suspended', '卷卡已确认不稳定待复测', null, 'k3');
     repo.upsertNodePolicy('skeleton', 'glm-5.3', 'pending_retest', '复测排队', 1, 'k3');
