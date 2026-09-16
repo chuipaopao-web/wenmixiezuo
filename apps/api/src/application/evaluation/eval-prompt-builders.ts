@@ -203,12 +203,16 @@ export function validateEvalOutput(nodeKey: string, sample: BuiltSample, output:
       return { contractOk: true };
     }
     case 'volumes-batch': {
+      // 镜像生产批路径（design-service.ts批分支）：只校验批次完整/编号顺序/锚点数组形态——
+      // 逐字段≤60字与6000字符上限属逐卷（volume-card）路径合同，生产批路径不强制；
+      // 初筛曾误套checkVolumeCard导致5模型集体"超60字"失败，属评测工具失真非模型问题。
       const items = record(json(output)).volumes;
       const briefs = f.skeleton.volumeBriefs as Record<string, unknown>[];
       if (!Array.isArray(items) || items.length !== briefs.length) throw new EvalContractError('分卷批次不完整');
       for (let n = 0; n < items.length; n++) {
-        if (record(items[n]).id !== briefs[n]!.id) throw new EvalContractError('分卷编号或顺序与概要不符');
-        checkVolumeCard(record(items[n]), String(briefs[n]!.id));
+        const item = record(items[n]);
+        if (item.id !== briefs[n]!.id) throw new EvalContractError('分卷编号或顺序与概要不符');
+        if (!Array.isArray(item.anchors)) throw new EvalContractError('卷锚点格式错误', true);
       }
       return { contractOk: true };
     }

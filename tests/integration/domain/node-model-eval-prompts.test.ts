@@ -114,6 +114,21 @@ describe('合同校验器', () => {
     const three = { volumes: [{ ...volume, anchors: [...(volume.anchors as unknown[]), (volume.anchors as unknown[])[0]] }] };
     expect(() => validateEvalOutput('volume-card', sampleOf('volume-card'), JSON.stringify(three))).toThrowError(EvalContractError);
   });
+  it('批量卷卡：镜像生产批路径合同——不强制逐卷60字上限（初筛误套曾致5模型集体失真），缺卷/锚点非数组仍被拒；逐卷路径保持强制', () => {
+    const briefs = fixture.skeleton.volumeBriefs as Record<string, unknown>[];
+    const cleanVols = fixture.cleanPlan.volumes as Record<string, unknown>[];
+    const long = '这是一段故意超过六十字的正文字段，用来断言批量路径不强制逐卷长度上限这一生产合同分界是否仍然成立，必须足够长才可以达到目的。';
+    expect(long.length).toBeGreaterThan(60);
+    const items = briefs.map((b, i) => ({ ...cleanVols[i % cleanVols.length]!, id: b.id, start: long }));
+    // 生产批路径（design-service批分支）不强制逐字段≤60字：超60字仍应通过
+    expect(validateEvalOutput('volumes-batch', sampleOf('volumes-batch'), JSON.stringify({ volumes: items })).contractOk).toBe(true);
+    // 缺卷/锚点形态错误仍被拒（生产批分支与组装段的真实校验）
+    expect(() => validateEvalOutput('volumes-batch', sampleOf('volumes-batch'), JSON.stringify({ volumes: items.slice(1) }))).toThrowError(EvalContractError);
+    expect(() => validateEvalOutput('volumes-batch', sampleOf('volumes-batch'), JSON.stringify({ volumes: items.map((v, i) => i === 0 ? { ...v, anchors: null } : v) }))).toThrowError(EvalContractError);
+    // 逐卷（volume-card）路径保持60字强制
+    const one = { ...cleanVols[0]!, id: briefs[0]!.id, start: long };
+    expect(() => validateEvalOutput('volume-card', sampleOf('volume-card'), JSON.stringify({ volumes: [one] }))).toThrowError(EvalContractError);
+  });
   it('短卡提取：来源key不可创造（parseCard来源校验）', () => {
     const fields = { premise: [{ text: '方向', sourceKeys: ['opening:main:1'] }], protagonists: [{ text: '主角', sourceKeys: ['opening:main:1'] }], world: [], openingEnding: [], preferences: [], prohibitions: [] };
     expect(validateEvalOutput('card-extract', sampleOf('card-extract'), JSON.stringify({ fields })).contractOk).toBe(true);
