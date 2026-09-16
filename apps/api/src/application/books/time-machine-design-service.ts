@@ -271,10 +271,15 @@ export class TimeMachineDesignService {
   // 资料提取/合并是封闭的证据任务，5000走既有结构化直出策略；6000会开启额外思考，
   // 生产曾两次耗尽10000输出token而没有可提交短卡。创造性设计仍使用原预算。
   // volume-card单卷合同自身硬预算是3000字（中文字符≈1token起步，加JSON结构开销），
-  // 落默认3000可见token必然低于合同上限——ab8464c4端到端B节点GLM因此触顶11000截断
-  // （可见/思考分项供应商未上报，不声称全是思考烧穿；可见预算低于合同是确定性配置矛盾）。
-  // 卷卡显式给6000有界可见预算对齐自身合同，不全局调大、不关闭思考。
-  const maxOutputTokens=node.startsWith('methods:')||node.startsWith('skeleton')||node.startsWith('volumes:')||node.startsWith('review')||node.startsWith('self')?8000:node.startsWith('volume-card:')?6000:node.startsWith('card:')||node.startsWith('merge:')||node==='card-finalize'?5000:3000;
+  // 落默认3000可见token必然低于合同上限——ab8464c4端到端B节点GLM因此触顶11000截断。
+  // 6000修正经09aa19e4隔离副本真实恢复实跑证伪（2026-09-16，A新轮f573938f与B同轮重试）：
+  // 6000>5000使DeepSeek从"省略thinking直出"翻转为"显式enabled+4k预算"，实测烧满10000零可见；
+  // GLM-5.3走可见路由+8k动态余量，6000+8000=14000仍被隐式思考全部烧穿零可见，双双截断于volume-card:0。
+  // 同一次实跑中skeleton/skeleton:repair以8000+综合余量（GLM 24k/DeepSeek 12k）成功通过，
+  // 证明该配置对同书同提示词族可用；v2卷卡历史设计本就是8k可见+思考余量（上行注释）。
+  // 卷卡因此并入8000综合节点组：节点级对齐既有成功策略，不全局调大、不关闭思考，
+  // 可见输出仍由validateVolumeCard与6000字符序列化上限按合同封顶。
+  const maxOutputTokens=node.startsWith('methods:')||node.startsWith('skeleton')||node.startsWith('volumes:')||node.startsWith('volume-card:')||node.startsWith('review')||node.startsWith('self')?8000:node.startsWith('card:')||node.startsWith('merge:')||node==='card-finalize'?5000:3000;
   const thinkingHeadroomTokens=timeMachineSynthesisHeadroom(member.model.modelId,maxOutputTokens);
   // 第22.4节：同一暂时性错误最多2次自动重试；预算/未知/格式错误不自动重发。
   for(let autoRetry=0;;autoRetry++){

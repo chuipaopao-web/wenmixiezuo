@@ -187,7 +187,7 @@ describe('30a6f053 targeted fixes',()=>{
   expect(String(error.diagnosticCode)).not.toContain('too large');
   expect(String(error.message)).not.toContain('too large');
  });
- it('volume-card节点显式6000可见预算对齐自身3000字合同，其他节点分类不变（ab8464c4端到端B节点）',async()=>{
+ it('volume-card节点并入8000综合节点组获思考余量（6000实跑证伪：DeepSeek翻思考烧满10000、GLM烧满14000双截断），其他节点分类不变（ab8464c4端到端B节点）',async()=>{
   const seen:{node:string;maxOutputTokens:number}[]=[];
   const counters={volumeAttempts:{},skeletonAttempts:0,seenPrompts:[]};
   const c=createTestContext();contexts.push(c);const scope={ownerId:c.config.ownerId,bookId:'budget-book'};
@@ -207,7 +207,7 @@ describe('30a6f053 targeted fixes',()=>{
   await service.process(created.find(x=>x.scheme==='A')!.id);
   const volumeCards=seen.filter(s=>s.node==='volume-card');
   expect(volumeCards.length).toBeGreaterThan(0);
-  expect(volumeCards.every(s=>s.maxOutputTokens===6000)).toBe(true);
+  expect(volumeCards.every(s=>s.maxOutputTokens===8000)).toBe(true);
   expect(seen.find(s=>s.node==='skeleton')?.maxOutputTokens).toBe(8000);
   expect(seen.find(s=>s.node==='review-anchors')?.maxOutputTokens).toBe(8000);
  });
