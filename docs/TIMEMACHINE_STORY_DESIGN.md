@@ -1102,3 +1102,11 @@ Codex端到端验证三套方案无可采用后定点处理：A卷卡3遇HTTP400
 **评审校准最终结果（calibration-v2）**：通过=kimi-k3/doubao-seed-2.1-turbo/glm-5.3-flash（其结论作正式证据）；未过=deepseek-v4-pro（flawed-skeleton漏检一次，单次校准存在随机性，如实标注）、deepseek-v4-flash（clean误判）、glm-5.3与kimi-k2.7-code（探针调用失败）——四者结论quality_note标注"仅供参考"不作准入依据。
 
 **作废与消耗（全部落档.local/eval/invalidations.json，预算账本绝不清零）**：v1校准约21次、失真期评审3例、47例错配评审、诊断3次，消耗均保留在judging账本；judging账本从400上限中已耗约158+未知21，剩余约242——全量236案例评审（含复核/抽查）预计不足，预算硬停时未评案例保持未评审如实标注，不隐形追加、不降低抽查/复核标准凑数。
+
+**失真④审查干净样本为占位符方案（机检误报统计失真）**：评审运行中发现全部模型对审查正例（干净样本）"误报"2-10条/例——核查：审查正例用的就是失真②前的占位符cleanPlan，模型指出的问题（占位符/对抗线无去向）真实存在，机器校验把一切报告计为误报→误报率统计系统性失真。处置：正例机检质量信号32条作废（负例召回证据保留，记invalidations.json）；审查样本sampleHash原只含seededErrors导致夹具修正后重测被断点跳过（fdeda1dc修正：hash含方案内容长度，夹具变=新样本新case，不算重复已完成案例）；5个succeeded审查run重开，以充实后夹具重测（3个early-eliminated的review-source run保留——其合同失败为结构性补查循环问题与夹具无关，证据有效）。
+
+**评审批次预算硬停（按合同停手）**：blind-v2正式评审完成139/236案例（通过123/不过1/分歧15），judging账本实耗346+未知54/400达上限硬停，97案例（skeleton尾部、volume-card大部、volumes-batch全部）保持未评审不隐形追加；评审调用截断失败26次（评审模型对skeleton/volume大方案的结论超出max2000，属评审配置观察项，后续批次如实报告）。预算消耗构成如实归因：v1校准21+失真期3例（约6次）+错配47例（约90次）+诊断3次+v2校准21+正式评审约225次——工具失真烧掉约三成评审预算，教训已转化为钉住测试。
+
+**排名预览（隔离副本proof.sqlite，rank-preview.ts，草稿不写正式库）**：card-extract前三ds-flash/k3/glm-flash（ds-pro第4）；card-finalize前三ds-flash/k3/ds-pro、**doubao below_threshold（技术交付70%<90%）**；card-merge ds-pro质量85.7%<90%不达标（glm-flash/ds-flash/doubao前三）；skeleton前三ds-pro/ds-flash/k3；volume-card仅doubao/glm-flash合格（k2.7/k3质量未评完）；volumes-batch全部质量未评完；审查节点按旧负例召回数据暂无合格模型（重测进行中，结论以重测后为准）。所有n=10为小样本，p95标小样本估计。
+
+**card-finalize排除接替真实证明（ranking-dispatch-proof.ts，证据.local/eval/ranking-dispatch-proof.json）**：隔离副本全链路真实数据——computeRanking（doubao below_threshold）→applyRanking（node_policy active=前三）→setNodePolicy暂停doubao（证据：n=10中3次合同失败=模型幻觉引用）→生产派工纯函数resolveNodeMember/nodeFallbackOrder：承担=排名第1ds-flash、doubao从候补序列消失；第1名也暂停后由候补k3接替、doubao仍不可达。正式库未改、生产快照未触碰、派工策略默认仍关闭。已知措辞瑕疵如实记录：resolveNodeMember在排名第1暂停由第2接替时reason仍写"按已应用节点排名第1名承担"（行为正确、文案易误读，留后续小修）。
