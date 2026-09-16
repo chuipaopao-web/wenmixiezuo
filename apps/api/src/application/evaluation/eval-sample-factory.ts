@@ -269,7 +269,9 @@ export function buildSamples(nodeKey: string, setName: 'screen' | 'holdout'): Bu
         : [combos.indexOf(combo) < 5 ? 'positive' : 'negative'];
       for (const kind of kinds) {
         samples.push({
-          sampleHash: hashOf([nodeKey, setName, combo.genre, combo.band, combo.slot, kind, fixture.seededErrors]),
+          // hash含干净/缺陷方案内容长度：夹具修正（如占位符cleanPlan充实）后样本身份随之变化，
+          // 重测生成新case而非被断点续传跳过；未修正时同输入同hash可复现。
+          sampleHash: hashOf([nodeKey, setName, combo.genre, combo.band, combo.slot, kind, fixture.seededErrors, JSON.stringify(fixture.cleanPlan).length, JSON.stringify(fixture.flawedPlan).length]),
           genre: combo.genre, lengthBand: combo.band, timeSlot: combo.slot, kind, fixture, setName
         });
       }
