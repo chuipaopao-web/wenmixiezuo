@@ -1,5 +1,21 @@
 # REBUILD-CLOSEOUT-01 · S1-A 结果：结构化故事线确认与基线启动
 
+## K3·验证第一波完成+老板两次执行补充落地（2026-09-17凌晨，87d48c9b/ac18b999/d161e3cc已推送，未发布）
+
+**验证第一波批次model-node-eval-b1-validation完成**：8节点×4候选×10保留holdout样本（计划320案例，实耗307请求+1未知、240.6万token，上限400/1200万内；续跑未重复任何已完成案例）。技术层成绩（一次技术交付=结构且输出合同通过；质量盲评批次进行中，未出质量结论）：
+- 全ok 10/10：card-extract/skeleton/volume-card/volumes-batch四候选全通；card-finalize（ds-flash/ds-pro/k3）、card-merge（ds-flash/ds-pro/doubao）、review-anchors（doubao/k2.7）。
+- 部分通过：card-finalize doubao 7ok+3合同错（幻觉引用/JSON不可解析）→技术交付70%<90%门槛（老板点名案例坐实）；card-merge glm-flash 9+1；review-anchors ds-flash 9+1供应商、glm-flash 9+1；review-source doubao 9+1。
+- **提前淘汰真实触发3例**：review-source ds-pro 2/4、glm-flash 5/7、k3 4/6——各2次模型合同失败后判定不可达90%门槛即停，标记early-eliminated、归因模型、不跨节点；review-source仅doubao进质量机检，不达标则该节点如实标"暂无合格模型"。
+- 失败归因：模型13例/供应商2例/usage未知1例单列unknown口径；无429/限流。
+
+**三点补充（87d48c9b，10项离线测试全过）**：①技术交付含输出合同（堵住合同错误被排除盲评仍算技术成功的漏洞）；②盲评防误放——主判通过按序号每3抽1异模型复核，抽查不过=分歧null未定；评审校准（cleanPlan应判过/flawedPlan应判不过），校准不过其结论标注仅供参考，校准结果落judge-calibration.json幂等；③budgetTotals合并核算（分账+合计同展示）；9条失真案例作废原因+实际消耗（11.0万token）落档invalidations.json。
+
+**六点补充（ac18b999，41项离线测试全过+tsc过）**：①不重启整批（续跑全跳过）；②每组进度行（完成/计划、当前、最近时间、账本、实测ETA）；③失败归因分类器+提前淘汰（资格测试run失败到不可达门槛即停，小样本初筛不启用）；④入围标准不降（n≥10+双90%+零关键漏失）；⑤并发核查——合同授权全局2同模型1，原串行未用上，已改worker池2，超时600s/429退避[5s,20s]维持合同原值未提高；⑥自动接续——验证完成即启动评审批次，排名与隔离端到端连续执行。
+
+**迁移0128**（纯增量）：tm2_eval_run重建扩展status CHECK加early-eliminated，数据全保留，操作前整库备份。
+
+**如实边界**：评审校准前两模型（ds-pro/ds-flash）均未过clean-skeleton探针（把已知正确骨架判不过），其评审结论将标注"仅供参考"；若全部评审校准未过，盲评证据强度受限，如实报告不凑结论。技术ok≠质量合格；n=10仍标小样本。
+
 ## K3·初筛全批完成+失败分类+volumes-batch工具失真修正（2026-09-16，9c5cfb46/1bd000dc已推送，未发布）
 
 **初筛56/56 run完成**（每格n=2共同样本=小样本初筛，只筛结构/协议可工作候选，不作排名依据；实耗117实际+9未知请求、96.3万+19.3万token，上限400/1200万内）。全表证据在tm2_eval_case（worktree .local/eval/node-model-eval.sqlite）与docs 25.10：
