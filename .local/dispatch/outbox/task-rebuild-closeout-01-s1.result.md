@@ -1,5 +1,13 @@
 # REBUILD-CLOSEOUT-01 · S1-A 结果：结构化故事线确认与基线启动
 
+## Codex核查ab8464c4端到端证据（2026-09-16，未放行）
+
+独立只读result.json及探针SQLite：A error=invalid/request_failure/http-400/usage-unavailable；B=truncated/technical_failure/http-200/usage-known；C review.pass=false、12 issues/21 suggestions。27调用、known213605、unknown预留19971、budgetCommitted233576、2352秒核对一致。未执行HTTP采用属实；不以工程验证替代可采用结果。
+
+A仅定位失败节点而非根因：gateway压缩错误诊断导致供应商具体400原因未留在run错误中。B代码volume-card没有独立输出预算，落默认3000；11000总输出截断不能直接推断全部用于思考。C存在实际收束/必达/fallback/灵活性不一致，下一批需连同技术失败一起局部修订与复核，不能只修A/B便宣称闭环。
+
+下一批细化在原任务顶部“ab8464c4端到端未通过”。保留原证据，只在项目内隔离副本恢复，累计预算不重置，不从开书重跑。回退API自报版本与声称旧代码版本不一致待来源/hash核对；本轮未独立重跑构建，不称该项已经核实。未关机、未部署。
+
 ## K3·9523942a复核通过后最终候选验证（2026-09-16，已完成，未切换生产）
 
 按原任务顶部"9523942a复核通过"连续执行。冻结提交**ab8464c4**（=9523942a+RB-21代码核对值同步1行；构建门禁verify-function-management要求，已验证差异仅来自本批legacy-opening两文件，RB-21正文无通道表述）。候选归档sha256 `097aeb571514a0c4293adecbf014ecfc8d3787b8dd885f33b27384ea4658de4e`（git archive LF，解包于`.local/dispatch/final-candidate/candidate`）。
@@ -15,6 +23,21 @@
 **步骤4端到端结果（39分钟自然终局，未触墙钟；真实HTTP链路完整走通到审查节点，未采用——如实不过审）**：推荐✓（deepseek-v4-pro真实生成5条故事线，recommendationHash/preparationVersion齐全）→结构化确认✓（HTTP 202创建A/B/C三方案）→方案与审查终局：**C生成完成但审查verdict=revise（review-anchors:2:revision-1，pass=0，诚实质量门禁拦截，未强行改判）**；**A技术失败于volume-card:3（invalid/request_failure/http-400/usage-unavailable，未知用量1次按预留19,971 tokens单列）**；**B技术失败于volume-card:0（truncated/technical_failure/http-200/usage-known，glm-5.3输出11,000 tokens触长度上限，已知失败14,120 tokens）**。三套均不可采用→按合同未执行HTTP采用，产物与隔离库（probe-2ea0437b…sqlite）保留在`D:\tmp\wenmi-s1a-probe-final`。用量：总27次调用≤100；已知成功25次199,485 tokens+已知失败14,120=knownTotal 213,605，保守口径budgetCommitted 233,576≤600,000；用时2,352秒≤3,600。探针脚本一处适配已声明（/tmp门禁→wenmi-s1a-probe路径包含检查，diff仅1行），看门狗硬限3600秒未触发。
 
 **步骤5最终结论**：冻结提交**ab8464c4**（9523942a+RB-21核对值1行同步），归档sha256 `097aeb571514a0c4293adecbf014ecfc8d3787b8dd885f33b27384ea4658de4e`；全部依赖路径经readlink验证在归档内（九个@wenmi workspace包）；构建运行时Node v24.19.0+npm 11.19.1（未绕过engines）；迁移/回退结论如步骤2—3（0126幂等、旧代码fail-closed前提下零新增放行、旧API健康读取正常、回退包必须保留新迁移文件）。通道结论：Messages与GLM Chat双路径7/7连通且用量全部已知；真实链路推荐/确认/生成/审查节点全部真实走通，但**本轮无可采用方案（C需修订、A/B节点级技术失败），不满足"自然过审+HTTP采用"放行条件**——按合同这是诚实未过审结果，不冒充成功；A的400与B的截断为下一批定点收束节点（与既有run3/run4截断/400清单同类）。**仍保留未通过项（未改白名单未略过）**：数据库边界恰原7项、闭包69项台账旧债、verify:full其余旧债（cutover/迁移期望/创作链夹具/tsc夹具）逐项保留；CTX跨题材不在本批。本阶段仅验证未切换生产，交Codex一次性核定。
+
+## K3·ab8464c4端到端定点诊断与局部恢复（2026-09-16，提交1f831c6a，未部署）
+
+按原任务顶部"ab8464c4端到端未通过"连续执行，不从开书重跑、不重置累计预算。隔离副本`D:\.local\dispatch\recovery\candidate`（git archive 09aa19e4，sha256 78ff2f53…443fc，独立构建）+探针库只读副本（原证据D:/tmp/wenmi-s1a-probe-final未动），真实HTTP经现有`POST …/runs/:id/retry`恢复API。
+
+**A（400诊断，任务①）**：隔离证据确认400只存failureClass/http/usage，无供应商码（如实未知）——已修适配器白名单诊断捕获（vendor code/param/requestId落diagnosticCode，自由文本永不进入，ark-plan-model.test.ts 49项反例）。恢复实跑：retry按合同创建新轮f573938f（error=invalid→新轮），**400未复现**，诊断捕获就位待命；根因保持如实未知，不猜测供应商参数名。
+
+**B（截断，任务②）**：09aa19e4的6000修正被真实恢复实跑**证伪**——6000>5000使DeepSeek从省略thinking直出翻转为显式enabled+4k预算（ark-plan-model.ts:290分支），实测烧满10000输出token零可见截断；GLM-5.3走可见路由+8k动态余量，6000+8000=14000仍被隐式思考烧穿零可见。A新轮与B同轮重试（sameRun复用已保存步骤）双双失败于volume-card:0（truncated/http-200/usage-known）。同一次实跑中skeleton/skeleton:repair以8000+综合余量（GLM 24k/DeepSeek 12k）成功通过，与v2卷卡历史8k设计一致。**修正（1f831c6a）**：volume-card并入8000综合节点组——节点级对齐既有成功策略，不全局调大、不关闭思考；可见输出仍由validateVolumeCard与6000字符序列化上限按合同封顶；反例同步改断言8000。**墙钟余量耗尽，8000未做真实模型复验**，标注待下一预算窗口。
+
+**C（审查12条issues，任务③）**：逐条核对锚点合同与作者冻结要求（不能无代价、伙伴各有追求、感情线）——**12条全部真实，无审查加码**；21条suggestions为文学建议非阻塞。探针库显示C的revision-1已完整重跑（skeleton+4卷卡+自检+审查全succeeded）仍未收敛，机制intact、合同内自动修订轮（0→1）已用尽——C需作者修订决策，不机械加轮。修订轮输入含issue原文+原卷+锚点已有离线反例。
+
+**用量与预算（任务⑤，保守口径不重置）**：本批恢复5调用/55,722保守token/约1,155秒；端到端累计32/289,298/约3,507秒，对上限100/600,000/3,600墙钟余量约93秒——按任务⑤停止，未再发起模型调用。无自然过审候选，**HTTP采用验证未执行**，不冒充采用成功。
+
+**其他**：回退包releaseId差异已核对（git内为占位文件，生产RELEASE_ID由部署脚本发布时原子覆写，非回退包错误，任务⑥关闭）；migration.test.ts 1失败经stash验证为09aa19e4前既有旧债，与本次改动无关；恢复探针 recovery-probe.mjs 为一次性脚本不入库，探针结束后43198无残留进程。验证：s1a-30a6-fixes等7套件162/163（唯一失败即上述既有迁移旧债）、API tsc通过。仍阻塞：8000真实复验、C作者修订决策、数据库边界原7项、闭包69旧债、CTX未做。交Codex复核，不部署。
+
 
 ## Codex复核9523942a（2026-09-16，通道改动通过，最终候选验证继续）
 
