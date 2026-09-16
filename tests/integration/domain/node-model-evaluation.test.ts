@@ -3,6 +3,7 @@ import { createTestContext, type TestContext } from '../../helpers/test-context.
 import { NodeEvaluationRepository } from '../../../apps/api/src/infrastructure/db/repositories/node-evaluation-repository.js';
 import { NodeEvaluationExecutor, EvalCallError, type EvalAdapter, type EvalRunPlan, type EvalSample } from '../../../apps/api/src/application/evaluation/node-evaluation-executor.js';
 import { wilsonLowerBound, aggregateModelStats, admitModel, rankNodeEntries, DEFAULT_ADMISSION, type EvalCaseMetricsInput } from '../../../apps/api/src/application/evaluation/evaluation-ranking.js';
+import { classifyFailure, summarizeAttribution } from '../../../apps/api/src/application/evaluation/eval-failure-attribution.js';
 import { EVAL_NODE_REGISTRY, EVAL_BATCH1_NODE_KEYS, matchEvalNode, findEvalNode } from '../../../apps/api/src/application/evaluation/node-registry.js';
 
 // MODEL-NODE-EVAL离线验收（合同"验收与结束条件"前置项）：预算硬停/未知计量/断点不重复/排名可复算/
@@ -359,5 +360,111 @@ describe('输出工件保存（盲评引用依据）', () => {
     const executor = new NodeEvaluationExecutor(c.database, { estimateTokens: () => 100 });
     await executor.execute(makePlan(repo, 'run-no-art', [sample('no-art')]), okAdapter());
     expect(repo.casesForRun('run-no-art')[0]!.artifact_path).toBeNull();
+  });
+});
+
+describe('提前淘汰（合同执行补充：不可能达门槛即停，不跨节点）', () => {
+  it('失败2/10后剩余全过也<90%，停止剩余资格测试并标记', async () => {
+    const { c, repo } = setup();
+    repo.ensureBudget('batch-1', 20, 10_000_000);
+    createRun(repo, 'run-elim', 10);
+    const executor = new NodeEvaluationExecutor(c.database, { estimateTokens: () => 100 });
+    const badAdapter: EvalAdapter & { calls: number } = {
+      calls: 0,
+      async generate() { badAdapter.calls++; return { output: '没有JSON的文字', usage: { inputTokens: 10, outputTokens: 5, reasoningTokens: 0 } }; }
+    };
+    const samples = Array.from({ length: 10 }, (_, i) => sample(`e${i}`));
+    const status = await executor.execute(makePlan(repo, 'run-elim', samples, { maxOutputTokens: 40 }), badAdapter);
+    expect(status).toBe('early-eliminated');
+    expect(badAdapter.calls).toBe(2); // 第2次失败后淘汰，剩余8样本未发送
+    const run = repo.readRun('run-elim')!;
+    expect(run.status).toBe('early-eliminated');
+    expect(run.stop_reason).toContain('提前淘汰');
+    expect(run.stop_reason).toContain('80%');
+    expect(repo.casesForRun('run-elim')).toHaveLength(2);
+    // 重跑不重复发送：终态直接返回
+    const again = await executor.execute(makePlan(repo, 'run-elim', samples, { maxOutputTokens: 40 }), badAdapter);
+    expect(again).toBe('early-eliminated');
+    expect(badAdapter.calls).toBe(2);
+  });
+  it('unknown不算失败：2次未知后其余全过不触发淘汰', async () => {
+    const { c, repo } = setup();
+    repo.ensureBudget('batch-1', 20, 10_000_000);
+    createRun(repo, 'run-unk', 10);
+    const executor = new NodeEvaluationExecutor(c.database, { estimateTokens: () => 100 });
+    let calls = 0;
+    const flaky: EvalAdapter = {
+      async generate() {
+        calls++;
+        if (calls <= 2) throw new EvalCallError('unknown', '结果未知：超时后未确认');
+        return { output: '{"ok":true}', usage: { inputTokens: 10, outputTokens: 5, reasoningTokens: 0 } };
+      }
+    };
+    const samples = Array.from({ length: 10 }, (_, i) => sample(`u${i}`));
+    const status = await executor.execute(makePlan(repo, 'run-unk', samples, { maxOutputTokens: 40 }), flaky);
+    expect(status).toBe('succeeded');
+    expect(calls).toBe(10);
+  });
+});
+
+describe('失败归因（模型/供应商/评测工具/未定）', () => {
+  it('outcome映射：合同错误与截断=模型；HTTP/429/鉴权/超时=供应商；未知=未定；evaltool前缀=评测工具', () => {
+    expect(classifyFailure('contract_error', 'JSON不能被解析')).toBe('model');
+    expect(classifyFailure('truncated', '截断：output_length_limit')).toBe('model');
+    expect(classifyFailure('http_error', '供应商错误：500')).toBe('provider');
+    expect(classifyFailure('rate_limited', '429')).toBe('provider');
+    expect(classifyFailure('auth_error', '鉴权/套餐失效')).toBe('provider');
+    expect(classifyFailure('timeout', '单case超时')).toBe('provider');
+    expect(classifyFailure('unknown', '结果未知')).toBe('unknown');
+    expect(classifyFailure('contract_error', 'evaltool:校验器误套合同')).toBe('eval-tool');
+  });
+  it('汇总只统计失败case，ok不入账', () => {
+    const counts = summarizeAttribution([
+      { outcome: 'ok', error_code: null },
+      { outcome: 'contract_error', error_code: '短卡引用不存在' },
+      { outcome: 'contract_error', error_code: 'JSON不能被解析' },
+      { outcome: 'http_error', error_code: '供应商错误：503' }
+    ]);
+    expect(counts).toEqual({ model: 2, provider: 1, 'eval-tool': 0, unknown: 0 });
+  });
+});
+
+describe('技术交付含输出合同（doubao card-finalize 7/10反例）', () => {
+  const caseOf2 = (overrides: Partial<EvalCaseMetricsInput>): EvalCaseMetricsInput => ({
+    modelProfileKey: 'm', modelId: 'm', outcome: 'ok', technicalOk: true, contractOk: true, qualityPass: true,
+    durationMs: 1000, totalTokens: 500, retryCount: 0, ...overrides
+  });
+  it('10次技术返回但3次合同未过：技术交付率70%<90%不准入', () => {
+    const cases = Array.from({ length: 10 }, (_, i) => caseOf2({
+      outcome: i < 3 ? 'contract_error' : 'ok',
+      contractOk: i < 3 ? false : true,
+      qualityPass: i < 3 ? null : true // 合同错误不进盲评
+    }));
+    const stats = aggregateModelStats('doubao-seed-2.1-turbo', 'doubao-seed-2.1-turbo', cases);
+    expect(stats.technicalDeliveryRate).toBeCloseTo(0.7);
+    expect(admitModel(stats, 'generation').state).toBe('below_threshold');
+    expect(admitModel(stats, 'generation').reasons.join()).toContain('技术交付率70.0%<90%');
+  });
+  it('contractOk=null（无合同约束节点）按technicalOk计交付', () => {
+    const cases = Array.from({ length: 10 }, () => caseOf2({ contractOk: null }));
+    const stats = aggregateModelStats('a', 'a', cases);
+    expect(stats.technicalDeliveryRate).toBe(1);
+    expect(admitModel(stats, 'generation').state).toBe('qualified');
+  });
+});
+
+describe('批次进度查询', () => {
+  it('完成数/计划数/最近时间/实测均值正确聚合', async () => {
+    const { c, repo } = setup();
+    repo.ensureBudget('batch-1', 10, 10_000_000);
+    createRun(repo, 'run-p1', 4);
+    createRun(repo, 'run-p2', 6);
+    const executor = new NodeEvaluationExecutor(c.database, { estimateTokens: () => 100 });
+    await executor.execute(makePlan(repo, 'run-p1', [sample('p1'), sample('p2')], { maxOutputTokens: 40 }), okAdapter());
+    const p = repo.batchProgress('batch-1');
+    expect(p.doneCases).toBe(2);
+    expect(p.plannedCases).toBe(10);
+    expect(p.latestFinishedAt).toBeTruthy();
+    expect(p.avgDurationMs).toBeGreaterThanOrEqual(0);
   });
 });

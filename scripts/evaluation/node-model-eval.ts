@@ -22,6 +22,7 @@ import { ModelAdapterFactory } from '../../apps/api/src/infrastructure/models/mo
 import { ModelAdapterError } from '../../apps/api/src/infrastructure/models/model-adapter.js';
 import { NodeEvaluationRepository } from '../../apps/api/src/infrastructure/db/repositories/node-evaluation-repository.js';
 import { NodeEvaluationExecutor, EvalCallError, type EvalAdapter, type EvalAdapterRequest, type EvalAdapterResponse, type EvalRunPlan } from '../../apps/api/src/application/evaluation/node-evaluation-executor.js';
+import { summarizeAttribution, ATTRIBUTION_LABELS, type FailureAttribution } from '../../apps/api/src/application/evaluation/eval-failure-attribution.js';
 import { buildSamples } from '../../apps/api/src/application/evaluation/eval-sample-factory.js';
 import { buildEvalPrompt, validateEvalOutput } from '../../apps/api/src/application/evaluation/eval-prompt-builders.js';
 import { EVAL_BATCH1_NODE_KEYS, findEvalNode } from '../../apps/api/src/application/evaluation/node-registry.js';
@@ -102,6 +103,8 @@ async function main(): Promise<void> {
   const setName = args.phase === 'screen' ? 'screen' as const : 'holdout' as const;
   const summary: { node: string; model: string; status: string; cases: number; ok: number; contractFail: number; truncated: number; other: number }[] = [];
 
+  // 先装配全部计划（探针/建run/跳过已完成），再由worker池按授权并发执行
+  const plans: EvalRunPlan[] = [];
   for (const nodeKey of args.nodes) {
     const node = findEvalNode(nodeKey);
     if (!node) { console.error(`未登记节点：${nodeKey}，跳过`); continue; }
@@ -122,13 +125,13 @@ async function main(): Promise<void> {
           model_plan: 'agent', config_version: `cfg-${args.phase}-default`, prompt_version: node.promptVersion,
           phase: args.phase, status: 'queued', sample_set_id: sampleSetId, planned_cases: samples.length
         });
-      } else if (existing.status === 'succeeded') {
-        console.log(`[跳过] ${nodeKey} × ${modelProfileKey} 已完成`);
+      } else if (existing.status === 'succeeded' || existing.status === 'early-eliminated') {
+        console.log(`[跳过] ${nodeKey} × ${modelProfileKey} 已${existing.status === 'succeeded' ? '完成' : '提前淘汰'}`);
         continue;
       }
       const headroom = timeMachineSynthesisHeadroom(modelProfileKey, node.budgetClass);
       const evalSamples = samples.map(s => ({ sampleHash: s.sampleHash, genre: s.genre, lengthBand: s.lengthBand, timeSlot: s.timeSlot, kind: s.kind, prompt: buildEvalPrompt(nodeKey, s) }));
-      const plan: EvalRunPlan = {
+      plans.push({
         runId, batchId: args.batch, nodeKey, lengthBand: 'all', modelProfileKey,
         provider: 'volcengine-ark-agent-plan', modelId: modelProfileKey,
         configVersion: `cfg-${args.phase}-default`, promptVersion: node.promptVersion,
@@ -143,21 +146,44 @@ async function main(): Promise<void> {
             qualityNote: analysis.note
           };
         }
-      };
-      console.log(`[评测] ${nodeKey} × ${modelProfileKey}：${samples.length}样本`);
+      });
+    }
+  }
+
+  // 授权并发：全局2、同模型1（执行器信号量保证）；预算硬停后不再调度新run
+  const WORKERS = 2;
+  let cursor = 0;
+  let budgetHalted = false;
+  const progressLine = (current: string): string => {
+    const p = repo.batchProgress(args.batch);
+    const b = repo.readBudget(args.batch)!;
+    const remaining = Math.max(0, p.plannedCases - p.doneCases);
+    const etaMin = p.avgDurationMs !== null && p.avgDurationMs > 0 ? Math.round((remaining * p.avgDurationMs) / WORKERS / 60000) : null;
+    return `[进度] 完成${p.doneCases}/${p.plannedCases}案例｜当前${current}｜最近结果${p.latestFinishedAt ?? '无'}｜账本实耗${b.actual_requests}+未知${b.unknown_requests}/${b.limit_requests}请求、token ${b.actual_tokens + b.unknown_tokens + b.reserved_tokens}/${b.limit_tokens}｜预估剩余${etaMin === null ? '未知' : `约${etaMin}分钟（按实测均值/并发${WORKERS}）`}`;
+  };
+  const runWorker = async (): Promise<void> => {
+    while (true) {
+      if (budgetHalted) return;
+      const plan = cursor < plans.length ? plans[cursor++]! : null;
+      if (!plan) return;
+      console.log(`[评测] ${plan.nodeKey} × ${plan.modelProfileKey}：${plan.samples.length}样本`);
       const status = await executor.execute(plan, adapter);
-      const cases = repo.casesForRun(runId);
+      const cases = repo.casesForRun(plan.runId);
+      const attribution = summarizeAttribution(cases);
+      const failParts = (Object.entries(attribution) as [FailureAttribution, number][]).filter(([, cnt]) => cnt > 0).map(([k, cnt]) => `${ATTRIBUTION_LABELS[k]}${cnt}`).join('/');
       summary.push({
-        node: nodeKey, model: modelProfileKey, status, cases: cases.length,
+        node: plan.nodeKey, model: plan.modelProfileKey, status, cases: cases.length,
         ok: cases.filter(c => c.outcome === 'ok').length,
         contractFail: cases.filter(c => c.outcome === 'contract_error').length,
         truncated: cases.filter(c => c.outcome === 'truncated').length,
         other: cases.filter(c => !['ok', 'contract_error', 'truncated'].includes(c.outcome)).length
       });
-      console.log(`[${status}] ${nodeKey} × ${modelProfileKey}：ok=${summary[summary.length - 1]!.ok}/${cases.length}`);
-      if (status === 'budget-stopped') { console.log('预算硬停，结束本批。'); break; }
+      console.log(`[${status}] ${plan.nodeKey} × ${plan.modelProfileKey}：ok=${cases.filter(c => c.outcome === 'ok').length}/${cases.length}${failParts ? `｜失败归因：${failParts}` : ''}`);
+      console.log(progressLine(`${plan.nodeKey} × ${plan.modelProfileKey}`));
+      if (status === 'budget-stopped') { budgetHalted = true; console.log('预算硬停，结束本批。'); return; }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: WORKERS }, () => runWorker()));
   const finalBudget = repo.readBudget(args.batch)!;
   console.log(JSON.stringify({
     batch: args.batch, phase: args.phase,

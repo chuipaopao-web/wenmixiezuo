@@ -69,7 +69,7 @@ export class NodeEvaluationRepository {
   setRunStatus(id: string, status: string, stopReason?: string): void {
     const now = new Date().toISOString();
     if (status === 'working') this.db.prepare("UPDATE tm2_eval_run SET status=?,started_at=COALESCE(started_at,?) WHERE id=?").run(status, now, id);
-    else if (status === 'succeeded' || status === 'failed' || status === 'stopped' || status === 'budget-stopped')
+    else if (status === 'succeeded' || status === 'failed' || status === 'stopped' || status === 'budget-stopped' || status === 'early-eliminated')
       this.db.prepare('UPDATE tm2_eval_run SET status=?,stop_reason=?,finished_at=? WHERE id=?').run(status, stopReason ?? null, now, id);
     else this.db.prepare('UPDATE tm2_eval_run SET status=? WHERE id=?').run(status, id);
   }
@@ -125,6 +125,15 @@ export class NodeEvaluationRepository {
   setCaseJudgment(id: string, input: { quality_pass: number | null; quality_note: string | null; judge_source: string; judge_model_id: string }): void {
     this.db.prepare('UPDATE tm2_eval_case SET quality_pass=?,quality_note=?,judge_source=?,judge_model_id=? WHERE id=?')
       .run(input.quality_pass, input.quality_note, input.judge_source, input.judge_model_id, id);
+  }
+
+  /** 批次进度（合同执行补充：完成数/计划数、最近结果时间、实测平均耗时供ETA）。 */
+  batchProgress(batchId: string): { doneCases: number; plannedCases: number; latestFinishedAt: string | null; avgDurationMs: number | null } {
+    // planned按run汇总（不经case连接，避免有case的run被重复计数）
+    const planned = (this.db.prepare('SELECT COALESCE(SUM(planned_cases),0) AS p FROM tm2_eval_run WHERE batch_id=?').get(batchId) as { p: number }).p;
+    const row = this.db.prepare(`SELECT COUNT(c.id) AS done, MAX(c.finished_at) AS latest, AVG(c.duration_ms) AS avgms
+      FROM tm2_eval_case c JOIN tm2_eval_run r ON r.id=c.run_id WHERE r.batch_id=?`).get(batchId) as { done: number; latest: string | null; avgms: number | null };
+    return { doneCases: row.done, plannedCases: planned, latestFinishedAt: row.latest, avgDurationMs: row.avgms };
   }
 
   // ---- 预算账本（预留+实耗+未知分列；重启不归零）----

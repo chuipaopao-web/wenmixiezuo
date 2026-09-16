@@ -2,6 +2,7 @@
  * MODEL-NODE-EVAL排名与准入（合同"准入与排名"节）：
  * - 按nodeKey+长度档+配置版本排名，不按全站平均。
  * - 准入门槛（同配置保留验证）：n>=10、一次技术交付率>=90%、关键约束零漏失、质量通过率>=90%；
+ *   一次技术交付=结构且输出合同通过（合同未过不算交付成功，不允许被排除盲评后仍计技术成功）；
  *   审查节点另需零关键漏报、误报率<=10%。不达标不进入排名，不凑三名。
  * - 排名键：一次有效成功率（technical_ok且quality_pass）的Wilson下界；接近者依次比较p95耗时、
  *   修订负担（重试/样本）、token用量。保留全部原始指标，不合成掩盖问题的单一分。
@@ -75,10 +76,13 @@ function percentile(sorted: readonly number[], q: number): number {
 
 export function aggregateModelStats(modelProfileKey: string, modelId: string, cases: readonly EvalCaseMetricsInput[]): ModelNodeStats {
   const n = cases.length;
-  const technical = cases.filter(c => c.technicalOk).length;
+  // 一次技术交付=结构且输出合同通过：合同未过=未交付可用输出（contractOk=null的节点不适用合同约束，按technicalOk计）。
+  // 否则contract_error会被排除在盲评之外却仍算"技术交付成功"，绕过90%技术门槛（doubao card-finalize 7/10案例）。
+  const delivered = (c: EvalCaseMetricsInput): boolean => c.technicalOk && c.contractOk !== false;
+  const technical = cases.filter(delivered).length;
   const judged = cases.filter(c => c.qualityPass !== null);
   const quality = judged.filter(c => c.qualityPass === true).length;
-  const firstTry = cases.filter(c => c.technicalOk && c.qualityPass === true).length;
+  const firstTry = cases.filter(c => delivered(c) && c.qualityPass === true).length;
   const durations = cases.map(c => c.durationMs).filter((v): v is number => v !== null).toSorted((a, b) => a - b);
   const tokens = cases.map(c => c.totalTokens).filter((v): v is number => v !== null);
   const seeded = cases.filter(c => c.seededErrorCaught !== null && c.seededErrorCaught !== undefined);

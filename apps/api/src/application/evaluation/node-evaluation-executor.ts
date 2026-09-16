@@ -82,6 +82,15 @@ export interface ExecutorOptions {
   readonly rateLimitBackoffMs: readonly number[]; // 默认[5000,20000]
   readonly timeoutMs: number;           // 单case超时，默认600000
   readonly estimateTokens: (text: string) => number; // 保守估计，用于预留
+  /**
+   * 提前淘汰门槛（合同执行补充）：一次技术交付率门槛，默认0.9。
+   * run内失败case（outcome非ok且非unknown）多到"剩余样本全ok也达不到门槛"时，
+   * 停止该run剩余资格测试并标记early-eliminated（按节点×模型，不跨节点一概淘汰）；unknown不计失败（先核对）。
+   * 只对planned_cases>=earlyEliminationMinPlanned（默认10，=准入最小样本量）的资格测试run启用：
+   * 小样本初筛本就不构成资格结论，不做淘汰判定。
+   */
+  readonly earlyEliminationThreshold?: number;
+  readonly earlyEliminationMinPlanned?: number;
   /** 输出工件保存目录（受控本地artifact，合同"记录与存储"节）：设置后成功/合同错误的可见输出落盘供盲评引用；
    * 只存可见输出，密钥与思维链不入盘；写盘失败不抹掉已计费结果，artifact_path如实为null。 */
   readonly artifactDir?: string;
@@ -95,7 +104,7 @@ const DEFAULT_OPTIONS: ExecutorOptions = {
   estimateTokens: (text: string) => Math.ceil(text.length / 2) // 中文为主的保守口径：约2字符/token上界估计
 };
 
-export type RunFinishStatus = 'succeeded' | 'budget-stopped' | 'stopped' | 'failed';
+export type RunFinishStatus = 'succeeded' | 'budget-stopped' | 'stopped' | 'failed' | 'early-eliminated';
 
 export class NodeEvaluationExecutor {
   private readonly repo: NodeEvaluationRepository;
@@ -130,20 +139,32 @@ export class NodeEvaluationExecutor {
 
   /**
    * 执行一个run计划（可重入）：终态case跳过；预算耗尽置budget-stopped并停止本run新发送。
+   * 提前淘汰：失败多到剩余全ok也达不到技术交付门槛时停止本run（early-eliminated），节省资格测试预算。
    * 返回最终状态；不抛预期内错误（单case失败记录后继续其余case）。
    */
   async execute(plan: EvalRunPlan, adapter: EvalAdapter): Promise<RunFinishStatus> {
     const run = this.repo.readRun(plan.runId);
     if (!run) throw new Error(`评测run不存在：${plan.runId}`);
-    if (run.status === 'succeeded' || run.status === 'budget-stopped') return run.status;
+    if (run.status === 'succeeded' || run.status === 'budget-stopped' || run.status === 'early-eliminated') return run.status as RunFinishStatus;
     this.repo.setRunStatus(plan.runId, 'working');
     const done = this.repo.completedCaseKeys(plan.runId);
+    const threshold = this.options.earlyEliminationThreshold ?? 0.9;
     let budgetStopped = false;
+    let earlyEliminated: string | null = null;
 
     for (const sample of plan.samples) {
       if (this.stopped) { this.repo.setRunStatus(plan.runId, 'stopped', '手动停止'); return 'stopped'; }
       const attemptSeq = 1;
       if (done.has(`${sample.sampleHash}#${attemptSeq}`)) continue; // 断点续传：不重复发送
+      // 提前淘汰判断（每个待发case前）：只对资格测试规模run启用；unknown不算失败。
+      if (run.planned_cases >= (this.options.earlyEliminationMinPlanned ?? 10)) {
+        const fails = this.repo.casesForRun(plan.runId).filter(x => x.outcome !== 'ok' && x.outcome !== 'unknown').length;
+        const maxPossibleRate = (run.planned_cases - fails) / run.planned_cases;
+        if (fails > 0 && maxPossibleRate < threshold) {
+          earlyEliminated = `提前淘汰：已失败${fails}/${run.planned_cases}，剩余全通过技术交付率也仅${(maxPossibleRate * 100).toFixed(0)}%<${threshold * 100}%，停止本节点该模型剩余资格测试`;
+          break;
+        }
+      }
       const inputHash = createHash('sha256').update(sample.prompt).digest('hex');
       const reservedTokens = this.options.estimateTokens(sample.prompt) + plan.maxOutputTokens + (plan.thinkingHeadroomTokens ?? 0);
 
@@ -250,6 +271,7 @@ export class NodeEvaluationExecutor {
       this.repo.settle(plan.batchId, plan.runId, { requests: 1, reservedTokens, actualTokens });
     }
 
+    if (earlyEliminated) { this.repo.setRunStatus(plan.runId, 'early-eliminated', earlyEliminated); return 'early-eliminated'; }
     if (budgetStopped) { this.repo.setRunStatus(plan.runId, 'budget-stopped', '批次预算硬停：预留/实耗/未知口径达上限'); return 'budget-stopped'; }
     this.repo.setRunStatus(plan.runId, 'succeeded');
     return 'succeeded';
