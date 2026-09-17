@@ -1,5 +1,15 @@
 # REBUILD-CLOSEOUT-01 · S1-A 结果：结构化故事线确认与基线启动
 
+## K3·审查三重测最终结论+失真⑤修正+最终排名（2026-09-17，92c917ce/97589a95已推送，未发布）
+
+**失真⑤cleanPlan跨题材矛盾**：充实稿"手艺/小铺/垄断"只合玄幻成长，历史融合/都市感情下审查模型判"主线偏离来源"属合法阻塞非误报。已改按题材手工内容（GenreSeed.plan），钉住测试断言不含他题材主角；第二波23案例质量信号作废（invalidations.json）。另修正正例两处真实弱点（对抗线职责anchorIds空、arc null，下一波生效）。
+
+**审查三重测最终（验证账本337+未知4/400收手）**：review-source doubao完成——技术交付97%、正例4/5通过，但植入召回0/5全未全检出→below_threshold；其余三模型维持提前淘汰（与夹具无关）。review-anchors doubao完成——召回60%、误报35.7%→below_threshold；k2.7/ds-flash/glm-flash累计2次技术失败提前淘汰（供应商/模型原因，非夹具）。**审查两节点按合同标准暂无合格模型，不凑前三**。观察项：审查提示"锚点条件"语义歧义（部分模型把一切条件判"无正文支撑"）。
+
+**最终排名预览（隔离副本含三重测）**：card-extract前三ds-flash/k3/glm-flash；card-finalize前三ds-flash/k3/ds-pro、doubao below_threshold（70%）；card-merge前三glm-flash/ds-flash/doubao（ds-pro质量85.7%不达标）；skeleton前三ds-pro/ds-flash/k3；volume-card仅doubao/glm-flash合格；volumes-batch质量未评完；审查两节点暂无合格。n=10标小样本。
+
+**待授权决策点**：①judging续批97案例（评审max2000对大方案偏紧，26次截断）；②审查新一波重测（弱点修正生效后）+提示歧义澄清；③端到端待合格名单齐；④派工默认关闭，排名应用仅限隔离环境。
+
 ## K3·盲评硬停+四处评审侧工具失真修正+排名与排除接替证明（2026-09-17，9b37dae5/4e6fd372/fdeda1dc/5401205a已推送，未发布）
 
 **盲评批次按合同预算硬停**：blind-v2正式评审完成139/236案例（通过123/不过1/分歧15），judging账本实耗346+未知54/400达上限停手，97案例（skeleton尾、volume-card大部、volumes-batch全部）保持未评审，不隐形追加。**评审校准（calibration-v2）**：k3/doubao/glm-flash三评审校准通过作正式证据；ds-pro/ds-flash/glm-5.3/k2.7未过（其结论标注仅供参考）。
