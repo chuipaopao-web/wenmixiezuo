@@ -116,7 +116,7 @@ export class ParentBudgetGuard {
     return Buffer.byteLength(request.prompt, 'utf8') + (request.maxOutputTokens ?? 4000) + (request.thinkingHeadroomTokens ?? 0) + 2048;
   }
 
-  /** 包裹一个已解析适配器：每次真实dispatch前原子预留+日志，结束按实际/未知结算。 */
+  /** 包裹一个已解析适配器：每次真实dispatch前原子预留+日志，结束按实际/未知结算（幂等，迟到返回不重复结算）。 */
   wrap<A extends GuardedRequest, R extends GuardedResponse, T extends GuardedAdapter<A, R>>(adapter: T): T {
     const guard = this;
     return {
@@ -131,22 +131,42 @@ export class ParentBudgetGuard {
         const now = new Date().toISOString();
         guard.db.prepare('INSERT INTO tm2_eval_reserve_journal(reserve_key,batch_id,owner_tag,requests,tokens,dispatch_mark,settled,created_at,updated_at) VALUES(?,?,?,?,?,?,0,?,?)')
           .run(reserveKey, guard.batchId, guard.ownerTag, 1, reserved, 'reserved', now, now);
+        // 活跃调用期间续租（分钟级调用不能让租约过期被对账回收）；结束时清理定时器
+        const heartbeatTimer = setInterval(() => guard.heartbeat(), Math.max(1000, Math.floor(guard.leaseTtlMs / 3)));
+        heartbeatTimer.unref();
+        const alreadySettled = (): { settled: number; outcome: string | null } | undefined =>
+          guard.db.prepare('SELECT settled,outcome FROM tm2_eval_reserve_journal WHERE reserve_key=? AND batch_id=?').get(reserveKey, guard.batchId) as { settled: number; outcome: string | null } | undefined;
         try {
           // 紧邻发送点标记：此后崩溃按"已发未结算"对账（转unknown占额，不释放）
           guard.db.prepare("UPDATE tm2_eval_reserve_journal SET dispatch_mark='dispatching',updated_at=? WHERE reserve_key=? AND batch_id=?")
             .run(new Date().toISOString(), reserveKey, guard.batchId);
           const response = await adapter.generate(request);
           const usage = billedUsage(response);
+          const journaled = alreadySettled();
+          if (journaled !== undefined && journaled.settled === 1) {
+            // 对账已转unknown后迟到返回：幂等重分类unknown→actual（总数仍为1），绝不再减reserved
+            if (usage.known) {
+              const reclassified = guard.repo.reclassifyUnknownToActual(guard.batchId, usage.total!);
+              guard.db.prepare("UPDATE tm2_eval_reserve_journal SET outcome=?,updated_at=? WHERE reserve_key=? AND batch_id=?")
+                .run(reclassified ? 'actual-late' : 'unknown', new Date().toISOString(), reserveKey, guard.batchId);
+            }
+            return response;
+          }
           guard.repo.settle(guard.batchId, reserveKey, { requests: 1, reservedTokens: reserved, actualTokens: usage.known ? usage.total : null });
           guard.db.prepare("UPDATE tm2_eval_reserve_journal SET settled=1,outcome=?,updated_at=? WHERE reserve_key=? AND batch_id=?")
             .run(usage.known ? 'actual' : 'unknown', new Date().toISOString(), reserveKey, guard.batchId);
           return response;
         } catch (error) {
-          // 未知结果占额转unknown列：不免费重试、不蒸发消耗事实
-          guard.repo.settle(guard.batchId, reserveKey, { requests: 1, reservedTokens: reserved, actualTokens: null });
-          guard.db.prepare("UPDATE tm2_eval_reserve_journal SET settled=1,outcome='unknown',updated_at=? WHERE reserve_key=? AND batch_id=?")
-            .run(new Date().toISOString(), reserveKey, guard.batchId);
+          const journaled = alreadySettled();
+          if (journaled === undefined || journaled.settled !== 1) {
+            // 未知结果占额转unknown列：不免费重试、不蒸发消耗事实（已结算不得再次结算）
+            guard.repo.settle(guard.batchId, reserveKey, { requests: 1, reservedTokens: reserved, actualTokens: null });
+            guard.db.prepare("UPDATE tm2_eval_reserve_journal SET settled=1,outcome='unknown',updated_at=? WHERE reserve_key=? AND batch_id=?")
+              .run(new Date().toISOString(), reserveKey, guard.batchId);
+          }
           throw error;
+        } finally {
+          clearInterval(heartbeatTimer);
         }
       }
     } as T;

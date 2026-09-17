@@ -11,7 +11,7 @@ CREATE TABLE tm2_eval_reserve_journal(
   tokens INTEGER NOT NULL CHECK(tokens>=0),
   dispatch_mark TEXT NOT NULL CHECK(dispatch_mark IN ('reserved','dispatching','unknown')) DEFAULT 'reserved',
   settled INTEGER NOT NULL DEFAULT 0 CHECK(settled IN (0,1)),
-  outcome TEXT CHECK(outcome IS NULL OR outcome IN ('actual','unknown','released','unknown-reconciled')),
+  outcome TEXT CHECK(outcome IS NULL OR outcome IN ('actual','actual-late','unknown','released','unknown-reconciled')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   PRIMARY KEY(reserve_key, batch_id)

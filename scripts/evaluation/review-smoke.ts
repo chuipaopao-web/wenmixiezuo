@@ -30,6 +30,11 @@ const MAX_OUTPUT = Number(get('max-output') ?? 6000); // S1-FAST-CLOSE实验参�
 const limitRequests = Number(get('limit-requests') ?? 80);
 const limitTokens = Number(get('limit-tokens') ?? 3_000_000);
 const PROMPT_VERSION = 'review-anchors-v3-anchor-semantics';
+// 截断证据后的定向复验（合同：仅截断证据才可对该节点改8000复验一次，版本分开）
+const ONLY_SAMPLE = get('only-sample');
+const ONLY_MODEL = get('only-model');
+const ATTEMPT_SEQ = Number(get('attempt') ?? 1);
+const CONFIG_VERSION = MAX_OUTPUT === 6000 ? 'cfg-fast-close-smoke' : `cfg-fast-close-smoke-max${MAX_OUTPUT}`; // 8000复验与6000版本分开（合同）
 
 const listRule = '每条问题或建议不超过80字并定位到具体卷或故事线（如卷B、主线1）；阻塞问题放在issues前部；单次issues最多10条、suggestions最多10条；若阻塞问题超过10条，将hasMoreIssues设为true，系统会追加询问，不要省略、合并或概括掉阻塞问题。';
 
@@ -84,19 +89,21 @@ async function main(): Promise<void> {
 
   const results: { model: string; sampleId: string; kind: string; verdict: Verdict | null; qualityPass: number; note: string }[] = [];
   for (const modelId of models) {
+    if (ONLY_MODEL && modelId !== ONLY_MODEL) continue;
     const runId = `eval-${batchId}-review-anchors-${modelId}-smoke`;
     if (!repo.readRun(runId)) {
       repo.createRun({
         id: runId, batch_id: batchId, node_key: 'review-anchors', length_band: 'all', member_role: 'chief',
         model_profile_key: modelId, provider: 'volcengine-ark-agent-plan', model_id: modelId, model_plan: 'agent',
-        config_version: 'cfg-fast-close-smoke', prompt_version: PROMPT_VERSION, phase: 'validation', status: 'queued',
+        config_version: CONFIG_VERSION, prompt_version: PROMPT_VERSION, phase: 'validation', status: 'queued',
         sample_set_id: smokeSet.version, planned_cases: smokeSet.samples.length
       });
     }
     repo.setRunStatus(runId, 'working');
     for (const sample of smokeSet.samples) {
+      if (ONLY_SAMPLE && sample.id !== ONLY_SAMPLE) continue;
       const sampleHash = createHash('sha256').update(JSON.stringify([runId, sample.id, sample.contentHash])).digest('hex').slice(0, 24);
-      if (repo.completedCaseKeys(runId).has(`${sampleHash}#1`)) { console.log(`[跳过] ${modelId} × ${sample.id} 已完成`); continue; }
+      if (repo.completedCaseKeys(runId).has(`${sampleHash}#${ATTEMPT_SEQ}`)) { console.log(`[跳过] ${modelId} × ${sample.id} attempt${ATTEMPT_SEQ}已完成`); continue; }
       const prompt = buildSmokePrompt(sample);
       const reserved = Math.ceil(prompt.length / 2) + MAX_OUTPUT + 4096;
       const reserveKey = `${runId}:${sample.id}`;
@@ -123,7 +130,7 @@ async function main(): Promise<void> {
             qualityPass = !verdict.pass && recall >= 2 ? 1 : 0;
             qualityNote = verdict.pass ? '缺陷样本漏报（判通过）' : `缺陷命中${recall}/3类（${verdict.issues.length}条issues）`;
           }
-          const name = `${runId.replace(/[^A-Za-z0-9_-]/gu, '_')}__${sample.id}.json`;
+          const name = `${runId.replace(/[^A-Za-z0-9_-]/gu, '_')}__${sample.id}__a${ATTEMPT_SEQ}.json`;
           writeFileSync(`${artifactDir}/${name}`, JSON.stringify({ nodeKey: 'review-anchors', modelProfileKey: modelId, sampleId: sample.id, kind: sample.kind, output: response.output }), 'utf8');
           artifactPath = name;
           repo.settle(batchId, reserveKey, { requests: 1, reservedTokens: reserved, actualTokens: usageKnown ? response.usage!.inputTokens! + response.usage!.outputTokens! + (response.usage!.reasoningTokens ?? 0) : null });
@@ -139,9 +146,9 @@ async function main(): Promise<void> {
       }
       const finishedAt = new Date().toISOString();
       repo.insertCase({
-        run_id: runId, node_key: 'review-anchors', model_profile_key: modelId, sample_hash: sampleHash, attempt_seq: 1,
+        run_id: runId, node_key: 'review-anchors', model_profile_key: modelId, sample_hash: sampleHash, attempt_seq: ATTEMPT_SEQ,
         genre: sample.genre, length_band: 'medium', time_slot: 'T1', sample_kind: sample.kind === 'correct' ? 'positive' : 'negative',
-        input_hash: createHash('sha256').update(prompt).digest('hex'), config_version: 'cfg-fast-close-smoke', prompt_version: PROMPT_VERSION,
+        input_hash: createHash('sha256').update(prompt).digest('hex'), config_version: CONFIG_VERSION, prompt_version: PROMPT_VERSION,
         http_status: httpStatus, outcome, technical_ok: technicalOk, contract_ok: contractOk,
         quality_pass: qualityPass, quality_note: qualityNote, judge_source: null, judge_model_id: null,
         input_tokens: usage?.inputTokens ?? null, output_tokens: usage?.outputTokens ?? null, reasoning_tokens: usage?.reasoningTokens ?? null,

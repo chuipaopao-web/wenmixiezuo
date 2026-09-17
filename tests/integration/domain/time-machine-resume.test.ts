@@ -62,6 +62,41 @@ const fakeAdapter = (calls: { prompt: string }[], failAnchors: { remaining: numb
   }
 });
 
+describe('Codex恢复反例：已补查来源后恢复', () => {
+  it('复用缓存的read_source不得重复插入轨迹，锚点失败后仍能恢复成功', async () => {
+    const { c, scope } = setup();
+    const calls: string[] = [];
+    let readIssued = false;
+    let anchorFailures = 2;
+    const resolver = (provider: string, modelId: string) => ({
+      provider, modelId,
+      async generate(request: { prompt: string }) {
+        calls.push(request.prompt);
+        if (request.prompt.includes('核对候选锚点') && anchorFailures-- > 0)
+          throw new ModelAdapterError('临时失败', 'technical_failure', true, 500);
+        let value = output(request.prompt, modelId);
+        if (request.prompt.includes('核对候选骨架') && !readIssued) {
+          readIssued = true;
+          value = { action: 'read_source', key: 'opening:opening:1', offset: 0 };
+        }
+        return { provider, modelId, output: JSON.stringify(value), inputTokens: 20, outputTokens: 20, cashCostCny: 0, state: 'succeeded' as const };
+      }
+    });
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, resolver), 64000);
+    const runId = round(service, scope, 'codex-read-resume')[0]!.id;
+    await service.process(runId);
+    expect(service.state(scope).find(r => r.id === runId)?.state).toBe('failed');
+    expect((c.database.prepare('SELECT COUNT(*) AS n FROM tm2_review_reads WHERE run_id=?').get(runId) as { n: number }).n).toBe(1);
+    expect(new TimeMachineResumeService(c.database).prepare(scope, runId).blocked).toHaveLength(0);
+    calls.length = 0;
+    await service.process(runId);
+    const final = c.database.prepare('SELECT state,error_message FROM tm2_design_runs WHERE id=?').get(runId) as { state: string; error_message: string | null };
+    expect({ state: final.state, error: final.error_message }).toEqual({ state: 'succeeded', error: null });
+    expect(calls.filter(p => p.includes('核对候选骨架'))).toHaveLength(0);
+    expect(calls.filter(p => p.includes('核对候选锚点'))).toHaveLength(1);
+  });
+});
+
 describe('合法恢复（集中复核①）', () => {
   it('审查已过、锚点批次失败→重启仅该批次一次dispatch，成功审查零重发、无归档', async () => {
     const { c, scope } = setup();

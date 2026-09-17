@@ -171,6 +171,21 @@ export class NodeEvaluationRepository {
     this.db.prepare("UPDATE tm2_eval_run SET reserved_requests=0,reserved_tokens=0 WHERE batch_id=? AND status IN ('queued','working')").run(batchId);
   }
 
+  /**
+   * 迟到返回的幂等重分类（Codex预算反例P2）：对账已把预留转unknown后原请求成功返回——
+   * 同一请求总数仍计1，unknown列减、actual列加，绝不再动reserved（避免负预留/重复结算）。
+   * CAS条件核验：仅当unknown列足够时才更新并返回true，否则返回false（调用方保守保留unknown）。
+   */
+  reclassifyUnknownToActual(batchId: string, tokens: number): boolean {
+    const now = new Date().toISOString();
+    const result = this.db.prepare(`UPDATE tm2_eval_budget
+      SET unknown_requests=unknown_requests-1,actual_requests=actual_requests+1,
+          unknown_tokens=unknown_tokens-?,actual_tokens=actual_tokens+?,updated_at=?
+      WHERE batch_id=? AND unknown_requests>=1 AND unknown_tokens>=?`)
+      .run(tokens, tokens, now, batchId, tokens);
+    return result.changes === 1;
+  }
+
   /** 预留（发送前）。返回false=预算硬停：预留后任一口径超限即拒绝本次发送。 */
   tryReserve(batchId: string, runId: string, requests: number, tokens: number): boolean {
     this.db.exec('BEGIN IMMEDIATE');

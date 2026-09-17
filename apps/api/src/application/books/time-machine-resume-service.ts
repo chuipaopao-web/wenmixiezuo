@@ -27,12 +27,15 @@ export class TimeMachineResumeService {
       .all(scope.ownerId, scope.bookId, `${runId}:%`) as { id: string; state: string; lease_until: number | null }[];
     const blocked: string[] = [];
     const actions: string[] = [];
-    // 活写者检查：任一running步骤租约未过期→整体不动（可能有活进程在写）
-    const live = steps.filter(s => s.state === 'running' && s.lease_until !== null && s.lease_until > now);
-    if (live.length) return { actions: [], blocked: live.map(s => `活动租约未过期：${s.id.split(':').slice(-2).join(':')}（lease至${new Date(s.lease_until!).toISOString()}）`) };
-
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      // 活写者检查（事务内重新确认，避免读检查后另一worker接手）：任一running步骤租约未过期→整体不动
+      const live = this.db.prepare("SELECT id,lease_until FROM tm2_steps WHERE owner=? AND book=? AND id LIKE ? AND state='running' AND lease_until IS NOT NULL AND lease_until > ?")
+        .all(scope.ownerId, scope.bookId, `${runId}:%`, now) as { id: string; lease_until: number }[];
+      if (live.length) {
+        this.db.exec('ROLLBACK');
+        return { actions: [], blocked: live.map(s => `活动租约未过期：${s.id.split(':').slice(-2).join(':')}（lease至${new Date(s.lease_until).toISOString()}）`) };
+      }
       for (const s of steps) {
         if (s.state === 'succeeded' || s.state === 'ready') continue; // 成功步骤不动（hash对比由claim/versioned处理）
         this.db.prepare("UPDATE tm2_steps SET state='ready',attempt=NULL,lease_until=NULL,error_code=NULL WHERE owner=? AND book=? AND id=?")

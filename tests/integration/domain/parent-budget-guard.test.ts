@@ -17,6 +17,28 @@ const okAdapter = (calls: { n: number }) => ({
   }
 });
 
+describe('Codex预算反例：长请求晚返回', () => {
+  it('租约过期对账后原请求晚返回，不得重复结算或出现负预留', async () => {
+    const limits = { requests: 3, tokens: 10_000_000, wallClockMs: 60_000, leaseTtlMs: 30_000 };
+    const { c, guard } = setup(limits, 'slow-owner');
+    let finish!: () => void;
+    const pending = guard.wrap({ async generate(_request: { prompt: string; requestId: string }) {
+      await new Promise<void>(resolve => { finish = resolve; });
+      return { usage: { inputTokens: 10, outputTokens: 5 } };
+    } }).generate({ prompt: '长请求', requestId: 'late-return' });
+    c.database.prepare('UPDATE tm2_eval_guard_lease SET heartbeat_at=? WHERE owner_tag=?')
+      .run('2000-01-01T00:00:00.000Z', guard.ownerTag);
+    const other = new ParentBudgetGuard(c.database, 'fc-resume-test', limits, 'other-owner');
+    expect(other.reconcile().toUnknown).toBe(1);
+    finish();
+    await pending;
+    const snap = guard.snapshot();
+    expect(snap.reserved).toBe(0);
+    expect(snap.actual + snap.unknown + snap.reserved).toBe(1);
+    expect(other.reconcile().toUnknown).toBe(0);
+  });
+});
+
 describe('发送边界统一父预算（上限拒绝）', () => {
   it('上限前拒绝下一次网络发送（适配器零调用）', async () => {
     const { guard } = setup({ requests: 1, tokens: 10_000_000, wallClockMs: 60_000 });

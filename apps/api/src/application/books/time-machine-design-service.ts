@@ -118,7 +118,8 @@ export class TimeMachineDesignService {
   try{this.steps.create(scope,stepId,input,memberKey);}
   catch(error){
    if(!(error instanceof Conflict))throw error;
-   this.stepArchive.archiveStep(scope,stepId,reason);
+   // 归档边界（Codex复核）：仅输入版本冲突且同owner/book、无活动租约才归档重建；活租约原样抛错不替换
+   this.stepArchive.archiveStepIfStale(scope,stepId,reason);
    this.steps.create(scope,stepId,input,memberKey);
   }
  }
@@ -256,7 +257,7 @@ export class TimeMachineDesignService {
      result={...saved,review};
     }else result=await this.design(run,scope,snapshot,card);
    }
-   this.db.prepare("UPDATE tm2_design_runs SET state='succeeded',result_json=?,updated_at=? WHERE id=?").run(JSON.stringify(result),new Date().toISOString(),id);
+   this.db.prepare("UPDATE tm2_design_runs SET state='succeeded',result_json=?,error_code=NULL,error_message=NULL,updated_at=? WHERE id=?").run(JSON.stringify(result),new Date().toISOString(),id);
   }catch(error){const code=error instanceof TimeMachineCallError?error.kind:'needs_review';this.db.prepare("UPDATE tm2_design_runs SET state='failed',error_code=?,error_message=?,updated_at=? WHERE id=?").run(code,error instanceof TimeMachineCallError?`${error.kind}/${error.diagnosticCode??'local'}`:error instanceof Error?`${error.name}: ${error.message}`.slice(0,300):'unknown',new Date().toISOString(),id);}
  }
  private async call(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,node:string,member:V7EffectiveMember,prompt:string):Promise<string>{
@@ -607,9 +608,17 @@ export class TimeMachineDesignService {
    const source=snapshot.documents.find(d=>d.key===response.key);if(!source)throw Error('补查资料不存在');
    const sliceText=source.text.slice(response.offset,response.offset+600); // 补查片段600字符：60万字级方案紧凑候选约6.6k，1200字片段两轮即超15000输入红线（15446实测）
    const slice:ReadSlice={key:source.key,offset:response.offset,length:sliceText.length,hash:digest(sliceText).slice(0,12),text:sliceText};
-   // 回查轨迹持久化（625cc3f7集中复核③）：来源key+revision+offset+length+hash落库，verdict归因可逐项对照，证据缺失标待补查
-   this.db.prepare('INSERT INTO tm2_review_reads(owner,book,run_id,node,seq,source_key,source_revision,offset,length,content_hash,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-    .run(scope.ownerId,scope.bookId,run.id,`review-source:${i}`,reads.filter(r=>!r.text.startsWith('（已回查存根')).length+1,slice.key,slice.key.split(':')[2]??'',slice.offset,slice.length,slice.hash,new Date().toISOString());
+   // 回查轨迹持久化且幂等（Codex恢复反例P1）：恢复的saved read_source重放不再重复INSERT。
+   // 同run同节点同片段（key+offset+hash）完全一致的轨迹复用；不同内容另存新seq并保留原证据（不INSERT OR IGNORE掩盖差异）。
+   {
+    const dup=this.db.prepare('SELECT seq FROM tm2_review_reads WHERE owner=? AND book=? AND run_id=? AND node=? AND source_key=? AND offset=? AND content_hash=? LIMIT 1')
+     .get(scope.ownerId,scope.bookId,run.id,`review-source:${i}`,slice.key,slice.offset,slice.hash) as {seq:number}|undefined;
+    if(dup===undefined){
+     const nextSeq=(this.db.prepare('SELECT COALESCE(MAX(seq),0) AS m FROM tm2_review_reads WHERE owner=? AND book=? AND run_id=? AND node=?').get(scope.ownerId,scope.bookId,run.id,`review-source:${i}`) as {m:number}).m+1;
+     this.db.prepare('INSERT INTO tm2_review_reads(owner,book,run_id,node,seq,source_key,source_revision,offset,length,content_hash,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+      .run(scope.ownerId,scope.bookId,run.id,`review-source:${i}`,nextSeq,slice.key,slice.key.split(':')[2]??'',slice.offset,slice.length,slice.hash,new Date().toISOString());
+    }
+   }
    // 同一片段不重复计入：上一轮的“上次工具结果”移入已读片段，新片段只作latest——
    // 否则同一片段在续问提示中出现两次，60万字级方案续问输入超15000字符红线被预算拒绝（run4d9cfdf9 review-source:1实证15421字符）。
    if(latest!==null) reads.push(latest);
