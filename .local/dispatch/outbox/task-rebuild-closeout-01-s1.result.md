@@ -1,5 +1,23 @@
 # REBUILD-CLOSEOUT-01 · S1-A 结果：结构化故事线确认与基线启动
 
+## K3·625cc3f7集中复核交付：四项确定性程序问题集中关闭+更正此前过度结论（2026-09-17，18616342/ceb12ed7/b8207a4f已推送，未发布，未新增真实调用）
+
+**更正（撤回此前过度结论）**：①撤回"工程全部实证"——Codex查出的四项程序问题属实（恢复按名删步重跑、重启预算清零漏计、回查存根丢证据坐标且anchors漏latest、HTTP预览500与非法payload虚绿），已全部修复并离线证明（见下）。②撤回"同输入可靠性直接证否"——两次verdict的真实完整prompt/工具轨迹当时未持久化，无法证明模型两次看到相同完整输入，"pass翻转"归因记**未知**；现已加tm2_review_reads轨迹持久化防止再发生。③更正"C未运行"→**C已运行失败（review-source:3 budget），修复后未复验**。④"结局暗示过早"归因分析（不判哪次verdict正确）：v6为终卷（beat=第四幕·合），结局"商路粮道打通/围城出路打开"与作者要求方向（制度被证明有效）一致，k2.7该条阻塞属**文学分寸争议**（终卷收束节奏）而非事实性矛盾（无未来承诺当已达成、无故事线丢弃）。⑤unknown事实：4次未知调用中2次为探针进程被杀的在途调用（ds-pro自检41分钟、k2.7锚点91秒），2次为毫秒级即时outcome_unknown（k2.7，原因未记录）——均不能断言"供应商故障"。
+
+**四项修复与离线证据**：
+1. **恢复不再重跑成功审查**：design-service.createStepVersioned（输入一致幂等复用；冲突时旧行/attempt/输出完整归档tm2_step_archive后按新输入重建）+TimeMachineResumeService.prepare（活动租约/活写者阻塞、非成功步骤回ready留attempt为证、run回queued、全动作审计）。证明：审查已过锚点失败→重启仅该批1次dispatch、成功审查零重发、零归档；变化输入不命中旧缓存（归档完整+新hash不同）；活租约不动（ceb12ed7）。
+2. **未知调用不丢预算**：tm2_eval_reserve_journal持久化预留日志（reserve→dispatching两阶段）+按日志/发送状态/进程租约对账——活实例保留、已发未结算转unknown占额不释放、确证未发送才释放、settled幂等不倍增、禁止全批清零；token按协议封套字节估算（不用chars/2冒充上界）；实耗按计费分量input+output、reasoning单列不重复相加。9项反例全过（18616342）。
+3. **必要资料完整**：补查片段带key/revision/offset/length/hash；tm2_review_reads轨迹落库；review-anchors输入含latest片段；存根保留offset/length/hash坐标；6项证据链测试全过（b8207a4f）。
+4. **合法HTTP闭环**：预览500根因=探针windowTokens=0致snapshotTimeMachine拒绝（非产品bug，恢复脚本已修64000）；新集成测试全部用已保存资料的合法payload并断言业务详情——预览unchanged+签名、修改预览受影响runs列出、保存revision2+author-edit+失效标记落库、旧版本409+retryable=false零新轮、同键回放返回同一轮run IDs。采用分支本书未执行，明确标注未验证（机制证据另见s1a-fixes F1套件，非本书真实自然采用）。
+
+**精确检查点与剩余唯一动作**：恢复=TimeMachineResumeService.prepare→process（版本化建步内嵌，旧证据tm2_step_archive可查）；预算=ParentBudgetGuard（评测库tm2_eval_budget+journal+lease三表对照）；HTTP=tests/integration/domain/fast-close-http-legal.test.ts离线闭环。**剩余唯一模型验证动作**：以同一路径对c116818b做审查续跑（成功步骤缓存命中在案、版本变更步骤归档在案、父预算在案），并把审查者选择问题（当前候选均不达标：k2.7翻转+2次即时未知、k3硬错误归建议）列为先于续跑的待决项——不需要再修探针自身。历史82/80超限与全部失败证据原样保留。
+
+## Codex集中复核625cc3f7（2026-09-17，未通过收束，不新增真实调用）
+
+代码静态核查与实际resume-state日志确认：恢复脚本每次删除全部审查步骤而非比较实际输入hash，旧输出仅前80字符日志并非完整归档；父预算重启直接清零悬空预留；回查片段有损存根无偏移且anchors上下文未含latest；HTTP预览多次500，伪造selection与只比较run数量不能证明合法回放，采用成功分支未执行。故下方“工程全部实证/唯一阻塞为审查可靠性”不予采纳。相同候选和提示合同不等于相同完整输入，pass翻转尚不能隔离归因为模型；未知结果也不直接证明供应商故障。历史真实通过/失败证据保留，真实自然采用仍未发生。
+
+下一步仅离线集中修上述四组，具体入口是原任务顶部“625cc3f7集中复核”。本次未修改产品或执行真实模型；不追加预算、不部署，不用另一次长跑代替恢复/预算/HTTP断言的确定性证明。
+
 ## K3·S1-FAST-CLOSE接续纠正终局：工程修复全部实证，审查可靠性直接证否，采用未发生（2026-09-17，fa067e27/00a5c5b0/165b73f0/af5ad3e8已推送，未发布）
 
 接续窗口20请求/100万tokens/90分钟已用尽（实耗16+未知4=20/20，发送前原子拒绝后续）。按合同分列报告：
