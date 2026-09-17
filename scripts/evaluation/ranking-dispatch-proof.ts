@@ -13,7 +13,8 @@ import { resolveNodeMember, nodeFallbackOrder, type NodeDispatchInput } from '..
 import type { V7EffectiveMember } from '@wenmi/v7-backend';
 
 const db = new DatabaseSync('.local/eval/proof.sqlite');
-const svc = new V7NodeEvaluationService(db);
+// 隔离证明环境显式启用排名应用（S1-FAST-CLOSE：生产路由默认禁止，本脚本只跑隔离副本）
+const svc = new V7NodeEvaluationService(db, { rankingStrategyEnabled: true });
 const repo = new NodeEvaluationRepository(db);
 const NODE = 'card-finalize';
 const OPERATOR = 'k3-proof';

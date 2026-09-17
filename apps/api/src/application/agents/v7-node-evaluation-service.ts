@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { NodeEvaluationRepository, type EvalRankingRow } from '../../infrastructure/db/repositories/node-evaluation-repository.js';
+import { DomainError } from '../../domain/errors.js';
 import { EVAL_NODE_REGISTRY, findEvalNode } from '../evaluation/node-registry.js';
 import { aggregateModelStats, admitModel, rankNodeEntries, type EvalCaseMetricsInput, type ModelNodeStats } from '../evaluation/evaluation-ranking.js';
 import { TEXT_MODELS } from '@wenmi/agent-catalog';
@@ -38,10 +39,23 @@ export interface NodeEvaluationView {
 
 const CURRENT_CONFIG_VERSION = 'cfg-validation-default';
 
+/**
+ * S1-FAST-CLOSE（2026-09-17）：排名/自动上岗策略保持关闭——后台只展示"实验预览/未验收"，
+ * 服务端默认禁止应用/回滚排名（不能只藏按钮）；修复排名算法与候补策略列后续。
+ * 仅隔离证明环境可显式启用（rankingStrategyEnabled:true），生产路由用默认值。
+ */
+export interface V7NodeEvaluationServiceOptions { readonly rankingStrategyEnabled?: boolean }
+
 export class V7NodeEvaluationService {
   private readonly repo: NodeEvaluationRepository;
-  constructor(private readonly db: DatabaseSync) {
+  private readonly rankingStrategyEnabled: boolean;
+  constructor(private readonly db: DatabaseSync, options?: V7NodeEvaluationServiceOptions) {
     this.repo = new NodeEvaluationRepository(db);
+    this.rankingStrategyEnabled = options?.rankingStrategyEnabled === true;
+  }
+
+  private requireRankingStrategyEnabled(action: string): void {
+    if (!this.rankingStrategyEnabled) throw new DomainError('RANKING_STRATEGY_DISABLED', `实验预览阶段：排名策略未验收，服务端禁止${action}（S1-FAST-CLOSE合同，后台仅展示实验预览/未验收）`, {}, false, 409);
   }
 
   /** 名册全部文字模型（未测不静默漏项）。 */
@@ -167,6 +181,7 @@ export class V7NodeEvaluationService {
 
   /** 应用排名：写入node_policy（在岗模型绑定rankingRevision+policyVersion）；只影响新任务快照。 */
   applyRanking(adminId: string, rankingId: string): void {
+    this.requireRankingStrategyEnabled('应用排名');
     const ranking = this.repo.readRanking(rankingId);
     if (!ranking) throw new Error('排名不存在');
     const entries = JSON.parse(ranking.entries_json) as { rank: number; modelProfileKey: string }[];
@@ -177,6 +192,7 @@ export class V7NodeEvaluationService {
   }
 
   rollbackRanking(adminId: string, rankingId: string): void {
+    this.requireRankingStrategyEnabled('回滚排名');
     const ranking = this.repo.readRanking(rankingId);
     if (!ranking) throw new Error('排名不存在');
     this.repo.rollbackRanking(rankingId);

@@ -6,9 +6,9 @@ import { V7NodeEvaluationService } from '../../../apps/api/src/application/agent
 // MODEL-NODE-EVAL后台服务离线验证：视图状态分层/排名计算/应用回滚/自动暂停规则。全部离线。
 const contexts: TestContext[] = [];
 afterEach(() => contexts.splice(0).forEach(c => c.close()));
-function setup() {
+function setup(opts?: { rankingStrategyEnabled?: boolean }) {
   const c = createTestContext(); contexts.push(c);
-  return { c, repo: new NodeEvaluationRepository(c.database), service: new V7NodeEvaluationService(c.database) };
+  return { c, repo: new NodeEvaluationRepository(c.database), service: new V7NodeEvaluationService(c.database, opts) };
 }
 function seedRun(repo: NodeEvaluationRepository, id: string, nodeKey: string, model: string, phase: 'screen' | 'validation', status = 'succeeded') {
   repo.createRun({
@@ -94,8 +94,8 @@ describe('排名计算', () => {
 });
 
 describe('排名应用与回滚策略同步', () => {
-  it('应用写node_policy含rankingRevision；回滚恢复上一版', () => {
-    const { repo, service } = setup();
+  it('应用写node_policy含rankingRevision；回滚恢复上一版（机制仅隔离显式启用时可用）', () => {
+    const { repo, service } = setup({ rankingStrategyEnabled: true });
     seedRun(repo, 'rv-a', 'skeleton', 'deepseek-v4-pro', 'validation');
     seedRun(repo, 'rv-b', 'skeleton', 'glm-5.3-flash', 'validation');
     for (let i = 0; i < 10; i++) {
@@ -114,6 +114,16 @@ describe('排名应用与回滚策略同步', () => {
     expect(repo.appliedRanking('skeleton', 'all')!.ranking_revision).toBe(1);
     policies = repo.nodePolicies('skeleton');
     expect(policies.every(p => p.ranking_revision === 1)).toBe(true);
+  });
+  it('S1-FAST-CLOSE：服务端默认禁止应用/回滚排名（实验预览/未验收），且不写任何策略', () => {
+    const { repo, service } = setup(); // 生产路由用默认构造=禁止
+    seedRun(repo, 'rv-x', 'skeleton', 'deepseek-v4-pro', 'validation');
+    for (let i = 0; i < 10; i++) seedCase(repo, 'rv-x', 'skeleton', 'deepseek-v4-pro', i, 'cfg-validation-default');
+    const v1 = service.computeRanking('skeleton', 'admin'); // 计算草稿仍允许（只读证据）
+    expect(() => service.applyRanking('admin', v1.id)).toThrowError(/实验预览阶段.*禁止应用/);
+    expect(() => service.rollbackRanking('admin', v1.id)).toThrowError(/实验预览阶段.*禁止回滚/);
+    expect(repo.nodePolicies('skeleton')).toHaveLength(0); // 未写任何策略
+    expect(repo.appliedRanking('skeleton', 'all')).toBeUndefined(); // 无applied排名
   });
 });
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowClockwise, CheckCircle, WarningCircle } from '@phosphor-icons/react';
 import {
-  fetchV7NodeEvaluations, computeV7NodeRanking, applyV7NodeRanking, rollbackV7NodeRanking, setV7NodePolicy,
+  fetchV7NodeEvaluations, computeV7NodeRanking, setV7NodePolicy,
   type V7NodeEvaluationView, type V7NodeModelSummary
 } from './platform-api';
 
@@ -47,6 +47,7 @@ export function NodeEvaluationPanel(): React.JSX.Element {
       </select></label>
       <button type="button" onClick={() => void load()}><ArrowClockwise />刷新</button>
       <p>成绩来自实时评测记录（tm2_eval_*）；上方"模型速度与准入"是历史静态报告，两者分开，不以静态报告冒充实时成绩。</p>
+      <p role="note" className="prompt-context-notice">实验预览/未验收：排名与自动上岗策略未验收，应用与回滚已被服务端禁止（S1-FAST-CLOSE）；当前成绩仅为实验证据，未达标节点如实标"暂无合格成员"。</p>
     </div>
     {visible.map(node => <NodeSection key={node.nodeKey} node={node} busy={busy} act={act} />)}
   </>;
@@ -90,10 +91,8 @@ function NodeSection({ node, busy, act }: {
         {busy === `compute:${node.nodeKey}` ? '计算中…' : '按保留验证生成排名'}</button>
       {node.ranking && <>
         <span>排名v{node.ranking.revision}（{node.ranking.status}，{new Date(node.ranking.createdAt).toLocaleString('zh-CN')}）</span>
-        {node.ranking.status === 'draft' && <button type="button" disabled={busy !== null}
-          onClick={() => void act(`apply:${node.ranking!.id}`, () => applyV7NodeRanking(node.ranking!.id), '排名已应用：只影响新任务快照，在途任务不变')}>应用排名</button>}
-        {node.ranking.status === 'applied' && <button type="button" className="danger" disabled={busy !== null}
-          onClick={() => void act(`rollback:${node.ranking!.id}`, () => rollbackV7NodeRanking(node.ranking!.id), '已回滚到上一版排名')}>回滚</button>}
+        {node.ranking.status === 'draft' && <button type="button" disabled title="实验预览/未验收：服务端已禁止应用排名（S1-FAST-CLOSE）">应用排名（未验收已禁用）</button>}
+        {node.ranking.status === 'applied' && <button type="button" disabled title="实验预览/未验收：服务端已禁止回滚排名（S1-FAST-CLOSE）">回滚（未验收已禁用）</button>}
       </>}
       {node.latestActivityAt && <span>最近测试 {new Date(node.latestActivityAt).toLocaleString('zh-CN')}</span>}
     </div>
