@@ -553,15 +553,23 @@ export class TimeMachineDesignService {
    const old=oldVolumes[idx]!;
    const volumeId=String(old.id);
    const volumeAnchors=oldAnchors.filter(a=>String(record(a).ownerEntityId)===volumeId);
-   // 共享边界（bcf19a6a）：相邻卷交接带前卷完整出口锚点、后卷完整入口锚点及相应结局/起点，不仅title/ending摘要——
-   // 同一跨卷事实的两端在同一修订轮拿到对方完整边界锚点，系统校验引用，语义一致性由复查核对。
-   const anchorOf=(j:number,kind:string):unknown=>oldAnchors.find(a=>String(record(a).ownerEntityId)===String(record(oldVolumes[j]!).id)&&String(record(a).kind)===kind)??null;
+   // 共享边界与rationale仅第二轮起启用（bcf19a6a合同将该升级限定在"额外定向修订"；首轮修订提示保持既有形态，已持久化缓存可重放零重发）
+   const sharedBoundary=round>=2;
+   const anchorOf=(j:number,kind:string):unknown=>sharedBoundary?(oldAnchors.find(a=>String(record(a).ownerEntityId)===String(record(oldVolumes[j]!).id)&&String(record(a).kind)===kind)??null):null;
    const adjacent={
-    prev:idx>0?{title:oldVolumes[idx-1]!.title,ending:oldVolumes[idx-1]!.ending,handoff:oldVolumes[idx-1]!.handoff,exitAnchor:anchorOf(idx-1,'exit')}:null,
-    next:idx<oldVolumes.length-1?{title:oldVolumes[idx+1]!.title,start:oldVolumes[idx+1]!.start,entryAnchor:anchorOf(idx+1,'entry')}:null
+    prev:idx>0?{title:oldVolumes[idx-1]!.title,ending:oldVolumes[idx-1]!.ending,handoff:oldVolumes[idx-1]!.handoff,...(sharedBoundary?{exitAnchor:anchorOf(idx-1,'exit')}:{})}:null,
+    next:idx<oldVolumes.length-1?{title:oldVolumes[idx+1]!.title,start:oldVolumes[idx+1]!.start,...(sharedBoundary?{entryAnchor:anchorOf(idx+1,'entry')}:{})}:null
    };
    // 有界修订请求：本卷原文及完整锚点+该卷问题及依据+相关作者要求/来源+前后卷交接+全书结局
-   const revisePrompt=`修订本卷卷卡：只修正本轮问题，不改变既定主线、全书结局、总字数、卷ID与顺序。保留正确内容。返回JSON对象 {"volumes":[本卷修订后完整卷卡],"rationale":[{"issue":"对应问题原文","change":"修改理由"}]}（volumes数组只含这一卷，完整合同对象，字段合同与生成时一致：id/title/beat/start/goal/conflict/turningPoint/gain/loss/arc/payoff/hook/mood/ending/handoff/words/anchors恰好两个entry+exit且ownerEntityId=${volumeId}/duties；rationale逐条对应本卷问题清单，说明每处修改对应哪条问题、为什么这样改；目标是让已确认要求和跨卷状态一致，不是让所有标签一致）。锚点条件要能按正文核对；required的close职责必须出现在其关联锚点至少一个条件的subjectIds中；硬预算：每个自然语言字段≤60字，锚点summary≤50字、条件summary≤40字，keywords≤12个且每个≤40字，整个JSON控制在3000字以内；不输出解释或章情节。正文字段面向作者用中文书写；提到卷时用“第${idx+1}卷”或卷名。
+   const revisePrompt=sharedBoundary
+    ?`修订本卷卷卡：只修正本轮问题，不改变既定主线、全书结局、总字数、卷ID与顺序。保留正确内容。返回JSON对象 {"volumes":[本卷修订后完整卷卡],"rationale":[{"issue":"对应问题原文","change":"修改理由"}]}（volumes数组只含这一卷，完整合同对象，字段合同与生成时一致：id/title/beat/start/goal/conflict/turningPoint/gain/loss/arc/payoff/hook/mood/ending/handoff/words/anchors恰好两个entry+exit且ownerEntityId=${volumeId}/duties；rationale逐条对应本卷问题清单，说明每处修改对应哪条问题、为什么这样改；目标是让已确认要求和跨卷状态一致，不是让所有标签一致）。锚点条件要能按正文核对；required的close职责必须出现在其关联锚点至少一个条件的subjectIds中；硬预算：每个自然语言字段≤60字，锚点summary≤50字、条件summary≤40字，keywords≤12个且每个≤40字，整个JSON控制在3000字以内；不输出解释或章情节。正文字段面向作者用中文书写；提到卷时用“第${idx+1}卷”或卷名。
+本卷现行内容：${JSON.stringify(old)}
+本卷顶层锚点：${JSON.stringify(volumeAnchors)}
+本卷问题与依据（审查意见不是作者新增设定；sources标记来源：self-check=自检、review=独立审查、adjudication=核定）：${JSON.stringify({issues:perVolumeIssues.get(idx)??[],notes:metaNotes})}
+相关作者要求/来源（与来源事实区分，不得被候选覆盖）：${JSON.stringify({intent:snapshot.intent,cardFields:card.fields})}
+前后卷交接（含相邻卷完整边界锚点：前卷出口/后卷入口）：${JSON.stringify(adjacent)}
+全书结局背景：${JSON.stringify(plan.ending)}`
+    :`修订本卷卷卡：只修正本轮问题，不改变既定主线、全书结局、总字数、卷ID与顺序。保留正确内容。返回JSON对象 {"volumes":[本卷修订后完整卷卡]}（数组只含这一卷，完整合同对象，字段合同与生成时一致：id/title/beat/start/goal/conflict/turningPoint/gain/loss/arc/payoff/hook/mood/ending/handoff/words/anchors恰好两个entry+exit且ownerEntityId=${volumeId}/duties）。锚点条件要能按正文核对；required的close职责必须出现在其关联锚点至少一个条件的subjectIds中；硬预算：每个自然语言字段≤60字，锚点summary≤50字、条件summary≤40字，keywords≤12个且每个≤40字，整个JSON控制在3000字以内；不输出解释或章情节。正文字段面向作者用中文书写；提到卷时用“第${idx+1}卷”或卷名。
 本卷现行内容：${JSON.stringify(old)}
 本卷顶层锚点：${JSON.stringify(volumeAnchors)}
 本卷问题与依据（审查意见不是作者新增设定；sources标记来源：self-check=自检、review=独立审查）：${JSON.stringify({issues:perVolumeIssues.get(idx)??[],notes:metaNotes})}

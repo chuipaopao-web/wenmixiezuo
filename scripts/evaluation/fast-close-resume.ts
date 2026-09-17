@@ -59,6 +59,12 @@ async function main(): Promise<void> {
   const evalDb: DatabaseSync = openDatabase(resolve(EVAL_DB));
   const guard = new ParentBudgetGuard(evalDb, 's1-fast-close-revise', WINDOW);
   guard.reconcile(); // 按日志+发送状态+租约对账（活进程不动、已发未结算转unknown、未发送才释放，禁止全批清零）
+  // bcf19a6a收尾核定：一次性后续执行墙钟至多90分钟（从本小节第一次新dispatch持久化计时，原120分钟记录保留，重启不能重置）
+  const extRow = evalDb.prepare('SELECT batch_id FROM tm2_eval_budget_ext WHERE batch_id=?').get('s1-fast-close-revise') as { batch_id: string } | undefined;
+  if (extRow === undefined) {
+    guard.grantWallClockExtensionOnce(90 * 60_000, 'bcf19a6a收尾核定：一次性后续执行墙钟90分钟（不循环延长，原120分钟记录保留）');
+    note('墙钟一次性补充90分钟已授予并持久化（extensionStartedAt本次写入，重启不重计时）');
+  }
   const budgetNow = guard.snapshot();
   note(`父预算复核：实耗${budgetNow.actual}+未知${budgetNow.unknown}+预留${budgetNow.reserved}/${budgetNow.limitRequests}请求（余量${budgetNow.limitRequests - budgetNow.actual - budgetNow.unknown - budgetNow.reserved}）`);
 
@@ -142,9 +148,11 @@ async function main(): Promise<void> {
     return;
   }
   const done = db.prepare('SELECT state, phase, error_code, result_json FROM tm2_design_runs WHERE id=?').get(RUN_ID) as { state: string; phase: string; error_code: string | null; result_json: string | null };
-  const result = done.result_json ? JSON.parse(done.result_json) as { revision?: number; review?: { pass?: boolean; issues?: string[]; suggestions?: string[] } } : null;
-  note(`run终态：state=${done.state} phase=${done.phase} review.pass=${result?.review?.pass ?? '无'} issues=${(result?.review?.issues ?? []).length}条`);
+  const result = done.result_json ? JSON.parse(done.result_json) as { revision?: number; review?: { pass?: boolean; issues?: string[]; suggestions?: string[]; inconclusive?: string[] }; selfCheck?: { pass?: boolean }; blocked?: string[] } : null;
+  note(`run终态：state=${done.state} phase=${done.phase} review.pass=${result?.review?.pass ?? '无'} issues=${(result?.review?.issues ?? []).length}条 selfCheck.pass=${result?.selfCheck?.pass ?? '无'} inconclusive=${(result?.review?.inconclusive ?? []).length}条`);
   for (const issue of (result?.review?.issues ?? []).slice(0, 10)) note(`  审查issue：${issue.slice(0, 120)}`);
+  for (const m of (result?.review?.inconclusive ?? []).slice(0, 5)) note(`  审查信息不足：${m.slice(0, 120)}`);
+  for (const b of (result?.blocked ?? []).slice(0, 5)) note(`  阻塞标记：${b.slice(0, 120)}`);
 
   // ④ 自然过审才HTTP采用（64000窗口：预览/资料接口需要合法窗口；此时无queued run，tick无对象可消费）
   const emailRow = db.prepare('SELECT email_normalized FROM user_accounts WHERE owner_id=?').get(scope.ownerId) as { email_normalized: string } | undefined;
@@ -161,7 +169,7 @@ async function main(): Promise<void> {
     storylineMaterial?: { revision: number } | null;
   };
 
-  if (done.state === 'succeeded' && result?.review?.pass === true && typeof result.revision === 'number') {
+  if (done.state === 'succeeded' && result?.review?.pass === true && result?.selfCheck?.pass === true && typeof result.revision === 'number') {
     note('采用前逐条核对：候选review.pass自然通过（未修改原模型结论）；审查候选k2.7可靠性未达标，采用仅验证工程链路');
     const adopt = await inj('POST', `/api/time-machine/books/${bookId}/adoptions`, { candidateId: RUN_ID, revision: result.revision, expectedRevision: 0, idempotencyKey: 'fc-resume-adopt' });
     if (adopt.statusCode !== 200) {

@@ -123,10 +123,7 @@ describe('局部修订闭环（7662b6f6收尾）', () => {
       expect(revisionPrompts.every(p => p.includes('本卷现行内容') && p.includes('本卷问题与依据'))).toBe(true);
       // 修订轮不触发骨架/未受影响卷生成（v1卷卡本体不进入修订）
       expect(revisionPrompts.some(p => p.includes('本卷现行内容：{"id":"v1"'))).toBe(false);
-      // 共享边界（bcf19a6a）：v2修订提示合法携带前卷v1完整出口锚点作为交接上下文，但不携带v1卷卡本体
-      const v2Prompt = revisionPrompts.find(p => p.includes('本卷现行内容：{"id":"v2"'))!;
-      expect(v2Prompt).toContain('"exitAnchor"');
-      expect(v2Prompt).toContain('"ownerEntityId":"v1"');
+      // 首轮修订提示保持既有形态（共享边界锚点/rationale属第二轮合同升级，resume套件第二轮反例覆盖）
       // 修订反馈只注入修订请求：复查（自检/审查）提示不含"上轮意见"
       const recheckPrompts = allPrompts.filter(p => p.includes('自检你刚完成') || p.includes('核对候选骨架') || p.includes('核对候选锚点'));
       const revisionRoundRechecks = recheckPrompts.filter(p => p.includes('修订后转折')); // 修订后候选内容进入复查输入
