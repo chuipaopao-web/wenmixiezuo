@@ -1154,3 +1154,9 @@ Codex端到端验证三套方案无可采用后定点处理：A卷卡3遇HTTP400
 **更正**：撤回"工程全部实证"与"同输入可靠性直接证否"（两次verdict完整输入未持久化，归因记未知，已加轨迹持久化防止再发生）；C更正为已运行失败未复验；"结局暗示过早"属终卷收束的文学分寸争议非事实性矛盾；4次未知调用=2次探针进程被杀在途+2次毫秒级即时未知（原因未记录），不能断言供应商故障。
 
 **四项修复**：①createStepVersioned（输入一致幂等复用/冲突完整归档tm2_step_archive后重建）+TimeMachineResumeService.prepare（活租约阻塞、非成功步骤回ready、run回queued、全审计）——证明审查已过锚点失败→重启仅该批1次dispatch、成功审查零重发、变化输入不命中旧缓存；②tm2_eval_reserve_journal+租约对账（活实例保留/已发未结算转unknown/确证未发送才释放/幂等不倍增/禁止全批清零），token按封套字节估算，reasoning不重复相加；③片段带key/revision/offset/length/hash+tm2_review_reads轨迹落库+anchors含latest+存根带坐标；④预览500根因=探针windowTokens=0（非产品bug），合法HTTP闭环测试断言业务详情（预览/保存落库/失效标记/版本门禁/同键回放同run IDs），采用分支标注未验证。
+
+### 25.10.6 ce3bca27复核修复与定点续跑终局（2026-09-17，未发布）
+
+**Codex两反例修复（17/17通过）**：P1回查轨迹幂等（同片段key+offset+hash一致复用，不同另存新seq；恢复成功清陈旧error）；P2迟到返回幂等结算（journal settled不再settle、reclassifyUnknownToActual重分类、活跃调用TTL/3续租清定时器、CAS核验）；createStepVersioned归档边界（同owner/book+无活租约+事务内核验）；prepare活写者检查入事务。
+
+**定点续跑（12/75万/60分窗口）**：c116818b审查链推进至review-anchors:0/:2成功，review-anchors:4截断（k2.7结论超8000可见输出），run=failed如实收束不机械重试；HTTP采用未发生。合法HTTP P7零调用全绿（预览200/受影响列出/过期409零新轮/同键回放同轮IDs）。用量：实耗5+未知1=6/12请求（47387+31109/75万tokens），预留日志全settled无悬空。审查者：k2.7冻结隔离诊断审查（不授正式资格、不重新筛、不为pass重跑）；截断与翻转+即时未知原因均不明，不宣称已证否模型本身。剩余唯一动作：拆分或续作review-anchors:4（known-incomplete非盲重试，需新授权）。

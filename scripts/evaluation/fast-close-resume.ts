@@ -19,6 +19,7 @@ import { loadModelRuntimeConfig } from '../../apps/api/src/infrastructure/models
 import { readReleaseId } from '../../apps/api/src/infrastructure/project-root.js';
 import type { RuntimeConfig } from '../../apps/api/src/infrastructure/runtime-config.js';
 import { TimeMachineDesignService } from '../../apps/api/src/application/books/time-machine-design-service.js';
+import { TimeMachineResumeService } from '../../apps/api/src/application/books/time-machine-resume-service.js';
 import { TimeMachineModelGateway } from '../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
 import { ModelAdapterFactory } from '../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import { ParentBudgetGuard, ParentBudgetExhausted } from './parent-budget-guard.js';
@@ -26,7 +27,7 @@ import { ParentBudgetGuard, ParentBudgetExhausted } from './parent-budget-guard.
 const RUN_ID = 'c116818b-028d-4438-9bc6-2e4474155aaa';
 const RESUME_STATE = '.local/eval/fast-close-resume-state.json';
 const EVAL_DB = '.local/eval/node-model-eval.sqlite';
-const WINDOW = { requests: 20, tokens: 1_000_000, wallClockMs: 90 * 60_000 };
+const WINDOW = { requests: 12, tokens: 750_000, wallClockMs: 60 * 60_000 }; // ce3bca27复核后定点续跑窗口：12请求/75万tokens/60分钟（历史20次账本不改）
 const now = (): string => new Date().toISOString();
 
 interface ResumeState { notes: { at: string; text: string }[]; adoptedCandidateId?: string }
@@ -56,7 +57,7 @@ async function main(): Promise<void> {
   bootstrapDatabase(db, config);
   // 父预算账本在评测库（与生产库分离；历史各账分列）
   const evalDb: DatabaseSync = openDatabase(resolve(EVAL_DB));
-  const guard = new ParentBudgetGuard(evalDb, 's1-fast-close-resume', WINDOW);
+  const guard = new ParentBudgetGuard(evalDb, 's1-fast-close-resume-2', WINDOW);
   guard.reconcile(); // 按日志+发送状态+租约对账（活进程不动、已发未结算转unknown、未发送才释放，禁止全批清零）
 
   // ① 离线核对run当前状态与检查点
@@ -66,32 +67,19 @@ async function main(): Promise<void> {
   const steps = db.prepare('SELECT id, state, attempt, error_code FROM tm2_steps WHERE id LIKE ? ORDER BY rowid').all(`${RUN_ID}:%`) as { id: string; state: string; attempt: string | null; error_code: string | null }[];
   note(`run核对：scheme=${run.scheme} state=${run.state} phase=${run.phase}；步骤${steps.length}（成功${steps.filter(s => s.state === 'succeeded').length}）`);
 
-  // ② 最小恢复路径（审计：只结算在途unknown、非成功步骤回ready、run回queued；不伪造任何进度）
+  // ② 服务化合法恢复准备（TimeMachineResumeService.prepare：活租约阻塞事务内核验、非成功步骤回ready留attempt为证、run回queued、全动作审计；输入版本变更由createStepVersioned在流程内归档重建，不按名删步）
   // 2a. 在途working调用：结果未知，如实结算为unknown（消耗保留，不重发免费）
   const danglingCalls = db.prepare("SELECT id FROM tm2_model_calls WHERE id IN (SELECT attempt FROM tm2_steps WHERE id LIKE ? AND attempt IS NOT NULL) AND state='working'").all(`${RUN_ID}:%`) as { id: string }[];
   for (const call of danglingCalls) {
     db.prepare("UPDATE tm2_model_calls SET state='unknown', error_class='unknown', completed_at=? WHERE id=? AND state='working'").run(now(), call.id);
     note(`在途调用如实结算unknown：${call.id}（消耗保留，不免费重试）`);
   }
-  // 2b. 非成功步骤（running/failed/unknown）回ready清租约，成功步骤原样保留（缓存命中已证明）
-  const staleSteps = steps.filter(s => s.state !== 'succeeded');
-  for (const s of staleSteps) {
-    db.prepare("UPDATE tm2_steps SET state='ready', attempt=NULL, lease_until=NULL, error_code=NULL WHERE id=?").run(s.id);
-    note(`步骤回ready待重试：${s.id.split(':').slice(-2).join(':')}（原${s.state}${s.error_code ? '/' + s.error_code : ''}）`);
-  }
-  // 2b+. 输入版本已变的成功步骤（reviewChecks去重/片段有界/片段长度改变了review-source提示合同）：
-  // 合同要求"输入版本未变才缓存命中"——过期缓存不重用；归档旧行证据后删除，让新合同版本重新建步（非进度伪造）
-  const changedInputSteps = steps.filter(s => /review-source|review-anchors/.test(s.id));
-  for (const s of changedInputSteps) {
-    const oldRow = db.prepare('SELECT state, error_code, output FROM tm2_steps WHERE id=?').get(s.id) as { state: string; error_code: string | null; output: string | null } | undefined;
-    note(`输入版本已变归档重建：${s.id.split(':').slice(-2).join(':')}（旧state=${oldRow?.state}${oldRow?.error_code ? '/' + oldRow.error_code : ''}，旧输出前80=${(oldRow?.output ?? '').slice(0, 80)}）`);
-    db.prepare('DELETE FROM tm2_attempts WHERE owner=? AND book=? AND step=?').run(scope.ownerId, scope.bookId, s.id);
-    db.prepare('DELETE FROM tm2_steps WHERE owner=? AND book=? AND id=?').run(scope.ownerId, scope.bookId, s.id);
-  }
-  // 2c. run回queued（既有合法处理入口process只受理queued）
-  if (run.state !== 'queued') {
-    db.prepare("UPDATE tm2_design_runs SET state='queued', updated_at=? WHERE id=?").run(now(), RUN_ID);
-    note(`run恢复入口：${run.state}→queued（审计：仅状态移交，无进度伪造）`);
+  const prep = new TimeMachineResumeService(db).prepare(scope, RUN_ID);
+  for (const action of prep.actions) note(`恢复动作：${action}`);
+  if (prep.blocked.length) {
+    for (const b of prep.blocked) note(`恢复阻塞（不触网）：${b}`);
+    db.close(); evalDb.close();
+    return;
   }
 
   // ③ 恢复执行：父预算包裹真实网关（每次dispatch发送前原子预留）
