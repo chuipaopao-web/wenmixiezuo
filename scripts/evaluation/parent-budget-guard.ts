@@ -106,9 +106,21 @@ export class ParentBudgetGuard {
 
   private checkWallClock(): void {
     const budget = this.repo.readBudget(this.batchId)!;
-    if (Date.now() - Date.parse(budget.started_at) >= this.limits.wallClockMs) {
-      throw new ParentBudgetExhausted(`墙钟到限（${this.limits.wallClockMs / 60000}分钟）`);
+    const base = Date.parse(budget.started_at) + this.limits.wallClockMs;
+    // 一次性墙钟补充（tm2_eval_budget_ext）：持久化extensionStartedAt，重启不重新计时，不能循环延长
+    const ext = this.db.prepare('SELECT extension_started_at, extension_ms FROM tm2_eval_budget_ext WHERE batch_id=?').get(this.batchId) as { extension_started_at: string; extension_ms: number } | undefined;
+    const deadline = ext !== undefined ? Math.max(base, Date.parse(ext.extension_started_at) + ext.extension_ms) : base;
+    if (Date.now() >= deadline) {
+      throw new ParentBudgetExhausted(`墙钟到限（${this.limits.wallClockMs / 60000}分钟${ext !== undefined ? '+一次性补充' + ext.extension_ms / 60000 + '分钟' : ''}）`);
     }
+  }
+
+  /** 一次性墙钟补充：仅当尚无extension记录时写入（重复调用拒绝，不循环延长）。 */
+  grantWallClockExtensionOnce(extensionMs: number, reason: string): void {
+    const existing = this.db.prepare('SELECT batch_id FROM tm2_eval_budget_ext WHERE batch_id=?').get(this.batchId) as { batch_id: string } | undefined;
+    if (existing !== undefined) throw new Error('墙钟补充只能授予一次，已存在记录，不能循环延长');
+    this.db.prepare('INSERT INTO tm2_eval_budget_ext(batch_id,extension_started_at,extension_ms,reason) VALUES(?,?,?,?)')
+      .run(this.batchId, new Date().toISOString(), extensionMs, reason);
   }
 
   /** token估算：协议封套字节口径（bytes+maxOutput+2048），含显式headroom；不用chars/2冒充上界。 */

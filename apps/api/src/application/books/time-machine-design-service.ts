@@ -637,10 +637,51 @@ export class TimeMachineDesignService {
   if(structure===null)throw Error('核对补查未给出结论');
   const issues=[...structure.issues];const suggestions=[...structure.suggestions];let pass=structure.pass;
   const volumeIds=((candidate.plan.volumes??[]) as unknown[]).map(v=>String(record(v).id));
+  const volumes=((candidate.plan.volumes??[]) as unknown[]).map(v=>record(v));
+  // 单卷审查输入（067bbc24收尾决定）：本卷完整锚点/职责+相邻卷交接+全书结局背景；拆分减少核对范围不删关键条件。
+  const singleAnchorPrompt=(volumeId:string):string=>{
+   const idx=volumeIds.indexOf(volumeId);
+   const adjacent={
+    prev:idx>0?{title:volumes[idx-1]!.title,ending:volumes[idx-1]!.ending,handoff:volumes[idx-1]!.handoff}:null,
+    next:idx<volumeIds.length-1?{title:volumes[idx+1]!.title,start:volumes[idx+1]!.start}:null
+   };
+   return `核对候选锚点与条件（本卷）。锚点条件是设计阶段定义、将来由正文兑现的核对点——本阶段没有正文是正常前提，不得以“尚无正文”或“无正文支撑”判问题。检查：每个锚点条件是否具体可核对（不是“获得认可后”式把将来承诺当已达成的循环表述）、与正式来源/短卡/作者要求一致、开场条件与开场文字自洽、收束条件与收束文字自洽、条件之间不矛盾；本卷的开场、冲突、转折、人物弧光与爽点是否具体可信；未完成承接fallback是否可行；本卷与相邻卷的交接是否自洽、是否服务全书结局。只返回定位明确的阻塞问题与建议及简短依据，不重抄卷卡，不输出思维链。返回 {"pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}。issues与suggestions面向作者，用显示编号（卷A、主线1），不引用v1等内部ID或字段名。${listRule}\n正式资料短卡：${JSON.stringify(card.fields)}\n已回查原件：${JSON.stringify(latest!==null?[...reads,latest]:reads)}\n本卷：${JSON.stringify(this.anchorSectionForVolumes(candidate.plan as unknown as Record<string,unknown>,[volumeId]))}\n相邻交接：${JSON.stringify(adjacent)}\n全书结局背景：${JSON.stringify((candidate.plan as unknown as Record<string,unknown>).ending??null)}\n作者：${snapshot.intent}`;
+  };
   for(let i=0;i<volumeIds.length;i+=2){
    const batch=volumeIds.slice(i,i+2);
-   const first=await generate(`review-anchors:${i}`,chief,`核对候选锚点与条件（本批卷）。锚点条件是设计阶段定义、将来由正文兑现的核对点——本阶段没有正文是正常前提，不得以“尚无正文”或“无正文支撑”判问题。检查：每个锚点条件是否具体可核对（不是“获得认可后”式把将来承诺当已达成的循环表述）、与正式来源/短卡/作者要求一致、开场条件与开场文字自洽、收束条件与收束文字自洽、条件之间不矛盾；本批卷的开场、冲突、转折、人物弧光与爽点是否具体可信；未完成承接fallback是否可行。返回 {"pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}。issues与suggestions面向作者，用显示编号（卷A、主线1），不引用v1等内部ID或字段名。${listRule}\n正式资料短卡：${JSON.stringify(card.fields)}\n已回查原件：${JSON.stringify(latest!==null?[...reads,latest]:reads)}\n本批：${JSON.stringify(this.anchorSectionForVolumes(candidate.plan as unknown as Record<string,unknown>,batch))}\n作者：${snapshot.intent}`,verdictParse);
-   const anchorVerdict=await continueReview(`review-anchors:${i}`,first);
+   const parentStepId=`review-anchors:${i}`;
+   // 截断后单卷降级（067bbc24收尾决定）：父批已truncated或子步骤已存在→不重发父请求，直接续子节点（仅失败批次启用）
+   const childIds=batch.map(v=>`${parentStepId}:vol:${v}`);
+   const childExists=childIds.some(id=>this.db.prepare('SELECT 1 AS x FROM tm2_steps WHERE owner=? AND book=? AND id=?').get(scope.ownerId,scope.bookId,`${run.id}:${id}`)!==undefined);
+   const parentRow=this.db.prepare('SELECT error_code FROM tm2_steps WHERE owner=? AND book=? AND id=?').get(scope.ownerId,scope.bookId,`${run.id}:${parentStepId}`) as {error_code:string|null}|undefined;
+   let first:{pass:boolean;issues:string[];suggestions:string[];hasMoreIssues:boolean};
+   const reviewByVolumes=async():Promise<{pass:boolean;issues:string[];suggestions:string[];hasMoreIssues:boolean}>=>{
+    const merged={pass:true,issues:[] as string[],suggestions:[] as string[],hasMoreIssues:false};
+    for(const v of batch){
+     const title=String(volumes.find(x=>String(x.id)===v)?.title??v);
+     const single=await generate(`${parentStepId}:vol:${v}`,chief,singleAnchorPrompt(v),verdictParse);
+     const cont=await continueReview(`${parentStepId}:vol:${v}`,single);
+     if(!cont.pass)merged.pass=false;
+     for(const issue of cont.issues)merged.issues.push(`卷${volumeIds.indexOf(v)+1}（${title}）：${issue}`);
+     for(const sg of cont.suggestions)merged.suggestions.push(`卷${volumeIds.indexOf(v)+1}（${title}）：${sg}`);
+    }
+    // 父批truncated原证据保留并标明被子审查覆盖（不能把truncated直接写成通过）
+    this.db.prepare("UPDATE tm2_steps SET error_code='truncated-split-covered' WHERE owner=? AND book=? AND id=? AND error_code='truncated'").run(scope.ownerId,scope.bookId,`${run.id}:${parentStepId}`);
+    return merged;
+   };
+   if(childExists||parentRow?.error_code==='truncated'||parentRow?.error_code==='truncated-split-covered'){
+    first=await reviewByVolumes();
+   }else{
+    try{
+     first=await generate(parentStepId,chief,`核对候选锚点与条件（本批卷）。锚点条件是设计阶段定义、将来由正文兑现的核对点——本阶段没有正文是正常前提，不得以“尚无正文”或“无正文支撑”判问题。检查：每个锚点条件是否具体可核对（不是“获得认可后”式把将来承诺当已达成的循环表述）、与正式来源/短卡/作者要求一致、开场条件与开场文字自洽、收束条件与收束文字自洽、条件之间不矛盾；本批卷的开场、冲突、转折、人物弧光与爽点是否具体可信；未完成承接fallback是否可行。返回 {"pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}。issues与suggestions面向作者，用显示编号（卷A、主线1），不引用v1等内部ID或字段名。${listRule}\n正式资料短卡：${JSON.stringify(card.fields)}\n已回查原件：${JSON.stringify(latest!==null?[...reads,latest]:reads)}\n本批：${JSON.stringify(this.anchorSectionForVolumes(candidate.plan as unknown as Record<string,unknown>,batch))}\n作者：${snapshot.intent}`,verdictParse);
+    }catch(error){
+     if(error instanceof TimeMachineCallError&&error.kind==='truncated'){
+      // 截断降级：仅本失败批次启用单卷拆分；父批truncated原证据保留（reviewByVolumes内标记覆盖）
+      first=await reviewByVolumes();
+     }else throw error;
+    }
+   }
+   const anchorVerdict=await continueReview(parentStepId,first);
    issues.push(...anchorVerdict.issues);suggestions.push(...anchorVerdict.suggestions);pass=pass&&anchorVerdict.pass;
   }
   return {issues,suggestions,pass};

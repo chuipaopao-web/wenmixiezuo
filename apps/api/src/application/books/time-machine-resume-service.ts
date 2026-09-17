@@ -38,9 +38,15 @@ export class TimeMachineResumeService {
       }
       for (const s of steps) {
         if (s.state === 'succeeded' || s.state === 'ready') continue; // 成功步骤不动（hash对比由claim/versioned处理）
-        this.db.prepare("UPDATE tm2_steps SET state='ready',attempt=NULL,lease_until=NULL,error_code=NULL WHERE owner=? AND book=? AND id=?")
-          .run(scope.ownerId, scope.bookId, s.id);
-        actions.push(`步骤回ready：${s.id.split(':').slice(-2).join(':')}（原${s.state}；旧attempt行保留为证据）`);
+        if (s.state === 'failed') {
+          // failed证据保留：error_code不清除（truncated等标记供降级路径识别），仅重置状态与租约
+          this.db.prepare("UPDATE tm2_steps SET state='ready',attempt=NULL,lease_until=NULL WHERE owner=? AND book=? AND id=?")
+            .run(scope.ownerId, scope.bookId, s.id);
+        } else {
+          this.db.prepare("UPDATE tm2_steps SET state='ready',attempt=NULL,lease_until=NULL,error_code=NULL WHERE owner=? AND book=? AND id=?")
+            .run(scope.ownerId, scope.bookId, s.id);
+        }
+        actions.push(`步骤回ready：${s.id.split(':').slice(-2).join(':')}（原${s.state}${s.state === 'failed' ? '；error_code保留' : ''}；旧attempt行保留为证据）`);
       }
       if (run.state !== 'queued') {
         this.db.prepare("UPDATE tm2_design_runs SET state='queued',updated_at=? WHERE owner_id=? AND book_id=? AND id=?")

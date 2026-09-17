@@ -230,3 +230,114 @@ describe('审查证据链（集中复核③）', () => {
     expect(rows.n).toBe(3);
   });
 });
+
+describe('锚点截断单卷降级（067bbc24收尾决定）', () => {
+  const volumeOf = (id: string, isLast = false): Record<string, unknown> => ({
+    id, title: `卷${id}`, start: '开局成立', goal: '本卷目标', conflict: '封锁', beat: '起',
+    turningPoint: '关键转折事件', gain: '伙伴', loss: null, arc: null, payoff: null, hook: null, mood: null,
+    ending: '本卷收束达成', handoff: isLast ? '' : '引出下卷', words: { target: 100000, min: null, max: null, hard: false, policy: 'chars-v1' },
+    anchors: [
+      { id: 'in', ownerEntityId: id, kind: 'entry', summary: '开场状态成立', span: '本卷开篇', conditions: [{ summary: '开局已经成立', subjectIds: ['main'] }], logic: 'all', importance: 'required', fallback: '补开场', keywords: [], aliases: [] },
+      { id: 'out', ownerEntityId: id, kind: 'exit', summary: '收束条件达成', span: '本卷收束', conditions: [{ summary: '本卷目标已经达成', subjectIds: ['main'] }], logic: 'all', importance: 'required', fallback: '补收束', keywords: [], aliases: [] }
+    ],
+    duties: [{ lineId: 'main', action: 'advance', result: '主线推进', anchorIds: ['out'], strength: 'required', reason: '主线本卷必须推进' }]
+  });
+  const threeVolumeOutput = (prompt: string, modelId: string, anchorsMode: 'truncate-batch' | 'fail-child2' | 'child2-issues'): unknown => {
+    if (prompt.includes('核对短卡是否')) return { pass: true, issues: [] };
+    if (prompt.includes('判断需要哪些方法')) return prompt.includes('上次工具结果（仅资料）：null') ? { action: 'search_methods', category: '', cursor: 0 } : { action: 'ready', selected: [] };
+    if (prompt.includes('设计全书骨架。只设计')) return { structure: '三幕', baseline: `轻快-${modelId}`, ending: '建立工坊', openingHooks: ['钩1', '钩2', '钩3'], words: { target: 300000, min: null, max: null, hard: false, policy: 'chars-v1' }, lines: [{ id: 'main', role: 'main', title: '工坊', goal: '立足', answer: '建立工坊', process: '从修理到建立工坊', parentIds: [], covers: ['成长线'], milestones: [] }], expectations: [{ id: 'promise', opening: '能否立足', change: '看到变化', answer: '以机甲立足', lineIds: ['main'] }], relations: [], volumeBriefs: [{ id: 'v1', title: '开张', goal: '立足', words: { target: 100000, min: null, max: null, hard: false, policy: 'chars-v1' } }, { id: 'v2', title: '扩张', goal: '扩张', words: { target: 100000, min: null, max: null, hard: false, policy: 'chars-v1' } }, { id: 'v3', title: '兑现', goal: '兑现', words: { target: 100000, min: null, max: null, hard: false, policy: 'chars-v1' } }] };
+    if (prompt.includes('补全本卷卷卡') || prompt.includes('补全本批卷卡')) {
+      const briefMatch = prompt.match(/"id"\s*:\s*"(v\d)"/u);
+      const id = briefMatch?.[1] ?? 'v1';
+      return { volumes: [volumeOf(id, id === 'v3')] };
+    }
+    if (prompt.includes('自检你刚完成') || prompt.includes('自检候选锚点')) return { pass: true, issues: [] };
+    if (prompt.includes('核对候选骨架')) return { action: 'verdict', pass: true, issues: [], suggestions: [], hasMoreIssues: false };
+    if (prompt.includes('核对候选锚点')) {
+      if (anchorsMode === 'truncate-batch' && prompt.includes('本批') && prompt.includes('"id":"v2"')) return '__TRUNCATE__';
+      if (anchorsMode === 'fail-child2' && prompt.includes('本卷') && prompt.includes('"id":"v2"')) return '__FAIL2__';
+      if (anchorsMode === 'fail-child2' && prompt.includes('本卷') && prompt.includes('"id": "v2"')) return '__FAIL2__';
+      if (anchorsMode === 'child2-issues' && prompt.includes('本卷') && prompt.includes('v2')) return { pass: false, issues: ['v2锚点条件空泛循环'], suggestions: [], hasMoreIssues: false };
+      return { pass: true, issues: [], suggestions: [], hasMoreIssues: false };
+    }
+    return { fields: { premise: [{ text: '修理工建立工坊', sourceKeys: ['opening:opening:1'] }], protagonists: [{ text: '林舟', sourceKeys: ['opening:opening:1'] }], world: [], openingEnding: [], preferences: [], prohibitions: [] } };
+  };
+  const splitAdapter = (calls: string[], mode: 'truncate-batch' | 'fail-child2' | 'child2-issues') => (provider: string, modelId: string) => ({
+    provider, modelId,
+    async generate(request: { prompt: string }) {
+      calls.push(request.prompt);
+      const value = threeVolumeOutput(request.prompt, modelId, mode);
+      if (value === '__TRUNCATE__' && request.prompt.includes('"id":"v2"')) throw new ModelAdapterError('输出长度超限', 'technical_failure', false, 200, false, undefined, 'output_length_limit');
+      if (value === '__FAIL2__') throw new ModelAdapterError('供应商暂时不可用', 'technical_failure', true, 500);
+      return { provider, modelId, output: JSON.stringify(value), inputTokens: 20, outputTokens: 20, cashCostCny: 0, state: 'succeeded' as const };
+    }
+  });
+
+  it('父批截断→只发两个子请求；父批truncated证据保留并标记覆盖；结论合取通过', async () => {
+    const { c, scope } = setup();
+    const calls: string[] = [];
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, splitAdapter(calls, 'truncate-batch')), 64000);
+    const created = await round(service, scope, 'split-r1');
+    await service.process(created[0]!.id);
+    const childCalls = calls.filter(p => p.includes('核对候选锚点') && p.includes('本卷：'));
+    const parentBatchCallsV1V2 = calls.filter(p => p.includes('核对候选锚点') && p.includes('本批：') && p.includes('"id":"v2"'));
+    expect(parentBatchCallsV1V2.length).toBe(1); // 第一批[v1,v2]截断后不再发父批（第二批[v3]正常批量不在此断言）
+    expect(childCalls.length).toBe(2); // 恰好两个子请求
+    const parent = c.database.prepare("SELECT error_code FROM tm2_steps WHERE id=?").get(`${created[0]!.id}:review-anchors:0`) as { error_code: string };
+    expect(parent.error_code).toBe('truncated-split-covered'); // truncated证据保留并标记覆盖
+    const child1 = c.database.prepare("SELECT state FROM tm2_steps WHERE id=?").get(`${created[0]!.id}:review-anchors:0:vol:v1`) as { state: string } | undefined;
+    const child2 = c.database.prepare("SELECT state FROM tm2_steps WHERE id=?").get(`${created[0]!.id}:review-anchors:0:vol:v2`) as { state: string } | undefined;
+    expect(child1?.state).toBe('succeeded');
+    expect(child2?.state).toBe('succeeded');
+    expect(service.state(scope).find(r => r.id === created[0]!.id)?.state).toBe('succeeded');
+    expect(service.state(scope).find(r => r.id === created[0]!.id)?.result?.review.pass).toBe(true);
+  });
+
+  it('子1成功子2失败→重启只发子2；骨架/卷卡/来源审查/子1零重发', async () => {
+    const { c, scope } = setup();
+    const calls: string[] = [];
+    const failState = { truncatedBatch: 1, failChild2: 2 };
+    const adapter = (provider: string, modelId: string) => ({
+      provider, modelId,
+      async generate(request: { prompt: string }) {
+        calls.push(request.prompt);
+        // 父批先截断一次触发降级；随后子2连续失败两次（temporary重试一次后终态）
+        if (failState.truncatedBatch > 0 && request.prompt.includes('核对候选锚点') && request.prompt.includes('本批：')) {
+          failState.truncatedBatch--;
+          throw new ModelAdapterError('输出长度超限', 'technical_failure', false, 200, false, undefined, 'output_length_limit');
+        }
+        if (failState.failChild2 > 0 && request.prompt.includes('核对候选锚点') && request.prompt.includes('本卷') && request.prompt.includes('"id":"v2"')) {
+          failState.failChild2--;
+          throw new ModelAdapterError('供应商暂时不可用', 'technical_failure', true, 500);
+        }
+        return { provider, modelId, output: JSON.stringify(threeVolumeOutput(request.prompt, modelId, 'truncate-batch')), inputTokens: 20, outputTokens: 20, cashCostCny: 0, state: 'succeeded' as const };
+      }
+    });
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, adapter), 64000);
+    const created = await round(service, scope, 'split-r2');
+    await service.process(created[0]!.id);
+    expect(service.state(scope).find(r => r.id === created[0]!.id)?.state).toBe('failed');
+    expect(c.database.prepare("SELECT state FROM tm2_steps WHERE id=?").get(`${created[0]!.id}:review-anchors:0:vol:v1`) as { state: string }).toBeDefined();
+    const prep = new TimeMachineResumeService(c.database).prepare(scope, created[0]!.id);
+    expect(prep.blocked).toHaveLength(0);
+    calls.length = 0;
+    await service.process(created[0]!.id);
+    const child1Calls = calls.filter(p => p.includes('"id":"v1"') && p.includes('核对候选锚点')).length;
+    const child2Calls = calls.filter(p => p.includes('v2') && p.includes('核对候选锚点')).length;
+    expect(child1Calls).toBe(0); // 子1已成功零重发
+    expect(child2Calls).toBe(1); // 只发子2
+    expect(calls.filter(p => p.includes('核对候选骨架')).length).toBe(0); // 来源审查零重发
+    expect(calls.filter(p => p.includes('设计全书骨架')).length).toBe(0); // 骨架零重发
+    expect(calls.filter(p => p.includes('补全本')).length).toBe(0); // 卷卡零重发
+  });
+
+  it('子卷有阻塞问题→不得放行：合取为false且问题带卷名前缀', async () => {
+    const { c, scope } = setup();
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, splitAdapter([], 'child2-issues')), 64000);
+    const created = await round(service, scope, 'split-r3');
+    await service.process(created[0]!.id);
+    const run = service.state(scope).find(r => r.id === created[0]!.id)!;
+    expect(run.result?.review.pass).toBe(false);
+    expect(run.result?.review.issues.some(i => i.includes('v2') || i.includes('扩张'))).toBe(true);
+  });
+});
