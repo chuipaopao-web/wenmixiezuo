@@ -148,7 +148,7 @@ describe('three independent schemes per design round',()=>{
   if(readsJson){
    const reads=JSON.parse(readsJson) as {key:string;text:string}[];
    const fullSlices=reads.filter(r=>!r.text.startsWith('（已回查存根'));
-   expect(fullSlices.length).toBeLessThanOrEqual(2);
+   expect(fullSlices.length).toBeLessThanOrEqual(1); // 最新片段单列"上次工具结果"，已读片段全文≤1片
    for(const stub of reads.filter(r=>r.text.startsWith('（已回查存根')))expect(stub.key).toBeTruthy(); // 存根保留可回查key
   }
  });
