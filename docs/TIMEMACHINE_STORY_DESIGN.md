@@ -1160,3 +1160,9 @@ Codex端到端验证三套方案无可采用后定点处理：A卷卡3遇HTTP400
 **Codex两反例修复（17/17通过）**：P1回查轨迹幂等（同片段key+offset+hash一致复用，不同另存新seq；恢复成功清陈旧error）；P2迟到返回幂等结算（journal settled不再settle、reclassifyUnknownToActual重分类、活跃调用TTL/3续租清定时器、CAS核验）；createStepVersioned归档边界（同owner/book+无活租约+事务内核验）；prepare活写者检查入事务。
 
 **定点续跑（12/75万/60分窗口）**：c116818b审查链推进至review-anchors:0/:2成功，review-anchors:4截断（k2.7结论超8000可见输出），run=failed如实收束不机械重试；HTTP采用未发生。合法HTTP P7零调用全绿（预览200/受影响列出/过期409零新轮/同键回放同轮IDs）。用量：实耗5+未知1=6/12请求（47387+31109/75万tokens），预留日志全settled无悬空。审查者：k2.7冻结隔离诊断审查（不授正式资格、不重新筛、不为pass重跑）；截断与翻转+即时未知原因均不明，不宣称已证否模型本身。剩余唯一动作：拆分或续作review-anchors:4（known-incomplete非盲重试，需新授权）。
+
+### 25.10.7 067bbc24收尾终局（2026-09-17，未完成，未采用）
+
+单卷降级实现（e2b6cdfc）：两卷批量锚点审查截断后降级逐卷独立子步骤（父批次+实际卷ID稳定ID），本卷完整锚点+相邻交接+全书结局背景，结论pass合取、问题带卷名合并；父批truncated保留并标记truncated-split-covered；恢复直接续子节点零父批重发；一次性墙钟补充持久化（tm2_eval_budget_ext不循环延长）。定向反例3项+受影响套件24/24+tsc全过。
+
+真实续跑（12/75万/60分+一次性墙钟60分补充）：双层预算复核通过；:4以truncated标记直接续子节点零重发父批。两子审查真实完成：v5 verdict pass:false（边城群像线职责flexible与收束必填条件不对齐；收束fallback与必填目标冲突）；v6 verdict pass:false（收束卷fallback与全书结局矛盾）。合取=false进入一次修订（产品既有合同），revision-1骨架修订提示=完整候选约20k字符+阻塞清单，超15000字符输入红线被预检budget/local拒绝（零调用；run内spent=19/277k+64k=341k<520000，属提示规模上限非预算耗尽）。HTTP采用未发生；审查与待修订证据完整保留。用量：实耗7+未知1=8/12请求。剩余唯一动作：修订输入分包/压缩（同审查输入有界策略），需新授权。本批不部署。
