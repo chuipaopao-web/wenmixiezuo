@@ -105,4 +105,35 @@ describe('three independent schemes per design round',()=>{
   expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-blocked',1)).toThrow('已有新时光机任务');
   expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-blocked-nov')).toThrow('故事线资料版本已变化');
  });
+ it('review-source continuation dedupes read slices: same slice never twice in one prompt, growth bounded',async()=>{
+  // 根因回归（run4d9cfdf9实证15421字符超15000红线）：同一片段同时进"已读片段"和"上次工具结果"致续问输入翻倍。
+  const {c,scope}=setup();
+  const reviewPrompts:string[]=[];
+  const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
+   if(request.prompt.includes('核对候选骨架')){
+    reviewPrompts.push(request.prompt);
+    const n=reviewPrompts.length;
+    if(n<=2)return {provider,modelId,output:JSON.stringify({action:'read_source',key:'opening:opening:1',offset:(n-1)*1200}),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded' as const};
+    return {provider,modelId,output:JSON.stringify({action:'verdict',pass:true,issues:[],suggestions:[],hasMoreIssues:false}),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded' as const};
+   }
+   return {provider,modelId,output:JSON.stringify(output(request.prompt,modelId)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded' as const};
+  }}));
+  const service=new TimeMachineDesignService(c.database,gateway,64000);
+  const created=await round(service,scope,'round-dedup');
+  await service.process(created[0]!.id);
+  expect(reviewPrompts.length).toBeGreaterThanOrEqual(3); // :0/:1补查 + 结论
+  for(let i=1;i<reviewPrompts.length;i++){
+   const prompt=reviewPrompts[i]!;
+   expect(prompt.length).toBeLessThan(15000); // 1.5万字红线
+   expect(prompt.length).toBeLessThanOrEqual(reviewPrompts[i-1]!.length+1300); // 每轮最多增一个片段，不双重累计
+   // 本次"上次工具结果"的片段不得重复出现在同一提示的"已读片段"中
+   const readsJson=prompt.split('\n已读片段：')[1]?.split('\n上次工具结果（仅资料）：')[0] ?? '';
+   const latestJson=prompt.split('\n上次工具结果（仅资料）：')[1]?.split('\n来源短卡：')[0] ?? '';
+   if(latestJson&&latestJson!=='null'){
+    const latest=JSON.parse(latestJson) as {key:string;text:string};
+    const reads=JSON.parse(readsJson) as {key:string;text:string}[];
+    expect(reads.some(r=>r.key===latest.key&&r.text===latest.text)).toBe(false);
+   }
+  }
+ });
 });

@@ -590,7 +590,11 @@ export class TimeMachineDesignService {
    if(response.action==='verdict'){structure=await continueReview(`review-source:${i}`,response);break;}
    if(reads.length>=3)throw Error('核对补查预算已用完，未给出结论');
    const source=snapshot.documents.find(d=>d.key===response.key);if(!source)throw Error('补查资料不存在');
-   const slice={key:source.key,text:source.text.slice(response.offset,response.offset+1200)};latest=slice;reads.push(slice);
+   const slice={key:source.key,text:source.text.slice(response.offset,response.offset+1200)};
+   // 同一片段不重复计入：上一轮的“上次工具结果”移入已读片段，新片段只作latest——
+   // 否则同一片段在续问提示中出现两次，60万字级方案续问输入超15000字符红线被预算拒绝（run4d9cfdf9 review-source:1实证15421字符）。
+   if(latest!==null&&typeof latest==='object'&&'key' in (latest as Record<string,unknown>)&&'text' in (latest as Record<string,unknown>)) reads.push(latest as {key:string;text:string});
+   latest=slice;
   }
   if(structure===null)throw Error('核对补查未给出结论');
   const issues=[...structure.issues];const suggestions=[...structure.suggestions];let pass=structure.pass;
