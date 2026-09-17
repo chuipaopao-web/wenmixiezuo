@@ -1,59 +1,107 @@
 /**
- * S1-FAST-CLOSE接续纠正：探针发送边界统一父预算（离线部分1）。
+ * 625cc3f7集中复核②：探针发送边界统一父预算（修复重启漏计与估算口径）。
  * 在探针实际模型发送边界（适配器resolve处）对每次真实网络dispatch做原子父预留：
- * - 复用既有持久化预算器（tm2_eval_budget经NodeEvaluationRepository）：预留/实耗/未知分列，进程重启不归零；
- * - 设定、时光机、适配器重试、冒烟全部子进程共用同一父账本（batchId单行）；
- * - 上限（请求/tokens/墙钟）在网络发送前拒绝下一次，不是轮询后统计；
- * - 调用标识=requestId（与tm2_model_calls/v7_setting_model_calls稳定ID一致，对账不靠行数相加）；
- * - 未知结果占额转unknown列（不免费重试）；悬空预留重启归零、实耗/未知绝不清零。
- * 不动生产网关，不给探针开后门：这只是探针装配层的包裹，生产路径不引用。
+ * - 持久化预留日志tm2_eval_reserve_journal：reserve（已占额未达发送点）→ dispatching（紧邻发送前标记）→ settled；
+ * - 对账按日志+发送状态+进程租约：活跃实例保留；已发未结算/无法确认已发→转unknown占额不释放；
+ *   有确证未到发送点→释放；结算幂等（settled标记），多次对账不倍增；禁止全批清零；
+ * - token按协议封套字节估算（Buffer.byteLength(prompt)+maxOutput+2048），不用prompt.length/2冒充保守上界；
+ * - 结算实耗=input+output计费分量；reasoning单列记录、不重复相加（供应商可能已含在output内）；
+ * - 设定、时光机、适配器重试、冒烟全部子进程共用同一父账本；上限（请求/tokens/墙钟）发送前拒绝下一次；
+ * - 不动生产网关，不给探针开后门：这只是探针装配层的包裹，生产路径不引用。
  */
+import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { NodeEvaluationRepository } from '../../apps/api/src/infrastructure/db/repositories/node-evaluation-repository.js';
 
-export interface ParentBudgetLimits { readonly requests: number; readonly tokens: number; readonly wallClockMs: number }
+export interface ParentBudgetLimits { readonly requests: number; readonly tokens: number; readonly wallClockMs: number; readonly leaseTtlMs?: number }
 
 export class ParentBudgetExhausted extends Error {
   constructor(readonly reason: string) { super(`父预算发送前拒绝：${reason}`); }
 }
 
-interface GuardedUsage { inputTokens: number | null; outputTokens: number | null; reasoningTokens?: number | null }
-interface GuardedRequest { prompt: string; maxOutputTokens?: number; requestId?: string }
-/** 适配器返回的用量：优先usage嵌套（评测适配器），否则顶层字段（生产网关ModelAdapter结果）。 */
+interface GuardedRequest { prompt: string; maxOutputTokens?: number; requestId?: string; thinkingHeadroomTokens?: number }
 interface GuardedResponse {
-  usage?: GuardedUsage | null;
+  usage?: { inputTokens: number | null; outputTokens: number | null; reasoningTokens?: number | null } | null;
   inputTokens?: number | null; outputTokens?: number | null; reasoningTokens?: number | null;
 }
 interface GuardedAdapter<A extends GuardedRequest, R extends GuardedResponse> { generate(request: A): Promise<R> }
 
-function usageOf(response: GuardedResponse): { known: boolean; total: number | null } {
+function billedUsage(response: GuardedResponse): { known: boolean; total: number | null } {
   const nested = response.usage;
-  if (nested != null) {
-    const known = nested.inputTokens !== null && nested.outputTokens !== null;
-    return { known, total: known ? nested.inputTokens! + nested.outputTokens! + (nested.reasoningTokens ?? 0) : null };
-  }
-  const known = typeof response.inputTokens === 'number' && typeof response.outputTokens === 'number';
-  return { known, total: known ? response.inputTokens! + response.outputTokens! + (response.reasoningTokens ?? 0) : null };
+  const input = nested != null ? nested.inputTokens : response.inputTokens;
+  const output = nested != null ? nested.outputTokens : response.outputTokens;
+  const known = typeof input === 'number' && typeof output === 'number';
+  // reasoning单列不重复相加：供应商是否含在output内无法确认，实耗只按计费分量input+output计
+  return { known, total: known ? input! + output! : null };
 }
 
 export class ParentBudgetGuard {
   private readonly repo: NodeEvaluationRepository;
-  private readonly pending = new Map<string, number>(); // requestId → reservedTokens（对账用，进程内）
+  readonly ownerTag: string;
+  private readonly leaseTtlMs: number;
   constructor(
     private readonly db: DatabaseSync,
     private readonly batchId: string,
-    private readonly limits: ParentBudgetLimits
+    private readonly limits: ParentBudgetLimits,
+    ownerTag?: string
   ) {
     this.repo = new NodeEvaluationRepository(db);
     this.repo.ensureBudget(batchId, limits.requests, limits.tokens);
+    this.ownerTag = ownerTag ?? `guard-${process.pid}-${randomUUID().slice(0, 8)}`;
+    this.leaseTtlMs = limits.leaseTtlMs ?? 30_000;
+    this.heartbeat();
   }
 
-  /** 进程启动对账：新进程没有在途调用，悬空预留归零（实耗/未知绝不清零）。 */
-  reconcileOnBoot(): void { this.repo.reconcileReservedOnBoot(this.batchId); }
+  /** 进程心跳：对账只处理租约过期实例（活进程条目不动）。 */
+  heartbeat(): void {
+    this.db.prepare('INSERT INTO tm2_eval_guard_lease(owner_tag,heartbeat_at) VALUES(?,?) ON CONFLICT(owner_tag) DO UPDATE SET heartbeat_at=excluded.heartbeat_at')
+      .run(this.ownerTag, new Date().toISOString());
+  }
 
-  /** 保守token估计（与评测执行器同口径：约2字符/token上界）。 */
-  private estimate(request: GuardedRequest): number {
-    return Math.ceil(request.prompt.length / 2) + (request.maxOutputTokens ?? 4000) + 4096;
+  /**
+   * 对账（替代全批清零）：逐条未结算日志按发送状态与租约处理。
+   * - reserve（未达发送点，有确证未发送）→ 释放预留；
+   * - dispatching/unknown（已发未结算或无法确认）→ 预留转unknown占额，不释放；
+   * - 活实例条目不动；结算幂等（settled=1后跳过），多次对账不倍增。
+   */
+  reconcile(): { released: number; toUnknown: number; keptAlive: number } {
+    const now = new Date().toISOString();
+    const expiredOwners = new Set(
+      (this.db.prepare('SELECT owner_tag, heartbeat_at FROM tm2_eval_guard_lease').all() as { owner_tag: string; heartbeat_at: string }[])
+        .filter(l => Date.parse(now) - Date.parse(l.heartbeat_at) > this.leaseTtlMs)
+        .map(l => l.owner_tag)
+    );
+    const pending = this.db.prepare('SELECT * FROM tm2_eval_reserve_journal WHERE batch_id=? AND settled=0').all(this.batchId) as {
+      reserve_key: string; owner_tag: string; requests: number; tokens: number; dispatch_mark: string;
+    }[];
+    let released = 0, toUnknown = 0, keptAlive = 0;
+    for (const entry of pending) {
+      if (!expiredOwners.has(entry.owner_tag)) { keptAlive++; continue; } // 活进程不动
+      if (entry.dispatch_mark === 'reserved') {
+        // 确证未到发送点：释放预留（budget预留列减回）
+        this.db.exec('BEGIN IMMEDIATE');
+        try {
+          this.db.prepare('UPDATE tm2_eval_budget SET reserved_requests=reserved_requests-?,reserved_tokens=reserved_tokens-?,updated_at=? WHERE batch_id=?')
+            .run(entry.requests, entry.tokens, now, this.batchId);
+          this.db.prepare("UPDATE tm2_eval_reserve_journal SET settled=1,outcome='released',updated_at=? WHERE reserve_key=? AND batch_id=? AND settled=0")
+            .run(now, entry.reserve_key, this.batchId);
+          this.db.exec('COMMIT');
+          released++;
+        } catch (error) { if (this.db.isTransaction) this.db.exec('ROLLBACK'); throw error; }
+      } else {
+        // 已发未结算/无法确认：转unknown占额（不释放、不免费）
+        this.db.exec('BEGIN IMMEDIATE');
+        try {
+          this.db.prepare('UPDATE tm2_eval_budget SET reserved_requests=reserved_requests-?,unknown_requests=unknown_requests+?,reserved_tokens=reserved_tokens-?,unknown_tokens=unknown_tokens+?,updated_at=? WHERE batch_id=?')
+            .run(entry.requests, entry.requests, entry.tokens, entry.tokens, now, this.batchId);
+          this.db.prepare("UPDATE tm2_eval_reserve_journal SET settled=1,outcome='unknown-reconciled',updated_at=? WHERE reserve_key=? AND batch_id=? AND settled=0")
+            .run(now, entry.reserve_key, this.batchId);
+          this.db.exec('COMMIT');
+          toUnknown++;
+        } catch (error) { if (this.db.isTransaction) this.db.exec('ROLLBACK'); throw error; }
+      }
+    }
+    return { released, toUnknown, keptAlive };
   }
 
   private checkWallClock(): void {
@@ -63,7 +111,12 @@ export class ParentBudgetGuard {
     }
   }
 
-  /** 包裹一个已解析适配器：每次真实dispatch前原子预留，结束按实际/未知结算。 */
+  /** token估算：协议封套字节口径（bytes+maxOutput+2048），含显式headroom；不用chars/2冒充上界。 */
+  private estimate(request: GuardedRequest): number {
+    return Buffer.byteLength(request.prompt, 'utf8') + (request.maxOutputTokens ?? 4000) + (request.thinkingHeadroomTokens ?? 0) + 2048;
+  }
+
+  /** 包裹一个已解析适配器：每次真实dispatch前原子预留+日志，结束按实际/未知结算。 */
   wrap<A extends GuardedRequest, R extends GuardedResponse, T extends GuardedAdapter<A, R>>(adapter: T): T {
     const guard = this;
     return {
@@ -72,31 +125,33 @@ export class ParentBudgetGuard {
         guard.checkWallClock();
         const reserveKey = request.requestId ?? `anon:${Date.now()}:${Math.random()}`;
         const reserved = guard.estimate(request);
-        // 发送前原子预留：请求/tokens任一超上限即拒绝（不触网）
         if (!guard.repo.tryReserve(guard.batchId, reserveKey, 1, reserved)) {
           throw new ParentBudgetExhausted(`请求或token达上限（${guard.limits.requests}请求/${guard.limits.tokens}tokens）`);
         }
-        guard.pending.set(reserveKey, reserved);
+        const now = new Date().toISOString();
+        guard.db.prepare('INSERT INTO tm2_eval_reserve_journal(reserve_key,batch_id,owner_tag,requests,tokens,dispatch_mark,settled,created_at,updated_at) VALUES(?,?,?,?,?,?,0,?,?)')
+          .run(reserveKey, guard.batchId, guard.ownerTag, 1, reserved, 'reserved', now, now);
         try {
+          // 紧邻发送点标记：此后崩溃按"已发未结算"对账（转unknown占额，不释放）
+          guard.db.prepare("UPDATE tm2_eval_reserve_journal SET dispatch_mark='dispatching',updated_at=? WHERE reserve_key=? AND batch_id=?")
+            .run(new Date().toISOString(), reserveKey, guard.batchId);
           const response = await adapter.generate(request);
-          const usage = usageOf(response);
-          guard.repo.settle(guard.batchId, reserveKey, {
-            requests: 1, reservedTokens: reserved,
-            actualTokens: usage.known ? usage.total : null
-          });
+          const usage = billedUsage(response);
+          guard.repo.settle(guard.batchId, reserveKey, { requests: 1, reservedTokens: reserved, actualTokens: usage.known ? usage.total : null });
+          guard.db.prepare("UPDATE tm2_eval_reserve_journal SET settled=1,outcome=?,updated_at=? WHERE reserve_key=? AND batch_id=?")
+            .run(usage.known ? 'actual' : 'unknown', new Date().toISOString(), reserveKey, guard.batchId);
           return response;
         } catch (error) {
           // 未知结果占额转unknown列：不免费重试、不蒸发消耗事实
           guard.repo.settle(guard.batchId, reserveKey, { requests: 1, reservedTokens: reserved, actualTokens: null });
+          guard.db.prepare("UPDATE tm2_eval_reserve_journal SET settled=1,outcome='unknown',updated_at=? WHERE reserve_key=? AND batch_id=?")
+            .run(new Date().toISOString(), reserveKey, guard.batchId);
           throw error;
-        } finally {
-          guard.pending.delete(reserveKey);
         }
       }
     } as T;
   }
 
-  /** 当前账本快照（报告用：分账+与总上限的对照）。 */
   snapshot(): { actual: number; unknown: number; reserved: number; limitRequests: number; limitTokens: number; startedAt: string } {
     const b = this.repo.readBudget(this.batchId)!;
     return { actual: b.actual_requests, unknown: b.unknown_requests, reserved: b.reserved_requests, limitRequests: b.limit_requests, limitTokens: b.limit_tokens, startedAt: b.started_at };

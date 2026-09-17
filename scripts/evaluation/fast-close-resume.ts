@@ -57,7 +57,7 @@ async function main(): Promise<void> {
   // 父预算账本在评测库（与生产库分离；历史各账分列）
   const evalDb: DatabaseSync = openDatabase(resolve(EVAL_DB));
   const guard = new ParentBudgetGuard(evalDb, 's1-fast-close-resume', WINDOW);
-  guard.reconcileOnBoot();
+  guard.reconcile(); // 按日志+发送状态+租约对账（活进程不动、已发未结算转unknown、未发送才释放，禁止全批清零）
 
   // ① 离线核对run当前状态与检查点
   const run = db.prepare('SELECT id, owner_id, book_id, scheme, state, phase, error_code, snapshot_json FROM tm2_design_runs WHERE id=?').get(RUN_ID) as { owner_id: string; book_id: string; scheme: string; state: string; phase: string; error_code: string | null } | undefined;
