@@ -30,7 +30,7 @@ type Phase = 'setup' | 'members' | 'setting' | 'material' | 'recommend' | 'desig
 interface E2EState {
   phase: Phase; ownerId?: string; ownerEmail?: string; bookId?: string; materialRevision?: number;
   recommendationRunId?: string; recommendationHash?: string; preparationVersion?: string;
-  designRunIds?: { id: string; scheme: string }[]; adoptedCandidateId?: string;
+  designRunIds?: { id: string; scheme: string }[]; adoptedCandidateId?: string; selectedLineId?: string;
   modelCallsAtStart: number; log: { at: string; text: string }[];
 }
 
@@ -113,6 +113,7 @@ async function main(): Promise<void> {
       cookie = String(login.headers['set-cookie']).split(';')[0]!;
     }
     const bookId = bookIdOf();
+    const ownerId = state.ownerId!;
 
     // ---- P1 装配实验组合（治理仓储直改=隔离装配，非真实链路；审查者≠各生成节点模型）----
     const registry = new V7AgentGovernanceRepository(database);
@@ -201,18 +202,46 @@ async function main(): Promise<void> {
     if (state.phase === 'design') {
       const s1 = await getState();
       const materialRevision = s1.storylineMaterial?.revision ?? 0;
+      // 从真实推荐结果读取可勾选线（不硬编码线ID）
+      const recRow = database.prepare("SELECT result_json FROM tm2_design_runs WHERE id=? AND kind='recommend'").get(state.recommendationRunId) as { result_json: string } | undefined;
+      const recResult = recRow ? JSON.parse(recRow.result_json) as { lines?: { id: string; recommended?: boolean }[] } : null;
+      const recLines = (recResult?.lines ?? []).filter(l => l.recommended !== false);
+      if (!recLines.length) throw new Error('推荐结果无可勾选故事线');
       const selection = {
         recommendationRunId: state.recommendationRunId, recommendationHash: state.recommendationHash,
-        preparationVersion: state.preparationVersion, selectedLineIds: ['growth'],
+        preparationVersion: state.preparationVersion, selectedLineIds: [String(recLines[0]!.id)],
         addedLines: [{ title: '粮台线', description: '四十日粮草的筹措、损毁与重建贯穿全城命运' }],
         shape: 'auto' as const, ensemble: true, authorNote: '希望保甲重建过程有具体的制度细节'
       };
       const ds = await inj('POST', `/api/time-machine/books/${bookId}/design-runs`, cookie, { idempotencyKey: 'fc-e2e-round', selection, ...(materialRevision > 0 ? { expectedMaterialRevision: materialRevision } : {}) });
       if (ds.statusCode !== 202) throw new Error(`设计轮创建失败：${ds.body}`);
       const created = (ds.json().data as { runs: { id: string; scheme: string }[] }).runs;
-      state.designRunIds = created;
+      state.designRunIds = created; state.selectedLineId = String(recLines[0]!.id);
       state.materialRevision = materialRevision;
       note(state, `设计轮创建：${created.map(r => `${r.scheme}=${r.id}`).join(' ')}（材料版本${materialRevision}）`);
+      // --retry-failed：同一根因一次有依据修复后复验（合同）——先于等待执行，失败方案用既有retry流程重试一次（新run）
+      if (process.argv.includes('--retry-failed')) {
+        const { TimeMachineDesignService } = await import('../../apps/api/src/application/books/time-machine-design-service.js');
+        const { TimeMachineModelGateway } = await import('../../apps/api/src/infrastructure/models/time-machine-model-gateway.js');
+        const { ModelAdapterFactory } = await import('../../apps/api/src/infrastructure/models/model-adapter-factory.js');
+        const factory = new ModelAdapterFactory(config.modelRuntime);
+        const gateway = new TimeMachineModelGateway(database, (provider: string, model: string) => factory.resolve(provider, model, 'structured_planning') as never);
+        const service = new TimeMachineDesignService(database, gateway as never, 64000);
+        const scope = { ownerId, bookId };
+        const current = (await getState()).runs.filter(r => created.some(cr => cr.id === r.id));
+        for (const r of current.filter(x => x.state === 'failed')) {
+          try {
+            const retriedId = service.retry(scope, r.id);
+            note(state, `失败方案复验重试：${r.scheme} ${r.id} → 新run ${retriedId}`);
+            await service.process(retriedId);
+            const after = (await getState()).runs.find(x => x.id === retriedId);
+            note(state, `复验终态：${retriedId} state=${after?.state} review=${JSON.stringify(after?.result?.review ?? null)}`);
+            if (after?.state === 'succeeded') state.designRunIds = [...state.designRunIds!, { id: retriedId, scheme: `${r.scheme}R` }];
+          } catch (error) {
+            note(state, `复验失败（如实记录不重跑）：${error instanceof Error ? error.message.slice(0, 200) : 'unknown'}`);
+          }
+        }
+      }
       await waitFor(async () => {
         const runs = (await getState()).runs.filter(r => created.some(cr => cr.id === r.id));
         return runs.length === 3 && runs.every(r => ['succeeded', 'failed', 'needs_review'].includes(r.state));
@@ -247,9 +276,9 @@ async function main(): Promise<void> {
         const preview = await inj('POST', `/api/time-machine/books/${bookId}/storyline-material/preview`, cookie, { content: { note: '作者修改：加强粮草线权重' }, expectedRevision: mat.revision });
         note(state, `资料影响预览${preview.statusCode}：${preview.body.slice(0, 200)}`);
       }
-      const stale = await inj('POST', `/api/time-machine/books/${bookId}/design-runs`, cookie, { idempotencyKey: 'fc-e2e-round-stale', selection: { recommendationRunId: state.recommendationRunId, recommendationHash: state.recommendationHash, preparationVersion: state.preparationVersion, selectedLineIds: ['growth'], addedLines: [], shape: 'auto' as const, ensemble: true, authorNote: '' }, expectedMaterialRevision: 999 });
+      const stale = await inj('POST', `/api/time-machine/books/${bookId}/design-runs`, cookie, { idempotencyKey: 'fc-e2e-round-stale', selection: { recommendationRunId: state.recommendationRunId, recommendationHash: state.recommendationHash, preparationVersion: state.preparationVersion, selectedLineIds: [state.selectedLineId ?? 'growth'], addedLines: [], shape: 'auto' as const, ensemble: true, authorNote: '' }, expectedMaterialRevision: 999 });
       note(state, `过期版本999设计请求=${stale.statusCode}（应409且不可重试）：${stale.body.slice(0, 160)}`);
-      const replay = await inj('POST', `/api/time-machine/books/${bookId}/design-runs`, cookie, { idempotencyKey: 'fc-e2e-round', selection: { recommendationRunId: state.recommendationRunId, recommendationHash: state.recommendationHash, preparationVersion: state.preparationVersion, selectedLineIds: ['growth'], addedLines: [{ title: '粮台线', description: '四十日粮草的筹措、损毁与重建贯穿全城命运' }], shape: 'auto' as const, ensemble: true, authorNote: '希望保甲重建过程有具体的制度细节' }, ...(state.materialRevision! > 0 ? { expectedMaterialRevision: state.materialRevision } : {}) });
+      const replay = await inj('POST', `/api/time-machine/books/${bookId}/design-runs`, cookie, { idempotencyKey: 'fc-e2e-round', selection: { recommendationRunId: state.recommendationRunId, recommendationHash: state.recommendationHash, preparationVersion: state.preparationVersion, selectedLineIds: [state.selectedLineId ?? 'growth'], addedLines: [{ title: '粮台线', description: '四十日粮草的筹措、损毁与重建贯穿全城命运' }], shape: 'auto' as const, ensemble: true, authorNote: '希望保甲重建过程有具体的制度细节' }, ...(state.materialRevision! > 0 ? { expectedMaterialRevision: state.materialRevision } : {}) });
       const runsAfter = (await getState()).runs.length;
       note(state, `同键刷新=${replay.statusCode}，runs数${runsBefore}→${runsAfter}（不重复创建=${runsAfter === runsBefore}）`);
       state.phase = 'done';
