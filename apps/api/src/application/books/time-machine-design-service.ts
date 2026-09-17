@@ -486,6 +486,7 @@ export class TimeMachineDesignService {
    return map[t]??null;
   };
   const lineTitleToVolumes=new Map<string,Set<number>>();
+  const lineIdToVolumes=new Map<string,Set<number>>();
   oldVolumes.forEach((v,idx)=>{
    const duties=Array.isArray(v.duties)?v.duties as Record<string,unknown>[]:[];
    for(const d of duties){
@@ -494,6 +495,8 @@ export class TimeMachineDesignService {
     const title=line?String(line.title):lineId;
     const set=lineTitleToVolumes.get(title)??new Set<number>();
     set.add(idx);lineTitleToVolumes.set(title,set);
+    const byId=lineIdToVolumes.get(lineId)??new Set<number>();
+    byId.add(idx);lineIdToVolumes.set(lineId,byId);
    }
   });
   const affected=new Set<number>();
@@ -516,6 +519,8 @@ export class TimeMachineDesignService {
    const volLetters=[...text.matchAll(/卷\s*([A-Za-z])/gu)].map(m=>letterNum(m[1]!));
    const volSet=new Set<number>([...volNums,...volLetters].filter((n):n is number=>n!==null&&n>=1&&n<=oldVolumes.length));
    if(/终卷|末卷|最后一卷/u.test(text)&&oldVolumes.length>0)volSet.add(oldVolumes.length);
+   // 内部卷ID精确出现（自检提示未要求显示编号，真实输出会引用v4/v6等；按词边界确定性对照）
+   oldVolumes.forEach((v,idx)=>{const id=String(v.id);if(id.length>=2&&new RegExp(`(?<![A-Za-z0-9])${id.replace(/[.*+?^${}()|[\]\\]/gu,'\\$&')}(?![A-Za-z0-9])`,'u').test(text))volSet.add(idx+1);});
    if(volSet.size){for(const n of volSet)pushIssue(n-1,item);continue;}
    // 线显示编号（主线1=骨架lines[0]）与线标题精确匹配→该线职责所在卷
    const lineIdxs=new Set<number>();
@@ -528,6 +533,8 @@ export class TimeMachineDesignService {
    }
    const lineHit=[...lineTitleToVolumes.keys()].filter(title=>text.includes(title));
    for(const title of lineHit)for(const idx of lineTitleToVolumes.get(title)!)lineIdxs.add(idx);
+   // 线内部ID精确出现（如“old-order线”），同样映射到该线职责所在卷
+   for(const [lineId,idxs] of lineIdToVolumes)if(lineId.length>=3&&text.includes(lineId))for(const idx of idxs)lineIdxs.add(idx);
    if(lineIdxs.size){for(const idx of lineIdxs)pushIssue(idx,item);continue;}
    if(/全书|结局|骨架|宏观节奏|总字数/u.test(text))skeletonScoped.push(text);
    else unclear.push(text);

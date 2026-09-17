@@ -247,8 +247,8 @@ describe('锚点截断单卷降级（067bbc24收尾决定）', () => {
     if (prompt.includes('判断需要哪些方法')) return prompt.includes('上次工具结果（仅资料）：null') ? { action: 'search_methods', category: '', cursor: 0 } : { action: 'ready', selected: [] };
     if (prompt.includes('设计全书骨架。只设计')) return { structure: '三幕', baseline: `轻快-${modelId}`, ending: '建立工坊', openingHooks: ['钩1', '钩2', '钩3'], words: { target: 300000, min: null, max: null, hard: false, policy: 'chars-v1' }, lines: [{ id: 'main', role: 'main', title: '工坊', goal: '立足', answer: '建立工坊', process: '从修理到建立工坊', parentIds: [], covers: ['成长线'], milestones: [] }], expectations: [{ id: 'promise', opening: '能否立足', change: '看到变化', answer: '以机甲立足', lineIds: ['main'] }], relations: [], volumeBriefs: [{ id: 'v1', title: '开张', goal: '立足', words: { target: 100000, min: null, max: null, hard: false, policy: 'chars-v1' } }, { id: 'v2', title: '扩张', goal: '扩张', words: { target: 100000, min: null, max: null, hard: false, policy: 'chars-v1' } }, { id: 'v3', title: '兑现', goal: '兑现', words: { target: 100000, min: null, max: null, hard: false, policy: 'chars-v1' } }] };
     if (prompt.includes('修订本卷卷卡')) {
-      const idMatch = prompt.match(/"id"\s*:\s*"(v\d)"/u);
-      return { volumes: [volumeOf(idMatch?.[1] ?? 'v2', true)] };
+      const id = prompt.match(/"id"\s*:\s*"(v\d)"/u)?.[1] ?? 'v2';
+      return { volumes: [volumeOf(id, id === 'v3', true)] }; // 第二参是isLast：修订卷保持原交接形态（v2非终卷必须有handoff）
     }
     if (prompt.includes('补全本卷卷卡') || prompt.includes('补全本批卷卡')) {
       const briefMatch = prompt.match(/"id"\s*:\s*"(v\d)"/u);
@@ -352,5 +352,34 @@ describe('锚点截断单卷降级（067bbc24收尾决定）', () => {
     expect(revisePrompt).toContain('卷2锚点条件空泛循环'); // 问题原文进入修订输入
     expect(revisePrompt).toMatch(/卷2（[^）]+）：卷2锚点条件空泛循环/u); // 带卷名前缀可定位
     expect(revisePrompt).toContain('本卷问题与依据');
+  });
+
+  it('自检引用内部卷ID（v2样式）→确定性定位该卷局部修订，来源标记self-check', async () => {
+    const { c, scope } = setup();
+    const calls: string[] = [];
+    let selfChecked = false;
+    // 真实自检输出会引用内部ID（自检提示未要求显示编号，c116818b实测"v4中保甲线…"）：按词边界确定性对照到该卷
+    const adapter = (provider: string, modelId: string) => ({
+      provider, modelId,
+      async generate(request: { prompt: string }) {
+        calls.push(request.prompt);
+        if (request.prompt.includes('自检你刚完成') && !selfChecked) {
+          selfChecked = true;
+          return { provider, modelId, output: JSON.stringify({ pass: false, issues: ['v2收束fallback与全书结局矛盾'] }), inputTokens: 20, outputTokens: 20, cashCostCny: 0, state: 'succeeded' as const };
+        }
+        const value = threeVolumeOutput(request.prompt, modelId, 'truncate-batch');
+        if (value === '__TRUNCATE__' && request.prompt.includes('"id":"v2"')) throw new ModelAdapterError('输出长度超限', 'technical_failure', false, 200, false, undefined, 'output_length_limit');
+        return { provider, modelId, output: JSON.stringify(value), inputTokens: 20, outputTokens: 20, cashCostCny: 0, state: 'succeeded' as const };
+      }
+    });
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, adapter), 64000);
+    const created = await round(service, scope, 'split-r4');
+    await service.process(created[0]!.id);
+    const revisePrompts = calls.filter(p => p.includes('修订本卷卷卡'));
+    expect(revisePrompts.length).toBe(1); // 只修v2，其他卷零重生
+    expect(revisePrompts[0]).toContain('本卷现行内容：{"id":"v2"');
+    expect(revisePrompts[0]).toContain('v2收束fallback与全书结局矛盾');
+    expect(revisePrompts[0]).toContain('"sources":["self-check"]'); // 来源随问题进入修订输入
+    expect(service.state(scope).find(r => r.id === created[0]!.id)?.state).toBe('succeeded');
   });
 });
