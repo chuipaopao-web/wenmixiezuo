@@ -17,7 +17,7 @@ import {prepareCardMerge,cardMergeGuidance} from './time-machine-card-merge.js';
 import {CreativeReferenceRuntime,creativeSupplement,CREATIVE_DESIGN_GUIDANCE} from '../creative-reference/runtime.js';
 import {nodeFamilyFor} from '../evaluation/node-policy-dispatch.js';
 interface Run {id:string;owner_id:string;book_id:string;kind:'recommend'|'design';snapshot_json:string;state:string;result_json:string|null;error_code:string|null}
-type ReviewAction={action:'read_source';key:string;offset:number}|{action:'verdict';issues:string[];suggestions:string[];pass:boolean;hasMoreIssues:boolean};
+type ReviewAction={action:'read_source';key:string;offset:number}|{action:'verdict';issues:string[];suggestions:string[];pass:boolean;hasMoreIssues:boolean}|{action:'insufficient';missing:string[]};
 function json(text:string):unknown{return JSON.parse(text.trim().replace(/^```(?:json)?\s*/u,'').replace(/\s*```$/u,''));}
 function record(value:unknown):Record<string,unknown>{if(!value||typeof value!=='object'||Array.isArray(value))throw Error('invalid_output');return value as Record<string,unknown>;}
 /** ID归一化（系统职责，第23.5节）：把模型写出的非法字符就地修正为合法ID并去重；合法ID原样保留。 */
@@ -471,9 +471,9 @@ export class TimeMachineDesignService {
   *   模型返回该卷完整合同对象，系统验证只修改允许对象（id/字数/引用/来源完整性），按稳定ID合并为候选新revision；
   * - 一次自动修订轮仍为revision-1，不开revision-2；修订反馈只注入相应修订请求，不无差别附加到自检/独立审查。
   */
- private async localRevision(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,card:ContextCard,unified:{issue:string;sources:string[]}[],candidate:Candidate):Promise<unknown>{
+ private async localRevision(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,card:ContextCard,unified:{issue:string;sources:string[]}[],candidate:Candidate,round=1):Promise<unknown>{
   const writer=snapshot.members.writer;
-  const suffix=':revision-1';
+  const suffix=`:revision-${round}`;
   const plan=candidate.plan as unknown as Record<string,unknown>;
   const oldVolumes=(Array.isArray(plan.volumes)?plan.volumes:[]) as Record<string,unknown>[];
   const oldAnchors=(Array.isArray(plan.anchors)?plan.anchors:[]) as Record<string,unknown>[];
@@ -553,12 +553,15 @@ export class TimeMachineDesignService {
    const old=oldVolumes[idx]!;
    const volumeId=String(old.id);
    const volumeAnchors=oldAnchors.filter(a=>String(record(a).ownerEntityId)===volumeId);
+   // 共享边界（bcf19a6a）：相邻卷交接带前卷完整出口锚点、后卷完整入口锚点及相应结局/起点，不仅title/ending摘要——
+   // 同一跨卷事实的两端在同一修订轮拿到对方完整边界锚点，系统校验引用，语义一致性由复查核对。
+   const anchorOf=(j:number,kind:string):unknown=>oldAnchors.find(a=>String(record(a).ownerEntityId)===String(record(oldVolumes[j]!).id)&&String(record(a).kind)===kind)??null;
    const adjacent={
-    prev:idx>0?{title:oldVolumes[idx-1]!.title,ending:oldVolumes[idx-1]!.ending,handoff:oldVolumes[idx-1]!.handoff}:null,
-    next:idx<oldVolumes.length-1?{title:oldVolumes[idx+1]!.title,start:oldVolumes[idx+1]!.start}:null
+    prev:idx>0?{title:oldVolumes[idx-1]!.title,ending:oldVolumes[idx-1]!.ending,handoff:oldVolumes[idx-1]!.handoff,exitAnchor:anchorOf(idx-1,'exit')}:null,
+    next:idx<oldVolumes.length-1?{title:oldVolumes[idx+1]!.title,start:oldVolumes[idx+1]!.start,entryAnchor:anchorOf(idx+1,'entry')}:null
    };
    // 有界修订请求：本卷原文及完整锚点+该卷问题及依据+相关作者要求/来源+前后卷交接+全书结局
-   const revisePrompt=`修订本卷卷卡：只修正本轮问题，不改变既定主线、全书结局、总字数、卷ID与顺序。保留正确内容。返回JSON对象 {"volumes":[本卷修订后完整卷卡]}（数组只含这一卷，完整合同对象，字段合同与生成时一致：id/title/beat/start/goal/conflict/turningPoint/gain/loss/arc/payoff/hook/mood/ending/handoff/words/anchors恰好两个entry+exit且ownerEntityId=${volumeId}/duties）。锚点条件要能按正文核对；required的close职责必须出现在其关联锚点至少一个条件的subjectIds中；硬预算：每个自然语言字段≤60字，锚点summary≤50字、条件summary≤40字，keywords≤12个且每个≤40字，整个JSON控制在3000字以内；不输出解释或章情节。正文字段面向作者用中文书写；提到卷时用“第${idx+1}卷”或卷名。
+   const revisePrompt=`修订本卷卷卡：只修正本轮问题，不改变既定主线、全书结局、总字数、卷ID与顺序。保留正确内容。返回JSON对象 {"volumes":[本卷修订后完整卷卡],"rationale":[{"issue":"对应问题原文","change":"修改理由"}]}（volumes数组只含这一卷，完整合同对象，字段合同与生成时一致：id/title/beat/start/goal/conflict/turningPoint/gain/loss/arc/payoff/hook/mood/ending/handoff/words/anchors恰好两个entry+exit且ownerEntityId=${volumeId}/duties；rationale逐条对应本卷问题清单，说明每处修改对应哪条问题、为什么这样改；目标是让已确认要求和跨卷状态一致，不是让所有标签一致）。锚点条件要能按正文核对；required的close职责必须出现在其关联锚点至少一个条件的subjectIds中；硬预算：每个自然语言字段≤60字，锚点summary≤50字、条件summary≤40字，keywords≤12个且每个≤40字，整个JSON控制在3000字以内；不输出解释或章情节。正文字段面向作者用中文书写；提到卷时用“第${idx+1}卷”或卷名。
 本卷现行内容：${JSON.stringify(old)}
 本卷顶层锚点：${JSON.stringify(volumeAnchors)}
 本卷问题与依据（审查意见不是作者新增设定；sources标记来源：self-check=自检、review=独立审查）：${JSON.stringify({issues:perVolumeIssues.get(idx)??[],notes:metaNotes})}
@@ -613,19 +616,43 @@ export class TimeMachineDesignService {
   });
   const newPlan={...plan,anchors:newAnchors,volumes:newVolumesFixed};
   const newCandidate=parseCandidate({schemaVersion:2,manifest:snapshot.manifest,member:{id:writer.memberKey,name:writer.displayName,model:writer.model.modelId,routeRevision:String(writer.governanceRevision)},plan:newPlan});
-  const existing=this.plans.readCandidate(scope,run.id,2);if(existing&&digest(existing)!==digest(newCandidate))throw Error('已保存候选与恢复结果不同');
-  const revision=existing?2:this.plans.saveCandidate(scope,run.id,1,newCandidate);
-  if(normalizations.length)this.db.prepare("INSERT OR IGNORE INTO tm2_outbox(owner,book,id,kind,body) VALUES(?,?,?,'design.volume-normalization',?)").run(scope.ownerId,scope.bookId,`${run.id}:volume-normalization:1`,JSON.stringify({runId:run.id,revisionRound:1,items:normalizations}));
+  const existing=this.plans.readCandidate(scope,run.id,round+1);if(existing&&digest(existing)!==digest(newCandidate))throw Error('已保存候选与恢复结果不同');
+  const revision=existing?round+1:this.plans.saveCandidate(scope,run.id,round,newCandidate);
+  if(normalizations.length)this.db.prepare("INSERT OR IGNORE INTO tm2_outbox(owner,book,id,kind,body) VALUES(?,?,?,'design.volume-normalization',?)").run(scope.ownerId,scope.bookId,`${run.id}:volume-normalization:${round}`,JSON.stringify({runId:run.id,revisionRound:round,items:normalizations}));
   // 修订后确定性检查→自检→异模型审查（复查覆盖相关相邻交接/全书收束；旧pass不自动放行新候选）
   const planObject=newCandidate.plan as unknown as Record<string,unknown>;
   const selfParse=(v:unknown)=>{const r=record(v);if(typeof r.pass!=='boolean'||!Array.isArray(r.issues)||r.issues.some(x=>typeof x!=='string'||x.length>2000))throw Error('自检格式错误');return {issues:r.issues as string[],pass:r.pass===true&&r.issues.length===0};};
   const structureCheck=await this.structured(run,scope,snapshot,`self-check${suffix}`,writer,`自检你刚完成的全书方案草案的结构部分。返回 {"pass":true或false,"issues":["具体问题"]}。逐项检查：分卷字数合计是否等于全书预算；主支线过程与关键落点建议卷是否合理；职责strength是否与故事需要一致；每卷payoff是否兑现开篇期待；终卷是否收束全书。发现问题只描述问题，不重写方案；没有问题pass=true。\n作者选择：${snapshot.intent}\n紧凑候选：${JSON.stringify(this.compactPlanForStructure(planObject))}`,selfParse);
   const anchorCheck=await this.structured(run,scope,snapshot,`self-check-anchors${suffix}`,writer,`自检候选锚点与条件。返回 {"pass":true或false,"issues":["具体问题"]}。逐项检查：每卷开场/收束锚点条件是否具体可核对（锚点条件是设计阶段定义、将来由正文兑现的核对点，本阶段没有正文是正常前提，不以“尚无正文”判问题）、是否存在把将来承诺当已达成的循环表述、与开场/收束文字是否自洽。发现问题只描述问题，不重写方案；没有问题pass=true。\n锚点清单：${JSON.stringify(this.anchorsSelfCheckSection(planObject))}`,selfParse);
   const selfCheck={issues:[...structureCheck.issues,...anchorCheck.issues],pass:structureCheck.pass&&anchorCheck.pass};
-  const review=await this.independentReview(run,scope,snapshot,card,newCandidate,(node,member,prompt,parse)=>this.structured(run,scope,snapshot,`${node}${suffix}`,member,prompt,parse));
+  const review=await this.independentReview(run,scope,snapshot,card,newCandidate,(node,member,prompt,parse)=>this.structured(run,scope,snapshot,`${node}${suffix}`,member,prompt,parse),suffix);
   const reviewerMember=snapshot.members.reviewer??snapshot.members.chief;
+  // 信息不足未审完（bcf19a6a）：不记verdict、不冒充未通过；缺项如实入结果，采用门禁天然阻断（无pass verdict）
+  if(review.inconclusive?.length){
+   return {candidateId:run.id,revision,member:{id:writer.memberKey,name:writer.displayName},plan:newCandidate.plan,review:{pass:false,issues:review.issues,suggestions:review.suggestions,inconclusive:review.inconclusive},selfCheck,blocked:['修订版独立审查信息不足未取得结论（未审完），缺项见review.inconclusive']};
+  }
   this.plans.review(scope,run.id,revision,reviewerMember.memberKey,review.pass?'pass':'revise');
   return {candidateId:run.id,revision,member:{id:writer.memberKey,name:writer.displayName},plan:newCandidate.plan,review,selfCheck};
+ }
+ /** bcf19a6a收尾核定：核定后的第二次定向修订（自动上限最多2次）。只接受核定确认的硬矛盾清单（带来源），
+  *  复用最新候选与既有步骤缓存；产物为新增候选revision 3。仍有真实矛盾则保留候选待修订，不开第三轮。 */
+ async reviseAgain(scope:Scope,runId:string,adjudicated:{issue:string;sources:string[]}[]):Promise<unknown>{
+  if(!/^[\w.:-]{1,160}$/u.test(runId))throw new Error('runId参数错误');
+  if(!Array.isArray(adjudicated)||!adjudicated.length||adjudicated.some(x=>typeof x?.issue!=='string'||!x.issue.trim()||x.issue.length>2000||!Array.isArray(x.sources)||x.sources.some(s=>typeof s!=='string')))throw new Error('核定问题清单格式错误');
+  const row=this.db.prepare('SELECT * FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND id=?').get(scope.ownerId,scope.bookId,runId) as Record<string,unknown>|undefined;
+  if(!row)throw Error('run不存在');
+  const run=row as unknown as Run;
+  const snapshot=JSON.parse(String(row.snapshot_json)) as TimeMachineSnapshot;
+  const card=await this.makeCard(run,scope,snapshot);
+  const latest=this.db.prepare('SELECT MAX(revision) AS m FROM tm2_candidates WHERE owner=? AND book=? AND id=?').get(scope.ownerId,scope.bookId,runId) as {m:number|null};
+  const currentRevision=latest.m??0;
+  if(currentRevision<2)throw Error('尚无第一轮修订候选，不能进入第二轮');
+  if(currentRevision>=3)throw Error('自动修订最多2次：已有第二轮候选，不再开第三轮');
+  const candidate=this.plans.readCandidate(scope,runId,currentRevision);
+  if(!candidate)throw Error('最新候选不存在');
+  const result=await this.localRevision(run,scope,snapshot,card,adjudicated,candidate,currentRevision); // round=当前revision→新候选revision+1
+  this.db.prepare("UPDATE tm2_design_runs SET state='succeeded',result_json=?,error_code=NULL,error_message=NULL,updated_at=? WHERE id=?").run(JSON.stringify(result),new Date().toISOString(),runId);
+  return result;
  }
  private async design(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,card:ContextCard,revisionRound=0,feedback?:{issues:unknown;plan:unknown}):Promise<unknown>{
   const writer=snapshot.members.writer;
@@ -720,6 +747,10 @@ export class TimeMachineDesignService {
   const reviewed=this.db.prepare('SELECT verdict FROM tm2_reviews WHERE owner=? AND book=? AND candidate=? AND revision=?').get(scope.ownerId,scope.bookId,run.id,revision);
   // 审查归属按方案快照的reviewer（异底层模型）记录；旧快照无reviewer时回退chief。
   const reviewerMember=snapshot.members.reviewer??snapshot.members.chief;
+  // 信息不足未审完（bcf19a6a）：不记verdict、不把缺项当方案硬错误进入修订；可恢复终态，缺项如实入结果
+  if(review.inconclusive?.length){
+   return {candidateId:run.id,revision,member:{id:writer.memberKey,name:writer.displayName},plan:candidate.plan,review:{pass:false,issues:review.issues,suggestions:review.suggestions,inconclusive:review.inconclusive},selfCheck,blocked:['独立审查信息不足未取得结论（未审完），缺项见review.inconclusive；不作为方案硬错误处理']};
+  }
   if(!reviewed)this.plans.review(scope,run.id,revision,reviewerMember.memberKey,review.pass?'pass':'revise');
   if(revisionRound===0){
    // 汇总阻塞：每条保留来源；完全相同的文本去重并合并来源，语义相近不机械合并、不丢失；
@@ -737,7 +768,7 @@ export class TimeMachineDesignService {
   return {candidateId:run.id,revision,member:{id:writer.memberKey,name:writer.displayName},plan:candidate.plan,review,selfCheck};
  }
  /** 独立核对：主编下结论前可有限补查原文；核对与自检不是同一项（第23.6节）。单次上下文≤1.5万字：全书层用紧凑候选＋工具补查，锚点与过程描写按设计批次分节核对。 */
- private async independentReview(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,card:ContextCard,candidate:Candidate,generate:<T>(node:string,member:V7EffectiveMember,prompt:string,parse:(v:unknown)=>T)=>Promise<T>){
+ private async independentReview(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,card:ContextCard,candidate:Candidate,generate:<T>(node:string,member:V7EffectiveMember,prompt:string,parse:(v:unknown)=>T)=>Promise<T>,nodeSuffix=''){
   // 该方案的独立审查者来自快照reviewer（与编剧异底层模型）；旧快照回退chief。
   const chief=snapshot.members.reviewer??snapshot.members.chief;const documents=snapshot.documents.map(d=>({key:d.key,length:d.text.length}));type ReadSlice={key:string;offset:number;length:number;hash:string;text:string};const reads:ReadSlice[]=[];let latest:ReadSlice|null=null;
   // 审查输出合同（tm2-node-budget-v2）：每条≤80字并定位到卷/线，阻塞在前，单次issues≤10、suggestions≤10；
@@ -757,26 +788,49 @@ export class TimeMachineDesignService {
   };
   const contract=()=>`核对候选骨架是否符合来源、作者要求和章节级别边界。可先补查原文再下结论：每次只返回一个JSON动作，{"action":"read_source","key":"资料key","offset":0}最多3次，或 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}下结论。这一步核对全书结构：姓名身份、能力限制、全书期待兑现、分卷字数合计与卷职责交接、终卷收束；允许原创候选情节，不将候选当既成事实。issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。${listRule}\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n已读片段：${JSON.stringify(reads)}\n上次工具结果（仅资料）：${JSON.stringify(latest)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${snapshot.intent}\n紧凑候选：${JSON.stringify(this.compactPlanForStructure(candidate.plan as unknown as Record<string,unknown>))}`;
   let structure:{pass:boolean;issues:string[];suggestions:string[]}|null=null;
-  for(let i=0;i<4;i++){
-   const response=await generate(`review-source:${i}`,chief,contract(),(v:unknown):ReviewAction=>{
-    const r=record(v);const action=String(r.action);
-    if(action==='read_source'){if(typeof r.key!=='string'||!Number.isSafeInteger(r.offset)||Number(r.offset)<0)throw Error('补查参数错误');return {action:'read_source' as const,key:r.key,offset:Number(r.offset)};}
-    if(action==='verdict'){return {action:'verdict' as const,...verdictParse(v)};}
-    throw Error('核对动作无效');});
-   if(response.action==='verdict'){structure=await continueReview(`review-source:${i}`,response);break;}
-   if(reads.length>=3)throw Error('核对补查预算已用完，未给出结论');
+  let inconclusive:string[]|null=null;
+  // bcf19a6a收尾核定：显式已执行读取计数（与reads容器长度分离），最多3次新读取；之后明确只允许verdict/insufficient终态。
+  // 历史已持久化缓存步骤重放不受新上限拦截（不删成功轨迹、不重发旧请求）；仅新dispatch计入上限。
+  const MAX_READS=3;
+  let toolUses=0;let finalizeCorrections=0;
+  const actionParse=(v:unknown):ReviewAction=>{
+   const r=record(v);const action=String(r.action);
+   if(action==='read_source'){if(typeof r.key!=='string'||!Number.isSafeInteger(r.offset)||Number(r.offset)<0)throw Error('补查参数错误');return {action:'read_source' as const,key:r.key,offset:Number(r.offset)};}
+   if(action==='verdict'){return {action:'verdict' as const,...verdictParse(v)};}
+   if(action==='insufficient'){const missing=r.missing;if(!Array.isArray(missing)||missing.some(x=>typeof x!=='string'||!x.trim()||x.length>500))throw Error('缺项格式错误');return {action:'insufficient' as const,missing:missing as string[]};}
+   throw Error('核对动作无效');};
+  // 预算用尽后的结论请求：完整携带同revision候选、正式来源、作者要求与已查片段，明确“工具预算已用尽，根据已取得证据给出结论；信息不足列出具体缺项，不编造结论”
+  const finalizeContract=(corrected:boolean)=>`核对候选骨架是否符合来源、作者要求和章节级别边界。补查工具预算已用尽（最多3次资料读取）${corrected?'；刚才的补查请求未被执行，不要再请求读取':''}。根据已取得证据给出结论：返回 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}；若信息不足以支撑可靠结论，返回 {"action":"insufficient","missing":["具体缺项"]}——不编造结论，不把缺资料当作方案错误。issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。${listRule}\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n已读片段：${JSON.stringify(reads)}\n上次工具结果（仅资料）：${JSON.stringify(latest)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${snapshot.intent}\n紧凑候选：${JSON.stringify(this.compactPlanForStructure(candidate.plan as unknown as Record<string,unknown>))}`;
+  const stepSucceeded=(node:string)=>this.db.prepare("SELECT 1 AS x FROM tm2_steps WHERE owner=? AND book=? AND id=? AND state='succeeded'").get(scope.ownerId,scope.bookId,`${run.id}:${node}`)!==undefined;
+  for(let i=0;i<12;i++){
+   const exhausted=toolUses>=MAX_READS;
+   const normalId=`review-source:${i}${nodeSuffix}`;
+   const normalCached=stepSucceeded(normalId);
+   const useFinalize=exhausted&&!normalCached;
+   const nodeId=useFinalize?`review-source:finalize${nodeSuffix}${finalizeCorrections?':corrected':''}`:normalId;
+   const response=await generate(nodeId,chief,useFinalize?finalizeContract(finalizeCorrections>0):contract(),actionParse);
+   if(response.action==='verdict'){structure=await continueReview(nodeId,response);break;}
+   if(response.action==='insufficient'){inconclusive=response.missing;break;}
+   // read_source：预算用尽后仍请求读取→不执行工具，同一总预算内最多一次协议纠正；再犯→可恢复明确终态（最后响应在步骤输出留痕，不抛泛化错误）
+   if(useFinalize){
+    finalizeCorrections++;
+    if(finalizeCorrections>1){inconclusive=[`工具预算用尽后仍请求补查（${String(response.key)}），审查未取得结论；最后响应已在步骤${nodeId}留痕`];break;}
+    continue;
+   }
+   if(!normalCached)toolUses++;
    const source=snapshot.documents.find(d=>d.key===response.key);if(!source)throw Error('补查资料不存在');
    const sliceText=source.text.slice(response.offset,response.offset+600); // 补查片段600字符：60万字级方案紧凑候选约6.6k，1200字片段两轮即超15000输入红线（15446实测）
    const slice:ReadSlice={key:source.key,offset:response.offset,length:sliceText.length,hash:digest(sliceText).slice(0,12),text:sliceText};
    // 回查轨迹持久化且幂等（Codex恢复反例P1）：恢复的saved read_source重放不再重复INSERT。
    // 同run同节点同片段（key+offset+hash）完全一致的轨迹复用；不同内容另存新seq并保留原证据（不INSERT OR IGNORE掩盖差异）。
+   // 节点名含审查轮次后缀（bcf19a6a）：每轮审查轨迹独立可查，修订轮不与初稿共用轨迹命名。
    {
     const dup=this.db.prepare('SELECT seq FROM tm2_review_reads WHERE owner=? AND book=? AND run_id=? AND node=? AND source_key=? AND offset=? AND content_hash=? LIMIT 1')
-     .get(scope.ownerId,scope.bookId,run.id,`review-source:${i}`,slice.key,slice.offset,slice.hash) as {seq:number}|undefined;
+     .get(scope.ownerId,scope.bookId,run.id,nodeId,slice.key,slice.offset,slice.hash) as {seq:number}|undefined;
     if(dup===undefined){
-     const nextSeq=(this.db.prepare('SELECT COALESCE(MAX(seq),0) AS m FROM tm2_review_reads WHERE owner=? AND book=? AND run_id=? AND node=?').get(scope.ownerId,scope.bookId,run.id,`review-source:${i}`) as {m:number}).m+1;
+     const nextSeq=(this.db.prepare('SELECT COALESCE(MAX(seq),0) AS m FROM tm2_review_reads WHERE owner=? AND book=? AND run_id=? AND node=?').get(scope.ownerId,scope.bookId,run.id,nodeId) as {m:number}).m+1;
      this.db.prepare('INSERT INTO tm2_review_reads(owner,book,run_id,node,seq,source_key,source_revision,offset,length,content_hash,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-      .run(scope.ownerId,scope.bookId,run.id,`review-source:${i}`,nextSeq,slice.key,slice.key.split(':')[2]??'',slice.offset,slice.length,slice.hash,new Date().toISOString());
+      .run(scope.ownerId,scope.bookId,run.id,nodeId,nextSeq,slice.key,slice.key.split(':')[2]??'',slice.offset,slice.length,slice.hash,new Date().toISOString());
     }
    }
    // 同一片段不重复计入：上一轮的“上次工具结果”移入已读片段，新片段只作latest——
@@ -794,8 +848,9 @@ export class TimeMachineDesignService {
    }
    latest=slice;
   }
-  if(structure===null)throw Error('核对补查未给出结论');
-  const issues=[...structure.issues];const suggestions=[...structure.suggestions];let pass=structure.pass;
+  if(structure===null&&inconclusive===null)throw Error('核对未收敛（超出迭代上界）'); // 不可达兜底：循环必有verdict/insufficient/inconclusive终态
+  if(inconclusive!==null)return {issues:[],suggestions:[],pass:false,inconclusive}; // 信息不足未审完：不再做锚点审查，缺项如实上交（不当方案硬错误）
+  const issues=[...structure!.issues];const suggestions=[...structure!.suggestions];let pass=structure!.pass;
   const volumeIds=((candidate.plan.volumes??[]) as unknown[]).map(v=>String(record(v).id));
   const volumes=((candidate.plan.volumes??[]) as unknown[]).map(v=>record(v));
   // 单卷审查输入（067bbc24收尾决定）：本卷完整锚点/职责+相邻卷交接+全书结局背景；拆分减少核对范围不删关键条件。

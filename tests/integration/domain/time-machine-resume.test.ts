@@ -7,6 +7,7 @@ import { TimeMachineResumeService } from '../../../apps/api/src/application/book
 import { StepArchiveRepository } from '../../../apps/api/src/infrastructure/db/repositories/step-archive-repository.js';
 import { TimeMachineModelGateway } from '../../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
 import { ModelAdapterError } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
+import { SqlPlanRepository } from '@wenmi/time-machine-core';
 import { snapshotTimeMachine } from '../../../apps/api/src/application/books/time-machine-sources.js';
 import type { StorylineSelectionInput } from '../../../apps/api/src/application/books/storyline-selection.js';
 
@@ -242,7 +243,7 @@ describe('锚点截断单卷降级（067bbc24收尾决定）', () => {
     ],
     duties: [{ lineId: 'main', action: 'advance', result: '主线推进', anchorIds: ['out'], strength: 'required', reason: '主线本卷必须推进' }]
   });
-  const threeVolumeOutput = (prompt: string, modelId: string, anchorsMode: 'truncate-batch' | 'fail-child2' | 'child2-issues'): unknown => {
+  const threeVolumeOutput = (prompt: string, modelId: string, anchorsMode: 'truncate-batch' | 'fail-child2' | 'child2-issues' | 'clean'): unknown => {
     if (prompt.includes('核对短卡是否')) return { pass: true, issues: [] };
     if (prompt.includes('判断需要哪些方法')) return prompt.includes('上次工具结果（仅资料）：null') ? { action: 'search_methods', category: '', cursor: 0 } : { action: 'ready', selected: [] };
     if (prompt.includes('设计全书骨架。只设计')) return { structure: '三幕', baseline: `轻快-${modelId}`, ending: '建立工坊', openingHooks: ['钩1', '钩2', '钩3'], words: { target: 300000, min: null, max: null, hard: false, policy: 'chars-v1' }, lines: [{ id: 'main', role: 'main', title: '工坊', goal: '立足', answer: '建立工坊', process: '从修理到建立工坊', parentIds: [], covers: ['成长线'], milestones: [] }], expectations: [{ id: 'promise', opening: '能否立足', change: '看到变化', answer: '以机甲立足', lineIds: ['main'] }], relations: [], volumeBriefs: [{ id: 'v1', title: '开张', goal: '立足', words: { target: 100000, min: null, max: null, hard: false, policy: 'chars-v1' } }, { id: 'v2', title: '扩张', goal: '扩张', words: { target: 100000, min: null, max: null, hard: false, policy: 'chars-v1' } }, { id: 'v3', title: '兑现', goal: '兑现', words: { target: 100000, min: null, max: null, hard: false, policy: 'chars-v1' } }] };
@@ -381,5 +382,175 @@ describe('锚点截断单卷降级（067bbc24收尾决定）', () => {
     expect(revisePrompts[0]).toContain('v2收束fallback与全书结局矛盾');
     expect(revisePrompts[0]).toContain('"sources":["self-check"]'); // 来源随问题进入修订输入
     expect(service.state(scope).find(r => r.id === created[0]!.id)?.state).toBe('succeeded');
+  });
+  // ===== 补查预算用尽后的结论收束（bcf19a6a收尾核定）=====
+  const ok = (provider: string, modelId: string, value: unknown) => ({ provider, modelId, output: JSON.stringify(value), inputTokens: 20, outputTokens: 20, cashCostCny: 0, state: 'succeeded' as const });
+  const baseAdapter = (calls: string[], reviewSource: (prompt: string) => unknown) => (provider: string, modelId: string) => ({
+    provider, modelId,
+    async generate(request: { prompt: string }) {
+      calls.push(request.prompt);
+      if (request.prompt.includes('核对候选骨架')) return ok(provider, modelId, reviewSource(request.prompt));
+      return ok(provider, modelId, threeVolumeOutput(request.prompt, modelId, 'clean'));
+    }
+  });
+
+  it('连续3次补查后第4次调用必须结论：finalize提示带预算用尽与完整候选/已读片段，不再执行第4次读取', async () => {
+    const { c, scope } = setup();
+    const calls: string[] = [];
+    let readN = 0;
+    const adapter = baseAdapter(calls, prompt => {
+      if (prompt.includes('工具预算已用尽')) return { action: 'verdict', pass: true, issues: [], suggestions: [], hasMoreIssues: false };
+      readN++;
+      return { action: 'read_source', key: 'opening:opening:1', offset: readN * 100 };
+    });
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, adapter), 64000);
+    const created = await round(service, scope, 'fin-r1');
+    await service.process(created[0]!.id);
+    const reviewCalls = calls.filter(p => p.includes('核对候选骨架'));
+    expect(reviewCalls.length).toBe(4); // 3次读取 + 1次finalize结论
+    const finalizePrompt = reviewCalls[3]!;
+    expect(finalizePrompt).toContain('工具预算已用尽');
+    expect(finalizePrompt).toContain('根据已取得证据给出结论');
+    expect(finalizePrompt).toContain('紧凑候选'); // 同revision候选完整携带
+    expect(finalizePrompt).toContain('已读片段');
+    // 只执行了3次读取（轨迹3条），第4次请求是结论而非读取
+    const reads = c.database.prepare('SELECT COUNT(*) AS n FROM tm2_review_reads WHERE run_id=?').get(created[0]!.id) as { n: number };
+    expect(reads.n).toBe(3);
+    const row = service.state(scope).find(r => r.id === created[0]!.id)!;
+    expect(row.state).toBe('succeeded');
+    expect((row.result as { review: { pass: boolean } }).review.pass).toBe(true);
+  });
+
+  it('预算用尽后仍请求读取→不执行工具、协议纠正一次；再犯→可恢复的信息不足终态，不吞最后响应', async () => {
+    const { c, scope } = setup();
+    const calls: string[] = [];
+    let readN = 0;
+    const adapter = baseAdapter(calls, () => {
+      readN++;
+      return { action: 'read_source', key: 'opening:opening:1', offset: readN * 100 }; // 始终违规请求读取
+    });
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, adapter), 64000);
+    const created = await round(service, scope, 'fin-r2');
+    await service.process(created[0]!.id);
+    const reviewCalls = calls.filter(p => p.includes('核对候选骨架'));
+    expect(reviewCalls.length).toBe(5); // 3读 + finalize + 1次协议纠正
+    expect(reviewCalls[4]).toContain('不要再请求读取');
+    // 违规读取未执行：轨迹仍是3条
+    const reads = c.database.prepare('SELECT COUNT(*) AS n FROM tm2_review_reads WHERE run_id=?').get(created[0]!.id) as { n: number };
+    expect(reads.n).toBe(3);
+    // 明确终态：信息不足未审完，不是泛化抛错、不记verdict、采用被阻断
+    const row = service.state(scope).find(r => r.id === created[0]!.id)!;
+    expect(row.state).toBe('succeeded');
+    const result = row.result as { review: { pass: boolean; inconclusive?: string[] }; blocked?: string[] };
+    expect(result.review.pass).toBe(false);
+    expect(result.review.inconclusive?.[0]).toContain('未取得结论');
+    expect(c.database.prepare('SELECT COUNT(*) AS n FROM tm2_reviews WHERE candidate=?').get(created[0]!.id) as { n: number }).toMatchObject({ n: 0 });
+    // 最后响应在步骤输出留痕（read_source动作原样保存）
+    const lastStep = c.database.prepare("SELECT output FROM tm2_steps WHERE id LIKE ? ORDER BY rowid DESC LIMIT 1").all(`${created[0]!.id}:review-source:finalize%`) as { output: string }[];
+    expect(lastStep[0]!.output).toContain('read_source');
+    // 无pass verdict，采用门禁阻断
+    expect(() => new SqlPlanRepository(c.database).adopt(scope, created[0]!.id, 1, 0, 'fin-r2-adopt')).toThrow('核查');
+  });
+
+  it('信息不足动作→未审完终态：缺项如实入结果，不当作方案硬错误、不进入修订', async () => {
+    const { c, scope } = setup();
+    const calls: string[] = [];
+    let first = true;
+    const adapter = baseAdapter(calls, () => {
+      if (first) { first = false; return { action: 'read_source', key: 'opening:opening:1', offset: 0 }; }
+      return { action: 'insufficient', missing: ['设定资料缺少地理卷原文'] };
+    });
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, adapter), 64000);
+    const created = await round(service, scope, 'fin-r3');
+    await service.process(created[0]!.id);
+    const row = service.state(scope).find(r => r.id === created[0]!.id)!;
+    expect(row.state).toBe('succeeded');
+    const result = row.result as { review: { pass: boolean; inconclusive?: string[] } };
+    expect(result.review.inconclusive).toEqual(['设定资料缺少地理卷原文']);
+    expect(c.database.prepare('SELECT COUNT(*) AS n FROM tm2_reviews WHERE candidate=?').get(created[0]!.id) as { n: number }).toMatchObject({ n: 0 });
+    expect(calls.filter(p => p.includes('修订本卷卷卡')).length).toBe(0); // 缺项不驱动修订
+    expect(() => new SqlPlanRepository(c.database).adopt(scope, created[0]!.id, 1, 0, 'fin-r3-adopt')).toThrow('核查'); // 结论不足不得采用
+  });
+
+  it('恢复重放已持久化读取零新增dispatch（历史缓存不受新上限拦截、不重发）', async () => {
+    const { c, scope } = setup();
+    const calls: string[] = [];
+    let readDone = false;
+    let anchorsFailLeft = 2; // temporary错误会重试一次：连失败两次才到终态
+    const adapter = (provider: string, modelId: string) => ({
+      provider, modelId,
+      async generate(request: { prompt: string }) {
+        calls.push(request.prompt);
+        if (request.prompt.includes('核对候选骨架')) {
+          if (!readDone) { readDone = true; return ok(provider, modelId, { action: 'read_source', key: 'opening:opening:1', offset: 0 }); }
+          return ok(provider, modelId, { action: 'verdict', pass: true, issues: [], suggestions: [], hasMoreIssues: false });
+        }
+        if (anchorsFailLeft > 0 && request.prompt.includes('核对候选锚点')) {
+          anchorsFailLeft--;
+          throw new ModelAdapterError('供应商暂时不可用', 'technical_failure', true, 500);
+        }
+        return ok(provider, modelId, threeVolumeOutput(request.prompt, modelId, 'clean'));
+      }
+    });
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, adapter), 64000);
+    const created = await round(service, scope, 'fin-r4');
+    await service.process(created[0]!.id);
+    expect(service.state(scope).find(r => r.id === created[0]!.id)?.state).toBe('failed');
+    const prep = new TimeMachineResumeService(c.database).prepare(scope, created[0]!.id);
+    expect(prep.blocked).toHaveLength(0);
+    calls.length = 0;
+    await service.process(created[0]!.id);
+    // 已成功的读取/结论全部缓存重放：结构审查零新增dispatch；锚点仅发未完成的[v1,v2]批次重试与从未到达的[v3]批次
+    expect(calls.filter(p => p.includes('核对候选骨架')).length).toBe(0);
+    expect(calls.filter(p => p.includes('核对候选锚点')).length).toBe(2);
+    expect(calls.filter(p => p.includes('核对候选锚点') && p.includes('"id":"v3"')).length).toBe(1); // [v3]首次真实到达
+    expect(calls.filter(p => p.includes('核对候选锚点') && p.includes('"id":"v2"')).length).toBe(1); // [v1,v2]失败批次恰好重试一次
+    expect(service.state(scope).find(r => r.id === created[0]!.id)?.state).toBe('succeeded');
+  });
+
+  it('核定驱动的第二轮局部修订：只修核定问题涉及卷、产出候选revision3、旧版本保留、第三轮被拒', async () => {
+    const { c, scope } = setup();
+    const calls: string[] = [];
+    let firstAnchorsDone = false;
+    const adapter = (provider: string, modelId: string) => ({
+      provider, modelId,
+      async generate(request: { prompt: string }) {
+        calls.push(request.prompt);
+        // 首轮锚点审查报卷2问题（触发第一轮局部修订）；此后全部放行
+        if (!firstAnchorsDone && request.prompt.includes('核对候选锚点')) {
+          firstAnchorsDone = true;
+          return { provider, modelId, output: JSON.stringify({ pass: false, issues: ['卷2收束fallback与必填目标冲突'], suggestions: [], hasMoreIssues: false }), inputTokens: 20, outputTokens: 20, cashCostCny: 0, state: 'succeeded' as const };
+        }
+        return { provider, modelId, output: JSON.stringify(threeVolumeOutput(request.prompt, modelId, 'clean')), inputTokens: 20, outputTokens: 20, cashCostCny: 0, state: 'succeeded' as const };
+      }
+    });
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, adapter), 64000);
+    const created = await round(service, scope, 'rev2-r1');
+    await service.process(created[0]!.id);
+    const runId = created[0]!.id;
+    expect(new SqlPlanRepository(c.database).readCandidate(scope, runId, 2)).not.toBeNull(); // 第一轮修订候选在案
+    const beforeSecond = calls.length;
+    // 核定：仅确认卷3一条硬矛盾（adjudication来源），第二轮只修卷3
+    const result = await service.reviseAgain(scope, runId, [{ issue: '卷3收束锚点条件与全书结局矛盾（核定确认硬矛盾）', sources: ['adjudication'] }]) as { revision: number; review: { pass: boolean } };
+    expect(result.revision).toBe(3);
+    const secondCalls = calls.slice(beforeSecond);
+    const revisePrompts = secondCalls.filter(p => p.includes('修订本卷卷卡'));
+    expect(revisePrompts.length).toBe(1); // 只修核定问题涉及的卷3
+    expect(revisePrompts[0]).toContain('本卷现行内容：{"id":"v3"');
+    expect(revisePrompts[0]).toContain('核定确认硬矛盾');
+    expect(revisePrompts[0]).toContain('"sources":["adjudication"]');
+    expect(revisePrompts[0]).toContain('rationale'); // 修改理由输出合同
+    expect(revisePrompts[0]).toContain('"exitAnchor"'); // 共享边界：前卷完整出口锚点
+    expect(secondCalls.some(p => p.includes('设计全书骨架'))).toBe(false); // 不整书重生
+    expect(secondCalls.some(p => p.includes('补全本'))).toBe(false); // 不重做其他卷
+    const repo = new SqlPlanRepository(c.database);
+    expect(repo.readCandidate(scope, runId, 1)).not.toBeNull(); // 初稿保留
+    expect(repo.readCandidate(scope, runId, 2)).not.toBeNull(); // 第一轮候选保留
+    expect(repo.readCandidate(scope, runId, 3)).not.toBeNull(); // 第二轮候选
+    expect(result.review.pass).toBe(true); // 第二轮复查放行（fake）
+    // 上限：第三轮被拒
+    await expect(service.reviseAgain(scope, runId, [{ issue: '卷1仍有问题', sources: ['adjudication'] }])).rejects.toThrow('最多2次');
+    // 无第一轮候选的run不能进入第二轮；空清单被拒
+    await expect(service.reviseAgain(scope, runId, [])).rejects.toThrow('格式错误');
   });
 });
