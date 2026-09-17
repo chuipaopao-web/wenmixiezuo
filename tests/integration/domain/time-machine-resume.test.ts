@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect } from 'vitest';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
 import { BookRepository } from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import { TimeMachineDesignService } from '../../../apps/api/src/application/books/time-machine-design-service.js';
@@ -127,5 +127,71 @@ describe('合法恢复（集中复核①）', () => {
     expect(step.state).toBe('running'); // 未被重置
     c.database.prepare("UPDATE tm2_design_runs SET state='succeeded' WHERE id='run-live'").run();
     expect(resume.prepare(scope, 'run-live').actions[0]).toContain('无需恢复');
+  });
+});
+
+describe('审查证据链（集中复核③）', () => {
+  function readSourceAdapter(calls: { prompt: string }[], reads: { current: number }) {
+    let readIdx = 0;
+    return (provider: string, modelId: string) => ({
+      provider, modelId,
+      async generate(request: { prompt: string }) {
+        calls.push({ prompt: request.prompt });
+        if (request.prompt.includes('核对候选骨架') && reads.current > 0) {
+          reads.current--;
+          return { provider, modelId, output: JSON.stringify({ action: 'read_source', key: 'opening:opening:1', offset: (readIdx++) * 200 }), inputTokens: 20, outputTokens: 20, cashCostCny: 0, state: 'succeeded' as const };
+        }
+        return { provider, modelId, output: JSON.stringify(output(request.prompt, modelId)), inputTokens: 20, outputTokens: 20, cashCostCny: 0, state: 'succeeded' as const };
+      }
+    });
+  }
+
+  it('回查轨迹持久化：key/revision/offset/length/hash逐项落库可对照', async () => {
+    const { c, scope } = setup();
+    const calls: { prompt: string }[] = [];
+    const reads = { current: 1 };
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, readSourceAdapter(calls, reads)), 64000);
+    const created = await round(service, scope, 'evidence-r1');
+    await service.process(created[0]!.id);
+    const rows = c.database.prepare('SELECT * FROM tm2_review_reads WHERE run_id=? ORDER BY seq').all(created[0]!.id) as { source_key: string; source_revision: string; offset: number; length: number; content_hash: string; seq: number }[];
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    expect(rows[0]!.source_key).toBe('opening:opening:1');
+    expect(rows[0]!.source_revision).toBe('1');
+    expect(rows[0]!.offset).toBe(0);
+    expect(rows[0]!.length).toBeGreaterThan(0);
+    expect(rows[0]!.content_hash).toMatch(/^[0-9a-f]{12}$/);
+  });
+
+  it('锚点审查输入含最新片段与全部回查证据（不漏传latest）', async () => {
+    const { c, scope } = setup();
+    const calls: { prompt: string }[] = [];
+    const reads = { current: 1 };
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, readSourceAdapter(calls, reads)), 64000);
+    const created = await round(service, scope, 'evidence-r2');
+    await service.process(created[0]!.id);
+    const anchorsPrompt = calls.filter(x => x.prompt.includes('核对候选锚点'))[0]?.prompt ?? '';
+    expect(anchorsPrompt).toBeTruthy();
+    // 最新片段（latest）必须出现在锚点审查输入的"已回查原件"中
+    const anchorsSection = anchorsPrompt.split('已回查原件：')[1]?.split('\n本批：')[0] ?? '';
+    expect(anchorsSection.length).toBeGreaterThan(2); // 非空数组
+    const readsInPrompt = JSON.parse(anchorsSection) as { key: string; text: string }[];
+    expect(readsInPrompt.some(r => r.key === 'opening:opening:1' && r.text.length > 0)).toBe(true);
+  });
+
+  it('多轮补查后存根保留offset/length/hash坐标（证据可回查）', async () => {
+    const { c, scope } = setup();
+    const calls: { prompt: string }[] = [];
+    const reads = { current: 3 };
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, readSourceAdapter(calls, reads)), 64000);
+    const created = await round(service, scope, 'evidence-r3');
+    await service.process(created[0]!.id);
+    const reviewPrompts = calls.filter(x => x.prompt.includes('核对候选骨架')).map(x => x.prompt);
+    const last = reviewPrompts[reviewPrompts.length - 1]!;
+    // 有界后更早片段转存根，存根带offset/length/hash
+    const stubs = [...last.matchAll(/（已回查存根：offset=\d+ 长度\d+ hash=[0-9a-f]{12}/gu)];
+    expect(stubs.length).toBeGreaterThanOrEqual(1);
+    // 轨迹全部持久化（即使提示中已转存根）
+    const rows = c.database.prepare('SELECT COUNT(*) AS n FROM tm2_review_reads WHERE run_id=?').get(created[0]!.id) as { n: number };
+    expect(rows.n).toBe(3);
   });
 });

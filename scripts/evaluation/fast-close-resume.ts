@@ -146,10 +146,10 @@ async function main(): Promise<void> {
   note(`run终态：state=${done.state} phase=${done.phase} review.pass=${result?.review?.pass ?? '无'} issues=${(result?.review?.issues ?? []).length}条`);
   for (const issue of (result?.review?.issues ?? []).slice(0, 10)) note(`  审查issue：${issue.slice(0, 120)}`);
 
-  // ④ 自然过审才HTTP采用（windowTokens=0启动：tick不触发，C保持原终态不被消耗）
+  // ④ 自然过审才HTTP采用（64000窗口：预览/资料接口需要合法窗口；此时无queued run，tick无对象可消费）
   const emailRow = db.prepare('SELECT email_normalized FROM user_accounts WHERE owner_id=?').get(scope.ownerId) as { email_normalized: string } | undefined;
   const bookId = scope.bookId;
-  const app = await createAppServer(config, db, { timeMachineWindowTokens: 0 });
+  const app = await createAppServer(config, db, { timeMachineWindowTokens: 64000 });
   const headers = { host: '127.0.0.1:43111', origin: config.webOrigin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' };
   const login = await app.inject({ method: 'POST', url: '/api/v1/auth/login', headers, payload: { email: emailRow?.email_normalized, password: 'Strong-test-pass-123!' } });
   if (login.statusCode !== 200) throw new Error(`登录失败：${login.body}`);

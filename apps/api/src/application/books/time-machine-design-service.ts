@@ -578,7 +578,7 @@ export class TimeMachineDesignService {
  /** 独立核对：主编下结论前可有限补查原文；核对与自检不是同一项（第23.6节）。单次上下文≤1.5万字：全书层用紧凑候选＋工具补查，锚点与过程描写按设计批次分节核对。 */
  private async independentReview(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,card:ContextCard,candidate:Candidate,generate:<T>(node:string,member:V7EffectiveMember,prompt:string,parse:(v:unknown)=>T)=>Promise<T>){
   // 该方案的独立审查者来自快照reviewer（与编剧异底层模型）；旧快照回退chief。
-  const chief=snapshot.members.reviewer??snapshot.members.chief;const documents=snapshot.documents.map(d=>({key:d.key,length:d.text.length}));const reads:{key:string;text:string}[]=[];let latest:unknown=null;
+  const chief=snapshot.members.reviewer??snapshot.members.chief;const documents=snapshot.documents.map(d=>({key:d.key,length:d.text.length}));type ReadSlice={key:string;offset:number;length:number;hash:string;text:string};const reads:ReadSlice[]=[];let latest:ReadSlice|null=null;
   // 审查输出合同（tm2-node-budget-v2）：每条≤80字并定位到卷/线，阻塞在前，单次issues≤10、suggestions≤10；
   // 阻塞问题超过单次上限时以hasMoreIssues标记，系统有界续批收齐（每审查节点≤2次，带已报告清单防重复），不硬截问题清单。
   const listRule='每条问题或建议不超过80字并定位到具体卷或故事线（如卷B、主线1）；阻塞问题放在issues前部；单次issues最多10条、suggestions最多10条；若阻塞问题超过10条，将hasMoreIssues设为true，系统会追加询问，不要省略、合并或概括掉阻塞问题。';
@@ -605,18 +605,22 @@ export class TimeMachineDesignService {
    if(response.action==='verdict'){structure=await continueReview(`review-source:${i}`,response);break;}
    if(reads.length>=3)throw Error('核对补查预算已用完，未给出结论');
    const source=snapshot.documents.find(d=>d.key===response.key);if(!source)throw Error('补查资料不存在');
-   const slice={key:source.key,text:source.text.slice(response.offset,response.offset+600)}; // 补查片段600字符：60万字级方案紧凑候选约6.6k，1200字片段两轮即超15000输入红线（15446实测）
+   const sliceText=source.text.slice(response.offset,response.offset+600); // 补查片段600字符：60万字级方案紧凑候选约6.6k，1200字片段两轮即超15000输入红线（15446实测）
+   const slice:ReadSlice={key:source.key,offset:response.offset,length:sliceText.length,hash:digest(sliceText).slice(0,12),text:sliceText};
+   // 回查轨迹持久化（625cc3f7集中复核③）：来源key+revision+offset+length+hash落库，verdict归因可逐项对照，证据缺失标待补查
+   this.db.prepare('INSERT INTO tm2_review_reads(owner,book,run_id,node,seq,source_key,source_revision,offset,length,content_hash,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+    .run(scope.ownerId,scope.bookId,run.id,`review-source:${i}`,reads.filter(r=>!r.text.startsWith('（已回查存根')).length+1,slice.key,slice.key.split(':')[2]??'',slice.offset,slice.length,slice.hash,new Date().toISOString());
    // 同一片段不重复计入：上一轮的“上次工具结果”移入已读片段，新片段只作latest——
    // 否则同一片段在续问提示中出现两次，60万字级方案续问输入超15000字符红线被预算拒绝（run4d9cfdf9 review-source:1实证15421字符）。
-   if(latest!==null&&typeof latest==='object'&&'key' in (latest as Record<string,unknown>)&&'text' in (latest as Record<string,unknown>)) reads.push(latest as {key:string;text:string});
-   // 已读片段有界：只保留最近1片全文（最新片段在"上次工具结果"单列），更早片段以索引存根（key+首行）保留可回查证据——
+   if(latest!==null) reads.push(latest);
+   // 已读片段有界：只保留最近1片全文（最新片段在"上次工具结果"单列），更早片段以索引存根（key+offset+length+hash）保留可回查证据——
    // 60万字级方案紧凑候选约6.6k字符，多片全文累计必然超过15000字符输入红线（c116818b review-source:2实证15446）；
    // 只压缩审查工具的回查上下文，不删作者约束、不截断作品内容。
    while(reads.filter(r=>!r.text.startsWith('（已回查存根')).length>1){
     const oldestIndex=reads.findIndex(r=>!r.text.startsWith('（已回查存根'));
     const dropped=reads.splice(oldestIndex,1)[0]!;
     if(!reads.some(r=>r.key===dropped.key&&r.text.startsWith('（已回查存根'))){
-     reads.unshift({key:dropped.key,text:`（已回查存根：${dropped.text.slice(0,60)}…）`});
+     reads.unshift({key:dropped.key,offset:dropped.offset,length:dropped.length,hash:dropped.hash,text:`（已回查存根：offset=${dropped.offset} 长度${dropped.length} hash=${dropped.hash} 首行：${dropped.text.slice(0,60)}…）`});
     }
    }
    latest=slice;
@@ -626,7 +630,7 @@ export class TimeMachineDesignService {
   const volumeIds=((candidate.plan.volumes??[]) as unknown[]).map(v=>String(record(v).id));
   for(let i=0;i<volumeIds.length;i+=2){
    const batch=volumeIds.slice(i,i+2);
-   const first=await generate(`review-anchors:${i}`,chief,`核对候选锚点与条件（本批卷）。锚点条件是设计阶段定义、将来由正文兑现的核对点——本阶段没有正文是正常前提，不得以“尚无正文”或“无正文支撑”判问题。检查：每个锚点条件是否具体可核对（不是“获得认可后”式把将来承诺当已达成的循环表述）、与正式来源/短卡/作者要求一致、开场条件与开场文字自洽、收束条件与收束文字自洽、条件之间不矛盾；本批卷的开场、冲突、转折、人物弧光与爽点是否具体可信；未完成承接fallback是否可行。返回 {"pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}。issues与suggestions面向作者，用显示编号（卷A、主线1），不引用v1等内部ID或字段名。${listRule}\n正式资料短卡：${JSON.stringify(card.fields)}\n已回查原件：${JSON.stringify(reads)}\n本批：${JSON.stringify(this.anchorSectionForVolumes(candidate.plan as unknown as Record<string,unknown>,batch))}\n作者：${snapshot.intent}`,verdictParse);
+   const first=await generate(`review-anchors:${i}`,chief,`核对候选锚点与条件（本批卷）。锚点条件是设计阶段定义、将来由正文兑现的核对点——本阶段没有正文是正常前提，不得以“尚无正文”或“无正文支撑”判问题。检查：每个锚点条件是否具体可核对（不是“获得认可后”式把将来承诺当已达成的循环表述）、与正式来源/短卡/作者要求一致、开场条件与开场文字自洽、收束条件与收束文字自洽、条件之间不矛盾；本批卷的开场、冲突、转折、人物弧光与爽点是否具体可信；未完成承接fallback是否可行。返回 {"pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}。issues与suggestions面向作者，用显示编号（卷A、主线1），不引用v1等内部ID或字段名。${listRule}\n正式资料短卡：${JSON.stringify(card.fields)}\n已回查原件：${JSON.stringify(latest!==null?[...reads,latest]:reads)}\n本批：${JSON.stringify(this.anchorSectionForVolumes(candidate.plan as unknown as Record<string,unknown>,batch))}\n作者：${snapshot.intent}`,verdictParse);
    const anchorVerdict=await continueReview(`review-anchors:${i}`,first);
    issues.push(...anchorVerdict.issues);suggestions.push(...anchorVerdict.suggestions);pass=pass&&anchorVerdict.pass;
   }
