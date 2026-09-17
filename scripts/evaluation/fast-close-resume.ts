@@ -59,6 +59,15 @@ async function main(): Promise<void> {
   const evalDb: DatabaseSync = openDatabase(resolve(EVAL_DB));
   const guard = new ParentBudgetGuard(evalDb, 's1-fast-close-resume-2', WINDOW);
   guard.reconcile(); // 按日志+发送状态+租约对账（活进程不动、已发未结算转unknown、未发送才释放，禁止全批清零）
+  // 一次性墙钟补充（067bbc24合同核定）：持久化extensionStartedAt，重启不重计时、不循环延长；原started_at与原60分钟记录不改
+  const extRow = evalDb.prepare('SELECT batch_id FROM tm2_eval_budget_ext WHERE batch_id=?').get('s1-fast-close-resume-2') as { batch_id: string } | undefined;
+  if (extRow === undefined) {
+    guard.grantWallClockExtensionOnce(60 * 60_000, '067bbc24收尾决定核定：因开发消耗原墙钟，一次性补充60分钟（不循环延长）');
+    note('墙钟一次性补充60分钟已授予并持久化（extensionStartedAt本次写入，重启不重计时）');
+  }
+  const budgetNow = guard.snapshot();
+  note(`父预算复核：实耗${budgetNow.actual}+未知${budgetNow.unknown}+预留${budgetNow.reserved}/${budgetNow.limitRequests}请求（余量${budgetNow.limitRequests - budgetNow.actual - budgetNow.unknown - budgetNow.reserved}）`);
+
 
   // ① 离线核对run当前状态与检查点
   const run = db.prepare('SELECT id, owner_id, book_id, scheme, state, phase, error_code, snapshot_json FROM tm2_design_runs WHERE id=?').get(RUN_ID) as { owner_id: string; book_id: string; scheme: string; state: string; phase: string; error_code: string | null } | undefined;
@@ -66,6 +75,15 @@ async function main(): Promise<void> {
   const scope = { ownerId: run.owner_id, bookId: run.book_id };
   const steps = db.prepare('SELECT id, state, attempt, error_code FROM tm2_steps WHERE id LIKE ? ORDER BY rowid').all(`${RUN_ID}:%`) as { id: string; state: string; attempt: string | null; error_code: string | null }[];
   note(`run核对：scheme=${run.scheme} state=${run.state} phase=${run.phase}；步骤${steps.length}（成功${steps.filter(s => s.state === 'succeeded').length}）`);
+  // run内部预算复核（合同：实际调用前复核父预算与run内预算均有余量）
+  const prefix = `${RUN_ID}:`;
+  const spent = db.prepare(`SELECT COUNT(*) AS calls, COALESCE(SUM(CASE WHEN c.input_tokens IS NOT NULL AND c.output_tokens IS NOT NULL THEN c.input_tokens+c.output_tokens WHEN c.state IN ('working','unknown') THEN c.reserved_tokens ELSE 0 END),0) AS tokens FROM tm2_model_calls c JOIN tm2_attempts a ON a.id=c.id WHERE c.owner_id=? AND c.book_id=? AND substr(a.step,1,?)=?`).get(scope.ownerId, scope.bookId, prefix.length, prefix) as { calls: number; tokens: number };
+  if (spent.calls >= 120 || spent.tokens + 64000 > 520000) {
+    note(`run内预算无余量：calls=${spent.calls} tokens=${spent.tokens}（上限120/520000-64000）——停止，不发起新dispatch`);
+    db.close(); evalDb.close();
+    return;
+  }
+  note(`run内预算复核：calls=${spent.calls}/120 tokens=${spent.tokens}+64000/520000（有余量）`);
 
   // ② 服务化合法恢复准备（TimeMachineResumeService.prepare：活租约阻塞事务内核验、非成功步骤回ready留attempt为证、run回queued、全动作审计；输入版本变更由createStepVersioned在流程内归档重建，不按名删步）
   // 2a. 在途working调用：结果未知，如实结算为unknown（消耗保留，不重发免费）
