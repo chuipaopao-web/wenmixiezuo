@@ -2,9 +2,9 @@
 /**
  * S1-FAST-CLOSE接续纠正：仅恢复c116818b完成审查与采用（真实模型，单一接续窗口）。
  *   tsx scripts/evaluation/fast-close-resume.ts
- * 接续窗口：20次真实请求/100万保守tokens/90分钟（自本脚本首次dispatch起，任一先到即止；
- * 父账本s1-fast-close-resume，与历史各账分列不清零）。不重做骨架和6卷卡（缓存命中证明在案），
- * 不开新书、不批量重跑、不部署。
+ * 7662b6f6修订闭环收尾窗口（新账本批次s1-fast-close-revise）：24次真实请求/150万保守tokens/120分钟
+ * （自本批次首次dispatch起，任一先到即止；历史各账分列不清零）。局部修订只修受影响卷卡，
+ * 不重做骨架和卷卡（缓存命中证明在案），不开新书、不批量重跑、不部署。
  * 流程：①离线核对run/快照/检查点→②最小恢复路径（在途unknown如实结算、非成功步骤回ready、run回queued，审计记录）
  * →③service.process恢复（父预算包裹真实网关）→④自然过审才HTTP采用→⑤资料修改失效/同键刷新恢复。
  * 审查候选k2.7可靠性未达标：结果只证明实验链路，不宣称质量已验或可商用。
@@ -27,7 +27,7 @@ import { ParentBudgetGuard, ParentBudgetExhausted } from './parent-budget-guard.
 const RUN_ID = 'c116818b-028d-4438-9bc6-2e4474155aaa';
 const RESUME_STATE = '.local/eval/fast-close-resume-state.json';
 const EVAL_DB = '.local/eval/node-model-eval.sqlite';
-const WINDOW = { requests: 12, tokens: 750_000, wallClockMs: 60 * 60_000 }; // ce3bca27复核后定点续跑窗口：12请求/75万tokens/60分钟（历史20次账本不改）
+const WINDOW = { requests: 24, tokens: 1_500_000, wallClockMs: 120 * 60_000 }; // 7662b6f6修订闭环收尾窗口：24请求/150万tokens/120分钟（新批次s1-fast-close-revise，历史20/12次账本不改）
 const now = (): string => new Date().toISOString();
 
 interface ResumeState { notes: { at: string; text: string }[]; adoptedCandidateId?: string }
@@ -57,14 +57,8 @@ async function main(): Promise<void> {
   bootstrapDatabase(db, config);
   // 父预算账本在评测库（与生产库分离；历史各账分列）
   const evalDb: DatabaseSync = openDatabase(resolve(EVAL_DB));
-  const guard = new ParentBudgetGuard(evalDb, 's1-fast-close-resume-2', WINDOW);
+  const guard = new ParentBudgetGuard(evalDb, 's1-fast-close-revise', WINDOW);
   guard.reconcile(); // 按日志+发送状态+租约对账（活进程不动、已发未结算转unknown、未发送才释放，禁止全批清零）
-  // 一次性墙钟补充（067bbc24合同核定）：持久化extensionStartedAt，重启不重计时、不循环延长；原started_at与原60分钟记录不改
-  const extRow = evalDb.prepare('SELECT batch_id FROM tm2_eval_budget_ext WHERE batch_id=?').get('s1-fast-close-resume-2') as { batch_id: string } | undefined;
-  if (extRow === undefined) {
-    guard.grantWallClockExtensionOnce(60 * 60_000, '067bbc24收尾决定核定：因开发消耗原墙钟，一次性补充60分钟（不循环延长）');
-    note('墙钟一次性补充60分钟已授予并持久化（extensionStartedAt本次写入，重启不重计时）');
-  }
   const budgetNow = guard.snapshot();
   note(`父预算复核：实耗${budgetNow.actual}+未知${budgetNow.unknown}+预留${budgetNow.reserved}/${budgetNow.limitRequests}请求（余量${budgetNow.limitRequests - budgetNow.actual - budgetNow.unknown - budgetNow.reserved}）`);
 
