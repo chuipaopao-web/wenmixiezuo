@@ -552,5 +552,9 @@ describe('锚点截断单卷降级（067bbc24收尾决定）', () => {
     await expect(service.reviseAgain(scope, runId, [{ issue: '卷1仍有问题', sources: ['adjudication'] }])).rejects.toThrow('最多2次');
     // 无第一轮候选的run不能进入第二轮；空清单被拒
     await expect(service.reviseAgain(scope, runId, [])).rejects.toThrow('格式错误');
+    // 修订轮审查步骤单后缀（双后缀曾致真实run缓存失效重发7次，bcf19a6a事故反例）
+    const reviewStepIds = (c.database.prepare('SELECT id FROM tm2_steps WHERE id LIKE ?').all(`${runId}:review-source:%`) as { id: string }[]).map(r => r.id);
+    expect(reviewStepIds.some(id => id.endsWith(':revision-2'))).toBe(true);
+    expect(reviewStepIds.filter(id => id.includes(':revision-2:revision-2'))).toHaveLength(0);
   });
 });

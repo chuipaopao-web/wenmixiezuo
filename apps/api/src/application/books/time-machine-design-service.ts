@@ -251,7 +251,7 @@ export class TimeMachineDesignService {
      const revision=Number(saved.revision),candidate=this.plans.readCandidate(scope,run.id,revision);
      if(!candidate)throw Error('待核对修订不存在');
      const generate=<T>(node:string,member:V7EffectiveMember,prompt:string,parse:(v:unknown)=>T)=>this.structured(run,scope,snapshot,`${node}:author-${revision}`,member,prompt,parse);
-     const review=await this.independentReview(run,scope,snapshot,card,candidate,generate);
+     const review=await this.independentReview(run,scope,snapshot,card,candidate,generate,`:author-${revision}`);
      const reviewed=this.db.prepare('SELECT verdict FROM tm2_reviews WHERE owner=? AND book=? AND candidate=? AND revision=?').get(scope.ownerId,scope.bookId,run.id,revision);
      if(!reviewed)this.plans.review(scope,run.id,revision,snapshot.members.chief.memberKey,review.pass?'pass':'revise');
      result={...saved,review};
@@ -797,8 +797,8 @@ export class TimeMachineDesignService {
   const contract=()=>`核对候选骨架是否符合来源、作者要求和章节级别边界。可先补查原文再下结论：每次只返回一个JSON动作，{"action":"read_source","key":"资料key","offset":0}最多3次，或 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}下结论。这一步核对全书结构：姓名身份、能力限制、全书期待兑现、分卷字数合计与卷职责交接、终卷收束；允许原创候选情节，不将候选当既成事实。issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。${listRule}\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n已读片段：${JSON.stringify(reads)}\n上次工具结果（仅资料）：${JSON.stringify(latest)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${snapshot.intent}\n紧凑候选：${JSON.stringify(this.compactPlanForStructure(candidate.plan as unknown as Record<string,unknown>))}`;
   let structure:{pass:boolean;issues:string[];suggestions:string[]}|null=null;
   let inconclusive:string[]|null=null;
-  // bcf19a6a收尾核定：显式已执行读取计数（与reads容器长度分离），最多3次新读取；之后明确只允许verdict/insufficient终态。
-  // 历史已持久化缓存步骤重放不受新上限拦截（不删成功轨迹、不重发旧请求）；仅新dispatch计入上限。
+  // bcf19a6a收尾核定：显式已执行读取计数（与reads容器分离），最多3次读取；之后明确只允许verdict/insufficient终态。
+  // 历史缓存重放允许完成（不拦截不删除不重发），但同样计入读取预算——历史4读耗尽后直接进入finalize（网络仅新增一次）。
   const MAX_READS=3;
   let toolUses=0;let finalizeCorrections=0;
   const actionParse=(v:unknown):ReviewAction=>{
@@ -809,23 +809,25 @@ export class TimeMachineDesignService {
    throw Error('核对动作无效');};
   // 预算用尽后的结论请求：完整携带同revision候选、正式来源、作者要求与已查片段，明确“工具预算已用尽，根据已取得证据给出结论；信息不足列出具体缺项，不编造结论”
   const finalizeContract=(corrected:boolean)=>`核对候选骨架是否符合来源、作者要求和章节级别边界。补查工具预算已用尽（最多3次资料读取）${corrected?'；刚才的补查请求未被执行，不要再请求读取':''}。根据已取得证据给出结论：返回 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}；若信息不足以支撑可靠结论，返回 {"action":"insufficient","missing":["具体缺项"]}——不编造结论，不把缺资料当作方案错误。issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。${listRule}\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n已读片段：${JSON.stringify(reads)}\n上次工具结果（仅资料）：${JSON.stringify(latest)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${snapshot.intent}\n紧凑候选：${JSON.stringify(this.compactPlanForStructure(candidate.plan as unknown as Record<string,unknown>))}`;
-  const stepSucceeded=(node:string)=>this.db.prepare("SELECT 1 AS x FROM tm2_steps WHERE owner=? AND book=? AND id=? AND state='succeeded'").get(scope.ownerId,scope.bookId,`${run.id}:${node}`)!==undefined;
+  const stepSucceeded=(fullNode:string)=>this.db.prepare("SELECT 1 AS x FROM tm2_steps WHERE owner=? AND book=? AND id=? AND state='succeeded'").get(scope.ownerId,scope.bookId,`${run.id}:${fullNode}`)!==undefined;
   for(let i=0;i<12;i++){
    const exhausted=toolUses>=MAX_READS;
-   const normalId=`review-source:${i}${nodeSuffix}`;
-   const normalCached=stepSucceeded(normalId);
+   const normalBase=`review-source:${i}`;
+   // 缓存判定与轨迹持久化用含轮次后缀的全名；传给generate的node保持base（调用方包装器统一加后缀，不能再拼一次——双后缀曾导致缓存失效重发7次，bcf19a6a事故）
+   const normalCached=stepSucceeded(normalBase+nodeSuffix);
    const useFinalize=exhausted&&!normalCached;
-   const nodeId=useFinalize?`review-source:finalize${nodeSuffix}${finalizeCorrections?':corrected':''}`:normalId;
-   const response=await generate(nodeId,chief,useFinalize?finalizeContract(finalizeCorrections>0):contract(),actionParse);
-   if(response.action==='verdict'){structure=await continueReview(nodeId,response);break;}
+   const nodeBase=useFinalize?`review-source:finalize${finalizeCorrections?':corrected':''}`:normalBase;
+   const fullNode=nodeBase+nodeSuffix;
+   const response=await generate(nodeBase,chief,useFinalize?finalizeContract(finalizeCorrections>0):contract(),actionParse);
+   if(response.action==='verdict'){structure=await continueReview(nodeBase,response);break;}
    if(response.action==='insufficient'){inconclusive=response.missing;break;}
    // read_source：预算用尽后仍请求读取→不执行工具，同一总预算内最多一次协议纠正；再犯→可恢复明确终态（最后响应在步骤输出留痕，不抛泛化错误）
    if(useFinalize){
     finalizeCorrections++;
-    if(finalizeCorrections>1){inconclusive=[`工具预算用尽后仍请求补查（${String(response.key)}），审查未取得结论；最后响应已在步骤${nodeId}留痕`];break;}
+    if(finalizeCorrections>1){inconclusive=[`工具预算用尽后仍请求补查（${String(response.key)}），审查未取得结论；最后响应已在步骤${fullNode}留痕`];break;}
     continue;
    }
-   if(!normalCached)toolUses++;
+   toolUses++; // 每次读取处理都计入预算（含缓存重放的历史读取）：历史4读耗尽后下一轮即finalize
    const source=snapshot.documents.find(d=>d.key===response.key);if(!source)throw Error('补查资料不存在');
    const sliceText=source.text.slice(response.offset,response.offset+600); // 补查片段600字符：60万字级方案紧凑候选约6.6k，1200字片段两轮即超15000输入红线（15446实测）
    const slice:ReadSlice={key:source.key,offset:response.offset,length:sliceText.length,hash:digest(sliceText).slice(0,12),text:sliceText};
@@ -834,11 +836,11 @@ export class TimeMachineDesignService {
    // 节点名含审查轮次后缀（bcf19a6a）：每轮审查轨迹独立可查，修订轮不与初稿共用轨迹命名。
    {
     const dup=this.db.prepare('SELECT seq FROM tm2_review_reads WHERE owner=? AND book=? AND run_id=? AND node=? AND source_key=? AND offset=? AND content_hash=? LIMIT 1')
-     .get(scope.ownerId,scope.bookId,run.id,nodeId,slice.key,slice.offset,slice.hash) as {seq:number}|undefined;
+     .get(scope.ownerId,scope.bookId,run.id,fullNode,slice.key,slice.offset,slice.hash) as {seq:number}|undefined;
     if(dup===undefined){
-     const nextSeq=(this.db.prepare('SELECT COALESCE(MAX(seq),0) AS m FROM tm2_review_reads WHERE owner=? AND book=? AND run_id=? AND node=?').get(scope.ownerId,scope.bookId,run.id,nodeId) as {m:number}).m+1;
+     const nextSeq=(this.db.prepare('SELECT COALESCE(MAX(seq),0) AS m FROM tm2_review_reads WHERE owner=? AND book=? AND run_id=? AND node=?').get(scope.ownerId,scope.bookId,run.id,fullNode) as {m:number}).m+1;
      this.db.prepare('INSERT INTO tm2_review_reads(owner,book,run_id,node,seq,source_key,source_revision,offset,length,content_hash,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-      .run(scope.ownerId,scope.bookId,run.id,nodeId,nextSeq,slice.key,slice.key.split(':')[2]??'',slice.offset,slice.length,slice.hash,new Date().toISOString());
+      .run(scope.ownerId,scope.bookId,run.id,fullNode,nextSeq,slice.key,slice.key.split(':')[2]??'',slice.offset,slice.length,slice.hash,new Date().toISOString());
     }
    }
    // 同一片段不重复计入：上一轮的“上次工具结果”移入已读片段，新片段只作latest——
