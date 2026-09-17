@@ -87,7 +87,7 @@ const GENRES: readonly GenreSeed[] = [
         start: '林舟在废弃机甲堆里发现一台刻着他父亲名字的旧机甲，被卷入行会垄断的修理行当',
         turningPoint: '行会下最后通牒要求停业，林舟当众修好一台三品灵师都束手的机甲，用手艺赢得第一批认可',
         gain: '第一批伙伴与街坊口碑', ending: '小铺在行会封锁中存活，手艺路径得到公开验证',
-        inCondition: '林舟发现父亲旧机甲已经发生', outCondition: '林舟的手艺得到第一次公开验证（当众修好疑难机甲）',
+        inCondition: '林舟发现父亲旧机甲已经发生', outCondition: '林舟的手艺得到第一次公开验证（当众修好疑难机甲），行会停业通牒被正面顶回',
         mainDuty: '主线确立：从被轻视到用手艺立足', rivalDuty: '行会压制首次落到具体行动：最后通牒与停业威胁，林舟付出可见代价'
       },
       v2: {
@@ -95,7 +95,7 @@ const GENRES: readonly GenreSeed[] = [
         start: '立足初成，行会的压制升级为正面封锁：断料、挖人、诬告',
         turningPoint: '公开评测会上林舟以精密手艺击破行会垄断条款，无灵根者开业获得制度承认',
         gain: '正式注册的机甲工坊与行业话语权', ending: '兑现"无灵根修理工以机甲修理手艺立足"的开篇承诺，行会垄断被实际打破',
-        inCondition: '第一卷小铺立足成果成立', outCondition: '无灵根者开业获得制度承认，行会垄断被打破',
+        inCondition: '第一卷小铺立足成果成立', outCondition: '无灵根者开业获得制度承认，行会垄断条款在公开评测中被实际击破',
         mainDuty: '主线推进：从立足到建立被承认的工坊', rivalDuty: '对抗正面爆发并在终卷收束：公开评测击破垄断条款'
       },
       milestones: {
@@ -133,15 +133,15 @@ const GENRES: readonly GenreSeed[] = [
         start: '沈恪在城头醒来，城外连营十里，接手保甲册时发现册上三分之一名字已不在城中',
         turningPoint: '敌军第一波云梯上架时，新编保甲队第一次没有溃散，制度初显力量',
         gain: '守将的初步信任与按表上工的民众', ending: '保甲重建初见成效，第一轮守城站稳，粮草台账理清',
-        inCondition: '沈恪城头醒来、接手保甲册已经发生', outCondition: '新编保甲队在第一波攻城中没有溃散',
+        inCondition: '沈恪城头醒来、接手保甲册已经发生', outCondition: '新编保甲队在第一波攻城中没有溃散，粮草台账误差理清归零，守将初步采纳轮换制',
         mainDuty: '主线确立：从册上死籍到保甲初建', rivalDuty: '守将不信任与豪强抵制首次落到具体阻挠：撕轮换表、锁粮仓'
       },
       v2: {
         goal: '沈恪把保甲法变成可持续的制度，化解守将私兵观念与豪强抵制', briefGoal: '沈恪以制度撑过决战、化解三大矛盾',
-        start: '守城初稳，豪强抵制编户与粮草掣肘浮出水面',
+        start: '守城初稳，豪强抵制与粮草掣肘升级为公开对抗',
         turningPoint: '守城决战中以保甲轮换与粮台制度撑过围攻，守将当众问"这法子能教给别的城吗"',
         gain: '制度被全军承认，豪强编户纳入正轨', ending: '兑现"以现代组织方法重建保甲、在守城战中证明制度力量"的开篇承诺',
-        inCondition: '第一卷保甲重建与粮草台账成果成立', outCondition: '保甲制度撑过守城决战并获得全军承认',
+        inCondition: '第一卷保甲重建与粮草台账成果成立', outCondition: '保甲制度撑过守城决战：守将信服放下私兵观念、豪强编户入册、粮草制度定型，制度获全军承认',
         mainDuty: '主线推进：从保甲初建到制度被承认', rivalDuty: '三大矛盾在守城决战中正面爆发并逐一收束'
       },
       milestones: {
@@ -179,7 +179,7 @@ const GENRES: readonly GenreSeed[] = [
         start: '许照值夜班第三十七小时，推进来一个和三年前事故症状完全相同的病人',
         turningPoint: '院办电话要求停止追查，许照选择与记者交换各自掌握的半份证据',
         gain: '拼成一份完整的召回记录与彼此的信任', ending: '证据链拼合完成，两人从对立转为并肩',
-        inCondition: '相同症状病人入院已经发生', outCondition: '两半证据拼成一份完整的召回记录',
+        inCondition: '相同症状病人入院已经发生', outCondition: '两半证据拼成一份完整的召回记录，院方第一次施压被正面顶住',
         mainDuty: '主线确立：从似曾相识的监护数据到保住证据', rivalDuty: '院方低调要求与单位施压首次落到具体动作：电话警告、病历封存'
       },
       v2: {
@@ -187,7 +187,7 @@ const GENRES: readonly GenreSeed[] = [
         start: '证据在手，医院与器械公司的压制升级为职业威胁',
         turningPoint: '发布会前十分钟许照摘下工牌：从今天起只说真话，公开召回被压下的证据',
         gain: '真相公开与两人的关系落定', ending: '兑现"从对立到并肩、揭开器械召回被压下真相"的开篇承诺',
-        inCondition: '第一卷证据链与并肩关系成立', outCondition: '召回真相在发布会上公开',
+        inCondition: '第一卷证据链与并肩关系成立', outCondition: '召回真相在发布会上公开，医院与器械公司的压制失效',
         mainDuty: '主线推进：从证据在手到公开真相', rivalDuty: '压制在发布会前达到顶点并被正面击破'
       },
       milestones: {
@@ -287,8 +287,8 @@ export function buildFixture(genre: EvalGenre, lengthBand: EvalLengthBand): Synt
     return {
       id, title: id === 'v1' ? '立足' : '扩张', beat: id === 'v1' ? '起·立足' : '承转合·扩张与兑现',
       start: vp.start, goal: vp.goal, conflict: seed.conflict, turningPoint: vp.turningPoint,
-      gain: vp.gain, loss: null, arc: `${seed.protagonist}从被动承压到主动破局的转变在本卷落实`, payoff: null, hook: null, mood: null,
-      ending: vp.ending, handoff: id === 'v1' ? '对抗升级，引出第二卷' : '终卷：对抗线收束，全书问题在此卷回答',
+      gain: vp.gain, loss: null, arc: id === 'v1' ? `${seed.protagonist}从被动承压到首次主动破局的转变在本卷落实` : `${seed.protagonist}从孤身破局到位置被正式承认的转变在本卷落实`, payoff: null, hook: null, mood: null,
+      ending: vp.ending, handoff: id === 'v1' ? '对抗升级，引出第二卷' : '全书完结：对抗线与全书问题在此卷收束',
       words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' },
       anchors: [
         { id: 'in', ownerEntityId: id, kind: 'entry', summary: '开场状态成立', span: '本卷开篇', conditions: [{ summary: vp.inCondition, subjectIds: ['main'] }], logic: 'all', importance: 'required', fallback: '补开场戏', keywords: [], aliases: [] },

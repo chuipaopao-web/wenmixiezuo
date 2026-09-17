@@ -29,7 +29,7 @@ const samples = [
   }
 ];
 const doc = {
-  version: 'review-smoke-v1(2026-09-17,frozen)',
+  version: 'review-smoke-v3(2026-09-17,frozen)',
   note: 'S1-FAST-CLOSE审查冒烟资格样本：正确2+明确严重缺陷2，人工逐条核对并冻结；调参不用；每候选各4次，正确不误拒且缺陷不漏报=冒烟资格（不替代n≥10正式准入）。',
   samples: samples.map(s => ({ ...s, contentHash: hash(s.plan) }))
 };

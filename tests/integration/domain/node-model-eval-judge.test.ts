@@ -185,8 +185,12 @@ describe('评审可靠性校准样本', () => {
           if (other !== genre) expect(text).not.toContain(name); // 不得含其他题材主角（跨题材污染）
         }
         // 对抗线职责在本题材下承接
-        const volumes = f.cleanPlan.volumes as { duties: { lineId: string }[] }[];
+        const volumes = f.cleanPlan.volumes as { duties: { lineId: string }[]; arc?: unknown }[];
         for (const v of volumes) expect(v.duties.map(d => d.lineId)).toContain('rival');
+        // 两卷人物弧光不得雷同（k2.7冒烟真实捕获：同一弧光两卷同时落实=内部矛盾）
+        expect(volumes[0]!.arc).not.toBe(volumes[1]!.arc);
+        expect(volumes[0]!.arc).toBeTruthy();
+        expect(volumes[1]!.arc).toBeTruthy();
       }
     }
   });
