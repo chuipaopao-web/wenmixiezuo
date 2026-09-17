@@ -57,7 +57,10 @@ describe('three independent schemes per design round',()=>{
   const writers=schemeWriters(c,scope.bookId);
   expect(new Set(writers.map(w=>w.writer.memberKey)).size).toBe(3);
   expect(new Set(writers.map(w=>w.writer.model.modelId)).size).toBe(3);
-  expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-2')).toThrow('已有新时光机任务');
+  expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-2',1)).toThrow('已有新时光机任务');
+  // 版本门禁反例（422a48c7合同钉住）：缺版本/过期版本在并行门禁前以409版本错误拒绝
+  expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-2-nov')).toThrow('故事线资料版本已变化');
+  expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-2-old',99)).toThrow('故事线资料版本已变化');
   for(const item of created)await service.process(item.id);
   const states=service.state(scope).filter(row=>row.roundKey==='round-1');
   expect(states.filter(row=>row.state==='succeeded')).toHaveLength(3);
@@ -99,6 +102,7 @@ describe('three independent schemes per design round',()=>{
   c.database.prepare("UPDATE tm2_design_runs SET state='failed',error_code='needs_review' WHERE id=?").run(schemeB.id);
   const retriedB=service.retry(scope,schemeB.id);
   expect(service.state(scope).find(row=>row.id===retriedB)?.scheme).toBe('B');
-  expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-blocked')).toThrow('已有新时光机任务');
+  expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-blocked',1)).toThrow('已有新时光机任务');
+  expect(()=>service.startDesignRound(scope,buildSelection(service,scope),'round-blocked-nov')).toThrow('故事线资料版本已变化');
  });
 });
