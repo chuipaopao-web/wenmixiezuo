@@ -19,8 +19,22 @@ export class ParentBudgetExhausted extends Error {
 
 interface GuardedUsage { inputTokens: number | null; outputTokens: number | null; reasoningTokens?: number | null }
 interface GuardedRequest { prompt: string; maxOutputTokens?: number; requestId?: string }
-interface GuardedResponse { usage?: GuardedUsage | null }
+/** 适配器返回的用量：优先usage嵌套（评测适配器），否则顶层字段（生产网关ModelAdapter结果）。 */
+interface GuardedResponse {
+  usage?: GuardedUsage | null;
+  inputTokens?: number | null; outputTokens?: number | null; reasoningTokens?: number | null;
+}
 interface GuardedAdapter<A extends GuardedRequest, R extends GuardedResponse> { generate(request: A): Promise<R> }
+
+function usageOf(response: GuardedResponse): { known: boolean; total: number | null } {
+  const nested = response.usage;
+  if (nested != null) {
+    const known = nested.inputTokens !== null && nested.outputTokens !== null;
+    return { known, total: known ? nested.inputTokens! + nested.outputTokens! + (nested.reasoningTokens ?? 0) : null };
+  }
+  const known = typeof response.inputTokens === 'number' && typeof response.outputTokens === 'number';
+  return { known, total: known ? response.inputTokens! + response.outputTokens! + (response.reasoningTokens ?? 0) : null };
+}
 
 export class ParentBudgetGuard {
   private readonly repo: NodeEvaluationRepository;
@@ -65,11 +79,10 @@ export class ParentBudgetGuard {
         guard.pending.set(reserveKey, reserved);
         try {
           const response = await adapter.generate(request);
-          const usage = response.usage;
-          const known = usage != null && usage.inputTokens !== null && usage.outputTokens !== null;
+          const usage = usageOf(response);
           guard.repo.settle(guard.batchId, reserveKey, {
             requests: 1, reservedTokens: reserved,
-            actualTokens: known ? usage!.inputTokens! + usage!.outputTokens! + (usage!.reasoningTokens ?? 0) : null
+            actualTokens: usage.known ? usage.total : null
           });
           return response;
         } catch (error) {

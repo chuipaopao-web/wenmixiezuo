@@ -594,6 +594,16 @@ export class TimeMachineDesignService {
    // 同一片段不重复计入：上一轮的“上次工具结果”移入已读片段，新片段只作latest——
    // 否则同一片段在续问提示中出现两次，60万字级方案续问输入超15000字符红线被预算拒绝（run4d9cfdf9 review-source:1实证15421字符）。
    if(latest!==null&&typeof latest==='object'&&'key' in (latest as Record<string,unknown>)&&'text' in (latest as Record<string,unknown>)) reads.push(latest as {key:string;text:string});
+   // 已读片段有界：只保留最近2片全文，更早片段以索引存根（key+首行）保留可回查证据——
+   // 60万字级方案3轮补查下，无界累计必然超过15000字符输入红线（c116818b review-source:2实证）；
+   // 只压缩审查工具的回查上下文，不删作者约束、不截断作品内容。
+   while(reads.length>2){
+    const dropped=reads.shift()!;
+    // 已是存根不再重复添加；普通片段转存根保留key与首行供回查
+    if(!dropped.text.startsWith('（已回查存根')&&!reads.some(r=>r.key===dropped.key&&r.text.startsWith('（已回查存根'))){
+     reads.unshift({key:dropped.key,text:`（已回查存根：${dropped.text.slice(0,60)}…）`});
+    }
+   }
    latest=slice;
   }
   if(structure===null)throw Error('核对补查未给出结论');

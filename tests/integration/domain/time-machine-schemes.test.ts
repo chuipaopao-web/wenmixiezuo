@@ -142,5 +142,14 @@ describe('three independent schemes per design round',()=>{
    expect(prompt.split('区分阻断问题与文学建议').length-1).toBe(1);
   }
   expect(anchorPrompts.length).toBeGreaterThanOrEqual(1);
+  // 已读片段有界（c116818b review-source:2实证）：多轮补查后全文片段≤2，更早片段转存根保留key
+  const lastPrompt=reviewPrompts[reviewPrompts.length-1]!;
+  const readsJson=lastPrompt.split('\n已读片段：')[1]?.split('\n上次工具结果（仅资料）：')[0];
+  if(readsJson){
+   const reads=JSON.parse(readsJson) as {key:string;text:string}[];
+   const fullSlices=reads.filter(r=>!r.text.startsWith('（已回查存根'));
+   expect(fullSlices.length).toBeLessThanOrEqual(2);
+   for(const stub of reads.filter(r=>r.text.startsWith('（已回查存根')))expect(stub.key).toBeTruthy(); // 存根保留可回查key
+  }
  });
 });
