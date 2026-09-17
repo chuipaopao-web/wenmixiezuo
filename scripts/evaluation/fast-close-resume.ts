@@ -79,6 +79,15 @@ async function main(): Promise<void> {
     db.prepare("UPDATE tm2_steps SET state='ready', attempt=NULL, lease_until=NULL, error_code=NULL WHERE id=?").run(s.id);
     note(`步骤回ready待重试：${s.id.split(':').slice(-2).join(':')}（原${s.state}${s.error_code ? '/' + s.error_code : ''}）`);
   }
+  // 2b+. 输入版本已变的成功步骤（reviewChecks去重/片段有界/片段长度改变了review-source提示合同）：
+  // 合同要求"输入版本未变才缓存命中"——过期缓存不重用；归档旧行证据后删除，让新合同版本重新建步（非进度伪造）
+  const changedInputSteps = steps.filter(s => /review-source|review-anchors/.test(s.id));
+  for (const s of changedInputSteps) {
+    const oldRow = db.prepare('SELECT state, error_code, output FROM tm2_steps WHERE id=?').get(s.id) as { state: string; error_code: string | null; output: string | null } | undefined;
+    note(`输入版本已变归档重建：${s.id.split(':').slice(-2).join(':')}（旧state=${oldRow?.state}${oldRow?.error_code ? '/' + oldRow.error_code : ''}，旧输出前80=${(oldRow?.output ?? '').slice(0, 80)}）`);
+    db.prepare('DELETE FROM tm2_attempts WHERE owner=? AND book=? AND step=?').run(scope.ownerId, scope.bookId, s.id);
+    db.prepare('DELETE FROM tm2_steps WHERE owner=? AND book=? AND id=?').run(scope.ownerId, scope.bookId, s.id);
+  }
   // 2c. run回queued（既有合法处理入口process只受理queued）
   if (run.state !== 'queued') {
     db.prepare("UPDATE tm2_design_runs SET state='queued', updated_at=? WHERE id=?").run(now(), RUN_ID);
@@ -102,6 +111,21 @@ async function main(): Promise<void> {
     }
   }) as never;
   const service = new TimeMachineDesignService(db, gateway as never, 64000);
+  // 冲突定位：steps.create冲突时打印既有行与新输入
+  const innerSteps = (service as unknown as { steps: { create: (s: unknown, id: string, input: unknown, member: string) => void } }).steps;
+  const origCreate = innerSteps.create.bind(innerSteps);
+  innerSteps.create = ((s: unknown, id: string, input: unknown, member: string) => {
+    try {
+      return origCreate(s as never, id, input as never, member);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('接续不能改变')) {
+        const row = db.prepare('SELECT input_hash, member, state FROM tm2_steps WHERE id=?').get(id) as { input_hash: string; member: string; state: string } | undefined;
+        const inp = input as { prompt: string; member: { memberKey?: string }; window: number };
+        note(`[冲突定位] step=${id} 既有hash=${row?.input_hash?.slice(0, 16)} state=${row?.state} member=${row?.member}→${member} 新prompt后120=${JSON.stringify(inp.prompt.slice(-120))}`);
+      }
+      throw error;
+    }
+  }) as never;
   try {
     await service.process(RUN_ID);
   } catch (error) {
