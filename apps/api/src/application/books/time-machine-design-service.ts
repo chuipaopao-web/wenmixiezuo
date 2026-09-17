@@ -260,7 +260,7 @@ export class TimeMachineDesignService {
   if(snapshot.targetWords&&(node.startsWith('skeleton')||node.startsWith('volumes:')||node.startsWith('review')||node.startsWith('self')))prompt+=`\n开书目标体量：约${snapshot.targetWords}字，属于作者软目标（统计口径${snapshot.wordPolicy?.policy??"chars-v1"}，以字为单位）。分卷字数由成员按故事容量分配，各卷target合计必须等于全书target；超出软预算触发重新估量，不擅自截稿。卷数不固定，后续每卷还会展开多条链，不在此写完所有小故事。`;
   if(node.startsWith('skeleton'))prompt+='\n全书期待只放开篇提出、全书最终回答的问题；保住工坊、完成订单等阶段目标放在卷内。关系from到to表示前者影响后者，effect必须同向。不要把机甲升级有代价扩大成每次胜利都必须牺牲；代价服从原始限制与故事需要。';
   if(node.startsWith('volumes:'))prompt+='\n转折必须是读者能理解的具体事件或选择及其后果，不能只写“关键行动、重大牺牲、获得共识”。已有收束和未来待收束保持区分；不要把“不能强行关联”等内部设计要求写进作品内容。';
-  if(node.startsWith('review'))prompt+=`\n${timeMachineReviewChecks}`;
+  if(node.startsWith('review')&&!prompt.includes('区分阻断问题与文学建议'))prompt+=`\n${timeMachineReviewChecks}`; // 去重（S1-FAST-CLOSE接续纠正）：review-source的contract已内嵌一份；review-anchors未内嵌在此补上——每个完整请求只含一份检查要求
   const stepId=`${run.id}:${node}`;this.steps.create(scope,stepId,{prompt,member,window:snapshot.windowTokens},member.memberKey);
   this.db.prepare('UPDATE tm2_design_runs SET updated_at=?,phase=? WHERE id=?').run(new Date().toISOString(),node,run.id);
   const prefix=`${run.id}:`;

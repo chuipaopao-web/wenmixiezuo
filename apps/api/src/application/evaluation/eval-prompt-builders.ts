@@ -118,7 +118,7 @@ export function buildEvalPrompt(nodeKey: string, sample: BuiltSample): string {
       const documents = f.documents.map(d => ({ key: d.key, length: d.text.length }));
       const reads = f.documents.slice(0, 2).map(d => ({ key: d.key, text: d.text.slice(0, 1200) }));
       const compact = compactPlanForEval(plan);
-      return `核对候选骨架是否符合来源、作者要求和章节级别边界。可先补查原文再下结论：每次只返回一个JSON动作，{"action":"read_source","key":"资料key","offset":0}最多3次，或 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}下结论。这一步核对全书结构：姓名身份、能力限制、全书期待兑现、分卷字数合计与卷职责交接、终卷收束；允许原创候选情节，不将候选当既成事实。issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。${listRule}\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n已读片段：${JSON.stringify(reads)}\n上次工具结果（仅资料）：${JSON.stringify(reads[reads.length - 1] ?? null)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${f.intent}\n紧凑候选：${JSON.stringify(compact)}${targetWordsNote}\n${timeMachineReviewChecks}`;
+      return `核对候选骨架是否符合来源、作者要求和章节级别边界。可先补查原文再下结论：每次只返回一个JSON动作，{"action":"read_source","key":"资料key","offset":0}最多3次，或 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}下结论。这一步核对全书结构：姓名身份、能力限制、全书期待兑现、分卷字数合计与卷职责交接、终卷收束；允许原创候选情节，不将候选当既成事实。issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。${listRule}\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n已读片段：${JSON.stringify(reads)}\n上次工具结果（仅资料）：${JSON.stringify(reads[reads.length - 1] ?? null)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${f.intent}\n紧凑候选：${JSON.stringify(compact)}${targetWordsNote}`;
     }
     case 'review-anchors': {
       // 源：design-service.ts:592（本批两卷锚点核对）

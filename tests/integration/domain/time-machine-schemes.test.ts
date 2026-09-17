@@ -109,7 +109,9 @@ describe('three independent schemes per design round',()=>{
   // 根因回归（run4d9cfdf9实证15421字符超15000红线）：同一片段同时进"已读片段"和"上次工具结果"致续问输入翻倍。
   const {c,scope}=setup();
   const reviewPrompts:string[]=[];
+  const anchorPrompts:string[]=[];
   const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
+   if(request.prompt.includes('核对候选锚点'))anchorPrompts.push(request.prompt);
    if(request.prompt.includes('核对候选骨架')){
     reviewPrompts.push(request.prompt);
     const n=reviewPrompts.length;
@@ -135,5 +137,10 @@ describe('three independent schemes per design round',()=>{
     expect(reads.some(r=>r.key===latest.key&&r.text===latest.text)).toBe(false);
    }
   }
+  // 检查要求单份（S1-FAST-CLOSE接续纠正）：review-source（内嵌）与review-anchors（call()补）各只含一份
+  for(const prompt of [...reviewPrompts,...anchorPrompts]){
+   expect(prompt.split('区分阻断问题与文学建议').length-1).toBe(1);
+  }
+  expect(anchorPrompts.length).toBeGreaterThanOrEqual(1);
  });
 });
