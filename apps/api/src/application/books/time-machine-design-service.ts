@@ -424,6 +424,202 @@ export class TimeMachineDesignService {
   return ((plan.volumes??[]) as unknown[]).map(value=>{const x=record(value);
    return {id:x.id,anchors:this.reviewAnchors(plan,x.id)};});
  }
+ /** 卷卡接受前预检（30a6f053）：结构/ID/引用按本卷就地校验，失败给出精确字段路径。生成与局部修订共用。 */
+ private validateVolumeCardOf(item:Record<string,unknown>,briefId:string,index:number,skeletonLineIds:ReadonlySet<string>,normalizations:{node:string;path:string;original:string[];normalized:string[]}[]):void{
+  const path=`volumes[${index}]（概要id=${briefId}）`;
+  if(String(item.id)!==String(briefId))throw Error(`${path}.id=${JSON.stringify(item.id)}与概要不符`);
+  const list=item.anchors;
+  if(!Array.isArray(list)||list.length!==2)throw Error(`${path}.anchors必须恰好2个（entry+exit），实得${Array.isArray(list)?list.length:'非数组'}`);
+  const kinds=new Set<string>();const ownAnchorIds=new Set<string>();
+  for(const anchor of list){const a=record(anchor);const anchorPath=`${path}.anchors[id=${JSON.stringify(a.id)}]`;
+   if(String(a.ownerEntityId)!==String(briefId))throw Error(`${anchorPath}.ownerEntityId=${JSON.stringify(a.ownerEntityId)}必须为本卷id`);
+   kinds.add(String(a.kind));ownAnchorIds.add(String(a.id));
+   if(!Array.isArray(a.conditions))throw Error(`${anchorPath}.conditions必须为数组`);
+   for(const condition of a.conditions){const cd=record(condition);if(!Array.isArray(cd.subjectIds))throw Error(`${anchorPath}.conditions[].subjectIds必须为数组`);
+    for(const subject of cd.subjectIds)if(!skeletonLineIds.has(String(subject)))throw Error(`${anchorPath}.conditions[].subjectIds=${JSON.stringify(subject)}不在骨架线内`);}}
+  if(!kinds.has('entry')||!kinds.has('exit'))throw Error(`${path}.anchors必须一个kind=entry一个kind=exit`);
+  for(const anchor of list){const a=record(anchor);
+   for(const field of ['keywords','aliases'] as const){const value=a[field];
+    if(!Array.isArray(value))continue;
+    const normalized=(value as unknown[]).slice(0,12).map(x=>String(x).slice(0,40)).filter(Boolean);
+    if(JSON.stringify(normalized)!==JSON.stringify(value))normalizations.push({node:`volume-card:${index}`,path:`${path}.anchors[id=${JSON.stringify(a.id)}].${field}`,original:value.map(x=>String(x)),normalized});
+    (a as Record<string,unknown>)[field]=normalized;}}
+  const dutyList=item.duties;
+  if(!Array.isArray(dutyList)||!dutyList.length)throw Error(`${path}.duties不能为空`);
+  for(const duty of dutyList){const d=record(duty);const dutyPath=`${path}.duties[lineId=${JSON.stringify(d.lineId)}]`;
+   if(!skeletonLineIds.has(String(d.lineId)))throw Error(`${dutyPath}.lineId不在骨架线内`);
+   if(!['start','advance','pause','close'].includes(String(d.action)))throw Error(`${dutyPath}.action=${JSON.stringify(d.action)}必须是start/advance/pause/close`);
+   if(!['required','flexible'].includes(String(d.strength)))throw Error(`${dutyPath}.strength必须是required或flexible`);
+   const ids=Array.isArray(d.anchorIds)?d.anchorIds:[];if(!ids.length)throw Error(`${dutyPath}.anchorIds不能为空`);
+   for(const id of ids)if(!ownAnchorIds.has(String(id)))throw Error(`${dutyPath}.anchorIds=${JSON.stringify(id)}不在本卷锚点内`);}
+  for(const duty of dutyList){const d=record(duty);
+   if(String(d.action)!=='close'||String(d.strength)!=='required')continue;
+   const linked=(Array.isArray(d.anchorIds)?d.anchorIds:[]).map(String);
+   const covered=list.some(anchor=>{const a=record(anchor);if(!linked.includes(String(a.id)))return false;
+    return (a.conditions as unknown[]).some(cd=>{const subjects=record(cd).subjectIds;return Array.isArray(subjects)&&subjects.map(String).includes(String(d.lineId));});});
+   if(!covered)throw Error(`${path}.duties[lineId=${JSON.stringify(d.lineId)}]为required close，但关联锚点conditions均未把该线列入subjectIds，收束无法按正文核对：请在exit锚点conditions中加入该线的可核对条件，或降为flexible`);}
+  const words=record(item.words).target;
+  if(!Number.isSafeInteger(Number(words))||Number(words)<=0)throw Error(`${path}.words.target必须是正整数`);
+  const serialized=JSON.stringify(item);
+  if(serialized.length>6000)throw Error(`${path}整体输出${serialized.length}字符过长（>6000）：请把每个自然语言字段压缩到60字以内、锚点summary≤50字、条件summary≤40字、keywords合计≤12个，不输出解释或章情节`);
+ }
+ /**
+  * 局部修订（7662b6f6修订闭环收尾）：只修订受影响卷卡，骨架/其他卷/旧候选逐字段保留。
+  * - 影响范围按审查明确对象定位（卷N展示编号位置映射/线标题精确匹配→该线职责所在卷），不用关键词正则代替语义；
+  *   全书/结局/骨架级问题走骨架修订分支（显式字段投影，不带全卷锚点）；范围无法可靠判断→诚实阻塞，不偷偷整书重生。
+  * - 每受影响卷一个有界修订请求：本卷原文及完整锚点+该卷问题及依据+相关作者要求/来源+前后卷交接+全书结局；
+  *   模型返回该卷完整合同对象，系统验证只修改允许对象（id/字数/引用/来源完整性），按稳定ID合并为候选新revision；
+  * - 一次自动修订轮仍为revision-1，不开revision-2；修订反馈只注入相应修订请求，不无差别附加到自检/独立审查。
+  */
+ private async localRevision(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,card:ContextCard,unified:{issue:string;sources:string[]}[],candidate:Candidate):Promise<unknown>{
+  const writer=snapshot.members.writer;
+  const suffix=':revision-1';
+  const plan=candidate.plan as unknown as Record<string,unknown>;
+  const oldVolumes=(Array.isArray(plan.volumes)?plan.volumes:[]) as Record<string,unknown>[];
+  const oldAnchors=(Array.isArray(plan.anchors)?plan.anchors:[]) as Record<string,unknown>[];
+  const skeleton=plan; // plan顶层即骨架字段（structure/baseline/ending/lines/expectations/relations等）
+
+  // 影响范围定位：审查listRule要求每条定位到具体卷（卷A/卷1样式）——展示编号位置映射是确定性对照非语义猜测
+  const cnNum=(t:string):number|null=>{
+   if(/^\d+$/u.test(t))return Number(t);
+   const map:Record<string,number>={'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10};
+   return map[t]??null;
+  };
+  const lineTitleToVolumes=new Map<string,Set<number>>();
+  oldVolumes.forEach((v,idx)=>{
+   const duties=Array.isArray(v.duties)?v.duties as Record<string,unknown>[]:[];
+   for(const d of duties){
+    const lineId=String(d.lineId);
+    const line=((plan.lines??[]) as Record<string,unknown>[]).find(l=>String(l.id)===lineId);
+    const title=line?String(line.title):lineId;
+    const set=lineTitleToVolumes.get(title)??new Set<number>();
+    set.add(idx);lineTitleToVolumes.set(title,set);
+   }
+  });
+  const affected=new Set<number>();
+  const perVolumeIssues=new Map<number,{issue:string;sources:string[]}[]>();
+  const skeletonScoped:string[]=[];
+  const unclear:string[]=[];
+  const metaNotes:string[]=[]; // 有界续批“未尽列”等审查元信息：不参与影响定位，随修订提示如实携带
+  const lines=(Array.isArray(plan.lines)?plan.lines:[]) as Record<string,unknown>[];
+  const letterNum=(ch:string):number|null=>{const n=ch.toUpperCase().charCodeAt(0)-64;return n>=1&&n<=26?n:null;};
+  const pushIssue=(idx:number,item:{issue:string;sources:string[]})=>{
+   affected.add(idx);const list=perVolumeIssues.get(idx)??[];
+   if(!list.some(x=>x.issue===item.issue))list.push(item);
+   perVolumeIssues.set(idx,list);
+  };
+  for(const item of unified){
+   const text=item.issue;
+   if(text.startsWith('（本次审查分批返回仍未尽列')){metaNotes.push(text);continue;}
+   // 显示编号定位（审查listRule要求用 卷A/卷1/主线1 显示样式；位置映射是确定性对照非语义猜测）
+   const volNums=[...text.matchAll(/卷\s*([0-9一二三四五六七八九十]+)/gu)].map(m=>cnNum(m[1]!));
+   const volLetters=[...text.matchAll(/卷\s*([A-Za-z])/gu)].map(m=>letterNum(m[1]!));
+   const volSet=new Set<number>([...volNums,...volLetters].filter((n):n is number=>n!==null&&n>=1&&n<=oldVolumes.length));
+   if(/终卷|末卷|最后一卷/u.test(text)&&oldVolumes.length>0)volSet.add(oldVolumes.length);
+   if(volSet.size){for(const n of volSet)pushIssue(n-1,item);continue;}
+   // 线显示编号（主线1=骨架lines[0]）与线标题精确匹配→该线职责所在卷
+   const lineIdxs=new Set<number>();
+   for(const m of text.matchAll(/(?:主线|线)\s*([0-9一二三四五六七八九十]+)/gu)){
+    const n=cnNum(m[1]!);
+    if(n!==null&&n>=1&&n<=lines.length){
+     const title=String(lines[n-1]!.title);
+     for(const idx of lineTitleToVolumes.get(title)??[])lineIdxs.add(idx);
+    }
+   }
+   const lineHit=[...lineTitleToVolumes.keys()].filter(title=>text.includes(title));
+   for(const title of lineHit)for(const idx of lineTitleToVolumes.get(title)!)lineIdxs.add(idx);
+   if(lineIdxs.size){for(const idx of lineIdxs)pushIssue(idx,item);continue;}
+   if(/全书|结局|骨架|宏观节奏|总字数/u.test(text))skeletonScoped.push(text);
+   else unclear.push(text);
+  }
+  // 范围无法可靠判断→诚实needs_revision收束：不偷偷按整书重生、不丢弃任何阻塞问题，问题清单与原因一并交付作者（7662b6f6：不整书塞入骨架修订）
+  if(unclear.length||skeletonScoped.length||!affected.size){
+   const reasons=[...skeletonScoped.map(t=>`骨架级问题需整体方案层处理（本批不自动整书重生）：${t}`),...unclear.map(t=>`无法可靠定位影响范围：${t}`)];
+   if(!affected.size&&!reasons.length)reasons.push('修订范围为空但存在阻塞问题');
+   return {candidateId:run.id,revision:Number((candidate as unknown as {revision?:number}).revision??1),member:{id:writer.memberKey,name:writer.displayName},plan,review:{pass:false,issues:unified.map(u=>u.issue),suggestions:[]},selfCheck:{pass:false,issues:[]},blocked:reasons};
+  }
+
+  const skeletonLineIds=new Set<string>(((plan.lines??[]) as Record<string,unknown>[]).map(l=>String(l.id)));
+  const normalizations:{node:string;path:string;original:string[];normalized:string[]}[]=[];
+  const revised=new Map<number,Record<string,unknown>>();
+  for(const idx of [...affected].sort((a,b)=>a-b)){
+   const old=oldVolumes[idx]!;
+   const volumeId=String(old.id);
+   const volumeAnchors=oldAnchors.filter(a=>String(record(a).ownerEntityId)===volumeId);
+   const adjacent={
+    prev:idx>0?{title:oldVolumes[idx-1]!.title,ending:oldVolumes[idx-1]!.ending,handoff:oldVolumes[idx-1]!.handoff}:null,
+    next:idx<oldVolumes.length-1?{title:oldVolumes[idx+1]!.title,start:oldVolumes[idx+1]!.start}:null
+   };
+   // 有界修订请求：本卷原文及完整锚点+该卷问题及依据+相关作者要求/来源+前后卷交接+全书结局
+   const revisePrompt=`修订本卷卷卡：只修正本轮问题，不改变既定主线、全书结局、总字数、卷ID与顺序。保留正确内容。返回JSON对象 {"volumes":[本卷修订后完整卷卡]}（数组只含这一卷，完整合同对象，字段合同与生成时一致：id/title/beat/start/goal/conflict/turningPoint/gain/loss/arc/payoff/hook/mood/ending/handoff/words/anchors恰好两个entry+exit且ownerEntityId=${volumeId}/duties）。锚点条件要能按正文核对；required的close职责必须出现在其关联锚点至少一个条件的subjectIds中；硬预算：每个自然语言字段≤60字，锚点summary≤50字、条件summary≤40字，keywords≤12个且每个≤40字，整个JSON控制在3000字以内；不输出解释或章情节。正文字段面向作者用中文书写；提到卷时用“第${idx+1}卷”或卷名。
+本卷现行内容：${JSON.stringify(old)}
+本卷顶层锚点：${JSON.stringify(volumeAnchors)}
+本卷问题与依据（审查意见不是作者新增设定；sources标记来源：self-check=自检、review=独立审查）：${JSON.stringify({issues:perVolumeIssues.get(idx)??[],notes:metaNotes})}
+相关作者要求/来源（与来源事实区分，不得被候选覆盖）：${JSON.stringify({intent:snapshot.intent,cardFields:card.fields})}
+前后卷交接：${JSON.stringify(adjacent)}
+全书结局背景：${JSON.stringify(plan.ending)}`;
+   const revisedItems=await this.structured(run,scope,snapshot,`revise-volume:${volumeId}${suffix}`,writer,revisePrompt,v=>{
+    const items=record(v).volumes;
+    if(!Array.isArray(items)||items.length!==1)throw Error('修订必须恰好返回本卷一个完整卷卡');
+    const item=record(items[0]!);
+    if(String(item.id)!==volumeId)throw Error(`修订卷id=${JSON.stringify(item.id)}与现行${volumeId}不符`);
+    normalizeVolumeAnchorIds(item,new Map(((plan.lines??[]) as Record<string,unknown>[]).map(l=>[String(l.id),String(l.id)])));
+    this.validateVolumeCardOf(item,volumeId,idx,skeletonLineIds,normalizations);
+    return items;
+   });
+   revised.set(idx,record((revisedItems as unknown[])[0]!));
+  }
+  // 合并：未受影响卷逐字段不变（旧候选不可覆盖）；受影响卷用修订后内容；卷ID/顺序/字数不变
+  const newVolumes=oldVolumes.map((v,idx)=>revised.get(idx)??v);
+  for(const [idx,nv] of revised){
+   if(String(nv.id)!==String(oldVolumes[idx]!.id))throw Error('修订后卷ID被改变，拒绝合并');
+   const oldWords=JSON.stringify(record(oldVolumes[idx]!).words);const newWords=JSON.stringify(record(nv).words);
+   if(oldWords!==newWords)throw Error(`修订后卷${idx+1}字数预算被改变（${oldWords}→${newWords}），拒绝合并`);
+  }
+  // 顶层锚点重建：未受影响卷保留旧锚点；受影响卷用修订后锚点（归一化命名空间，不重复加前缀）
+  const newAnchors:unknown[]=[];
+  for(const [idx,v] of newVolumes.entries()){
+   const volumeId=String(record(v).id);
+   if(revised.has(idx)){
+    const list=(v.anchors??[]) as unknown[];
+    if(!Array.isArray(list))throw Error('修订卷锚点格式错误');
+    for(const anchor of list){const a=record(anchor);
+     const rawId=String(a.id);
+     const namespaced=rawId.startsWith(`${volumeId}:`)?rawId:`${volumeId}:${rawId}`; // 不重复加前缀
+     newAnchors.push({...a,id:namespaced});}
+   }else{
+    newAnchors.push(...oldAnchors.filter(a=>String(record(a).ownerEntityId)===volumeId));
+   }
+  }
+  // 修订卷职责引用同步到命名空间锚点（与生成侧一致的归一化）
+  const newVolumesFixed=newVolumes.map((v,idx)=>{
+   if(!revised.has(idx))return v;
+   const volumeId=String(record(v).id);
+   const list=(v.anchors??[]) as Record<string,unknown>[];
+   const renamed=new Map<string,string>();
+   for(const a of list){const rawId=String(a.id);renamed.set(rawId,rawId.startsWith(`${volumeId}:`)?rawId:`${volumeId}:${rawId}`);}
+   const duties=(Array.isArray(v.duties)?v.duties as Record<string,unknown>[]:[]).map(d=>{
+    const ids=Array.isArray(d.anchorIds)?d.anchorIds as unknown[]:[];
+    return {...d,anchorIds:ids.map(id=>renamed.get(String(id))??String(id))};
+   });
+   const {anchors:_a,...rest}=v;return {...rest,duties};
+  });
+  const newPlan={...plan,anchors:newAnchors,volumes:newVolumesFixed};
+  const newCandidate=parseCandidate({schemaVersion:2,manifest:snapshot.manifest,member:{id:writer.memberKey,name:writer.displayName,model:writer.model.modelId,routeRevision:String(writer.governanceRevision)},plan:newPlan});
+  const existing=this.plans.readCandidate(scope,run.id,2);if(existing&&digest(existing)!==digest(newCandidate))throw Error('已保存候选与恢复结果不同');
+  const revision=existing?2:this.plans.saveCandidate(scope,run.id,1,newCandidate);
+  if(normalizations.length)this.db.prepare("INSERT OR IGNORE INTO tm2_outbox(owner,book,id,kind,body) VALUES(?,?,?,'design.volume-normalization',?)").run(scope.ownerId,scope.bookId,`${run.id}:volume-normalization:1`,JSON.stringify({runId:run.id,revisionRound:1,items:normalizations}));
+  // 修订后确定性检查→自检→异模型审查（复查覆盖相关相邻交接/全书收束；旧pass不自动放行新候选）
+  const planObject=newCandidate.plan as unknown as Record<string,unknown>;
+  const selfParse=(v:unknown)=>{const r=record(v);if(typeof r.pass!=='boolean'||!Array.isArray(r.issues)||r.issues.some(x=>typeof x!=='string'||x.length>2000))throw Error('自检格式错误');return {issues:r.issues as string[],pass:r.pass===true&&r.issues.length===0};};
+  const structureCheck=await this.structured(run,scope,snapshot,`self-check${suffix}`,writer,`自检你刚完成的全书方案草案的结构部分。返回 {"pass":true或false,"issues":["具体问题"]}。逐项检查：分卷字数合计是否等于全书预算；主支线过程与关键落点建议卷是否合理；职责strength是否与故事需要一致；每卷payoff是否兑现开篇期待；终卷是否收束全书。发现问题只描述问题，不重写方案；没有问题pass=true。\n作者选择：${snapshot.intent}\n紧凑候选：${JSON.stringify(this.compactPlanForStructure(planObject))}`,selfParse);
+  const anchorCheck=await this.structured(run,scope,snapshot,`self-check-anchors${suffix}`,writer,`自检候选锚点与条件。返回 {"pass":true或false,"issues":["具体问题"]}。逐项检查：每卷开场/收束锚点条件是否具体可核对（锚点条件是设计阶段定义、将来由正文兑现的核对点，本阶段没有正文是正常前提，不以“尚无正文”判问题）、是否存在把将来承诺当已达成的循环表述、与开场/收束文字是否自洽。发现问题只描述问题，不重写方案；没有问题pass=true。\n锚点清单：${JSON.stringify(this.anchorsSelfCheckSection(planObject))}`,selfParse);
+  const selfCheck={issues:[...structureCheck.issues,...anchorCheck.issues],pass:structureCheck.pass&&anchorCheck.pass};
+  const review=await this.independentReview(run,scope,snapshot,card,newCandidate,(node,member,prompt,parse)=>this.structured(run,scope,snapshot,`${node}${suffix}`,member,prompt,parse));
+  const reviewerMember=snapshot.members.reviewer??snapshot.members.chief;
+  this.plans.review(scope,run.id,revision,reviewerMember.memberKey,review.pass?'pass':'revise');
+  return {candidateId:run.id,revision,member:{id:writer.memberKey,name:writer.displayName},plan:newCandidate.plan,review,selfCheck};
+ }
  private async design(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,card:ContextCard,revisionRound=0,feedback?:{issues:unknown;plan:unknown}):Promise<unknown>{
   const writer=snapshot.members.writer;
   const suffix=revisionRound?`:revision-${revisionRound}`:'';
@@ -438,7 +634,7 @@ export class TimeMachineDesignService {
     // skeleton带全书旧方案紧凑视图。无影响卷保留，不整轮无差别重写。
     const previousPart=node.startsWith('volumes:')?oldVolumes.slice(Number(node.split(':')[1]),Number(node.split(':')[1])+2)
      :node.startsWith('volume-card:')?(()=>{const old=Array.isArray(oldVolumes)?oldVolumes[Number(node.split(':')[1])]:undefined;if(!old)return undefined;const oldId=String(record(old).id);const oldAnchors=Array.isArray(previous.anchors)?(previous.anchors as unknown[]).filter(a=>String(record(a).ownerEntityId)===oldId):[];return {volume:old,anchors:oldAnchors};})()
-     :node==='skeleton'?{...previous,volumes:oldVolumes.map(v=>{const x=record(v);return {id:x.id,title:x.title,goal:x.goal,words:x.words};})}:undefined;
+     :node==='skeleton'?{structure:previous.structure,baseline:previous.baseline,ending:previous.ending,lines:previous.lines,expectations:previous.expectations,relations:previous.relations,volumeBriefs:oldVolumes.map(v=>{const x=record(v);return {id:x.id,title:x.title,goal:x.goal,words:x.words};})}:undefined;
     correction='\\n上轮意见（不是作者新增设定）：'+JSON.stringify({issues:feedback.issues,previousPart})+'。只修正有问题的内容；保留正确的主线、结局与卷编号；不要把审查要求写成故事内容。';
    }
    return this.structured(run,scope,snapshot,node+suffix,member,prompt+correction,parse);
@@ -476,50 +672,7 @@ export class TimeMachineDesignService {
   // K3批：本design()内发生的机械归一化记录（keywords/aliases裁切），随候选保存落tm2_outbox供审查。
   const normalizations:{node:string;path:string;original:string[];normalized:string[]}[]=[];
   // 卷卡接受前预检（30a6f053）：结构/ID/引用按本卷就地校验，失败给出精确字段路径，一次局部修复；最终parseCandidate仍做全候选校验。
-  const validateVolumeCard=(item:Record<string,unknown>,briefId:string,index:number)=>{
-   const path=`volumes[${index}]（概要id=${briefId}）`;
-   if(String(item.id)!==String(briefId))throw Error(`${path}.id=${JSON.stringify(item.id)}与概要不符`);
-   const list=item.anchors;
-   if(!Array.isArray(list)||list.length!==2)throw Error(`${path}.anchors必须恰好2个（entry+exit），实得${Array.isArray(list)?list.length:'非数组'}`);
-   const kinds=new Set<string>();const ownAnchorIds=new Set<string>();
-   for(const anchor of list){const a=record(anchor);const anchorPath=`${path}.anchors[id=${JSON.stringify(a.id)}]`;
-    if(String(a.ownerEntityId)!==String(briefId))throw Error(`${anchorPath}.ownerEntityId=${JSON.stringify(a.ownerEntityId)}必须为本卷id`);
-    kinds.add(String(a.kind));ownAnchorIds.add(String(a.id));
-    if(!Array.isArray(a.conditions))throw Error(`${anchorPath}.conditions必须为数组`);
-    for(const condition of a.conditions){const cd=record(condition);if(!Array.isArray(cd.subjectIds))throw Error(`${anchorPath}.conditions[].subjectIds必须为数组`);
-     for(const subject of cd.subjectIds)if(!skeletonLineIds.has(String(subject)))throw Error(`${anchorPath}.conditions[].subjectIds=${JSON.stringify(subject)}不在骨架线内`);}}
-   if(!kinds.has('entry')||!kinds.has('exit'))throw Error(`${path}.anchors必须一个kind=entry一个kind=exit`);
-   // 系统侧合同预算归一化（30a6f053）：keywords/aliases按合同上限≤12项、每项≤40字就地裁剪，
-   // 与text()对字符串的截断同语义；不退回模型重写、不放宽上限。
-   // K3批：归一化不再静默——原始模型输出在tm2_steps完整保留，实际发生的裁切逐项记录并落tm2_outbox供审查。
-   for(const anchor of list){const a=record(anchor);
-    for(const field of ['keywords','aliases'] as const){const value=a[field];
-     if(!Array.isArray(value))continue;
-     const normalized=(value as unknown[]).slice(0,12).map(x=>String(x).slice(0,40)).filter(Boolean);
-     if(JSON.stringify(normalized)!==JSON.stringify(value))normalizations.push({node:`volume-card:${index}`,path:`${path}.anchors[id=${JSON.stringify(a.id)}].${field}`,original:value.map(x=>String(x)),normalized});
-     (a as Record<string,unknown>)[field]=normalized;}}
-   const dutyList=item.duties;
-   if(!Array.isArray(dutyList)||!dutyList.length)throw Error(`${path}.duties不能为空`);
-   for(const duty of dutyList){const d=record(duty);const dutyPath=`${path}.duties[lineId=${JSON.stringify(d.lineId)}]`;
-    if(!skeletonLineIds.has(String(d.lineId)))throw Error(`${dutyPath}.lineId不在骨架线内`);
-    if(!['start','advance','pause','close'].includes(String(d.action)))throw Error(`${dutyPath}.action=${JSON.stringify(d.action)}必须是start/advance/pause/close`);
-    if(!['required','flexible'].includes(String(d.strength)))throw Error(`${dutyPath}.strength必须是required或flexible`);
-    const ids=Array.isArray(d.anchorIds)?d.anchorIds:[];if(!ids.length)throw Error(`${dutyPath}.anchorIds不能为空`);
-    for(const id of ids)if(!ownAnchorIds.has(String(id)))throw Error(`${dutyPath}.anchorIds=${JSON.stringify(id)}不在本卷锚点内`);}
-   // required close职责的锚点覆盖预检（2026-09-15 S1-A真实探针run3方案C：独立审查两轮revise均指出
-   // required收束线未被任何关联锚点条件列为核对对象，收束无法按正文核对——真实矛盾，生成侧就地校验）。
-   // 只覆盖可机械核对的事实（subjectIds是否包含该线）；条件文字与start的一致性判断仍归独立审查。
-   for(const duty of dutyList){const d=record(duty);
-    if(String(d.action)!=='close'||String(d.strength)!=='required')continue;
-    const linked=(Array.isArray(d.anchorIds)?d.anchorIds:[]).map(String);
-    const covered=list.some(anchor=>{const a=record(anchor);if(!linked.includes(String(a.id)))return false;
-     return (a.conditions as unknown[]).some(cd=>{const subjects=record(cd).subjectIds;return Array.isArray(subjects)&&subjects.map(String).includes(String(d.lineId));});});
-    if(!covered)throw Error(`${path}.duties[lineId=${JSON.stringify(d.lineId)}]为required close，但关联锚点conditions均未把该线列入subjectIds，收束无法按正文核对：请在exit锚点conditions中加入该线的可核对条件，或降为flexible`);}
-   const words=record(item.words).target;
-   if(!Number.isSafeInteger(Number(words))||Number(words)<=0)throw Error(`${path}.words.target必须是正整数`);
-   const serialized=JSON.stringify(item);
-   if(serialized.length>6000)throw Error(`${path}整体输出${serialized.length}字符过长（>6000）：请把每个自然语言字段压缩到60字以内、锚点summary≤50字、条件summary≤40字、keywords合计≤12个，不输出解释或章情节`);
-  };
+  const validateVolumeCard=(item:Record<string,unknown>,briefId:string,index:number)=>this.validateVolumeCardOf(item,briefId,index,skeletonLineIds,normalizations);
   if(perVolume){
    // 逐卷有界生成（30a6f053）：单卷一次请求，输出规模与总卷数无关；截断只重做当前卷（步骤缓存保留已完成卷）。
    for(let i=0;i<briefs.length;i++){
@@ -572,7 +725,7 @@ export class TimeMachineDesignService {
      else unified.push({issue,sources:[source]});
     }
    }
-   if(unified.length)return this.design(run,scope,snapshot,card,1,{issues:unified,plan:candidate.plan});
+   if(unified.length)return this.localRevision(run,scope,snapshot,card,unified,candidate); // 局部修订：只修受影响卷卡（7662b6f6修订闭环收尾）；全书级问题由localRevision内显式骨架投影处理或诚实阻塞
   }
   return {candidateId:run.id,revision,member:{id:writer.memberKey,name:writer.displayName},plan:candidate.plan,review,selfCheck};
  }

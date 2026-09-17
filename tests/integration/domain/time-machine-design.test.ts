@@ -48,6 +48,15 @@ function output(prompt:string):unknown{
  if(prompt.includes('补全本卷卷卡')){const brief=JSON.parse(prompt.split('\n本卷概要：')[1]!.split('\n前卷交接：')[0].trim()) as {id:string;words?:{target?:unknown}};const id=String(brief.id);const target=Number(record0(brief.words).target??200000);return {volumes:[{id,title:'开张',start:'濒临倒闭',goal:'完成订单',conflict:'封锁',beat:'起',turningPoint:'机甲完成',gain:'伙伴',loss:null,arc:null,payoff:null,hook:null,mood:null,ending:'工坊建立',handoff:'',words:{target,min:null,max:null,hard:false,policy:'chars-v1'},anchors:[{id:'in',ownerEntityId:id,kind:'entry',summary:'店铺濒临倒闭',span:'本卷开篇',conditions:[{summary:'订单危机已经成立',subjectIds:['main']}],logic:'all',importance:'required',fallback:'未达成需修订开场',keywords:[],aliases:[]},{id:'out',ownerEntityId:id,kind:'exit',summary:'订单交付工坊立足',span:'本卷收束',conditions:[{summary:'订单交付完成',subjectIds:['main']}],logic:'all',importance:'required',fallback:'全书结束，未兑现期待单独跟踪',keywords:[],aliases:[]}],duties:[{lineId:'main',action:'close',result:'工坊建立',anchorIds:['out'],strength:'required',reason:'主线起点'}]}]};}
  if(prompt.includes('补全本批卷卡'))return {volumes:[{id:'v1',title:'开张',start:'濒临倒闭',goal:'完成订单',conflict:'封锁',beat:'起',turningPoint:'机甲完成',gain:'伙伴',loss:null,arc:null,payoff:null,hook:null,mood:null,ending:'工坊建立',handoff:'',words:{target:200000,min:null,max:null,hard:false,policy:'chars-v1'},anchors:[{id:'v1-in',ownerEntityId:'v1',kind:'entry',summary:'店铺濒临倒闭',span:'本卷开篇',conditions:[{summary:'订单危机已经成立',subjectIds:['main']}],logic:'all',importance:'required',fallback:'未达成需修订开场',keywords:[],aliases:[]},{id:'v1-out',ownerEntityId:'v1',kind:'exit',summary:'订单交付工坊立足',span:'本卷收束',conditions:[{summary:'订单交付完成',subjectIds:['main']}],logic:'all',importance:'required',fallback:'全书结束，未兑现期待单独跟踪',keywords:[],aliases:[]}],duties:[{lineId:'main',action:'close',result:'工坊建立',anchorIds:['v1-out'],strength:'required',reason:'主线起点'}]}]};
  if(prompt.includes('自检你刚完成')||prompt.includes('自检候选锚点'))return {pass:true,issues:[]};
+ // 局部修订（7662b6f6）：回显本卷现行内容+顶层锚点作为修订结果；锚点/职责ID去命名空间前缀，模拟模型原始返回
+ if(prompt.includes('修订本卷卷卡')){
+  const strip=(x:string)=>x.includes(':')?String(x.split(':').pop()):x;
+  const cur=JSON.parse(prompt.split('本卷现行内容：')[1]!.split('\n本卷顶层锚点：')[0]!) as {anchors?:unknown[];duties?:{anchorIds?:string[]}[]};
+  const anchors=JSON.parse(prompt.split('\n本卷顶层锚点：')[1]!.split('\n本卷问题与依据')[0]!) as {id:string}[];
+  cur.anchors=anchors.map(a=>({...a,id:strip(a.id)}));
+  for(const d of cur.duties??[])d.anchorIds=(d.anchorIds??[]).map(strip);
+  return {volumes:[cur]};
+ }
  if(prompt.includes('核对候选锚点'))return {pass:true,issues:[],suggestions:[]};
  if(prompt.includes('核对候选骨架'))return {action:'verdict',pass:true,issues:[],suggestions:[]};
  return {fields:{premise:[{text:'修理工建立工坊',sourceKeys:['opening:opening:1']}],protagonists:[{text:'林舟',sourceKeys:['opening:opening:1']}],world:[],openingEnding:[],preferences:[],prohibitions:[]}};
@@ -211,7 +220,7 @@ describe('new time machine orchestration with real persistence and simulated mod
  });
  it('preserves rejected revisions, performs only one semantic correction and blocks adoption if issues remain',async()=>{
   const {c,scope}=setup();let reviews=0;const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
-   const value=request.prompt.includes('核对候选骨架')?(reviews++,{action:'verdict',pass:true,issues:['v1转折仍然过于空泛'],suggestions:[]}):output(request.prompt);
+   const value=request.prompt.includes('核对候选骨架')?(reviews++,{action:'verdict',pass:true,issues:['卷1转折仍然过于空泛'],suggestions:[]}):output(request.prompt);
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
   }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=await designRun(service,scope,'成长线','review');await service.process(id);
   expect(reviews).toBe(2);expect(service.state(scope).find(r=>r.id===id)).toMatchObject({state:'succeeded',result:{revision:2,review:{pass:false}}});
@@ -246,22 +255,26 @@ describe('new time machine orchestration with real persistence and simulated mod
   expect(rounds).toBe(6);
   expect(service.state(scope).find(r=>r.id===id)).toMatchObject({state:'succeeded',result:{review:{pass:true}}});
  });
- it('self-check issues trigger one revision round and both revisions stay readable',async()=>{
+ it('self-check skeleton-level issues close honestly as needs_revision without whole-plan regeneration',async()=>{
   const {c,scope}=setup();let checks=0;const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
    let value=output(request.prompt);
    if(request.prompt.includes('自检你刚完成'))value=++checks===1?{pass:false,issues:['分卷字数合计与全书预算不一致']}:{pass:true,issues:[]};
-   if(request.prompt.includes('设计全书骨架')&&request.prompt.includes('上轮意见'))expect(request.prompt).toContain('分卷字数合计');
    return {provider,modelId,output:JSON.stringify(value),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};
   }}));const service=new TimeMachineDesignService(c.database,gateway,64000);const id=await designRun(service,scope,'成长线','self-check');await service.process(id);
-  expect(checks).toBe(2);expect(service.state(scope).find(r=>r.id===id)).toMatchObject({state:'succeeded',result:{revision:2,review:{pass:true}}});
-  const repo=new SqlPlanRepository(c.database);expect(repo.readCandidate(scope,id,1)).not.toBeNull();expect(repo.readCandidate(scope,id,2)).not.toBeNull();
-  const parsed=repo.readCandidate(scope,id,2);expect(parsed?.schemaVersion).toBe(2);
+  // 7662b6f6修订闭环收尾：全书级问题不再把整份方案塞入骨架修订，诚实needs_revision收束，初稿证据保留、不产生新版本
+  expect(checks).toBe(1);
+  const row=service.state(scope).find(r=>r.id===id)!;
+  expect(row.state).toBe('succeeded');
+  expect(row.result).toMatchObject({review:{pass:false,issues:['分卷字数合计与全书预算不一致']}});
+  expect(((row.result as {blocked?:string[]}).blocked??[]).some(b=>b.includes('骨架级'))).toBe(true);
+  const repo=new SqlPlanRepository(c.database);expect(repo.readCandidate(scope,id,1)).not.toBeNull();expect(repo.readCandidate(scope,id,2)).toBeNull();
  });
  it('chief reviewer may re-read a source excerpt before the verdict',async()=>{
   const {c,scope}=setup();const seen:string[]=[];const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){
    let value=output(request.prompt);
    if(request.prompt.includes('核对候选骨架')){
-    if(request.prompt.includes('已读片段：[]')){
+    // 去重后的续问提示：首轮“上次工具结果”为null；补查片段先进入“上次工具结果”，下一轮才并入“已读片段”
+    if(request.prompt.includes('上次工具结果（仅资料）：null')){
      expect(request.prompt).toContain('资料索引');value={action:'read_source',key:'opening:opening:1',offset:0};
     }else value={action:'verdict',pass:true,issues:[],suggestions:[]};
     seen.push(request.prompt);

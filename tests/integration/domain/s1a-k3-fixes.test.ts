@@ -39,6 +39,11 @@ function makeGateway(c:TestContext,overrides:Overrides,counters:Counters){
     return result(provider,modelId,{volumes:[overrides.volume?overrides.volume(String(brief.id),['main']):volumeCardFor(String(brief.id),['main'])]});
    }
    if(p.includes('自检你刚完成')||p.includes('自检候选锚点'))return result(provider,modelId,{pass:true,issues:[]});
+   // 局部修订（7662b6f6）：按本卷现行内容的卷id回返该卷修订后完整卷卡
+   if(p.includes('修订本卷卷卡')){
+    const idMatch=p.match(/本卷现行内容：\{"id":"(v\d+)"/u);
+    return result(provider,modelId,{volumes:[volumeCardFor(idMatch?.[1]??'v1',['main'])]});
+   }
    if(p.includes('核对候选锚点'))return result(provider,modelId,{pass:true,issues:[],suggestions:[]});
    if(p.includes('只返回尚未报告的其余阻塞问题')){counters.reviewMoreAttempts++;return result(provider,modelId,overrides.reviewMore?overrides.reviewMore(counters.reviewMoreAttempts):{pass:false,issues:[],suggestions:[],hasMoreIssues:false});}
    if(p.includes('核对候选骨架'))return result(provider,modelId,overrides.review?overrides.review(1):{action:'verdict',pass:true,issues:[],suggestions:[]});
@@ -86,15 +91,17 @@ describe('K3 batch: volume-card inputs, storyline coverage, normalization audit'
   await service.process(runId);
   const done=service.state(scope).find(r=>r.id===runId)!;
   expect(done.state).toBe('succeeded');
-  const revisionVolumePrompts=counters.seenPrompts.filter(p=>p.includes('补全本卷卷卡')&&p.includes('上轮意见'));
+  // 局部修订（7662b6f6）：修订提示携带本卷旧内容+本卷顶层锚点，不携带无关卷
+  const revisionVolumePrompts=counters.seenPrompts.filter(p=>p.includes('修订本卷卷卡'));
   expect(revisionVolumePrompts.length).toBeGreaterThan(0);
   for(const prompt of revisionVolumePrompts){
-   const feedback=JSON.parse(prompt.split('上轮意见（不是作者新增设定）：')[1]!.split('。只修正有问题的内容')[0]!) as {issues:unknown;previousPart:{volume:{id:string;title:string};anchors:{ownerEntityId:string;summary:string}[]}};
-   expect(feedback.previousPart.volume.id).toBe('v1'); // 本卷旧内容
-   expect(feedback.previousPart.volume.title).toBe('开张');
-   expect(feedback.previousPart.anchors).toHaveLength(2); // 本卷顶层锚点（entry+exit）
-   for(const anchor of feedback.previousPart.anchors)expect(anchor.ownerEntityId).toBe('v1');
-   expect(JSON.stringify(feedback.previousPart)).not.toContain('扩张'); // 不携带无关卷旧内容
+   const current=JSON.parse(prompt.split('本卷现行内容：')[1]!.split('\n本卷顶层锚点：')[0]!) as {id:string;title:string};
+   expect(current.id).toBe('v1'); // 本卷旧内容
+   expect(current.title).toBe('开张');
+   const anchors=JSON.parse(prompt.split('\n本卷顶层锚点：')[1]!.split('\n本卷问题与依据')[0]!) as {ownerEntityId:string;summary:string}[];
+   expect(anchors).toHaveLength(2); // 本卷顶层锚点（entry+exit）
+   for(const anchor of anchors)expect(anchor.ownerEntityId).toBe('v1');
+   expect(prompt).not.toContain('扩张'); // 不携带无关卷旧内容（单卷计划无相邻卷）
   }
  });
  it('seven valid selections (including author-added lines) all get a traceable line, no fixed cap',async()=>{
@@ -169,9 +176,9 @@ describe('K3 batch: volume-card inputs, storyline coverage, normalization audit'
   let reviewCalls=0;
   const {c,scope,service}=setup({
    review:()=>{reviewCalls++;return reviewCalls===1
-    ?{action:'verdict',pass:false,issues:['问题1：卷A字数不足','问题2：主线2无落点'],suggestions:[],hasMoreIssues:true}
+    ?{action:'verdict',pass:false,issues:['问题1：卷A字数不足','问题2：主线1无落点'],suggestions:[],hasMoreIssues:true}
     :{action:'verdict',pass:true,issues:[],suggestions:[]};},
-   reviewMore:()=>({pass:false,issues:['问题1：卷A字数不足','问题3：卷B收束未兑现'],suggestions:[],hasMoreIssues:false}),
+   reviewMore:()=>({pass:false,issues:['问题1：卷A字数不足','问题3：卷A收束未兑现'],suggestions:[],hasMoreIssues:false}),
   },counters,'k3-more-book');
   const rec=await recommend(service,scope,'k3-more-rec');
   const created=service.startDesignRound(scope,selectionFor(rec),'k3-more-round');
@@ -182,13 +189,12 @@ describe('K3 batch: volume-card inputs, storyline coverage, normalization audit'
   expect(counters.reviewMoreAttempts).toBe(1);
   // 续批提示词携带已报告清单防重复
   const morePrompt=counters.seenPrompts.find(p=>p.includes('只返回尚未报告的其余阻塞问题'))!;
-  expect(morePrompt).toContain('问题2：主线2无落点');
-  // 第一轮按合并清单判revise；去重后进入修订轮反馈（问题1只出现一次，问题3被收齐）
+  expect(morePrompt).toContain('问题2：主线1无落点');
+  // 第一轮按合并清单判revise；去重后进入局部修订输入（问题1只出现一次，问题3被收齐）
   expect(c.database.prepare("SELECT verdict FROM tm2_reviews WHERE candidate=? AND revision=1").get(runId)).toMatchObject({verdict:'revise'});
-  const revisionSkeleton=counters.seenPrompts.filter(p=>p.includes('设计全书骨架。只设计'))[1]!;
-  const feedback=revisionSkeleton.split('上轮意见（不是作者新增设定）：')[1]!;
-  expect(feedback).toContain('问题3：卷B收束未兑现');
-  expect(feedback.match(/问题1：卷A字数不足/g)!.length).toBe(1);
+  const revisionPrompt=counters.seenPrompts.find(p=>p.includes('修订本卷卷卡'))!;
+  expect(revisionPrompt).toContain('问题3：卷A收束未兑现');
+  expect(revisionPrompt.match(/问题1：卷A字数不足/g)!.length).toBe(1);
  });
  it('continuation is bounded: still-more after two batches gets an honest marker instead of silent truncation',async()=>{
   const counters:Counters={skeletonAttempts:0,reviewMoreAttempts:0,seenPrompts:[]};
@@ -198,7 +204,7 @@ describe('K3 batch: volume-card inputs, storyline coverage, normalization audit'
     ?{action:'verdict',pass:false,issues:['甲：卷A开场矛盾'],suggestions:[],hasMoreIssues:true}
     :{action:'verdict',pass:true,issues:[],suggestions:[]};},
    reviewMore:(attempt)=>attempt===1
-    ?{pass:false,issues:['乙：卷B锚点缺条件'],suggestions:[],hasMoreIssues:true}
+    ?{pass:false,issues:['乙：卷A锚点缺条件'],suggestions:[],hasMoreIssues:true}
     :{pass:false,issues:['丙：终卷未收束'],suggestions:[],hasMoreIssues:true},
   },counters,'k3-bound-book');
   const rec=await recommend(service,scope,'k3-bound-rec');
@@ -208,10 +214,10 @@ describe('K3 batch: volume-card inputs, storyline coverage, normalization audit'
   const done=service.state(scope).find(r=>r.id===runId)!;
   expect(done.state).toBe('succeeded');
   expect(counters.reviewMoreAttempts).toBe(2); // 有界：每个审查节点最多2次续批
-  const revisionSkeleton=counters.seenPrompts.filter(p=>p.includes('设计全书骨架。只设计'))[1]!;
-  expect(revisionSkeleton).toContain('乙：卷B锚点缺条件');
-  expect(revisionSkeleton).toContain('丙：终卷未收束');
-  expect(revisionSkeleton).toContain('未尽列'); // 不硬截清单，如实标记仍有余项
+  const revisionPrompt=counters.seenPrompts.find(p=>p.includes('修订本卷卷卡'))!;
+  expect(revisionPrompt).toContain('乙：卷A锚点缺条件');
+  expect(revisionPrompt).toContain('丙：终卷未收束');
+  expect(revisionPrompt).toContain('未尽列'); // 不硬截清单，如实标记仍有余项
  });
  it('node budget strategy tm2-node-budget-v2 widens headroom only for measured large synthesis nodes',()=>{
   expect(timeMachineSynthesisHeadroom('glm-5.3',8000)).toBe(24000);

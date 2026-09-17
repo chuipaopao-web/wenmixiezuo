@@ -232,9 +232,9 @@ describe('审查证据链（集中复核③）', () => {
 });
 
 describe('锚点截断单卷降级（067bbc24收尾决定）', () => {
-  const volumeOf = (id: string, isLast = false): Record<string, unknown> => ({
+  const volumeOf = (id: string, isLast = false, revised = false): Record<string, unknown> => ({
     id, title: `卷${id}`, start: '开局成立', goal: '本卷目标', conflict: '封锁', beat: '起',
-    turningPoint: '关键转折事件', gain: '伙伴', loss: null, arc: null, payoff: null, hook: null, mood: null,
+    turningPoint: revised ? '修订后转折事件' : '关键转折事件', gain: '伙伴', loss: null, arc: null, payoff: null, hook: null, mood: null,
     ending: '本卷收束达成', handoff: isLast ? '' : '引出下卷', words: { target: 100000, min: null, max: null, hard: false, policy: 'chars-v1' },
     anchors: [
       { id: 'in', ownerEntityId: id, kind: 'entry', summary: '开场状态成立', span: '本卷开篇', conditions: [{ summary: '开局已经成立', subjectIds: ['main'] }], logic: 'all', importance: 'required', fallback: '补开场', keywords: [], aliases: [] },
@@ -246,6 +246,10 @@ describe('锚点截断单卷降级（067bbc24收尾决定）', () => {
     if (prompt.includes('核对短卡是否')) return { pass: true, issues: [] };
     if (prompt.includes('判断需要哪些方法')) return prompt.includes('上次工具结果（仅资料）：null') ? { action: 'search_methods', category: '', cursor: 0 } : { action: 'ready', selected: [] };
     if (prompt.includes('设计全书骨架。只设计')) return { structure: '三幕', baseline: `轻快-${modelId}`, ending: '建立工坊', openingHooks: ['钩1', '钩2', '钩3'], words: { target: 300000, min: null, max: null, hard: false, policy: 'chars-v1' }, lines: [{ id: 'main', role: 'main', title: '工坊', goal: '立足', answer: '建立工坊', process: '从修理到建立工坊', parentIds: [], covers: ['成长线'], milestones: [] }], expectations: [{ id: 'promise', opening: '能否立足', change: '看到变化', answer: '以机甲立足', lineIds: ['main'] }], relations: [], volumeBriefs: [{ id: 'v1', title: '开张', goal: '立足', words: { target: 100000, min: null, max: null, hard: false, policy: 'chars-v1' } }, { id: 'v2', title: '扩张', goal: '扩张', words: { target: 100000, min: null, max: null, hard: false, policy: 'chars-v1' } }, { id: 'v3', title: '兑现', goal: '兑现', words: { target: 100000, min: null, max: null, hard: false, policy: 'chars-v1' } }] };
+    if (prompt.includes('修订本卷卷卡')) {
+      const idMatch = prompt.match(/"id"\s*:\s*"(v\d)"/u);
+      return { volumes: [volumeOf(idMatch?.[1] ?? 'v2', true)] };
+    }
     if (prompt.includes('补全本卷卷卡') || prompt.includes('补全本批卷卡')) {
       const briefMatch = prompt.match(/"id"\s*:\s*"(v\d)"/u);
       const id = briefMatch?.[1] ?? 'v1';
@@ -254,10 +258,13 @@ describe('锚点截断单卷降级（067bbc24收尾决定）', () => {
     if (prompt.includes('自检你刚完成') || prompt.includes('自检候选锚点')) return { pass: true, issues: [] };
     if (prompt.includes('核对候选骨架')) return { action: 'verdict', pass: true, issues: [], suggestions: [], hasMoreIssues: false };
     if (prompt.includes('核对候选锚点')) {
-      if (anchorsMode === 'truncate-batch' && prompt.includes('本批') && prompt.includes('"id":"v2"')) return '__TRUNCATE__';
+      // child2-issues同样先让父批[v1,v2]截断走单卷降级——父批提示里也含“本卷”（锚点span“本卷开篇”），
+      // 若父批直接命中问题分支，问题不会经reviewByVolumes加卷名前缀，与子卷路径证据形态不一致。
+      if ((anchorsMode === 'truncate-batch' || anchorsMode === 'child2-issues') && prompt.includes('本批') && prompt.includes('"id":"v2"')) return '__TRUNCATE__';
       if (anchorsMode === 'fail-child2' && prompt.includes('本卷') && prompt.includes('"id":"v2"')) return '__FAIL2__';
       if (anchorsMode === 'fail-child2' && prompt.includes('本卷') && prompt.includes('"id": "v2"')) return '__FAIL2__';
-      if (anchorsMode === 'child2-issues' && prompt.includes('本卷') && prompt.includes('v2')) return { pass: false, issues: ['v2锚点条件空泛循环'], suggestions: [], hasMoreIssues: false };
+      // 只匹配单卷子提示："id":"v2"带引号排除相邻交接里的卷名“卷v2”（v1子提示相邻next.title含v2字样）
+      if (anchorsMode === 'child2-issues' && prompt.includes('本卷') && prompt.includes('"id":"v2"')) return { pass: false, issues: ['卷2锚点条件空泛循环'], suggestions: [], hasMoreIssues: false };
       return { pass: true, issues: [], suggestions: [], hasMoreIssues: false };
     }
     return { fields: { premise: [{ text: '修理工建立工坊', sourceKeys: ['opening:opening:1'] }], protagonists: [{ text: '林舟', sourceKeys: ['opening:opening:1'] }], world: [], openingEnding: [], preferences: [], prohibitions: [] } };
@@ -331,13 +338,19 @@ describe('锚点截断单卷降级（067bbc24收尾决定）', () => {
     expect(calls.filter(p => p.includes('补全本')).length).toBe(0); // 卷卡零重发
   });
 
-  it('子卷有阻塞问题→不得放行：合取为false且问题带卷名前缀', async () => {
+  it('子卷有阻塞问题→不得放行：合取为false且问题带卷名前缀，首轮修订证据在案', async () => {
     const { c, scope } = setup();
-    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, splitAdapter([], 'child2-issues')), 64000);
+    const calls: string[] = [];
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, splitAdapter(calls, 'child2-issues')), 64000);
     const created = await round(service, scope, 'split-r3');
     await service.process(created[0]!.id);
-    const run = service.state(scope).find(r => r.id === created[0]!.id)!;
-    expect(run.result?.review.pass).toBe(false);
-    expect(run.result?.review.issues.some(i => i.includes('v2') || i.includes('扩张'))).toBe(true);
+    // 首轮审查verdict记录revise（合取false不冒充通过），修订后复查放行的新版本不掩盖首轮证据
+    const verdicts = c.database.prepare('SELECT verdict, revision FROM tm2_reviews WHERE owner=? AND book=? AND candidate=? ORDER BY rowid').all(scope.ownerId, scope.bookId, created[0]!.id) as { verdict: string; revision: number }[];
+    expect(verdicts[0]?.verdict).toBe('revise');
+    // 阻塞问题带卷名前缀进入修订输入（修订请求证据可查）
+    const revisePrompt = calls.find(p => p.includes('修订本卷卷卡')) ?? '';
+    expect(revisePrompt).toContain('卷2锚点条件空泛循环'); // 问题原文进入修订输入
+    expect(revisePrompt).toMatch(/卷2（[^）]+）：卷2锚点条件空泛循环/u); // 带卷名前缀可定位
+    expect(revisePrompt).toContain('本卷问题与依据');
   });
 });

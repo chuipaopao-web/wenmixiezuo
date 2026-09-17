@@ -41,6 +41,11 @@ function makeGateway(c:TestContext,overrides:{skeleton?:(prompt:string,attempt:n
     return result(provider,modelId,{volumes:[custom??volumeCardFor(brief.id)]});
    }
    if(request.prompt.includes('自检你刚完成')||request.prompt.includes('自检候选锚点'))return result(provider,modelId,{pass:true,issues:[]});
+   // 局部修订（7662b6f6）：按本卷现行内容的卷id回返该卷修订后完整卷卡
+   if(request.prompt.includes('修订本卷卷卡')){
+    const idMatch=request.prompt.match(/本卷现行内容：\{"id":"(v\d+)"/u);
+    return result(provider,modelId,{volumes:[volumeCardFor(idMatch?.[1]??'v1')]});
+   }
    if(request.prompt.includes('核对候选锚点'))return result(provider,modelId,{pass:true,issues:[],suggestions:[]});
    if(request.prompt.includes('核对候选骨架'))return result(provider,modelId,{action:'verdict',pass:true,issues:[],suggestions:[]});
    return result(provider,modelId,{fields:{premise:[{text:'修理工建立工坊',sourceKeys:['opening:opening:1']}],protagonists:[{text:'林舟',sourceKeys:['opening:opening:1']}],world:[],openingEnding:[],preferences:[],prohibitions:[]}});
@@ -231,8 +236,8 @@ describe('30a6f053 targeted fixes',()=>{
   const rec=await recommend(service,scope);
   const created=service.startDesignRound(scope,selectionFor(rec,'rv'),'rv-round');
   await service.process(created.find(x=>x.scheme==='A')!.id);
-  // 修订轮（revision-1）卷卡提示词：必须含待修问题原文+原卷内容+原卷锚点，且标注“不是作者新增设定”。
-  const revisionCardPrompts=counters.seenPrompts.filter(p=>p.includes('补全本卷卷卡')&&p.includes('上轮意见'));
+  // 局部修订（7662b6f6）提示词：必须含待修问题原文+原卷内容+原卷锚点，且标注“不是作者新增设定”。
+  const revisionCardPrompts=counters.seenPrompts.filter(p=>p.includes('修订本卷卷卡'));
   expect(revisionCardPrompts.length).toBeGreaterThan(0);
   for(const prompt of revisionCardPrompts){
    expect(prompt).toContain(issueText);
@@ -323,14 +328,14 @@ describe('30a6f053 targeted fixes',()=>{
  const revisionSteps=(c:TestContext,runId:string,round:number)=>c.database.prepare("SELECT id FROM tm2_steps WHERE id LIKE ?").all(`${runId}:%revision-${round}`) as {id:string}[];
  const reviewRows=(c:TestContext,runId:string)=>c.database.prepare('SELECT revision,verdict FROM tm2_reviews WHERE candidate=? ORDER BY revision').all(runId) as {revision:number;verdict:string}[];
  it('反馈调度：初稿自检失败+审查另有问题→两类问题带来源进入同一次修订，建议不升级，复核绑修订版（d7fc67f5项3）',async()=>{
-  const x=feedbackSetup('fb1-book',{selfCheckIssues:['自检问题S：卷1收束越界'],reviewIssues:['审查问题R：伙伴分流未兑现'],reviewSuggestions:['文学建议T：可加强氛围']});
+  const x=feedbackSetup('fb1-book',{selfCheckIssues:['自检问题S：卷1收束越界'],reviewIssues:['审查问题R：卷1伙伴分流未兑现'],reviewSuggestions:['文学建议T：可加强氛围']});
   const {runId,run}=await feedbackRun(x);
   expect(run.state).toBe('succeeded');
-  const revisionPrompts=x.counters.seenPrompts.filter(p=>p.includes('上轮意见'));
+  const revisionPrompts=x.counters.seenPrompts.filter(p=>p.includes('修订本卷卷卡'));
   expect(revisionPrompts.length).toBeGreaterThan(0);
   for(const p of revisionPrompts){
    expect(p).toContain('自检问题S：卷1收束越界');
-   expect(p).toContain('审查问题R：伙伴分流未兑现');
+   expect(p).toContain('审查问题R：卷1伙伴分流未兑现');
    expect(p).not.toContain('文学建议T'); // suggestions不自动升级必改
   }
   expect(revisionPrompts.some(p=>p.includes('"sources":["self-check"]'))).toBe(true);
@@ -342,10 +347,10 @@ describe('30a6f053 targeted fixes',()=>{
   expect(reviewCalls.length).toBe(2); // 自检失败不再跳过审查：初稿与修订版各审一次（含被拦截的初稿失败响应）
  });
  it('反馈调度：仅自检失败→修订只含自检问题；初稿审查pass如实记录',async()=>{
-  const x=feedbackSetup('fb2-book',{selfCheckIssues:['自检问题S']});
+  const x=feedbackSetup('fb2-book',{selfCheckIssues:['自检问题S：卷1收束越界']});
   const {runId,run}=await feedbackRun(x);
   expect(run.state).toBe('succeeded');
-  const revisionPrompts=x.counters.seenPrompts.filter(p=>p.includes('上轮意见'));
+  const revisionPrompts=x.counters.seenPrompts.filter(p=>p.includes('修订本卷卷卡'));
   expect(revisionPrompts.length).toBeGreaterThan(0);
   expect(revisionPrompts[0]).toContain('自检问题S');
   expect(revisionPrompts[0]).not.toContain('"sources":["review"]');
@@ -353,11 +358,11 @@ describe('30a6f053 targeted fixes',()=>{
   expect(revisionSteps(x.c,runId,2)).toHaveLength(0);
  });
  it('反馈调度：仅审查失败→修订只含审查问题；全通过→零修订步骤不为凑流程重修',async()=>{
-  const only=feedbackSetup('fb3-book',{reviewIssues:['审查问题R']});
+  const only=feedbackSetup('fb3-book',{reviewIssues:['审查问题R：卷1未兑现']});
   const {runId}=await feedbackRun(only);
-  const prompts=only.counters.seenPrompts.filter(p=>p.includes('上轮意见'));
+  const prompts=only.counters.seenPrompts.filter(p=>p.includes('修订本卷卷卡'));
   expect(prompts.length).toBeGreaterThan(0);
-  expect(prompts[0]).toContain('审查问题R');
+  expect(prompts[0]).toContain('审查问题R：卷1未兑现');
   expect(prompts[0]).toContain('"sources":["review"]');
   expect(prompts[0]).not.toContain('"sources":["self-check"]');
   expect(reviewRows(only.c,runId)).toEqual([{revision:1,verdict:'revise'},{revision:2,verdict:'pass'}]);
@@ -368,7 +373,7 @@ describe('30a6f053 targeted fixes',()=>{
   expect(reviewRows(clean.c,cleanRun)).toEqual([{revision:1,verdict:'pass'}]);
  });
  it('反馈调度：修订后审查仍阻塞→诚实revise不加轮不强制pass；审查技术失败走原边界；重入不重复调用',async()=>{
-  const stuck=feedbackSetup('fb5-book',{reviewIssues:['审查问题R：仍未收敛'],failSecondReview:true});
+  const stuck=feedbackSetup('fb5-book',{reviewIssues:['审查问题R：卷1仍未收敛'],failSecondReview:true});
   const {runId,run}=await feedbackRun(stuck);
   expect(run.state).toBe('succeeded');
   expect(reviewRows(stuck.c,runId)).toEqual([{revision:1,verdict:'revise'},{revision:2,verdict:'revise'}]);
