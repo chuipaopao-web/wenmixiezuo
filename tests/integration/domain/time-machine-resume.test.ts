@@ -1,0 +1,131 @@
+import { afterEach, describe, it, expect } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { BookRepository } from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
+import { TimeMachineDesignService } from '../../../apps/api/src/application/books/time-machine-design-service.js';
+import { TimeMachineResumeService } from '../../../apps/api/src/application/books/time-machine-resume-service.js';
+import { StepArchiveRepository } from '../../../apps/api/src/infrastructure/db/repositories/step-archive-repository.js';
+import { TimeMachineModelGateway } from '../../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
+import { ModelAdapterError } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
+import { snapshotTimeMachine } from '../../../apps/api/src/application/books/time-machine-sources.js';
+import type { StorylineSelectionInput } from '../../../apps/api/src/application/books/storyline-selection.js';
+
+// 625cc3f7集中复核①离线证明：合法恢复——同版本成功审查零重发，仅确实失败/变化步骤重建；
+// 活动租约阻塞；完整归档非删除。
+const contexts: TestContext[] = [];
+afterEach(() => contexts.splice(0).forEach(c => c.close()));
+
+function buildSelection(service: TimeMachineDesignService, scope: { ownerId: string; bookId: string }): StorylineSelectionInput {
+  const rec = service.state(scope).filter(r => r.kind === 'recommend' && r.state === 'succeeded').sort((a, b) => String(a.updatedAt ?? '') < String(b.updatedAt ?? '') ? 1 : -1)[0];
+  if (!rec) throw Error('测试前置失败：缺少成功推荐');
+  const lines = (rec.result as unknown as { lines: { id: string }[] }).lines;
+  return { recommendationRunId: String(rec.id), recommendationHash: String(rec.recommendationHash), preparationVersion: 'test-pv', selectedLineIds: [String(lines[0]!.id)], addedLines: [], shape: 'auto', ensemble: false, authorNote: '成长线' };
+}
+function seedRecommendIfMissing(service: TimeMachineDesignService, scope: { ownerId: string; bookId: string }): void {
+  if (service.state(scope).some(r => r.kind === 'recommend' && r.state === 'succeeded')) return;
+  const db = (service as unknown as { db: import('node:sqlite').DatabaseSync }).db;
+  const manifest = snapshotTimeMachine(db, scope, '', 64000).manifest;
+  const result = { greeting: '老板，推荐如下', lines: [{ id: 'growth', role: 'main', title: '成长线', description: '建立工坊', recommended: true }], structure: 'single', reason: '聚焦成长' };
+  const now = new Date().toISOString();
+  db.prepare('INSERT INTO tm2_design_runs(id,owner_id,book_id,kind,request_key,input_hash,snapshot_json,result_json,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+    .run(`seed-rec-${randomUUID().slice(0, 8)}`, scope.ownerId, scope.bookId, 'recommend', `seed:${now}`, randomUUID(), JSON.stringify({ manifest, members: {}, writers: [], intent: '', windowTokens: 64000 }), JSON.stringify(result), 'succeeded', now, now);
+}
+function round(service: TimeMachineDesignService, scope: { ownerId: string; bookId: string }, key: string) {
+  seedRecommendIfMissing(service, scope);
+  (service as unknown as { _prerequisiteReader?: (s: { ownerId: string; bookId: string }) => { ready: boolean; message: string; version: string | null } })._prerequisiteReader = () => ({ ready: true, message: '已确认', version: 'test-pv' });
+  return service.startDesignRound(scope, buildSelection(service, scope), key);
+}
+function setup() {
+  const c = createTestContext(); contexts.push(c);
+  const scope = { ownerId: c.config.ownerId, bookId: 'resume-book' };
+  c.database.prepare('INSERT INTO owners VALUES(?,?,1,?,?)').run(scope.ownerId, '测试作者', '2026-09-11', '2026-09-11');
+  new BookRepository(c.database).create(scope, '恢复测试书', '2026-09-11', 'active');
+  c.database.prepare("INSERT INTO book_opening_blueprints VALUES('opening',?,?,1,'v1','male','fantasy','玄幻',?,?,'active','2026-09-11')").run(scope.ownerId, scope.bookId, JSON.stringify({ protagonists: ['林舟'], storyDirection: '无灵根修理工建立工坊' }), 'a'.repeat(64));
+  return { c, scope };
+}
+function output(prompt: string, modelId: string): unknown {
+  if (prompt.includes('核对短卡是否')) return { pass: true, issues: [] };
+  if (prompt.includes('判断需要哪些方法')) return prompt.includes('上次工具结果（仅资料）：null') ? { action: 'search_methods', category: '', cursor: 0 } : { action: 'ready', selected: [] };
+  if (prompt.includes('设计全书骨架。只设计')) return { structure: '四幕起承转合', baseline: `轻快成长-${modelId}`, ending: '建立工坊', openingHooks: ['开头钩子', '第一章钩子', '前三章钩子'], words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' }, lines: [{ id: 'main', role: 'main', title: '工坊', goal: '立足', answer: '建立工坊', process: '从修理接单到建立工坊', parentIds: [], covers: ['成长线'], milestones: [] }], expectations: [{ id: 'promise', opening: '无灵根能否立足', change: '看到变化', answer: '以机甲立足', lineIds: ['main'] }], relations: [], volumeBriefs: [{ id: 'v1', title: '开张', goal: '建立工坊', words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' } }] };
+  if (prompt.includes('补全本卷卷卡') || prompt.includes('补全本批卷卡')) { const id = 'v1'; return { volumes: [{ id, title: `开张-${modelId}`, start: '濒临倒闭', goal: '完成订单', conflict: '封锁', beat: '起', turningPoint: '机甲完成', gain: '伙伴', loss: null, arc: null, payoff: null, hook: null, mood: null, ending: '工坊建立', handoff: '', words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' }, anchors: [{ id: 'in', ownerEntityId: id, kind: 'entry', summary: '店铺濒临倒闭', span: '本卷开篇', conditions: [{ summary: '订单危机已经成立', subjectIds: ['main'] }], logic: 'all', importance: 'required', fallback: '补开场', keywords: [], aliases: [] }, { id: 'out', ownerEntityId: id, kind: 'exit', summary: '订单交付工坊立足', span: '本卷收束', conditions: [{ summary: '订单交付完成', subjectIds: ['main'] }], logic: 'all', importance: 'required', fallback: '补收束', keywords: [], aliases: [] }], duties: [{ lineId: 'main', action: 'close', result: '工坊建立', anchorIds: ['out'], strength: 'required', reason: '主线起点' }] }] }; }
+  if (prompt.includes('自检你刚完成') || prompt.includes('自检候选锚点')) return { pass: true, issues: [] };
+  if (prompt.includes('核对候选骨架')) return { action: 'verdict', pass: true, issues: [], suggestions: [], hasMoreIssues: false };
+  if (prompt.includes('核对候选锚点')) return { pass: true, issues: [], suggestions: [] };
+  return { fields: { premise: [{ text: '修理工建立工坊', sourceKeys: ['opening:opening:1'] }], protagonists: [{ text: '林舟', sourceKeys: ['opening:opening:1'] }], world: [], openingEnding: [], preferences: [], prohibitions: [] } };
+}
+const fakeAdapter = (calls: { prompt: string }[], failAnchors: { remaining: number }) => (provider: string, modelId: string) => ({
+  provider, modelId,
+  async generate(request: { prompt: string }) {
+    calls.push({ prompt: request.prompt });
+    if (failAnchors.remaining > 0 && request.prompt.includes('核对候选锚点')) { failAnchors.remaining--; throw new ModelAdapterError('供应商暂时不可用', 'technical_failure', true, 500); }
+    return { provider, modelId, output: JSON.stringify(output(request.prompt, modelId)), inputTokens: 20, outputTokens: 20, cashCostCny: 0, state: 'succeeded' as const };
+  }
+});
+
+describe('合法恢复（集中复核①）', () => {
+  it('审查已过、锚点批次失败→重启仅该批次一次dispatch，成功审查零重发、无归档', async () => {
+    const { c, scope } = setup();
+    const calls: { prompt: string }[] = [];
+    const failAnchors = { remaining: 2 }; // temporary错误会被自动重试一次：连续两次失败才终态
+    const gateway = new TimeMachineModelGateway(c.database, fakeAdapter(calls, failAnchors));
+    const service = new TimeMachineDesignService(c.database, gateway, 64000);
+    const created = await round(service, scope, 'resume-r1');
+    await service.process(created[0]!.id);
+    expect(service.state(scope).find(r => r.id === created[0]!.id)?.state).toBe('failed');
+    const reviewCallsBefore = calls.filter(x => x.prompt.includes('核对候选骨架')).length;
+    expect(reviewCallsBefore).toBeGreaterThanOrEqual(1); // 首跑审查已过（pass）
+
+    // 合法恢复：服务化prepare（非猴子补丁）→ 恢复执行
+    const resume = new TimeMachineResumeService(c.database);
+    const prep = resume.prepare(scope, created[0]!.id);
+    expect(prep.blocked).toHaveLength(0);
+    calls.length = 0;
+    await service.process(created[0]!.id);
+
+    const reviewSourceDispatches = calls.filter(x => x.prompt.includes('核对候选骨架')).length;
+    const anchorDispatches = calls.filter(x => x.prompt.includes('核对候选锚点')).length;
+    expect(reviewSourceDispatches).toBe(0); // 同版本成功审查零重发（claim命中saved）
+    expect(anchorDispatches).toBe(1); // 仅失败批次一次dispatch
+    const archives = new StepArchiveRepository(c.database).archivedVersions(scope, `${created[0]!.id}:review-anchors:0`);
+    expect(archives).toHaveLength(0); // 输入未变：无重建无归档
+    expect(service.state(scope).find(r => r.id === created[0]!.id)?.state).toBe('succeeded');
+  });
+
+  it('变化输入不能命中旧缓存：冲突步骤完整归档后重建，归档含全部行/attempt/输出', async () => {
+    const { c, scope } = setup();
+    const archive = new StepArchiveRepository(c.database);
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, fakeAdapter([], { remaining: 0 })), 64000);
+    const created = await round(service, scope, 'resume-r2'); // 先建run（tm2_books/manifest就绪）
+    const stepId = `${created[0]!.id}:review-source:0`;
+    const inputA = { prompt: '原始输入甲', member: { k: 1 }, window: 64000 };
+    const versioned = (service as unknown as { createStepVersioned: (s: typeof scope, id: string, input: unknown, memberKey: string, reason: string) => void }).createStepVersioned.bind(service);
+    versioned(scope, stepId, inputA, 'member-a', '测试归档');
+    versioned(scope, stepId, inputA, 'member-a', '测试归档'); // 同输入幂等复用：不归档
+    expect(archive.archivedVersions(scope, stepId)).toHaveLength(0);
+    versioned(scope, stepId, { ...inputA, prompt: '已变化输入乙' }, 'member-a', '输入版本变化'); // 冲突→归档+重建
+    const versions = archive.archivedVersions(scope, stepId);
+    expect(versions).toHaveLength(1);
+    const row = JSON.parse(versions[0]!.row_json) as { input_hash: string; state: string };
+    expect(row.input_hash).toBeTruthy();
+    expect(versions[0]!.attempts_json).toBeTruthy();
+    expect(versions[0]!.reason).toContain('输入版本变化');
+    const fresh = c.database.prepare('SELECT input_hash FROM tm2_steps WHERE owner=? AND book=? AND id=?').get(scope.ownerId, scope.bookId, stepId) as { input_hash: string };
+    expect(fresh.input_hash).not.toBe(row.input_hash); // 新版本输入hash不同=变化输入不命中旧缓存
+  });
+
+  it('活动租约/活写者阻塞：running租约未过期不动；已成功run直接返回', () => {
+    const { c, scope } = setup();
+    const resume = new TimeMachineResumeService(c.database);
+    const now = new Date().toISOString();
+    c.database.prepare("INSERT INTO tm2_design_runs(id,owner_id,book_id,kind,request_key,input_hash,snapshot_json,state,created_at,updated_at) VALUES('run-live',?,?,'design','k','h','{}','working',?,?)").run(scope.ownerId, scope.bookId, now, now);
+    c.database.prepare("INSERT INTO tm2_books(owner,book,manifest) VALUES(?,?,'{}')").run(scope.ownerId, scope.bookId);    c.database.prepare("INSERT INTO tm2_steps(owner,book,id,input_hash,member,state,lease_until) VALUES(?,?,'run-live:review-anchors:0','h','m','running',?)").run(scope.ownerId, scope.bookId, Date.now() + 600_000);
+    const prep = resume.prepare(scope, 'run-live');
+    expect(prep.blocked.length).toBe(1);
+    expect(prep.blocked[0]).toContain('活动租约未过期');
+    expect(prep.actions).toHaveLength(0);
+    const step = c.database.prepare("SELECT state, lease_until FROM tm2_steps WHERE id='run-live:review-anchors:0'").get() as { state: string; lease_until: number };
+    expect(step.state).toBe('running'); // 未被重置
+    c.database.prepare("UPDATE tm2_design_runs SET state='succeeded' WHERE id='run-live'").run();
+    expect(resume.prepare(scope, 'run-live').actions[0]).toContain('无需恢复');
+  });
+});

@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
-import {SqlPlanRepository,StepRepository,digest,parseCard,parseCandidate,type Candidate,type Scope,type ContextCard} from '@wenmi/time-machine-core';
+import {SqlPlanRepository,StepRepository,digest,parseCard,parseCandidate,Conflict,type Candidate,type Scope,type ContextCard} from '@wenmi/time-machine-core';
+import {StepArchiveRepository} from '../../infrastructure/db/repositories/step-archive-repository.js';
 import {TimeMachineModelGateway,TimeMachineCallError} from '../../infrastructure/models/time-machine-model-gateway.js';
 import {snapshotTimeMachine,manifestSourcesSignature,type TimeMachineSnapshot,type StorylineSelectionSnapshot} from './time-machine-sources.js';
 import {validateStorylineSelection,resolveSelectionRequestHash,canonicalRecommendationHash,type StorylineSelectionInput} from './storyline-selection.js';
@@ -106,7 +107,21 @@ export function timeMachineSynthesisHeadroom(modelId:string,maxOutputTokens:numb
 }
 export class TimeMachineDesignService {
  private readonly plans:SqlPlanRepository;private readonly steps:StepRepository;
- constructor(private readonly db:DatabaseSync,private readonly gateway:TimeMachineModelGateway,private readonly windowTokens:number){this.plans=new SqlPlanRepository(db);this.steps=new StepRepository(db);}
+ private readonly stepArchive:StepArchiveRepository;
+ constructor(private readonly db:DatabaseSync,private readonly gateway:TimeMachineModelGateway,private readonly windowTokens:number){this.plans=new SqlPlanRepository(db);this.steps=new StepRepository(db);this.stepArchive=new StepArchiveRepository(db);}
+ /**
+  * 版本化建步（625cc3f7集中复核①）：输入与既有步骤完全一致→幂等复用；
+  * 输入版本冲突→旧行/attempt/输出完整归档（tm2_step_archive）后按新输入重建，不删证据、不前80字冒充。
+  * 恢复场景同版本成功审查零重发，仅确实变化步骤重建版本并如实计费。
+  */
+ private createStepVersioned(scope:Scope,stepId:string,input:{prompt:string;member:unknown;window:number},memberKey:string,reason:string):void{
+  try{this.steps.create(scope,stepId,input,memberKey);}
+  catch(error){
+   if(!(error instanceof Conflict))throw error;
+   this.stepArchive.archiveStep(scope,stepId,reason);
+   this.steps.create(scope,stepId,input,memberKey);
+  }
+ }
  start(scope:Scope,kind:'recommend',intent:string,key:string):string{
   if(kind!=='recommend')throw Error('设计必须经结构化故事线确认入口（startDesignRound），此入口不接受无选择的新设计');
   if(typeof key!=='string'||!key.trim()||key.length>160)throw Error('请求参数错误');
@@ -261,7 +276,7 @@ export class TimeMachineDesignService {
   if(node.startsWith('skeleton'))prompt+='\n全书期待只放开篇提出、全书最终回答的问题；保住工坊、完成订单等阶段目标放在卷内。关系from到to表示前者影响后者，effect必须同向。不要把机甲升级有代价扩大成每次胜利都必须牺牲；代价服从原始限制与故事需要。';
   if(node.startsWith('volumes:'))prompt+='\n转折必须是读者能理解的具体事件或选择及其后果，不能只写“关键行动、重大牺牲、获得共识”。已有收束和未来待收束保持区分；不要把“不能强行关联”等内部设计要求写进作品内容。';
   if(node.startsWith('review')&&!prompt.includes('区分阻断问题与文学建议'))prompt+=`\n${timeMachineReviewChecks}`; // 去重（S1-FAST-CLOSE接续纠正）：review-source的contract已内嵌一份；review-anchors未内嵌在此补上——每个完整请求只含一份检查要求
-  const stepId=`${run.id}:${node}`;this.steps.create(scope,stepId,{prompt,member,window:snapshot.windowTokens},member.memberKey);
+  const stepId=`${run.id}:${node}`;this.createStepVersioned(scope,stepId,{prompt,member,window:snapshot.windowTokens},member.memberKey,'输入版本变化（恢复重算不一致，旧行已完整归档）');
   this.db.prepare('UPDATE tm2_design_runs SET updated_at=?,phase=? WHERE id=?').run(new Date().toISOString(),node,run.id);
   const prefix=`${run.id}:`;
   const spent=this.db.prepare(`SELECT COUNT(*) AS calls,COALESCE(SUM(CASE WHEN c.input_tokens IS NOT NULL AND c.output_tokens IS NOT NULL THEN c.input_tokens+c.output_tokens WHEN c.state IN ('working','unknown') THEN c.reserved_tokens ELSE 0 END),0) AS tokens FROM tm2_model_calls c JOIN tm2_attempts a ON a.id=c.id WHERE c.owner_id=? AND c.book_id=? AND substr(a.step,1,?)=?`).get(scope.ownerId,scope.bookId,prefix.length,prefix) as {calls:number;tokens:number};

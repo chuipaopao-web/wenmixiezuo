@@ -45,7 +45,7 @@ describe('迁移0127评测表', () => {
   it('六张评测表已建立且评测登记表现金可查', () => {
     const { c } = setup();
     const tables = (c.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'tm2_eval%' ORDER BY name").all() as { name: string }[]).map(r => r.name);
-    expect(tables).toEqual(['tm2_eval_budget', 'tm2_eval_case', 'tm2_eval_node_policy', 'tm2_eval_ranking', 'tm2_eval_run']);
+    expect(tables).toEqual(['tm2_eval_budget', 'tm2_eval_case', 'tm2_eval_guard_lease', 'tm2_eval_node_policy', 'tm2_eval_ranking', 'tm2_eval_reserve_journal', 'tm2_eval_run']);
   });
 });
 
