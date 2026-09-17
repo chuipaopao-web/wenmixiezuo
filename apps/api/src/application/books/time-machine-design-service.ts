@@ -531,7 +531,7 @@ export class TimeMachineDesignService {
   const selfParse=(v:unknown)=>{const r=record(v);if(typeof r.pass!=='boolean'||!Array.isArray(r.issues)||r.issues.some(x=>typeof x!=='string'||x.length>2000))throw Error('自检格式错误');return {issues:r.issues as string[],pass:r.pass===true&&r.issues.length===0};};
   const planObject=candidate.plan as unknown as Record<string,unknown>;
   const structureCheck=await generate('self-check',writer,`自检你刚完成的全书方案草案的结构部分。返回 {"pass":true或false,"issues":["具体问题"]}。逐项检查：分卷字数合计是否等于全书预算；主支线过程与关键落点建议卷是否合理；职责strength是否与故事需要一致；每卷payoff是否兑现开篇期待；终卷是否收束全书。发现问题只描述问题，不重写方案；没有问题pass=true。\n作者选择：${snapshot.intent}\n紧凑候选：${JSON.stringify(this.compactPlanForStructure(planObject))}`,selfParse);
-  const anchorCheck=await generate('self-check-anchors',writer,`自检候选锚点与条件。返回 {"pass":true或false,"issues":["具体问题"]}。逐项检查：每卷开场/收束锚点条件能否按正文核对，是否存在把将来承诺当已达成。发现问题只描述问题，不重写方案；没有问题pass=true。\n锚点清单：${JSON.stringify(this.anchorsSelfCheckSection(planObject))}`,selfParse);
+  const anchorCheck=await generate('self-check-anchors',writer,`自检候选锚点与条件。返回 {"pass":true或false,"issues":["具体问题"]}。逐项检查：每卷开场/收束锚点条件是否具体可核对（锚点条件是设计阶段定义、将来由正文兑现的核对点，本阶段没有正文是正常前提，不以“尚无正文”判问题）、是否存在把将来承诺当已达成的循环表述、与开场/收束文字是否自洽。发现问题只描述问题，不重写方案；没有问题pass=true。\n锚点清单：${JSON.stringify(this.anchorsSelfCheckSection(planObject))}`,selfParse);
   const selfCheck={issues:[...structureCheck.issues,...anchorCheck.issues],pass:structureCheck.pass&&anchorCheck.pass};
   // d7fc67f5复核后C反馈调度（2026-09-16）：自检与独立审查先在**同一初稿**上收齐阻塞问题，
   // 再统一进入唯一一次自动修订（修订后自检与审查照常复检，任一阻塞仍存在即诚实revise，
@@ -597,7 +597,7 @@ export class TimeMachineDesignService {
   const volumeIds=((candidate.plan.volumes??[]) as unknown[]).map(v=>String(record(v).id));
   for(let i=0;i<volumeIds.length;i+=2){
    const batch=volumeIds.slice(i,i+2);
-   const first=await generate(`review-anchors:${i}`,chief,`核对候选锚点与条件（本批卷）。检查：每个锚点条件能否按正文核对，是否存在把将来承诺当已达成；开场与收束的文字是否与条件一致；本批卷的开场、冲突、转折、人物弧光与爽点是否具体可信；未完成承接fallback是否可行。返回 {"pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}。issues与suggestions面向作者，用显示编号（卷A、主线1），不引用v1等内部ID或字段名。${listRule}\n正式资料短卡：${JSON.stringify(card.fields)}\n已回查原件：${JSON.stringify(reads)}\n本批：${JSON.stringify(this.anchorSectionForVolumes(candidate.plan as unknown as Record<string,unknown>,batch))}\n作者：${snapshot.intent}`,verdictParse);
+   const first=await generate(`review-anchors:${i}`,chief,`核对候选锚点与条件（本批卷）。锚点条件是设计阶段定义、将来由正文兑现的核对点——本阶段没有正文是正常前提，不得以“尚无正文”或“无正文支撑”判问题。检查：每个锚点条件是否具体可核对（不是“获得认可后”式把将来承诺当已达成的循环表述）、与正式来源/短卡/作者要求一致、开场条件与开场文字自洽、收束条件与收束文字自洽、条件之间不矛盾；本批卷的开场、冲突、转折、人物弧光与爽点是否具体可信；未完成承接fallback是否可行。返回 {"pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}。issues与suggestions面向作者，用显示编号（卷A、主线1），不引用v1等内部ID或字段名。${listRule}\n正式资料短卡：${JSON.stringify(card.fields)}\n已回查原件：${JSON.stringify(reads)}\n本批：${JSON.stringify(this.anchorSectionForVolumes(candidate.plan as unknown as Record<string,unknown>,batch))}\n作者：${snapshot.intent}`,verdictParse);
    const anchorVerdict=await continueReview(`review-anchors:${i}`,first);
    issues.push(...anchorVerdict.issues);suggestions.push(...anchorVerdict.suggestions);pass=pass&&anchorVerdict.pass;
   }

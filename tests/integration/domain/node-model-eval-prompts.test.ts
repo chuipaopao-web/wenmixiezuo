@@ -72,6 +72,12 @@ describe('提示构建器', () => {
     const reviewSource = buildEvalPrompt('review-source', buildSamples('review-source', 'screen')[0]!);
     expect(reviewSource).toContain('核对候选骨架是否符合来源');
     expect(reviewSource).toContain('区分阻断问题与文学建议');
+    // S1-FAST-CLOSE审查可靠性：锚点审查不得要求未来事件已有正文事实（防"无正文支撑"式误拒）
+    const reviewAnchors = buildEvalPrompt('review-anchors', buildSamples('review-anchors', 'screen')[0]!);
+    expect(reviewAnchors).toContain('锚点条件是设计阶段定义、将来由正文兑现的核对点');
+    expect(reviewAnchors).toContain('不得以“尚无正文”或“无正文支撑”判问题');
+    expect(reviewAnchors).toContain('条件之间不矛盾');
+    expect(reviewAnchors).not.toContain('能否按正文核对');
   });
   it('漂移防护：提示关键语句仍与生产设计服务源码一致', () => {
     const source = readFileSync('apps/api/src/application/books/time-machine-design-service.ts', 'utf8');
@@ -84,6 +90,11 @@ describe('提示构建器', () => {
       'anchors必须恰好两个'
     ];
     for (const phrase of anchors) expect(source.includes(phrase), `生产源码已漂移：${phrase}`).toBe(true);
+    // 锚点语义修正必须在生产自检/独立审查/审查通则三处同时存在（S1-FAST-CLOSE）
+    expect(source).toContain('锚点条件是设计阶段定义、将来由正文兑现的核对点');
+    expect((source.match(/尚无正文/gu) ?? []).length).toBeGreaterThanOrEqual(2); // 自检+独立审查两处
+    const reviewChecks = readFileSync('apps/api/src/application/books/time-machine-review.ts', 'utf8');
+    expect(reviewChecks).toContain('“尚无正文”本身不是问题');
   });
 });
 

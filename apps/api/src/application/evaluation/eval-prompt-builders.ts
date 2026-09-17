@@ -126,7 +126,7 @@ export function buildEvalPrompt(nodeKey: string, sample: BuiltSample): string {
       const volumes = (plan.volumes as Record<string, unknown>[]).slice(0, 2);
       const reads = f.documents.slice(0, 2).map(d => ({ key: d.key, text: d.text.slice(0, 1200) }));
       const section = volumes.map(v => ({ id: v.id, anchors: (plan.anchors as unknown[] ?? []).length ? plan.anchors : (v as { anchors?: unknown[] }).anchors ?? [], volume: { ...v, anchors: undefined } }));
-      return `核对候选锚点与条件（本批卷）。检查：每个锚点条件能否按正文核对，是否存在把将来承诺当已达成；开场与收束的文字是否与条件一致；本批卷的开场、冲突、转折、人物弧光与爽点是否具体可信；未完成承接fallback是否可行。返回 {"pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}。issues与suggestions面向作者，用显示编号（卷A、主线1），不引用v1等内部ID或字段名。${listRule}\n正式资料短卡：${JSON.stringify(card.fields)}\n已回查原件：${JSON.stringify(reads)}\n本批：${JSON.stringify(section)}\n作者：${f.intent}${targetWordsNote}\n${timeMachineReviewChecks}`;
+      return `核对候选锚点与条件（本批卷）。锚点条件是设计阶段定义、将来由正文兑现的核对点——本阶段没有正文是正常前提，不得以“尚无正文”或“无正文支撑”判问题。检查：每个锚点条件是否具体可核对（不是“获得认可后”式把将来承诺当已达成的循环表述）、与正式来源/短卡/作者要求一致、开场条件与开场文字自洽、收束条件与收束文字自洽、条件之间不矛盾；本批卷的开场、冲突、转折、人物弧光与爽点是否具体可信；未完成承接fallback是否可行。返回 {"pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}。issues与suggestions面向作者，用显示编号（卷A、主线1），不引用v1等内部ID或字段名。${listRule}\n正式资料短卡：${JSON.stringify(card.fields)}\n已回查原件：${JSON.stringify(reads)}\n本批：${JSON.stringify(section)}\n作者：${f.intent}${targetWordsNote}\n${timeMachineReviewChecks}`;
     }
     default:
       throw new Error(`首批未登记的评测节点：${nodeKey}`);

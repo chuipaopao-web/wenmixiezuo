@@ -114,7 +114,7 @@ export const EVAL_NODE_REGISTRY: readonly EvalNodeDefinition[] = [
     budgetClass: 8000,
     synthesisHeadroom: true,
     contractSummary: 'JSON{pass,issues[],suggestions[],hasMoreIssues}；issues面向作者用显示编号；超单次上限由-more:N续报，不重复已报项',
-    promptVersion: 'review-source-v2',
+    promptVersion: 'review-source-v3-anchor-semantics',
     batch: 1,
     source: `${D}:566,577`
   },
@@ -126,7 +126,7 @@ export const EVAL_NODE_REGISTRY: readonly EvalNodeDefinition[] = [
     budgetClass: 8000,
     synthesisHeadroom: true,
     contractSummary: '同review-source verdict合同；按设计批次分节核对',
-    promptVersion: 'review-anchors-v2',
+    promptVersion: 'review-anchors-v3-anchor-semantics',
     batch: 1,
     source: `${D}:566,592`
   },
