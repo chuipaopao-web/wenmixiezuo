@@ -287,7 +287,7 @@ export function buildFixture(genre: EvalGenre, lengthBand: EvalLengthBand): Synt
     return {
       id, title: id === 'v1' ? '立足' : '扩张', beat: id === 'v1' ? '起·立足' : '承转合·扩张与兑现',
       start: vp.start, goal: vp.goal, conflict: seed.conflict, turningPoint: vp.turningPoint,
-      gain: vp.gain, loss: null, arc: null, payoff: null, hook: null, mood: null,
+      gain: vp.gain, loss: null, arc: `${seed.protagonist}从被动承压到主动破局的转变在本卷落实`, payoff: null, hook: null, mood: null,
       ending: vp.ending, handoff: id === 'v1' ? '对抗升级，引出第二卷' : '终卷：对抗线收束，全书问题在此卷回答',
       words: { target: 200000, min: null, max: null, hard: false, policy: 'chars-v1' },
       anchors: [
@@ -296,7 +296,8 @@ export function buildFixture(genre: EvalGenre, lengthBand: EvalLengthBand): Synt
       ],
       duties: [
         { lineId: 'main', action: id === 'v1' ? 'start' : 'advance', result: vp.mainDuty, anchorIds: [`${id}:out`], strength: 'required', reason: '主线本卷必须推进' },
-        { lineId: 'rival', action: 'advance', result: vp.rivalDuty, anchorIds: [], strength: 'required', reason: '作者确认对抗线全书贯穿，本卷须有真实去向' }
+        // 对抗线职责挂本卷收束锚点（审查正例教训：anchorIds空=该线无核对节点，属真实弱点非误报）
+        { lineId: 'rival', action: 'advance', result: vp.rivalDuty, anchorIds: [`${id}:out`], strength: 'required', reason: '作者确认对抗线全书贯穿，本卷须有真实去向' }
       ],
       ...overrides
     };

@@ -1110,3 +1110,11 @@ Codex端到端验证三套方案无可采用后定点处理：A卷卡3遇HTTP400
 **排名预览（隔离副本proof.sqlite，rank-preview.ts，草稿不写正式库）**：card-extract前三ds-flash/k3/glm-flash（ds-pro第4）；card-finalize前三ds-flash/k3/ds-pro、**doubao below_threshold（技术交付70%<90%）**；card-merge ds-pro质量85.7%<90%不达标（glm-flash/ds-flash/doubao前三）；skeleton前三ds-pro/ds-flash/k3；volume-card仅doubao/glm-flash合格（k2.7/k3质量未评完）；volumes-batch全部质量未评完；审查节点按旧负例召回数据暂无合格模型（重测进行中，结论以重测后为准）。所有n=10为小样本，p95标小样本估计。
 
 **card-finalize排除接替真实证明（ranking-dispatch-proof.ts，证据.local/eval/ranking-dispatch-proof.json）**：隔离副本全链路真实数据——computeRanking（doubao below_threshold）→applyRanking（node_policy active=前三）→setNodePolicy暂停doubao（证据：n=10中3次合同失败=模型幻觉引用）→生产派工纯函数resolveNodeMember/nodeFallbackOrder：承担=排名第1ds-flash、doubao从候补序列消失；第1名也暂停后由候补k3接替、doubao仍不可达。正式库未改、生产快照未触碰、派工策略默认仍关闭。已知措辞瑕疵如实记录：resolveNodeMember在排名第1暂停由第2接替时reason仍写"按已应用节点排名第1名承担"（行为正确、文案易误读，留后续小修）。
+
+**失真⑤cleanPlan跨题材矛盾（92c917ce）**：充实稿用"手艺/小铺/垄断"跨题材通用措辞，只合玄幻成长，历史融合/都市感情下与来源矛盾——审查模型判"主线偏离来源"是合法阻塞不是误报（又一次先查工具捕获：正例全灭但理由指向夹具内容）。GenreSeed增plan字段按题材手工编写方案内容；钉住测试断言各题材cleanPlan含本题材主角且不含他题材主角。第二波重测23案例机检质量信号作废（记invalidations.json，技术交付证据保留）；审查样本hash修正（fdeda1dc：含方案内容长度）后第三波重测以新sampleHash生成新案例，不算重复已完成案例。另修正两处正例真实弱点：对抗线职责anchorIds空（无核对节点）与arc null，留下一波生效。
+
+**审查节点三重测最终结果（验证账本337+未知4/400收手）**：review-source——doubao完成（技术交付97%，正例4/5正确通过，但植入召回0/5全数未达"全检出"，below_threshold）；ds-pro/glm-flash/k3维持提前淘汰（合同失败与夹具无关，证据有效）。review-anchors——doubao完成（技术交付100%、植入召回60%、干净误报35.7%，below_threshold）；k2.7/ds-flash/glm-flash累计2次失败提前淘汰（供应商/模型技术失败，非夹具）。**审查两节点按合同标准暂无合格模型，如实标注不凑前三**；审查提示"锚点条件=设计时待正文核对的状态而非宣称正文已写"存在语义歧义（部分模型把一切锚点条件判"无正文支撑"），列为后续提示改进观察项。
+
+**最终排名预览（隔离副本，含三重测数据）**：card-extract前三ds-flash/k3/glm-flash（ds-pro第4）；card-finalize前三ds-flash/k3/ds-pro、doubao below_threshold（技术交付70%）；card-merge前三glm-flash/ds-flash/doubao（ds-pro质量85.7%不达标）；skeleton前三ds-pro/ds-flash/k3；volume-card仅doubao/glm-flash合格（k2.7/k3质量未评完）；volumes-batch全部质量未评完；review-source/review-anchors暂无合格模型。n=10均标小样本，p95标小样本估计。
+
+**待授权决策点（不擅自追加预算/不上线）**：①judging续批——97案例未评（skeleton尾/volume-card大部/volumes-batch全部），评审max2000对大方案结论偏紧（26次截断失败）建议下批调整并记录配置版本；②审查节点新一波重测（arc/对抗线锚点修正生效后）与提示语义歧义澄清；③端到端验证待合格名单齐后执行；④派工策略默认关闭，排名应用仅限隔离环境，未上线未部署。
