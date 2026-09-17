@@ -1,5 +1,27 @@
 # REBUILD-CLOSEOUT-01 · S1-A 结果：结构化故事线确认与基线启动
 
+## K3·ce3bca27复核修复+定点续跑终局：两反例修复通过，续跑至review-anchors:4截断收束（2026-09-17，66535a6f已推送，未发布）
+
+**Codex两条恢复反例修复（未删未放宽，修复后17/17通过）**：
+- **P1回查轨迹幂等**：恢复重放saved read_source不再重复INSERT（同run同节点同片段key+offset+hash一致复用；不同内容另存新seq保留原证据，不INSERT OR IGNORE掩盖差异）；恢复成功时清空run陈旧error字段（实证"succeeded但挂旧错误"）。
+- **P2迟到返回幂等结算**：journal settled后不再repo.settle（杜绝负预留CHECK失败）；迟到usage经reclassifyUnknownToActual幂等重分类unknown→actual（同一请求总数仍为1，CAS条件核验，不再减reserved）；活跃调用期间按TTL/3自动续租并清理定时器（分钟级调用不被对账回收）；异常路径已结算不得再次结算。
+- **边界集中处理**：createStepVersioned仅输入版本冲突且同owner/book、无活动租约running才归档（archiveStepIfStale事务内核验，活租约原样抛错不替换运行中步骤）；TimeMachineResumeService活写者检查移入事务内重新确认（防读检查后worker接手）。
+- 受影响套件复跑：resume两套17/17（含Codex两反例）、HTTP合法闭环、schemes、judge、API tsc全过；评测库补迁移0129-0131。
+
+**定点续跑c116818b（窗口12请求/75万tokens/60分钟，历史20次账本不改）**：
+- 恢复路径：TimeMachineResumeService.prepare服务化接管（10步骤9成功，仅review-source:0需重置）；在途调用如实结算unknown；版本变更步骤由createStepVersioned流程内核验归档（不按名删步）。
+- 真实终态：审查链推进至review-anchors:0/:2成功，**review-anchors:4 truncated（k2.7锚点审查结论超8000可见输出被截断）**，run=failed如实收束，不机械重试（截断属known-incomplete，恢复动作是拆分/续作而非相同请求盲重试；本合同未授权对该节点再升预算）。
+- **HTTP采用未发生**（无自然过审，不伪装）。
+- 合法HTTP P7（零模型调用，payload从已保存资料读取）：预览未变内容200（unchanged=true、revisionMatch=true、签名在案）；作者修改预览200（unchanged=false、受影响runs=4列出）；过期版本999设计请求409（retryable=false、currentRevision=1、零新轮5→5）；同键回放200返回同一轮（A原run/B/C/A复验4个run IDs，总数5→5零新增）。
+- **用量（续跑窗口，全部在案）**：实耗5+未知1=6/12请求（tokens 47387实耗+31109未知/75万）；预留日志6条全部settled（5 actual/1 unknown），无悬空。
+- **审查者状态如实**：k2.7保留为冻结隔离诊断审查（不授予正式稳定资格、不重新筛模型、不为拿pass重跑）；本次锚点截断与此前"翻转+即时未知"原因均不明，不宣称已证否模型本身。
+
+**剩余唯一模型验证动作**：恢复动作=拆分或续作review-anchors:4（截断属known-incomplete，非盲重试），需新授权时给出；审查者选择问题仍为先于续跑的待决项。历史82/80、20/20窗口与全部失败证据原样保留。
+
+## Codex复核ce3bca27：原测试通过，但两条真实恢复反例失败（2026-09-17）
+
+独立复跑三套16/16通过（13.06秒）。新增两项离线反例均失败，已保留在worktree原测试文件，供K3直接修复：一是缓存read_source重放重复INSERT轨迹，UNIQUE constraint failed导致run仍failed；二是dispatching对账为unknown后晚到成功再次扣reserved，CHECK constraint failed: reserved_requests>=0。因此“全部关闭/探针问题清零”尚不成立，未新增真实调用。输入轨迹版本隔离、预算幂等结算与活租约原子检查按原任务顶部ce3bca27复核集中收束。审查选型不再待老板决定，继续冻结k2.7仅隔离诊断，离线通过后按新有限窗口续同run，不扩面不部署。
+
 ## K3·625cc3f7集中复核交付：四项确定性程序问题集中关闭+更正此前过度结论（2026-09-17，18616342/ceb12ed7/b8207a4f已推送，未发布，未新增真实调用）
 
 **更正（撤回此前过度结论）**：①撤回"工程全部实证"——Codex查出的四项程序问题属实（恢复按名删步重跑、重启预算清零漏计、回查存根丢证据坐标且anchors漏latest、HTTP预览500与非法payload虚绿），已全部修复并离线证明（见下）。②撤回"同输入可靠性直接证否"——两次verdict的真实完整prompt/工具轨迹当时未持久化，无法证明模型两次看到相同完整输入，"pass翻转"归因记**未知**；现已加tm2_review_reads轨迹持久化防止再发生。③更正"C未运行"→**C已运行失败（review-source:3 budget），修复后未复验**。④"结局暗示过早"归因分析（不判哪次verdict正确）：v6为终卷（beat=第四幕·合），结局"商路粮道打通/围城出路打开"与作者要求方向（制度被证明有效）一致，k2.7该条阻塞属**文学分寸争议**（终卷收束节奏）而非事实性矛盾（无未来承诺当已达成、无故事线丢弃）。⑤unknown事实：4次未知调用中2次为探针进程被杀的在途调用（ds-pro自检41分钟、k2.7锚点91秒），2次为毫秒级即时outcome_unknown（k2.7，原因未记录）——均不能断言"供应商故障"。
