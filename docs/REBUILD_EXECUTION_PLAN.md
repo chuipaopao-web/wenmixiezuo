@@ -523,7 +523,7 @@
 - **收尾·剩余工作**：按现有证据核对尚未完成范围：[第114批分页/归档恢复联调通过；113批后端已验收，进度/旧引擎路由未完成](../coauthoring-v7/docs/worklists/REBUILD-BOOKSHELF-INTEGRATION-20260906-114.md)
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
-- **讨论**：书籍卡片信息、排序/搜索、继续创作、归档与恢复、旧书入口；不默认物理删除。
+- **讨论**：书籍卡片信息、排序/搜索、继续创作、归档与恢复、旧书入口；不默认物理删除。NEWBOOK-E2E-01起归档书支持永久删除：服务端实时影响预览（在途任务/活租约门禁）、YES与「确认删除书籍」双确认、tm2核心表与账务归档覆盖，见apps/api书籍生命周期服务。
 - **前端交付**：空书架、加载、长书名、多书、归档区和恢复；每个入口明确当前书和可继续的位置。
 - **后端逐项实现**：书籍列表/检索/分页、owner隔离、归档恢复、进度投影及新旧引擎路由。
 - **重点验收**：跨账号书籍不可读；重复归档/恢复安全；过期搜索响应不覆盖新结果；旧书不能误走新写入引擎。
@@ -772,7 +772,7 @@
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,rebuild/packages/agent-catalog/creative-assets.js,rebuild/packages/backend/src/legacy-opening/opening-agent/opening-prompt-compiler.ts,apps/api/src/application/books/v7-opening-agent-service.ts,coauthoring-v7/author-app/src/NewNovelPage.tsx,coauthoring-v7/author-app/src/AuthorApp.tsx,apps/api/src/application/creative-reference/runtime.ts,apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.ts
-- **管理·代码核对**：6138bc2450b37803fa1214eb49c466162e7a992b5ad63fa6a1527803d00f9106
+- **管理·代码核对**：798a8728e2dba652f8c0867bfa2262147c0d49eeca52fd7370b8a071261eb164
 
 - **管理·共享步骤**：none
 - **第166批确认方案**：首页直接开书，新貂蝉为亲切可爱的成年古风女性；尺度为常规发挥/趣味加料/反差脑洞/荒诞猎奇/极限整活，默认4。风格已由第167批调整为一个主偏向、最多四个辅助偏向；主导与辅助用途分别明确。完整机制库允许自由组合与原创，不宣称全网最全。后台“资产方法论→创意与金手指”查看同源卡片和节点规则；正式调用快照在本功能的上下文样例中追溯。2026-09-09 02:56:49已上线wm-v7-20260909-024500-108646da，静态a950d437b17ebb3fa52b。手机/电脑和定向接口验证通过，真实合成样例设计88秒、审查21秒通过；单例不代表所有任务速度。剧本尚未开放。
