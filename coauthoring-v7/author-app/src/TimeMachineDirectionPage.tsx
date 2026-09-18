@@ -714,13 +714,14 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
 
   return (
     <div className="tmd-shell">
-      <nav className="tmd-nav" aria-label="时光机功能">
-        <button type="button" aria-pressed={activeSection === 'landing' || activeSection === 'plan'} onClick={() => setSection(adopted !== null || designRuns.length > 0 ? 'plan' : 'landing')}>全书</button>
-        <button type="button" disabled>时光树</button>
-        <button type="button" disabled>轨迹</button>
-        <button type="button" aria-pressed={activeSection === 'material'} onClick={() => setSection('material')}>资料</button>
+      <nav className="workspace-secondary-tabs tmd-navigation" aria-label="时光机功能">
+        <button type="button" className={activeSection === 'landing' || activeSection === 'plan' ? 'active' : ''} aria-pressed={activeSection === 'landing' || activeSection === 'plan'} onClick={() => setSection(adopted !== null || designRuns.length > 0 ? 'plan' : 'landing')}>全书</button>
+        <button type="button" disabled title="尚未开放">时光树</button>
+        <button type="button" disabled title="尚未开放">轨迹</button>
+        <button type="button" className={activeSection === 'material' ? 'active' : ''} aria-pressed={activeSection === 'material'} onClick={() => setSection('material')}>资料</button>
       </nav>
 
+      <div className="tmd-content">
       {feedback !== null && <div className={feedback.tone === 'error' ? 'tmd-error' : 'tmd-info'}>{feedback.text}</div>}
       {loadFailed && <div className="tmd-error" role="alert">状态刷新失败，以下是上次读取的结果。<button type="button" className="tmd-add-line" onClick={()=>void refresh()}>重试读取</button></div>}
 
@@ -865,24 +866,42 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
       )}
 
       {activeSection === 'plan' && roundRuns.length > 0 && (
-        <section className="tmd-panel">
-          <h3>设计进度</h3>
+        <section className="tmd-panel tmd-design-workspace" aria-label="全书方案">
+          <div className="tmd-plan-head">
+            <div><h2>全书方向</h2><p className="tmd-note">{roundActive ? '各方案独立进行，完成后可以查看和比较。' : roundRuns.every(run => run.state === 'failed') ? '本轮设计未完成。故事线和已有工作记录已保留。' : '选择一个方案查看内容，确认后再采用。'}</p></div>
+            <button type="button" className="tmd-ghost" onClick={() => setSection('material')}>查看故事线资料</button>
+          </div>
+          {storylineMaterial !== null && <details className="tmd-material-summary tmd-design-input">
+            <summary>已确认的故事线与要求 · 第{storylineMaterial.revision}版</summary>
+            <ul>{[...storylineMaterial.content.selectedLines, ...storylineMaterial.content.addedLines].map((line, index) => <li key={index}><strong>{line.title}</strong><p>{line.description}</p></li>)}</ul>
+            {storylineMaterial.content.authorNote && <p>补充要求：{storylineMaterial.content.authorNote}</p>}
+            <p>这是当前资料；标为需重新设计的旧方案仍保留原有内容。</p>
+          </details>}
+          {roundActive && <div className="tmd-work-notice" role="status"><ClockCounterClockwiseIcon aria-hidden="true" /><div><p>工作正在进行中，您可以退出等待，过几分钟后再回来查看。</p><small>让故事慢慢成形，新的可能正在酝酿。你可以离开本页，结果会保留。</small></div></div>}
           <div className="tmd-scheme-grid">
             {['A', 'B', 'C'].map(scheme => {
               const run = roundRuns.find(item => item.scheme === scheme);
               if (run === undefined) return null;
+              const result = isDesignResult(run.result) ? run.result : null;
+              // 只在真实工作中显示接手者；候选作者与当前审查成员不是同一个概念。
+              const member = run.state === 'working' ? run.member : run.state === 'queued' ? null : result?.member ?? null;
+              const status = run.state === 'working' ? '正在工作' : run.state === 'queued' ? '等待开始' : run.state === 'failed' ? '未完成' : result?.review.pass === true ? '可查看方案' : '待调整';
               return (
-                <div key={scheme} className="tmd-scheme-slot"><button type="button" disabled={editing || busy} aria-pressed={selectedScheme===scheme} className={`tmd-scheme-card${selectedScheme === scheme ? ' selected' : ''}${run.state === 'failed' ? ' failed' : ''}`} onClick={() => setSelectedScheme(scheme)}>
-                  <span className="tmd-scheme-tag">方案{scheme}</span>
-                  <span className="tmd-scheme-avatar" style={memberAvatarStyle(isDesignResult(run.result)?run.result.member.id:run.member?.id ?? '')} aria-hidden="true" />
-                  <strong>{isDesignResult(run.result) ? run.result.member.name : run.member?.name ?? '待接手'}</strong>
-                  <span className={`tmd-scheme-state state-${run.state}`}>{run.state === 'failed' ? '未完成' : run.progress}</span>
+                <article key={scheme} className={`tmd-scheme-slot${run.state === 'failed' ? ' failed' : ''}`} aria-label={`方案${scheme}`}>
+                <button type="button" disabled={editing || busy} aria-pressed={selectedScheme===scheme} className={`tmd-scheme-card${selectedScheme === scheme ? ' selected' : ''}`} onClick={() => setSelectedScheme(scheme)}>
+                  <span className="tmd-scheme-heading"><span className="tmd-scheme-tag">方案{scheme}</span><span className={`tmd-scheme-state state-${run.state}`}>{status}</span></span>
+                  {member !== null && <span className="tmd-scheme-member"><span className="tmd-scheme-avatar" style={memberAvatarStyle(member.id)} aria-hidden="true" /><strong>{member.name}</strong></span>}
+                  {member === null && <span className="tmd-note">{run.state === 'failed' ? '本次设计已停止' : run.state === 'queued' ? '开始后会显示负责成员' : '成员接手信息正在同步'}</span>}
                   {run.needsRedesign === true && <span className="tmd-stale-tag">需重新设计</span>}
-                </button>{run.state === 'failed' && <button type="button" className="tmd-scheme-retry" disabled={busy || editing} onClick={()=>retryRun(run.id)}>续做</button>}</div>
+                </button>
+                {run.state === 'working' && <progress className="tmd-work-progress" aria-label={`方案${scheme}正在工作`} />}
+                {run.state === 'failed' && <div className="tmd-scheme-recovery"><p>{run.message ?? '本次工作没有完成，已保存的内容仍可保留。'}</p>{run.needsRedesign === true
+                  ? <button type="button" className="tmd-ghost" onClick={() => setSection('material')}>查看资料并重新设计</button>
+                  : <button type="button" className="tmd-ghost" aria-label={`继续方案${scheme}`} disabled={busy || editing} onClick={()=>retryRun(run.id)}>继续设计</button>}</div>}
+                </article>
               );
             })}
           </div>
-          {roundActive && <p className="tmd-note">三套方案独立进行：先完成的可先查看；某一套未完成不影响其他两套。方案设计在后台进行，你可以离开本页；完成后结果保留，回来继续查看。</p>}
         </section>
       )}
 
@@ -1033,6 +1052,7 @@ function TimeMachineDirectionPage({ bookId, onOpenSettings }: { bookId: string; 
         </section>
       )}
 
+      </div>
       <dialog ref={materialConfirmRef} className="tmd-dialog" aria-label="确认保存故事线资料修改">
         <h2>确认保存修改</h2>
         <p>保存此修改后，基于旧版故事线资料的全书基线，以及后续卷、链、章规划将需要重新设计。已有正文会保留，不会自动覆盖。</p>

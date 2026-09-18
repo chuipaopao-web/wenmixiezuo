@@ -96,6 +96,42 @@ HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) { t
 HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) { this.removeAttribute('open'); };
 
 describe('time machine direction page', () => {
+  it('uses shared navigation and separates queued members from the real working reviewer', async () => {
+    const working = { ...designRun('B', 'working', '审查成员', ''), progress: '正在检索方法', result: designResult('候选作者', '现有草稿', false) };
+    const queued = { ...designRun('A', 'working', '尚未工作成员', ''), state: 'queued' as const };
+    vi.stubGlobal('fetch', vi.fn(async () => response(stateFixture({ runs: [recommendRun('succeeded'), queued, working] }))));
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
+    expect(await screen.findByRole('navigation', { name: '时光机功能' })).toHaveClass('workspace-secondary-tabs');
+    expect(screen.getByRole('button', { name: '全书' })).toHaveClass('active');
+    expect(screen.getByText('等待开始')).toBeVisible();
+    expect(screen.queryByText('尚未工作成员')).toBeNull();
+    expect(screen.getByText('审查成员')).toBeVisible();
+    expect(screen.queryByText('正在检索方法')).toBeNull();
+    expect(screen.getAllByRole('progressbar')).toHaveLength(1);
+    expect(screen.getByRole('progressbar', { name: '方案B正在工作' })).not.toHaveAttribute('value');
+  });
+
+  it('renders stopped schemes without empty avatars or waiting claims and preserves the server reason', async () => {
+    const failed = { ...designRun('A', 'failed', '', ''), message: '可用额度不足，请补充后继续。' };
+    vi.stubGlobal('fetch', vi.fn(async () => response(stateFixture({ runs: [recommendRun('succeeded'), failed] }))));
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
+    expect(await screen.findByText('可用额度不足，请补充后继续。')).toBeVisible();
+    expect(screen.getByText('本轮设计未完成。故事线和已有工作记录已保留。')).toBeVisible();
+    expect(screen.queryByText('待接手')).toBeNull();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.getByRole('article', { name: '方案A' }).querySelector('.tmd-scheme-avatar')).toBeNull();
+    expect(screen.getByRole('button', { name: '继续方案A' })).toBeEnabled();
+  });
+
+  it('directs a failed outdated scheme to materials instead of retrying the superseded input', async () => {
+    const failed = { ...designRun('A', 'failed', '', ''), needsRedesign: true };
+    const fetcher = vi.fn(async (_url: RequestInfo | URL) => response(stateFixture({ runs: [recommendRun('succeeded'), failed] })));
+    vi.stubGlobal('fetch', fetcher);
+    renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
+    fireEvent.click(await screen.findByRole('button', { name: '查看资料并重新设计' }));
+    expect(await screen.findByRole('heading', { name: '故事线资料' })).toBeVisible();
+    expect(fetcher.mock.calls.every(([url]) => !String(url).endsWith('/retry'))).toBe(true);
+  });
   it('blocks early recommendations until settings are confirmed and consolidated',async()=>{
     const fetcher=vi.fn(async()=>response(stateFixture({preparation:{ready:false,message:'请先完成设定设计',version:null},runs:[recommendRun('succeeded')]})));
     vi.stubGlobal('fetch',fetcher);const open=vi.fn();renderPage(<TimeMachineDirectionEntry bookId="bk-1" onOpenSettings={open}/>);
@@ -227,7 +263,9 @@ describe('time machine direction page', () => {
     expect(screen.getByText('苏映棠')).toBeVisible();
     // 72c3a62f复核第5项：工作态统一"正在工作"，成员=实际接手成员，附可离开说明
     expect(screen.getAllByText('正在工作')).toHaveLength(3);
-    expect(screen.getByText(/方案设计在后台进行，你可以离开本页/)).toBeVisible();
+    expect(screen.getByText('工作正在进行中，您可以退出等待，过几分钟后再回来查看。')).toBeVisible();
+    expect(screen.getAllByRole('progressbar')).toHaveLength(3);
+    for (const progress of screen.getAllByRole('progressbar')) expect(progress).not.toHaveAttribute('value');
     expect(designStarted).toBe(true);
   }, 20000);
 
@@ -278,7 +316,9 @@ describe('time machine direction page', () => {
     expect(await screen.findByText('方案A')).toBeVisible();
     expect(screen.getByText('方案C')).toBeVisible();
     expect(screen.getByText('未完成')).toBeVisible();
-    fireEvent.click(screen.getAllByText('续做')[0]!);
+    expect(screen.queryByText('待接手')).toBeNull();
+    expect(screen.getByText('本次工作尚未完成，已保存的步骤会保留。')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '继续方案C' }));
     await waitFor(() => { expect(retried).toBe(true); });
     expect(screen.getByText('轻快成长')).toBeVisible();
     expect(screen.getByText('约30万字')).toBeVisible();
