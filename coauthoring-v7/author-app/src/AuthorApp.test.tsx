@@ -212,7 +212,7 @@ describe('V7 author opening flow', () => {
     expect(screen.getByRole('heading', { name: '老板好啊！' })).toBeVisible();
     expect(screen.queryByRole('button', { name: /自己设计/ })).not.toBeInTheDocument();
     expect(screen.getByRole('img', { name: '貂蝉，编辑部主编' })).toHaveAttribute('src','/avatars/diaochan-welcome-r166.png');
-    expect(screen.getByRole('button', { name: /影视剧本/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /影视剧本/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: /长篇小说/ })).toHaveAttribute('aria-pressed','true');
     expect(screen.getByRole('button', { name: /荒诞猎奇/ })).toHaveAttribute('aria-pressed','true');
     await waitFor(() => expect(fetch).toHaveBeenCalled());
@@ -731,7 +731,7 @@ describe('V7 author opening flow', () => {
     expect(dock).not.toHaveClass('workflow-action-dock-page');
   });
 
-  it('作品类型默认长篇，四类可选并随草稿与提交贯通', async () => {
+  it('作品类型默认长篇，三项暂未开放不可选；旧非长篇草稿保留输入且禁止提交', async () => {
     const working = {
       ...COMPLETE_TASK,
       status: 'working', phase: 'package_design', isRunning: true, candidates: [],
@@ -745,23 +745,38 @@ describe('V7 author opening flow', () => {
     window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
     const rendered = render(<AuthorApp />);
 
+    // 新草稿默认长篇可选；三项真实disabled并展示“暂未开放”，点击不会改变选择。
     expect(await screen.findByRole('button', { name: /长篇小说/ })).toHaveAttribute('aria-pressed', 'true');
     for (const label of ['短篇小说', '个人自传', '影视剧本']) {
-      expect(screen.getByRole('button', { name: new RegExp(label) })).toHaveAttribute('aria-pressed', 'false');
+      const option = screen.getByRole('button', { name: new RegExp(label) });
+      expect(option).toBeDisabled();
+      expect(option).toHaveAttribute('aria-pressed', 'false');
     }
-    fireEvent.click(screen.getByRole('button', { name: /个人自传/ }));
-    await waitFor(() => expect(JSON.parse(localStorage.getItem(AI_DRAFT_KEY)!).creativeProfile.workType).toBe('memoir'));
+    expect(screen.getAllByText('暂未开放')).toHaveLength(3);
     rendered.unmount();
 
-    // 刷新后恢复所选类型；提交时类型进入创作偏好负载。
+    // 旧非长篇草稿：输入与类型原样保留（不静默转换），提示可见，提交按钮禁用。
+    localStorage.setItem(AI_DRAFT_KEY, JSON.stringify({
+      idea: '祖父辈在南方修铁路的真实经历。',
+      mode: 'ai',
+      creativeProfile: { scale: 3, styles: [], workType: 'memoir' }
+    }));
     render(<AuthorApp />);
-    expect(await screen.findByRole('button', { name: /个人自传/ })).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.change(screen.getByLabelText('说说您想写什么'), { target: { value: '张三穿越三国，从流民开始求生。' } });
-    fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
+    expect(await screen.findByLabelText('说说您想写什么')).toHaveValue('祖父辈在南方修铁路的真实经历。');
+    expect(screen.getByRole('button', { name: /个人自传/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('该类型暂未开放；如要写长篇，请选择长篇小说。')).toBeVisible();
+    expect(screen.getByRole('button', { name: '开始设计' })).toBeDisabled();
+
+    // 作者主动选择长篇后：提示消失、可以提交，类型按长篇进入创作偏好负载。
+    fireEvent.click(screen.getByRole('button', { name: /长篇小说/ }));
+    expect(screen.queryByText('该类型暂未开放；如要写长篇，请选择长篇小说。')).not.toBeInTheDocument();
+    const submit = screen.getByRole('button', { name: '开始设计' });
+    expect(submit).toBeEnabled();
+    fireEvent.click(submit);
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
       if (!String(input).endsWith('/api/v1/v7/opening-agent/tasks') || (init as RequestInit | undefined)?.method !== 'POST') return false;
       const body = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
-      return (body.creativeProfile as {workType?:string}).workType === 'memoir';
+      return (body.creativeProfile as {workType?:string}).workType === 'novel';
     })).toBe(true));
   });
 

@@ -7,7 +7,8 @@ import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infras
 import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { createTestContext as createBaseContext, type TestContext } from '../../helpers/test-context.js';
 
-// OPENING-UI-02：三人名单合同与四类作品类型链路。模型调用全部脚本化合成，
+// OPENING-UI-02：三人名单合同；OPENING-NOVEL-CLOSE-01：作品类型开放边界——仅长篇小说贯通，
+// 短篇/自传/剧本新建409零新增；旧客户端兼容与请求指纹保持。模型调用全部脚本化合成，
 // 只验证名单准入、提示语义、持久化与回读，不调用真实模型，文学效果由老板实测。
 const originalEvaluationRows = OPENING_EVALUATION_REPORT.rows;
 beforeEach(() => Object.defineProperty(OPENING_EVALUATION_REPORT, 'rows', { value: [
@@ -244,104 +245,106 @@ describe('OPENING-UI-02 三人名单合同', () => {
   });
 });
 
-describe('OPENING-UI-02 四类作品类型链路', () => {
-  it('四类型各自贯通创建、提示语义、候选、确认入架与书籍回读', async () => {
+describe('OPENING-NOVEL-CLOSE-01 作品类型开放边界', () => {
+  it('长篇小说贯通创建、提示语义、候选、确认入架与书籍回读', async () => {
     context = createTestContext('wenmi-v7-opening-work-types-');
     const resolver = new CapturingResolver();
     const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'v7-types@example.com', '类型作者', 'strong-pass-562');
-      const cases = [
-        {
-          workType: 'novel', label: '长篇小说',
-          boundaryIncludes: '三席全案策划', directiveIncludes: '金手指',
-          instructionsIncludes: '番茄可用口语', instructionsExcludes: '不是网文投稿'
-        },
-        {
-          workType: 'short_story', label: '短篇小说',
-          boundaryIncludes: '有限篇幅', directiveIncludes: '集中冲突',
-          instructionsIncludes: '短篇', instructionsExcludes: '番茄可用口语'
-        },
-        {
-          workType: 'memoir', label: '个人自传',
-          boundaryIncludes: '待补充', directiveIncludes: '真实经历',
-          instructionsIncludes: '待补充', instructionsExcludes: '可设计金手指，不默认附加代价'
-        },
-        {
-          workType: 'script', label: '影视剧本',
-          boundaryIncludes: '场景', directiveIncludes: '呈现方式',
-          instructionsIncludes: '影视剧本', instructionsExcludes: '番茄可用口语'
+      const started = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-agent/tasks',
+        headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          idea: '张三穿越到三国乱世，从流民开始求生，并想办法保护同行百姓。',
+          idempotencyKey: 'v7-work-type-novel-0001',
+          creativeProfile: { scale: 3, styles: [], workType: 'novel' }
         }
-      ] as const;
-      for (const [index, expected] of cases.entries()) {
-        resolver.clear();
-        const started = await app.inject({
-          method: 'POST', url: '/api/v1/v7/opening-agent/tasks',
-          headers: { ...BROWSER_HEADERS, cookie },
-          payload: {
-            idea: `张三穿越到三国乱世，从流民开始求生，并想办法保护同行百姓。（${expected.label}夹具）`,
-            idempotencyKey: `v7-work-type-000${index}`,
-            creativeProfile: { scale: 3, styles: [], workType: expected.workType }
-          }
-        });
-        expect(started.statusCode).toBe(200);
-        const taskId = started.json().data.taskId as string;
-        const view = await poll(app, cookie, taskId, ['awaiting_author_confirmation']);
-        expect(view.creativeProfile.workType).toBe(expected.workType);
+      });
+      expect(started.statusCode).toBe(200);
+      const taskId = started.json().data.taskId as string;
+      const view = await poll(app, cookie, taskId, ['awaiting_author_confirmation']);
+      expect(view.creativeProfile.workType).toBe('novel');
 
-        // 设计提示：类型是结构化字段与节点级语义，不是末尾附一句“这是某类型”。
-        const design = resolver.designCalls()[0]!.prompt;
-        expect(design.creativeDirection.workType).toBe(expected.workType);
-        expect(design.creativeDirection.workTypeLabel).toBe(expected.label);
-        expect(JSON.stringify(design.stageBoundary)).toContain(expected.boundaryIncludes);
-        expect(JSON.stringify(design.creativeDirection)).toContain(expected.directiveIncludes);
-        const instructions = (design.finalInstructions as string[]).join('\n');
-        expect(instructions).toContain(expected.instructionsIncludes);
-        expect(instructions).not.toContain(expected.instructionsExcludes);
-        if (expected.workType === 'novel') {
-          expect(design.publishingStyle.publicName).toBe('番茄小说');
-          expect(design.stageBoundary.instruction).toContain('三席全案策划');
-        } else {
-          expect(design.publishingStyle.publicName).toContain('作品本身');
-          expect(design.openingTaxonomy.instruction).toContain('资料组织归档');
-          expect(design.stageBoundary.instruction).not.toContain('三席全案策划');
+      // 设计提示：类型是结构化字段与节点级语义，不是末尾附一句“这是某类型”。
+      const design = resolver.designCalls()[0]!.prompt;
+      expect(design.creativeDirection.workType).toBe('novel');
+      expect(design.creativeDirection.workTypeLabel).toBe('长篇小说');
+      expect(JSON.stringify(design.creativeDirection)).toContain('金手指');
+      const instructions = (design.finalInstructions as string[]).join('\n');
+      expect(instructions).toContain('番茄可用口语');
+      expect(instructions).not.toContain('不是网文投稿');
+      expect(design.publishingStyle.publicName).toBe('番茄小说');
+      expect(design.stageBoundary.instruction).toContain('三席全案策划');
+
+      // 类型策略同样进入主编审查提示。
+      const review = resolver.reviewCalls()[0]!.prompt;
+      expect(review.creativeDirection.workType).toBe('novel');
+
+      // 确认入架：类型随任务快照复制进正式书并可回读。
+      const activePackage = latestCandidate(view, 'opening_package');
+      const confirmed = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-books',
+        headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          taskId,
+          candidateId: activePackage.candidateId,
+          openingPackage: activePackage.content,
+          idempotencyKey: 'v7-work-type-confirm-novel'
         }
-
-        // 类型策略同样进入主编审查提示。
-        const review = resolver.reviewCalls()[0]!.prompt;
-        expect(review.creativeDirection.workType).toBe(expected.workType);
-
-        // 确认入架：类型随任务快照复制进正式书并可回读。
-        const activePackage = latestCandidate(view, 'opening_package');
-        const confirmed = await app.inject({
-          method: 'POST', url: '/api/v1/v7/opening-books',
-          headers: { ...BROWSER_HEADERS, cookie },
-          payload: {
-            taskId,
-            candidateId: activePackage.candidateId,
-            openingPackage: activePackage.content,
-            idempotencyKey: `v7-work-type-confirm-000${index}`
-          }
-        });
-        expect(confirmed.statusCode).toBe(200);
-        const bookId = confirmed.json().data.bookId as string;
-        const stored = context.database.prepare(
-          'SELECT profile_json FROM book_creative_profiles WHERE book_id = ?'
-        ).get(bookId) as { profile_json: string };
-        expect(JSON.parse(stored.profile_json).workType).toBe(expected.workType);
-        const profile = await app.inject({
-          method: 'GET', url: `/api/v1/v7/books/${bookId}/book-profile`,
-          headers: { host: BROWSER_HEADERS.host, cookie }
-        });
-        expect(profile.statusCode).toBe(200);
-        expect(profile.json().data.workType).toBe(expected.workType);
-      }
+      });
+      expect(confirmed.statusCode).toBe(200);
+      const bookId = confirmed.json().data.bookId as string;
+      const stored = context.database.prepare(
+        'SELECT profile_json FROM book_creative_profiles WHERE book_id = ?'
+      ).get(bookId) as { profile_json: string };
+      expect(JSON.parse(stored.profile_json).workType).toBe('novel');
+      const profile = await app.inject({
+        method: 'GET', url: `/api/v1/v7/books/${bookId}/book-profile`,
+        headers: { host: BROWSER_HEADERS.host, cookie }
+      });
+      expect(profile.statusCode).toBe(200);
+      expect(profile.json().data.workType).toBe('novel');
     } finally {
       await app.close();
     }
   });
 
-  it('类型进入请求指纹：重复请求返回同一任务，同一幂等键改变类型被拒绝', async () => {
+  it.each([
+    { workType: 'short_story', label: '短篇小说' },
+    { workType: 'memoir', label: '个人自传' },
+    { workType: 'script', label: '影视剧本' }
+  ] as const)('$label暂未开放：新建任务409且零新增任务、零模型调用', async ({ workType }) => {
+    context = createTestContext(`wenmi-v7-opening-closed-${workType}-`);
+    const resolver = new CapturingResolver();
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, `v7-closed-${workType}@example.com`, '边界作者', 'strong-pass-565');
+      const ownerId = (context.database.prepare("SELECT owner_id FROM owners WHERE display_name = '边界作者'").get() as { owner_id: string }).owner_id;
+      const before = (context.database.prepare(
+        'SELECT COUNT(*) AS n FROM v7_opening_agent_tasks WHERE owner_id = ?'
+      ).get(ownerId) as { n: number }).n;
+      const started = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-agent/tasks',
+        headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          idea: '未开放类型的新开书想法。',
+          idempotencyKey: `v7-closed-${workType}-0001`,
+          creativeProfile: { scale: 3, styles: [], workType }
+        }
+      });
+      expect(started.statusCode).toBe(409);
+      expect(started.json().error.message).toContain('暂未开放，目前仅支持长篇小说');
+      expect((context.database.prepare(
+        'SELECT COUNT(*) AS n FROM v7_opening_agent_tasks WHERE owner_id = ?'
+      ).get(ownerId) as { n: number }).n).toBe(before);
+      expect(resolver.calls.length).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('创作偏好进入请求指纹：重复请求返回同一任务，同一幂等键变更偏好或类型分别被拒', async () => {
     context = createTestContext('wenmi-v7-opening-type-fingerprint-');
     const resolver = new CapturingResolver();
     const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
@@ -365,13 +368,22 @@ describe('OPENING-UI-02 四类作品类型链路', () => {
       });
       expect(replay.statusCode).toBe(200);
       expect(replay.json().data.taskId).toBe(firstTaskId);
-      const changedType = await app.inject({
+      // 同一幂等键变更偏好（仍为长篇）：按请求指纹冲突拒绝。
+      const changedProfile = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-agent/tasks',
+        headers: { ...BROWSER_HEADERS, cookie },
+        payload: { ...base, creativeProfile: { scale: 5, styles: [], workType: 'novel' } }
+      });
+      expect(changedProfile.statusCode).toBe(409);
+      expect(changedProfile.json().error.message).toContain('重新发起');
+      // 同一幂等键切到未开放类型：先按开放边界拒绝（OPENING-NOVEL-CLOSE-01）。
+      const closedType = await app.inject({
         method: 'POST', url: '/api/v1/v7/opening-agent/tasks',
         headers: { ...BROWSER_HEADERS, cookie },
         payload: { ...base, creativeProfile: { scale: 4, styles: [], workType: 'script' } }
       });
-      expect(changedType.statusCode).toBe(409);
-      expect(changedType.json().error.message).toContain('重新发起');
+      expect(closedType.statusCode).toBe(409);
+      expect(closedType.json().error.message).toContain('暂未开放，目前仅支持长篇小说');
     } finally {
       await app.close();
     }

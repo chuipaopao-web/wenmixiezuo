@@ -29,6 +29,7 @@ import {
   V7_OPENING_TAXONOMY_REFERENCE,
   validateV7OpeningRevisionDraft
 } from './v7-opening-package-contract.js';
+import { assertOpeningWorkTypeOpen } from '../agents/book-creative-context.js';
 
 const LEASE_MS = 2 * 60 * 1_000;
 const LEASE_HEARTBEAT_MS = 30 * 1_000;
@@ -102,6 +103,9 @@ export class V7OpeningAgentService {
     let creativeProfile: CreativeProfile;
     try { creativeProfile = normalizeCreativeProfile(input.creativeProfile); }
     catch(error) { throw new DomainError(errorCodes.validation, error instanceof Error ? error.message : '创作偏好无效'); }
+    // OPENING-NOVEL-CLOSE-01：新开书任务只放行长篇小说。必须在建任务壳、排队或任何
+    // 模型调用之前拒绝；未知类型仍由上面的规范化按非法参数拒绝；缺字段旧客户端缺省长篇。
+    assertOpeningWorkTypeOpen(creativeProfile.workType);
     const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
     // 当前商业入口统一按番茄小说工作。请求字段只为旧客户端兼容保留，
     // 不再让作者端决定平台，也不允许旧草稿改变新任务的平台策略。
@@ -153,7 +157,12 @@ export class V7OpeningAgentService {
         409
       );
     }
-    if ((result.created || canResume(result.row.status)) && isCurrentV7OpeningTask(result.row)) {
+    if (
+      (result.created || canResume(result.row.status))
+      && isCurrentV7OpeningTask(result.row)
+      // 历史非长篇任务壳只读保留，不借重放入口重新消费模型工作。
+      && workTypeFromCreativeProfileJson(result.row.creative_profile_json) === 'novel'
+    ) {
       this.start(ownerId, result.row.task_id);
     }
     return this.view(result.row, this.repository.listCandidates(ownerId, result.row.task_id));
@@ -164,7 +173,12 @@ export class V7OpeningAgentService {
     if (row === undefined) {
       throw new DomainError(errorCodes.validation, '开书任务不存在', {}, false, 404);
     }
-    if (canResume(row.status) && isCurrentV7OpeningTask(row)) this.start(ownerId, taskId);
+    // 读取入口只恢复长篇任务；历史非长篇任务保持可读，但不再新增模型工作。
+    if (
+      canResume(row.status)
+      && isCurrentV7OpeningTask(row)
+      && workTypeFromCreativeProfileJson(row.creative_profile_json) === 'novel'
+    ) this.start(ownerId, taskId);
     return this.view(row, this.repository.listCandidates(ownerId, taskId));
   }
 
@@ -235,6 +249,9 @@ export class V7OpeningAgentService {
         409
       );
     }
+    // 修订必然产生新的模型工作：按冻结任务类型判断，历史非长篇任务只读保留。
+    const frozenWorkType = workTypeFromCreativeProfileJson(row.creative_profile_json);
+    assertOpeningWorkTypeOpen(frozenWorkType);
     if (row.status !== 'awaiting_author_confirmation' && row.status !== 'awaiting_author_decision') {
       throw new DomainError(errorCodes.validation, '创作团队还没有完成本轮资料，暂时不能提交修改。', {}, false, 409);
     }
@@ -252,7 +269,7 @@ export class V7OpeningAgentService {
       : await this.repository.readCandidate<OpeningReview>(ownerId, taskId, state.activeReviewCandidateId);
     const adjustmentNote = normalizeAdjustmentNote(input.adjustmentNote);
     const resolutions = normalizeDecisionResolutions(input.decisionResolutions, activeReview?.content ?? null);
-    const workType = workTypeFromCreativeProfileJson(row.creative_profile_json);
+    const workType = frozenWorkType;
     const authorDraft = validateSubmittedRevisionDraft(input.openingPackage, base.content, [], [], workType);
     const authorChangedFields = changedOpeningFields(base.content, authorDraft);
     const resolvedDraft = applyDecisionResolutions(authorDraft, resolutions);

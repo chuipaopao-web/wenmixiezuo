@@ -10,6 +10,7 @@ import { V7OpeningAgentRepository } from '../../infrastructure/db/repositories/v
 import { BookOnboardingService } from './book-onboarding-service.js';
 import { PositioningService } from './positioning-service.js';
 import { isCurrentV7OpeningTask, workTypeFromCreativeProfileJson } from './v7-opening-agent-service.js';
+import { assertOpeningWorkTypeOpen } from '../agents/book-creative-context.js';
 import {
   openingPackageUnchanged,
   toV7OpeningBlueprint,
@@ -66,6 +67,13 @@ export class V7OpeningBookService {
     const stableHash = createHash('sha256').update(`${ownerId}\n${source.sourceKey}`).digest('hex').slice(0, 32);
     const draftId = `v7-opening-draft-${stableHash}`;
     const bookId = `v7-book-${stableHash}`;
+    // OPENING-NOVEL-CLOSE-01：新建书籍只放行长篇小说。已完成确认的幂等重放先行识别，
+    // 仍按原合同返回原书（含历史非长篇书籍）；其余请求在任何建草稿/建书写入之前按
+    // 开放边界拒绝，不产生新草稿、书籍或模型调用。
+    const completedReplay = this.database.prepare(
+      `SELECT 1 FROM positioning_drafts WHERE draft_id = ? AND owner_id = ? AND status = 'confirmed' AND proposed_book_id = ?`
+    ).get(draftId, ownerId, bookId) !== undefined;
+    if (!completedReplay) assertOpeningWorkTypeOpen(confirmProfile.workType);
     const blueprint = toV7OpeningBlueprint(openingPackage, source.idea);
     const positioning = new PositioningService(this.database, this.ids, this.clock);
     const draft = positioning.createDraft({ ownerId }, {

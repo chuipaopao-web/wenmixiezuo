@@ -195,12 +195,13 @@ function errorMessage(error: unknown): string {
 
 type OpeningDesignerMember = EditorialDepartmentView['departments'][number]['members'][number];
 
-/** 作品类型四选：内部标识是稳定英文枚举，中文只用于作者显示；novel 是长篇兼容值。 */
-const WORK_TYPE_OPTIONS: ReadonlyArray<{ value: CreativeProfile['workType']; label: string; hint: string }> = [
-  { value: 'novel', label: '长篇小说', hint: '可持续展开的故事与人物方向' },
-  { value: 'short_story', label: '短篇小说', hint: '集中冲突，有限篇幅讲完' },
-  { value: 'memoir', label: '个人自传', hint: '以您的真实经历为准' },
-  { value: 'script', label: '影视剧本', hint: '人物、冲突、场景与呈现方式' }
+/** 作品类型四选：内部标识是稳定英文枚举，中文只用于作者显示；novel 是长篇兼容值。
+ *  OPENING-NOVEL-CLOSE-01：当前仅长篇小说开放；其余三项保留展示与历史读取兼容，但不可选。 */
+const WORK_TYPE_OPTIONS: ReadonlyArray<{ value: CreativeProfile['workType']; label: string; hint: string; open: boolean }> = [
+  { value: 'novel', label: '长篇小说', hint: '可持续展开的故事与人物方向', open: true },
+  { value: 'short_story', label: '短篇小说', hint: '集中冲突，有限篇幅讲完', open: false },
+  { value: 'memoir', label: '个人自传', hint: '以您的真实经历为准', open: false },
+  { value: 'script', label: '影视剧本', hint: '人物、冲突、场景与呈现方式', open: false }
 ];
 
 function DesignerMemberPicker({ members, value, onChange, redesign = false, disabled = false }: {
@@ -647,7 +648,9 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   const unresolvedRequiredDecisions = currentReviewDecisions.filter((item) => item.required && decisionResolutions[item.decisionId] === undefined);
   const invalidCustomDecision = activeDecisionResolutions.some((item) => item.action === 'custom' && (item.customValue?.trim().length ?? 0) === 0);
   const hasDecisionUpdates = activeDecisionResolutions.length > 0;
-  const canConfirm = openingPackage !== null && validationErrors.length === 0 && !busy && (
+  // 未开放类型只可能来自旧草稿/历史任务：资料保留可查看，但修订与确认入架都不能提交。
+  const workTypeOpen = creativeProfile.workType === 'novel';
+  const canConfirm = workTypeOpen && openingPackage !== null && validationErrors.length === 0 && !busy && (
     mode === 'manual' || (
       task?.status === 'awaiting_author_confirmation'
       && review?.verdict === 'pass'
@@ -658,7 +661,8 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   const ideaLength = Array.from(idea).length;
 
   const startAi = async () => {
-    if (ideaLength < 4 || ideaLength > 2_000 || openingSubmitRef.current) return;
+    // 未开放类型（只可能来自旧草稿）不允许提交；作者需先主动选择长篇小说。
+    if (creativeProfile.workType !== 'novel' || ideaLength < 4 || ideaLength > 2_000 || openingSubmitRef.current) return;
     openingSubmitRef.current = true;
     setBusy(true);
     setError(null);
@@ -913,12 +917,13 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
             {READING_STYLES.map(style => <button key={style} type="button" aria-label={`主偏向：${style}`} aria-pressed={creativeProfile.styles[0]===style} onClick={() => setCreativeProfile(current=>({...current,styles:[style,...current.styles.slice(1).filter(item=>item!==style)]}))}>{creativeProfile.styles[0]===style ? '主 · ' : ''}{style}</button>)}
           </div></fieldset>
           {creativeProfile.styles.length>0 && <fieldset className="creative-choice"><legend>辅助偏向 <small>可不选，最多4个 · 已选{creativeProfile.styles.length-1}/4</small></legend><p className="creative-hint">按情节需要使用，不必每章全部体现。</p><div className="creative-style-options">{READING_STYLES.filter(style=>style!==creativeProfile.styles[0]).map(style => <button key={style} type="button" aria-label={`辅助偏向：${style}`} aria-pressed={creativeProfile.styles.slice(1).includes(style)} disabled={!creativeProfile.styles.includes(style) && creativeProfile.styles.length>=5} onClick={() => setCreativeProfile(current=>({...current,styles:current.styles.includes(style)?current.styles.filter(item=>item!==style):[...current.styles,style]}))}>{creativeProfile.styles.includes(style) ? '副 · ' : ''}{style}</button>)}</div></fieldset>}
-          <fieldset className="creative-choice"><legend>作品类型</legend><div className="creative-scale-options">{WORK_TYPE_OPTIONS.map(option => <button key={option.value} type="button" aria-pressed={creativeProfile.workType===option.value} onClick={() => setCreativeProfile(current=>({...current,workType:option.value}))}><strong>{option.label}</strong><small>{option.hint}</small></button>)}</div></fieldset>
+          <fieldset className="creative-choice"><legend>作品类型</legend><div className="creative-scale-options">{WORK_TYPE_OPTIONS.map(option => <button key={option.value} type="button" aria-pressed={creativeProfile.workType===option.value} disabled={!option.open} onClick={() => setCreativeProfile(current=>({...current,workType:option.value}))}><strong>{option.label}</strong><small>{option.hint}</small>{!option.open && <small className="work-type-closed-tag">暂未开放</small>}</button>)}</div></fieldset>
+          {creativeProfile.workType !== 'novel' && <p className="creative-hint" role="status">该类型暂未开放；如要写长篇，请选择长篇小说。</p>}
           <DesignerMemberPicker members={designMembers} value={effectiveDesignerMemberKey} onChange={(memberKey) => { setSelectedDesignerMemberKey(memberKey); setMemberFallbackNotice(null); }} />
           {memberFallbackNotice !== null && <p className="creative-hint" role="status">{memberFallbackNotice}</p>}
           {error !== null && <div className="error-notice" role="alert">{error}</div>}
         </div>
-        <WorkflowActionDock mode="flow" title="让编辑部开始设计" detail="生成后可修改，也可以换成员重新设计。" primary={<button className="primary-action" type="button" disabled={ideaLength < 4 || busy} onClick={() => void startAi()}><UsersThreeIcon />{busy ? '正在提交…' : '开始设计'}</button>} />
+        <WorkflowActionDock mode="flow" title="让编辑部开始设计" detail="生成后可修改，也可以换成员重新设计。" primary={<button className="primary-action" type="button" disabled={ideaLength < 4 || busy || creativeProfile.workType !== 'novel'} onClick={() => void startAi()}><UsersThreeIcon />{busy ? '正在提交…' : '开始设计'}</button>} />
       </section>
     );
   }
@@ -927,7 +932,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     const currentErrors = manualStep === 1 ? manualValidation.stepOne : manualValidation.stepTwo;
     const needsReview = mode === 'ai' && (dirty || hasDecisionUpdates || review?.verdict !== 'pass' || task?.needsAuthorDecision === true);
     const reviewNeedsImmediateAction = needsReview && (review?.verdict !== 'pass' || task?.needsAuthorDecision === true || manualStep === 2);
-    const canSubmitRevision = !busy && !invalidCustomDecision && unresolvedRequiredDecisions.length === 0 && (dirty || hasDecisionUpdates);
+    const canSubmitRevision = workTypeOpen && !busy && !invalidCustomDecision && unresolvedRequiredDecisions.length === 0 && (dirty || hasDecisionUpdates);
     return (
       <section className="package-create-surface manual-create-surface" aria-label={mode === 'ai' ? '确认开书资料' : '自己设计开书资料'}>
         {mode === 'ai' && <ReviewPanel review={review} memberName={task?.selectedMembers.chiefEditor?.displayName ?? null} resolutions={decisionResolutions} onResolve={(decisionId, resolution) => setDecisionResolutions((current) => {
@@ -941,11 +946,12 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
           ...current,
           ...Object.fromEntries(decisions.map((item) => [item.decisionId, { decisionId: item.decisionId, action: 'accept' as const }]))
         }))} />}
+        {!workTypeOpen && <p className="creative-hint" role="status">该作品类型暂未开放，目前仅支持长篇小说；已保存的资料仍可查看，暂不能提交修改或创建书籍。</p>}
         <ManualOpeningForm value={openingPackage} taxonomy={taxonomy} onChange={setOpeningPackage} step={manualStep} onStepChange={setManualStep} workType={creativeProfile.workType} />
         {mode === 'ai' && designMembers.length > 0 && <section className="opening-redesign-choice" aria-label="换成员重新设计">
           <DesignerMemberPicker members={designMembers} value={effectiveDesignerMemberKey} onChange={(memberKey) => { setSelectedDesignerMemberKey(memberKey); setMemberFallbackNotice(null); }} redesign disabled={busy} />
           <p>按最初的开书想法重新设计，不带入当前方案和下方调整意见；原方案保留在任务记录中。</p>
-          <WorkflowActionDock mode="card" ariaLabel="整份开书资料重新设计" title="选择头像后重新设计" primary={<button className="secondary-action" type="button" disabled={busy || effectiveDesignerMemberKey.length === 0} onClick={() => void redesignWithMember()}>{busy ? '正在重新安排…' : '重新设计'}</button>} />
+          <WorkflowActionDock mode="card" ariaLabel="整份开书资料重新设计" title="选择头像后重新设计" primary={<button className="secondary-action" type="button" disabled={!workTypeOpen || busy || effectiveDesignerMemberKey.length === 0} onClick={() => void redesignWithMember()}>{busy ? '正在重新安排…' : '重新设计'}</button>} />
         </section>}
         {mode === 'ai' && manualStep === 2 && <label className="adjustment-field" htmlFor="adjustment-note"><span>开书资料调整意见（可选）</span><ImeTextarea id="adjustment-note" rows={3} maxChars={2_000} value={adjustmentNote} onChange={setAdjustmentNote} placeholder="例如：主角必须是张三；年龄改成二十岁；书名更直白吸睛。只调整本页开书资料。" /><small>设计成员按意见修改当前资料，再由主编审查。</small><output>{Array.from(adjustmentNote).length}/2000</output></label>}
         {currentErrors.length > 0 && <details className="validation-summary"><summary>还需完成 {currentErrors.length} 项</summary><ul>{currentErrors.map((item) => <li key={item}>{item}</li>)}</ul></details>}

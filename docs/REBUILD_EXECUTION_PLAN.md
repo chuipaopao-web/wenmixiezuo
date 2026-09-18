@@ -776,7 +776,7 @@
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：rebuild/packages/backend/src/legacy-opening/opening-agent/opening-agent-engine.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,rebuild/packages/agent-catalog/creative-assets.js,rebuild/packages/backend/src/legacy-opening/opening-agent/opening-prompt-compiler.ts,apps/api/src/application/books/v7-opening-agent-service.ts,coauthoring-v7/author-app/src/NewNovelPage.tsx,coauthoring-v7/author-app/src/AuthorApp.tsx,apps/api/src/application/creative-reference/runtime.ts,apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.ts
-- **管理·代码核对**：44e98916ec65418a9f21396fa0b767f60cf7dbd202633059aae64587cbc66225
+- **管理·代码核对**：fa2c5ede96e5a73341766196834b8dc28d9e723caa6788cf4a343c86feddeaea
 
 - **管理·共享步骤**：none
 - **第166批确认方案**：首页直接开书，新貂蝉为亲切可爱的成年古风女性；尺度为常规发挥/趣味加料/反差脑洞/荒诞猎奇/极限整活，默认4。风格已由第167批调整为一个主偏向、最多四个辅助偏向；主导与辅助用途分别明确。完整机制库允许自由组合与原创，不宣称全网最全。后台“资产方法论→创意与金手指”查看同源卡片和节点规则；正式调用快照在本功能的上下文样例中追溯。2026-09-09 02:56:49已上线wm-v7-20260909-024500-108646da，静态a950d437b17ebb3fa52b。手机/电脑和定向接口验证通过，真实合成样例设计88秒、审查21秒通过；单例不代表所有任务速度。剧本尚未开放。
@@ -787,7 +787,7 @@
 - **管理·岗位**：planning_writer,chief_editor
 - **管理·共享节点**：RB-16,RB-17
 - **第167批确认方案与交付**：前端分主偏向和辅助偏向两组，主偏向一个、辅助最多四个，也可由成员判断。更换主项保留其他辅助并去重，取消主项同时清空辅助；旧三项草稿仍可读。系统保存首项为主、其余为辅；各节点提示主偏向主导、辅助按情节需要使用，不强制每卷每章全部体现。接口拒绝超过五项及非法标签。wm-v7-20260909-033000-d5567614、静态a90ded41112f65bb0f71已发布；定向接口/交互/手机电脑验证通过，无数据迁移，无额外真实模型收费测试。
-- **管理·功能介绍**：单页开书：貂蝉迎接，作者直接输入想法、选作品类型（长篇小说默认/短篇小说/个人自传/影视剧本）、选三名开书设计成员之一（幼薇/GLM-5.3、红玉/DeepSeek V4 Pro默认、温予安/Kimi 2.7，无"自动安排"）、五档创意尺度及一个主偏向与最多四个辅助偏向。开书候选生成核心卖点与阅读味道（可编辑；长期期待、全书钩子、故事线与分卷仍在时光机，开书阶段不输出）；确认建书后两项与作品类型保存进信息→资料页，可修改并被后续任务按来源版本读取。取消独立类型页与自己设计入口，保留生成后编辑与换成员。题材创作思路库尚未接入，本功能不按题材自动查询阅读偏好。四类作品类型均已开放；预计总字数按类型同一合同定界（长篇10万—1000万、短篇1千—10万、自传1万—200万、剧本5千—200万），解析、候选编辑、修订、确认入架与资料编辑共用；非长篇的设定/时光机/分卷工作台尚未开放，页面如实标注且服务端在写任务、排队或占预算前明确拒绝，非长篇频道/分类字段仅作资料组织归档。
+- **管理·功能介绍**：单页开书：貂蝉迎接，作者直接输入想法、选作品类型（长篇小说默认；短篇小说/个人自传/影视剧本显示“暂未开放”，不可选、不能提交）、选三名开书设计成员之一（幼薇/GLM-5.3、红玉/DeepSeek V4 Pro默认、温予安/Kimi 2.7，无"自动安排"）、五档创意尺度及一个主偏向与最多四个辅助偏向。开书候选生成核心卖点与阅读味道（可编辑；长期期待、全书钩子、故事线与分卷仍在时光机，开书阶段不输出）；确认建书后两项与作品类型保存进信息→资料页，可修改并被后续任务按来源版本读取。取消独立类型页与自己设计入口，保留生成后编辑与换成员。题材创作思路库尚未接入，本功能不按题材自动查询阅读偏好。当前仅长篇小说开放：服务端在开书任务创建、修订、恢复与确认入架新建书籍前按同一开放边界拒绝非长篇（409"暂未开放，目前仅支持长篇小说"），历史任务/草稿只读保留、不静默改型，已完成确认按原幂等合同返回原书；预计总字数按类型同一合同定界（长篇10万—1000万、短篇1千—10万、自传1万—200万、剧本5千—200万）保留为类型兼容能力，解析、候选编辑、修订、确认入架与资料编辑共用；非长篇的设定/时光机/分卷工作台尚未开放，页面如实标注且服务端在写任务、排队或占预算前明确拒绝，非长篇频道/分类字段仅作资料组织归档。
 - **管理·用户操作**：输入4至2000字想法；确定仅确认文字、不调用模型；选择头像、尺度与偏向后开始设计，阅读候选并修改、重设计或确认建书。
 - **管理·流程**：系统冻结作者原话、创意偏好和成员模型 → 策划编剧接收完整精简创意目录并自主选用/组合/原创 → 异模型主编按该尺度审查 → 必要时修订/恢复 → 作者确认，书籍继承偏好。
 - **管理·资料供给**：R209-C4/D/E：正式作者想法、调整意见与候选分开提供；不再全量注入128张旧创意卡。设计成员从已审核发布的创作库按用途、阶段查阅，再选择少量详情；候选不是事实。
@@ -846,7 +846,7 @@
 - **第168批确认界面**：资料页删除“开书资料已经成为正式上游”及下一步解释；设计书名、设计封面、修改开书资料、进入设定四个按钮在内容底部正常排列，不再悬浮。默认书封只显示书名，去掉文秘与小说角标。开书工作进度改为“编剧正在设计”“主编正在审查”，不展示资料包术语；任务数据与状态不变。
 
 - **管理·代码来源**：apps/api/src/application/books/v7-opening-book-service.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts
-- **管理·代码核对**：8e7baa0b0763f6eafaccd9b28e9dc3bf9cdbf93f73ed013e10d93ec49152ccf1
+- **管理·代码核对**：815da0efdf7b437b69417b044a36acc4396d2ccba075831a64e2665467a7a997
 
 - **管理·共享步骤**：none
 
@@ -855,7 +855,7 @@
 - **管理·任务类型**：none
 - **管理·岗位**：none
 - **管理·共享节点**：none
-- **管理·功能介绍**：资料编辑：作者修改资料并保存新版本。核心卖点与阅读味道已打通保存、读取与编辑，展示在最初想法之后；旧书缺卖点显示“暂未补充”，缺味道只读展示历史风格，明确清空后不回填。原始想法和旧版本保留。手动开书确认入架同样保存规范化创作偏好快照；预计总字数按作品类型同一合同校验（短篇1千—10万、自传1万—200万、剧本5千—200万、长篇10万—1000万）；非长篇书籍的设定等后续分区在资料页如实显示尚未开放，资料本身可正常查看与编辑。完整跨层变更影响仍待补全。
+- **管理·功能介绍**：资料编辑：作者修改资料并保存新版本。核心卖点与阅读味道已打通保存、读取与编辑，展示在最初想法之后；旧书缺卖点显示“暂未补充”，缺味道只读展示历史风格，明确清空后不回填。原始想法和旧版本保留。手动开书确认入架同样保存规范化创作偏好快照；当前新建确认仅放行长篇小说，非长篇按开放边界明确拒绝，已完成确认按原幂等合同返回原书；预计总字数按作品类型同一合同校验（短篇1千—10万、自传1万—200万、剧本5千—200万、长篇10万—1000万）；非长篇书籍的设定等后续分区在资料页如实显示尚未开放，资料本身可正常查看与编辑。完整跨层变更影响仍待补全。
 - **管理·用户操作**：打开资料页修改内容并保存；此处指作者手动修改，不是点击AI重设计。
 - **管理·流程**：系统读取当前书籍版本 → 作者编辑 → 系统校验权限及字段 → 保存新版本
 - **管理·资料供给**：系统直接读取当前书籍资料，不启动资料Agent。AI重做开书资料归到“开书”功能。
@@ -970,7 +970,7 @@
 - **确认方案·验收06·长篇效果**：工程链路及少量真实语义小样持续核验：两卷规划与定稿的隔离资料检查了来源、冲突、版本失效和正文保护；三次Kimi审查分别约4.8/5.1/2.6秒，识别限制扩大、正文矛盾与明确未来生效的合理变化。百万字连续阅读质量尚无实证，作为后续持续评测项，不伪称完成。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/books/v7-setting-editorial-service.ts,apps/api/src/application/books/v7-task-roster-snapshot.ts,apps/api/src/infrastructure/db/repositories/setting-change-impact.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-rules.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-catalog.ts,rebuild/packages/backend/src/legacy-opening/setting-agent/setting-agent-support.ts,rebuild/packages/backend/src/legacy-opening/agent-governance/agent-governance-registry.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/books/setting-continuity.ts,apps/api/src/infrastructure/db/repositories/setting-version-selection.ts,apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.ts,coauthoring-v7/author-app/src/SettingPage.tsx,apps/api/src/infrastructure/db/repositories/setting-continuity-repository.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/books/setting-context-selection.ts,apps/api/src/application/creative-reference/runtime.ts
-- **管理·代码核对**：281c24ca0b0825d8bba0f0f8b5ee4d5e1a8cb6d35405435ddcfb64d96960c227
+- **管理·代码核对**：27d98da965b3622d837c799ed2183e87110c32f135d32af2d2a0fcb80114262d
 
 - **管理·共享步骤**：AI-008,AI-009
 
@@ -1096,7 +1096,7 @@
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/planning/v7-planning-route-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/planning/v7-book-design-card-service.ts,apps/api/src/application/planning/v7-planning-source-compiler.ts,coauthoring-v7/backend/planning-methods/book-design-card.ts,coauthoring-v7/backend/planning-methods/rhythm-policy.ts,coauthoring-v7/backend/planning-methods/layer-asset-menu.ts,coauthoring-v7/backend/planning-methods/complete-method-catalog.ts,coauthoring-v7/backend/planning-methods/layered-planning-engine.ts,coauthoring-v7/backend/planning-methods/planning-story-routes.ts,rebuild/packages/backend/src/legacy-opening/planning-methods/planning-story-routes.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts,apps/api/src/application/creative-reference/runtime.ts
-- **管理·代码核对**：289853b8f4fa886154872caf03665b2f1c904bb9cfb3f37d6a6729d8fda302aa
+- **管理·代码核对**：1b2d2c91b62acfbd67801697f952113cc93a4abd212a162723673aa9eeffb9d8
 
 - **管理·共享步骤**：AI-001,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1181,7 +1181,7 @@
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
-- **管理·代码核对**：c33af212033899c4daabd1ac92018e2cf302c4b953f7dea274aa0612c4612554
+- **管理·代码核对**：293a85fde5ce8ad053ed15083e2f2a72c58132a4bfc403bbb8870cf808030733
 
 - **管理·共享步骤**：AI-001,AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1250,7 +1250,7 @@
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/application/planning/v7-planning-tree-generation-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,apps/api/src/infrastructure/models/v7-planning-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
-- **管理·代码核对**：c33af212033899c4daabd1ac92018e2cf302c4b953f7dea274aa0612c4612554
+- **管理·代码核对**：293a85fde5ce8ad053ed15083e2f2a72c58132a4bfc403bbb8870cf808030733
 
 - **管理·共享步骤**：AI-001,AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1315,7 +1315,7 @@
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
-- **管理·代码核对**：55538f04029ef48fcb5ec1cc6f41817c4efb411f7ebf4aef2b3951662f31cb24
+- **管理·代码核对**：fb790df33b03eea3b850cab249e0f00dc75df5d007069f6cb6a437315af2a007
 
 - **管理·共享步骤**：AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1372,7 +1372,7 @@
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
-- **管理·代码核对**：55538f04029ef48fcb5ec1cc6f41817c4efb411f7ebf4aef2b3951662f31cb24
+- **管理·代码核对**：fb790df33b03eea3b850cab249e0f00dc75df5d007069f6cb6a437315af2a007
 
 - **管理·共享步骤**：AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 
@@ -1425,7 +1425,7 @@
 - **收尾·旧实现退出**：替代功能完成同范围验收、切换后旧实现无引用且无在途任务再退出；本批不删除现有依赖、历史迁移或用户数据。
 
 - **管理·代码来源**：apps/api/src/application/agents/v7-book-genre-profile-ensure-service.ts,apps/api/src/application/creation/v7-context-evidence-reader.ts,apps/api/src/application/creation/v7-creation-context-compiler.ts,apps/api/src/application/creation/v7-creation-workflow-service.ts,apps/api/src/infrastructure/models/v7-creation-model-gateway.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-manifest-compiler.ts,rebuild/packages/backend/src/legacy-opening/prompt-governance/prompt-source-registry.ts,apps/api/src/application/agents/book-creative-context.ts,apps/api/src/application/agents/method-agent-runtime.ts,apps/api/src/infrastructure/db/repositories/method-agent-repository.ts,coauthoring-v7/backend/planning-methods/method-tools.ts,coauthoring-v7/backend/planning-methods/additional-methods.ts
-- **管理·代码核对**：55538f04029ef48fcb5ec1cc6f41817c4efb411f7ebf4aef2b3951662f31cb24
+- **管理·代码核对**：fb790df33b03eea3b850cab249e0f00dc75df5d007069f6cb6a437315af2a007
 
 - **管理·共享步骤**：AI-002,AI-003,AI-004,AI-005,AI-006,AI-007,AI-008,AI-009
 

@@ -7,23 +7,38 @@ import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infras
 import { parseOpeningPackage } from '../../../rebuild/packages/backend/src/legacy-opening/opening-agent/opening-output-validation.js';
 import {
   V7_OPENING_TAXONOMY_REFERENCE,
+  toV7OpeningBlueprint,
   validateV7OpeningConfirmationPackage,
   validateV7ManualOpeningPackage,
   validateV7OpeningPackage,
   validateV7OpeningRevisionDraft
 } from '../../../apps/api/src/application/books/v7-opening-package-contract.js';
 import { BookProfileViewService } from '../../../apps/api/src/application/books/book-profile-view-service.js';
+import { PositioningService } from '../../../apps/api/src/application/books/positioning-service.js';
 import { TimeMachineDesignService } from '../../../apps/api/src/application/books/time-machine-design-service.js';
 import { V7SettingEditorialService } from '../../../apps/api/src/application/books/v7-setting-editorial-service.js';
 import { SystemClock, UuidGenerator } from '../../../apps/api/src/domain/ids.js';
 import { createAppServer } from '../../../apps/api/src/http/app-server.js';
-import { BookRepository } from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import { TimeMachineModelGateway } from '../../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
 import { createTestContext as createBaseContext, type TestContext } from '../../helpers/test-context.js';
+import {
+  MEMOIR_PACKAGE,
+  NOVEL_PACKAGE,
+  SCRIPT_PACKAGE,
+  SHORT_PACKAGE,
+  bookCount,
+  makeManualPackage,
+  openingTaskCount,
+  positioningDraftCount,
+  seedBookWithWorkType,
+  timeMachineRunCount
+} from '../../helpers/opening-work-type-fixtures.js';
 
-// OPENING-UI-02返修（R1+R2）正式回归，自包含、不依赖任何证据目录：
-// R1：篇幅/结果合同按作品类型穿透 生成解析→候选编辑→修订/审查→确认入架→书籍资料编辑/回读；
+// OPENING-UI-02返修（R1+R2）正式回归 + OPENING-NOVEL-CLOSE-01 开放边界，自包含、不依赖任何证据目录：
+// R1（底层兼容能力保留）：篇幅/结果合同按作品类型穿透 生成解析→候选编辑→修订/审查→确认入架→书籍资料编辑/回读；
 //     1万字短篇不再被强制10万字下限，范围校验保留，长篇旧合同不放宽，类型只信冻结任务/所属书籍。
+// 开放边界（OPENING-NOVEL-CLOSE-01）：新请求只放行长篇小说——短篇/自传/剧本的新建任务、手动/AI确认、
+//     会新增模型工作的修订与恢复入口一律409且零新增任务/书籍/模型调用；历史读取与已完成确认幂等保留。
 // R2：非长篇（含短篇）在写任务/排队/占预算之前被可信服务端入口拒绝；长篇与无快照旧书不误拦；
 //     历史任务只读保留。全部模型调用脚本化合成，不调用真实模型。
 const originalEvaluationRows = OPENING_EVALUATION_REPORT.rows;
@@ -52,97 +67,7 @@ const BROWSER_HEADERS = {
   'content-type': 'application/json'
 };
 
-const TAXONOMY = {
-  publishingPlatform: 'fanqie',
-  channel: 'male', category: '历史脑洞', genres: ['历史脑洞', '秦汉三国', '穿越'],
-  tags: ['成长', '权谋', '智商在线', '群像']
-};
-
-/** 四个不同合理夹具：长篇旧兼容 / 短篇1万字集中故事 / 自传已知经历+待补充 / 剧本人物与场景。 */
-function makePackage(expectedTotalWords: number, content: {
-  title: string; coreAppeal: string; eraAndWorld: string; centralConflict: string; mustFollow: string[];
-}) {
-  return {
-    title: content.title,
-    positioning: { ...TAXONOMY, coreAppeal: content.coreAppeal, expectedTotalWords },
-    backgrounds: { eraAndWorld: content.eraAndWorld },
-    protagonists: [{
-      name: '张三', age: '23岁', identity: '男主',
-      background: '熟悉基础历史脉络，但没有万能技术手册。',
-      familyBackground: '现代普通家庭出身，没有可依靠的宗族。',
-      careerBackground: '穿越前是普通职员，擅长整理信息和协调同伴。',
-      goldenFinger: '无额外系统，主要依靠现代常识、观察力和复盘能力。',
-      visualIdentity: { appearance: '五官端正、目光沉静', build: '身形精干、耐力较好', signatureFeature: '左眉浅痕、旧布护腕' },
-      personality: ['谨慎', '有同理心']
-    }],
-    longTermDirection: {
-      centralConflict: content.centralConflict,
-      progression: '先带同伴活下来，再取得立足之地，最终有能力保护更多普通人。',
-      relationshipDirection: '在共同求生和立场冲突中建立可信赖的伙伴关系。',
-      storyPotential: '身份上升、阵营选择与百姓生存可以持续形成矛盾。'
-    },
-    possibleEnding: {
-      direction: '最终建立能保护普通人的稳定秩序。',
-      price: '必须在个人安稳与承担更大责任之间作出取舍。',
-      openness: '主冲突收束，同时保留新秩序继续经受考验的空间。'
-    },
-    mustFollow: content.mustFollow,
-    authorInstructions: []
-  };
-}
-
-const NOVEL_PACKAGE = makePackage(3_000_000, {
-  title: '三国：从流民开始',
-  coreAppeal: '现代普通人从乱世底层起步，靠判断、协作和承担责任逐步改变命运。',
-  eraAndWorld: '东汉末年，黄巾余波未平，地方秩序松动。',
-  centralConflict: '个人求生与乱世权力扩张持续冲突。',
-  mustFollow: ['不能准确记住所有历史细节']
-});
-const SHORT_PACKAGE = makePackage(10_000, {
-  title: '渡口一夜的抉择',
-  coreAppeal: '一个夜晚、一个渡口，陌生旅客与守渡人围绕一袋赈灾粮展开集中冲突。',
-  eraAndWorld: '东汉末年一处偏僻渡口，故事只发生在一个夜晚。',
-  centralConflict: '守渡人要不要冒死揭发冒领赈灾粮的旅客。',
-  mustFollow: ['篇幅集中在一个夜晚，不展开成长线']
-});
-const MEMOIR_PACKAGE = makePackage(80_000, {
-  title: '我在南方修铁路',
-  coreAppeal: '作者祖父辈真实的筑路经历：已知的迁徙、工地与家庭变故，未知处明确留白。',
-  eraAndWorld: '上世纪南方山区铁路工地，以家族真实经历为底。',
-  centralConflict: '艰苦环境与家庭责任之间的真实抉择。',
-  mustFollow: ['未知日期与姓名保持待补充，不得编造']
-});
-const SCRIPT_PACKAGE = makePackage(60_000, {
-  title: '站台救援行动',
-  coreAppeal: '以场景调度和对白推进的灾难救援故事：人物关系与场景转换是主要叙事手段。',
-  eraAndWorld: '现代都市地铁站，主要场景为站台、控制室与隧道。',
-  centralConflict: '救援时限与人员去留的持续冲突。',
-  mustFollow: ['以场景与对白呈现，不写大段内心独白']
-});
-
-const MANUAL_BASE = {
-  positioning: {
-    publishingPlatform: 'fanqie', channel: 'male', category: '历史脑洞', genres: ['历史脑洞'], tags: ['历史', '权谋'],
-    coreAppeal: '张三改变北宋。', targetReaders: '喜欢历史穿越、成长和权谋的男频读者',
-    retentionPositioning: '开篇快速进入乱世压力，逐段兑现身份跃迁。'
-  },
-  backgrounds: { eraAndWorld: '北宋末年', openingSituation: '' },
-  protagonists: [{ name: '张三', age: '20岁', identity: '男主', background: '现代人穿越为小卒', familyBackground: '', careerBackground: '', goldenFinger: '', goal: '改变时代', dilemma: '身份低微', personality: ['谨慎'], boundary: '不能靠系统解决问题' }],
-  opening: { startingSituation: '', incitingIncident: '', immediateConflict: '', readerPromise: '' },
-  longTermDirection: { centralConflict: '小人物与旧秩序冲突', progression: '从小卒成长', relationshipDirection: '与岳飞相识并合作', storyPotential: '逐段扩大影响' },
-  possibleEnding: { direction: '建立新秩序', price: '承担损失', openness: '允许调整' }, authorNotes: [],
-  mustFollow: ['主角必须是张三', '不使用系统和超凡力量']
-};
-
-function manualPackage(expectedTotalWords: number) {
-  return {
-    ...MANUAL_BASE,
-    title: '手动开书夹具',
-    positioning: { ...MANUAL_BASE.positioning, expectedTotalWords }
-  };
-}
-
-describe('R1 类型篇幅合同：四类夹具逐层通过，范围校验保留', () => {
+describe('R1 类型篇幅合同（底层兼容能力）：四类夹具逐层通过，范围校验保留', () => {
   const cases = [
     { workType: 'short_story', fixture: SHORT_PACKAGE, label: '短篇小说1万字集中故事' },
     { workType: 'memoir', fixture: MEMOIR_PACKAGE, label: '个人自传8万字已知经历+待补充' },
@@ -193,15 +118,15 @@ describe('R1 类型篇幅合同：四类夹具逐层通过，范围校验保留'
   });
 
   it('自己设计（手动开书）与修订保持类型：短篇1万字通过、20万字被拒', () => {
-    expect(validateV7ManualOpeningPackage(manualPackage(10_000), 'short_story').positioning.expectedTotalWords).toBe(10_000);
-    expect(() => validateV7ManualOpeningPackage(manualPackage(200_000), 'short_story')).toThrow(/预计总字数必须是1000至100000/);
-    expect(validateV7ManualOpeningPackage(manualPackage(80_000), 'memoir').positioning.expectedTotalWords).toBe(80_000);
-    expect(() => validateV7ManualOpeningPackage(manualPackage(9_999), 'memoir')).toThrow(/预计总字数必须是10000至2000000/);
-    expect(validateV7ManualOpeningPackage(manualPackage(60_000), 'script').positioning.expectedTotalWords).toBe(60_000);
-    expect(() => validateV7ManualOpeningPackage(manualPackage(4_999), 'script')).toThrow(/预计总字数必须是5000至2000000/);
+    expect(validateV7ManualOpeningPackage(makeManualPackage(10_000), 'short_story').positioning.expectedTotalWords).toBe(10_000);
+    expect(() => validateV7ManualOpeningPackage(makeManualPackage(200_000), 'short_story')).toThrow(/预计总字数必须是1000至100000/);
+    expect(validateV7ManualOpeningPackage(makeManualPackage(80_000), 'memoir').positioning.expectedTotalWords).toBe(80_000);
+    expect(() => validateV7ManualOpeningPackage(makeManualPackage(9_999), 'memoir')).toThrow(/预计总字数必须是10000至2000000/);
+    expect(validateV7ManualOpeningPackage(makeManualPackage(60_000), 'script').positioning.expectedTotalWords).toBe(60_000);
+    expect(() => validateV7ManualOpeningPackage(makeManualPackage(4_999), 'script')).toThrow(/预计总字数必须是5000至2000000/);
     // 缺省长篇兼容：旧调用不传类型，300万字通过、10万字下限不变。
-    expect(validateV7ManualOpeningPackage(manualPackage(3_000_000)).positioning.expectedTotalWords).toBe(3_000_000);
-    expect(() => validateV7ManualOpeningPackage(manualPackage(10_000))).toThrow(/预计总字数必须是100000至10000000/);
+    expect(validateV7ManualOpeningPackage(makeManualPackage(3_000_000)).positioning.expectedTotalWords).toBe(3_000_000);
+    expect(() => validateV7ManualOpeningPackage(makeManualPackage(10_000))).toThrow(/预计总字数必须是100000至10000000/);
   });
 });
 
@@ -286,8 +211,8 @@ function latestCandidate(view: any, kind: string): any {
   return view.candidates.filter((item: { kind: string }) => item.kind === kind).at(-1);
 }
 
-describe('R1 短篇1万字全链HTTP：提示合同→候选编辑→修订→确认入架→资料编辑回读', () => {
-  it('短篇小说10,000字从生成到入架到编辑全链通过；修订保持类型拒绝20万字', async () => {
+describe('长篇开书闭环HTTP（OPENING-NOVEL-CLOSE-01）：创建→候选编辑→修订→确认入架→资料编辑回读', () => {
+  it('长篇小说3,000,000字从生成到入架到编辑全链通过；缺workType旧客户端按长篇兼容', async () => {
     context = createTestContext('wenmi-opening-type-contract-http-');
     const resolver = new TypeAwareResolver();
     const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
@@ -297,31 +222,30 @@ describe('R1 短篇1万字全链HTTP：提示合同→候选编辑→修订→�
         method: 'POST', url: '/api/v1/v7/opening-agent/tasks',
         headers: { ...BROWSER_HEADERS, cookie },
         payload: {
-          idea: '一个夜晚的渡口，守渡人发现旅客冒领赈灾粮，必须在天亮前作出选择。',
+          idea: '张三穿越到三国乱世，从流民开始求生，并想办法保护同行百姓。',
           idempotencyKey: 'r1-chain-start-0001',
-          creativeProfile: { scale: 3, styles: [], workType: 'short_story' }
+          creativeProfile: { scale: 3, styles: [], workType: 'novel' }
         }
       });
       expect(started.statusCode).toBe(200);
       const taskId = started.json().data.taskId as string;
       const view = await poll(app, cookie, taskId, ['awaiting_author_confirmation']);
-      expect(view.creativeProfile.workType).toBe('short_story');
+      expect(view.creativeProfile.workType).toBe('novel');
 
-      // 设计与审查提示都拿到短篇字数合同：schema模板与最终指令都是1,000至100,000，不是长篇旧下限。
+      // 设计与审查提示都拿到长篇旧合同：schema模板与最终指令保持100000至10000000，不因本轮边界变化。
       const design = resolver.designCalls()[0]!.prompt;
-      expect(design.creativeDirection.workType).toBe('short_story');
-      expect(JSON.stringify(design.outputTemplate)).toContain('整数 1000至100000');
+      expect(design.creativeDirection.workType).toBe('novel');
+      expect(JSON.stringify(design.outputTemplate)).toContain('整数 100000至10000000');
       const instructions = (design.finalInstructions as string[]).join('\n');
-      expect(instructions).toContain('字数建议只写1000至100000之间整数');
-      expect(instructions).not.toContain('100000至10000000');
-      expect(resolver.reviewCalls()[0]!.prompt.creativeDirection.workType).toBe('short_story');
+      expect(instructions).toContain('字数建议只写100000至10000000之间整数');
+      expect(resolver.reviewCalls()[0]!.prompt.creativeDirection.workType).toBe('novel');
 
       const activePackage = latestCandidate(view, 'opening_package');
-      expect(activePackage.content.positioning.expectedTotalWords).toBe(10_000);
+      expect(activePackage.content.positioning.expectedTotalWords).toBe(3_000_000);
 
-      // 候选编辑（修订）保持类型：把总字数改成20万必须被短篇合同拒绝，任务保持可继续。
+      // 候选编辑（修订）保持类型：把总字数改成99,999必须被长篇旧合同拒绝，任务保持可继续。
       const illegalEdit = structuredClone(activePackage.content);
-      illegalEdit.positioning.expectedTotalWords = 200_000;
+      illegalEdit.positioning.expectedTotalWords = 99_999;
       const rejected = await app.inject({
         method: 'POST', url: `/api/v1/v7/opening-agent/tasks/${taskId}/revisions`,
         headers: { ...BROWSER_HEADERS, cookie },
@@ -333,11 +257,11 @@ describe('R1 短篇1万字全链HTTP：提示合同→候选编辑→修订→�
         }
       });
       expect(rejected.statusCode).toBe(400);
-      expect(rejected.json().error.message).toContain('预计总字数必须是1000至100000');
+      expect(rejected.json().error.message).toContain('预计总字数必须是100000至10000000');
 
       // 正常候选编辑：只改核心卖点，走模型修订+复审（脚本化），回到待确认。
       const legalEdit = structuredClone(activePackage.content);
-      legalEdit.positioning.coreAppeal = '一个夜晚、一个渡口，守渡人要用一袋粮食换回全镇人的活路。';
+      legalEdit.positioning.coreAppeal = '现代普通人从乱世底层起步，靠判断、协作和承担责任建立能保护同伴的秩序。';
       const revised = await app.inject({
         method: 'POST', url: `/api/v1/v7/opening-agent/tasks/${taskId}/revisions`,
         headers: { ...BROWSER_HEADERS, cookie },
@@ -368,37 +292,222 @@ describe('R1 短篇1万字全链HTTP：提示合同→候选编辑→修订→�
       const stored = context.database.prepare(
         'SELECT profile_json FROM book_creative_profiles WHERE book_id = ?'
       ).get(bookId) as { profile_json: string };
-      expect(JSON.parse(stored.profile_json).workType).toBe('short_story');
+      expect(JSON.parse(stored.profile_json).workType).toBe('novel');
 
-      // 书籍资料回读：类型短篇、蓝图字数1万。
+      // 书籍资料回读：类型长篇、蓝图字数300万。
       const profile = await app.inject({
         method: 'GET', url: `/api/v1/v7/books/${bookId}/book-profile`,
         headers: { host: BROWSER_HEADERS.host, cookie }
       });
       expect(profile.statusCode).toBe(200);
-      expect(profile.json().data.workType).toBe('short_story');
-      expect(profile.json().data.openingBlueprint.planningProfile.expectedTotalWords).toBe(10_000);
+      expect(profile.json().data.workType).toBe('novel');
+      expect(profile.json().data.openingBlueprint.planningProfile.expectedTotalWords).toBe(3_000_000);
 
-      // 书籍资料编辑：短篇书改书名（蓝图仍1万字）必须能保存——旧的固定10万下限会在这里误拒。
+      // 书籍资料编辑：长篇书改书名（蓝图仍300万字）正常保存。
       const blueprint = profile.json().data.openingBlueprint;
       const renamed = await app.inject({
         method: 'PUT', url: `/api/v1/v7/books/${bookId}/book-profile`,
         headers: { ...BROWSER_HEADERS, cookie },
-        payload: { expectedVersion: profile.json().data.version, title: '渡口一夜·改', openingBlueprint: blueprint }
+        payload: { expectedVersion: profile.json().data.version, title: '三国流民·改', openingBlueprint: blueprint }
       });
       expect(renamed.statusCode).toBe(200);
-      expect(renamed.json().data.title).toBe('渡口一夜·改');
+      expect(renamed.json().data.title).toBe('三国流民·改');
 
-      // 同一编辑入口保持类型：把字数改成20万必须被短篇合同拒绝。
+      // 同一编辑入口保持类型：把字数改成99,999必须被长篇旧合同拒绝。
       const illegalBlueprint = structuredClone(blueprint);
-      illegalBlueprint.planningProfile.expectedTotalWords = 200_000;
+      illegalBlueprint.planningProfile.expectedTotalWords = 99_999;
       const illegalSave = await app.inject({
         method: 'PUT', url: `/api/v1/v7/books/${bookId}/book-profile`,
         headers: { ...BROWSER_HEADERS, cookie },
-        payload: { expectedVersion: renamed.json().data.version, title: '渡口一夜·改', openingBlueprint: illegalBlueprint }
+        payload: { expectedVersion: renamed.json().data.version, title: '三国流民·改', openingBlueprint: illegalBlueprint }
       });
       expect(illegalSave.statusCode).toBe(400);
-      expect(illegalSave.json().error.message).toContain('预计总字数必须是1000至100000');
+      expect(illegalSave.json().error.message).toContain('预计总字数必须是100000至10000000');
+
+      // 缺workType旧客户端兼容：不传creativeProfile，任务按缺省长篇规范化冻结。
+      const legacy = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-agent/tasks',
+        headers: { ...BROWSER_HEADERS, cookie },
+        payload: { idea: '李四重生到未来世界修理星舰引擎。', idempotencyKey: 'r1-chain-legacy-0001' }
+      });
+      expect(legacy.statusCode).toBe(200);
+      const legacyRow = context.database.prepare(
+        'SELECT creative_profile_json AS profile FROM v7_opening_agent_tasks WHERE task_id = ?'
+      ).get(legacy.json().data.taskId as string) as { profile: string };
+      expect(JSON.parse(legacyRow.profile).workType).toBe('novel');
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+const CLOSED_MESSAGE = /暂未开放，目前仅支持长篇小说/;
+
+describe('OPENING-NOVEL-CLOSE-01 开放边界：非长篇新请求409且零新增，历史读取与幂等保留', () => {
+  it.each([
+    { workType: 'short_story', label: '短篇小说', fixture: SHORT_PACKAGE },
+    { workType: 'memoir', label: '个人自传', fixture: MEMOIR_PACKAGE },
+    { workType: 'script', label: '影视剧本', fixture: SCRIPT_PACKAGE }
+  ] as const)('$label：新建/手动确认/AI确认/修订/恢复入口全拒，历史任务只读', async ({ workType, fixture }) => {
+    context = createTestContext(`wenmi-opening-closed-${workType}-`);
+    const resolver = new TypeAwareResolver();
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, `closed-${workType}@example.com`, '边界作者');
+      const ownerId = (context.database.prepare("SELECT owner_id FROM owners WHERE display_name = '边界作者'").get() as { owner_id: string }).owner_id;
+
+      // 新建任务：规范化之后、建任务壳/排队/模型调用之前拒绝。
+      const tasksBefore = openingTaskCount(context.database, ownerId);
+      const callsBefore = resolver.calls.length;
+      const created = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-agent/tasks',
+        headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          idea: '一段未开放类型的新开书想法。',
+          idempotencyKey: `closed-create-${workType}`,
+          creativeProfile: { scale: 3, styles: [], workType }
+        }
+      });
+      expect(created.statusCode).toBe(409);
+      expect(created.json().error.message).toMatch(CLOSED_MESSAGE);
+      expect(openingTaskCount(context.database, ownerId)).toBe(tasksBefore);
+      expect(resolver.calls.length).toBe(callsBefore);
+
+      // 手动确认（自己设计）：任何建草稿/建书写入之前拒绝。
+      const manual = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-books',
+        headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          openingIdea: '未开放类型的手动开书。',
+          openingPackage: makeManualPackage(fixture.positioning.expectedTotalWords),
+          creativeProfile: { scale: 3, styles: [], workType },
+          idempotencyKey: `closed-manual-${workType}`
+        }
+      });
+      expect(manual.statusCode).toBe(409);
+      expect(manual.json().error.message).toMatch(CLOSED_MESSAGE);
+      expect(bookCount(context.database, ownerId)).toBe(0);
+      expect(positioningDraftCount(context.database, ownerId)).toBe(0);
+
+      // 历史非长篇任务（本轮边界之前创建）：先建真实长篇任务跑完设计，再把冻结快照与
+      // 候选内容改写成该类型，等价于旧版客户端留下的任务。
+      const historical = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-agent/tasks',
+        headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          idea: `历史${workType}任务的开书想法。`,
+          idempotencyKey: `closed-task-${workType}`,
+          creativeProfile: { scale: 3, styles: [], workType: 'novel' }
+        }
+      });
+      expect(historical.statusCode).toBe(200);
+      const taskId = historical.json().data.taskId as string;
+      await poll(app, cookie, taskId, ['awaiting_author_confirmation']);
+      context.database.prepare('UPDATE v7_opening_agent_tasks SET creative_profile_json = ? WHERE task_id = ?')
+        .run(JSON.stringify({ scale: 3, styles: [], workType }), taskId);
+      context.database.prepare("UPDATE v7_opening_agent_candidates SET content_json = ? WHERE owner_id = ? AND task_id = ? AND kind = 'opening_package'")
+        .run(JSON.stringify(fixture), ownerId, taskId);
+      const modelCallsAfterSeed = resolver.calls.length;
+
+      // 历史读取可用：冻结类型如实回读，不被静默转换。
+      const readable = await app.inject({
+        method: 'GET', url: `/api/v1/v7/opening-agent/tasks/${taskId}`,
+        headers: { host: BROWSER_HEADERS.host, cookie }
+      });
+      expect(readable.statusCode).toBe(200);
+      expect(readable.json().data.creativeProfile.workType).toBe(workType);
+      const activePackage = latestCandidate(readable.json().data, 'opening_package');
+      const candidatesBefore = (context.database.prepare(
+        'SELECT COUNT(*) AS n FROM v7_opening_agent_candidates WHERE task_id = ?'
+      ).get(taskId) as { n: number }).n;
+
+      // 修订入口：必然新增模型工作，按冻结任务类型拒绝。
+      const revised = await app.inject({
+        method: 'POST', url: `/api/v1/v7/opening-agent/tasks/${taskId}/revisions`,
+        headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          baseCandidateId: activePackage.candidateId,
+          openingPackage: activePackage.content,
+          adjustmentNote: '试试修改',
+          idempotencyKey: `closed-revise-${workType}`
+        }
+      });
+      expect(revised.statusCode).toBe(409);
+      expect(revised.json().error.message).toMatch(CLOSED_MESSAGE);
+      expect((context.database.prepare(
+        'SELECT COUNT(*) AS n FROM v7_opening_agent_candidates WHERE task_id = ?'
+      ).get(taskId) as { n: number }).n).toBe(candidatesBefore);
+
+      // AI确认入架：冻结任务类型非长篇，新书创建被拒，不信客户端标novel。
+      const confirmed = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-books',
+        headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          taskId,
+          candidateId: activePackage.candidateId,
+          openingPackage: activePackage.content,
+          idempotencyKey: `closed-confirm-${workType}`
+        }
+      });
+      expect(confirmed.statusCode).toBe(409);
+      expect(confirmed.json().error.message).toMatch(CLOSED_MESSAGE);
+      expect(bookCount(context.database, ownerId)).toBe(0);
+
+      // 恢复入口：旧任务停在工作队列也不再被重新消费；读取保持200且不触发模型。
+      context.database.prepare("UPDATE v7_opening_agent_tasks SET status = 'queued' WHERE task_id = ?").run(taskId);
+      const reread = await app.inject({
+        method: 'GET', url: `/api/v1/v7/opening-agent/tasks/${taskId}`,
+        headers: { host: BROWSER_HEADERS.host, cookie }
+      });
+      expect(reread.statusCode).toBe(200);
+      expect(reread.json().data.status).toBe('queued');
+      expect(resolver.calls.length).toBe(modelCallsAfterSeed);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('已完成的手动确认按原幂等合同返回原书（历史非长篇书不受开放边界影响）', async () => {
+    context = createTestContext('wenmi-opening-closed-replay-');
+    const resolver = new TypeAwareResolver();
+    const app = await createAppServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'closed-replay@example.com', '幂等作者');
+      const ownerId = (context.database.prepare("SELECT owner_id FROM owners WHERE display_name = '幂等作者'").get() as { owner_id: string }).owner_id;
+      // 用生产同一代码路径预置“本轮边界之前已完成”的短篇确认：定位草稿+正式书+偏好快照。
+      const idea = '祖父辈在南方修铁路的真实经历。';
+      const validated = validateV7ManualOpeningPackage(makeManualPackage(80_000), 'short_story');
+      const idempotencyKey = 'closed-replay-manual-0001';
+      const stableHash = createHash('sha256').update(`${ownerId}\nmanual-${idempotencyKey}`).digest('hex').slice(0, 32);
+      const draftId = `v7-opening-draft-${stableHash}`;
+      const bookId = `v7-book-${stableHash}`;
+      const positioning = new PositioningService(context.database, new UuidGenerator(), new SystemClock());
+      positioning.createDraft({ ownerId }, {
+        title: validated.title,
+        text: validated.positioning.coreAppeal,
+        openingBlueprint: toV7OpeningBlueprint(validated, idea),
+        workType: 'short_story'
+      }, { draftId, proposedBookId: bookId });
+      context.database.prepare('INSERT INTO books (book_id,owner_id,title,status,version,positioning_version,canon_revision,editor_epoch,created_at,updated_at) VALUES (?,?,?,?,1,0,0,0,?,?)')
+        .run(bookId, ownerId, validated.title, 'active', '2026-09-19', '2026-09-19');
+      context.database.prepare("UPDATE positioning_drafts SET status = 'confirmed', confirmed_book_id = ? WHERE draft_id = ?").run(bookId, draftId);
+      context.database.prepare('INSERT INTO book_creative_profiles(owner_id,book_id,profile_json,source_task_id,created_at) VALUES(?,?,?,?,?)')
+        .run(ownerId, bookId, JSON.stringify({ scale: 3, styles: [], workType: 'short_story' }), 'fixture', '2026-09-19');
+
+      const replay = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-books',
+        headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          openingIdea: idea,
+          openingPackage: makeManualPackage(80_000),
+          creativeProfile: { scale: 3, styles: [], workType: 'short_story' },
+          idempotencyKey
+        }
+      });
+      expect(replay.statusCode).toBe(200);
+      expect(replay.json().data.bookId).toBe(bookId);
+      expect(bookCount(context.database, ownerId)).toBe(1);
+      expect(resolver.calls.length).toBe(0);
     } finally {
       await app.close();
     }
@@ -406,26 +515,6 @@ describe('R1 短篇1万字全链HTTP：提示合同→候选编辑→修订→�
 });
 
 const GUARD_MESSAGE = /尚未开放/;
-
-function seedBook(ownerId: string, bookId: string, workType: 'novel' | 'short_story' | 'memoir' | 'script' | null): void {
-  const db = context!.database;
-  new BookRepository(db).create({ ownerId, bookId }, `门禁-${workType ?? 'legacy'}`, '2026-09-19', 'active');
-  db.prepare("INSERT INTO book_opening_blueprints VALUES(?,?,?,1,'v1','male','fantasy','玄幻',?,?,'active','2026-09-19')")
-    .run(`opening-${bookId}`, ownerId, bookId, JSON.stringify({ protagonists: ['林舟'], storyDirection: '记录一段生活', planningProfile: { expectedTotalWords: 10_000 } }), 'a'.repeat(64));
-  // V7确认入架可见性（设定/资料路由的requireVisible依赖该草稿行）。
-  db.prepare(`INSERT INTO positioning_drafts
-    (draft_id,owner_id,proposed_book_id,title,input_text,fields_json,tags_json,opening_blueprint_json,status,version,confirmed_book_id,created_at,updated_at)
-    VALUES (?,?,?,?,'门禁种子','[]','[]','{}','confirmed',1,?,'2026-09-19','2026-09-19')`)
-    .run(`v7-opening-draft-${bookId}`, ownerId, bookId, `门禁-${workType ?? 'legacy'}`, bookId);
-  if (workType !== null) {
-    db.prepare('INSERT INTO book_creative_profiles(owner_id,book_id,profile_json,source_task_id,created_at) VALUES(?,?,?,?,?)')
-      .run(ownerId, bookId, JSON.stringify({ scale: 3, styles: [], workType }), 'fixture', '2026-09-19');
-  }
-}
-
-function runCount(bookId: string): number {
-  return (context!.database.prepare('SELECT COUNT(*) AS n FROM tm2_design_runs WHERE book_id = ?').get(bookId) as { n: number }).n;
-}
 
 describe('R2 服务层门禁：非长篇在写任务/排队/占预算之前拒绝', () => {
   it('时光机 start/startDesignRound/retry 三类非长篇全拒、0任务0模型调用；长篇与无快照旧书放行', () => {
@@ -438,20 +527,20 @@ describe('R2 服务层门禁：非长篇在写任务/排队/占预算之前拒�
     const selection = { recommendationRunId: 'seed-run', recommendationHash: 'seed-hash', preparationVersion: 'seed-version', selectedLineIds: [], addedLines: [], shape: 'auto' as const, ensemble: false, authorNote: '' };
     for (const workType of ['short_story', 'memoir', 'script'] as const) {
       const bookId = `guard-${workType}`;
-      seedBook(ownerId, bookId, workType);
+      seedBookWithWorkType(context!.database, ownerId, bookId, workType);
       const scope = { ownerId, bookId };
       expect(() => service.start(scope, 'recommend', '', `guard-start-${workType}`)).toThrow(GUARD_MESSAGE);
       expect(() => service.startDesignRound(scope, selection, `guard-round-${workType}`)).toThrow(GUARD_MESSAGE);
       expect(() => service.retry(scope, 'missing-run')).toThrow(GUARD_MESSAGE);
-      expect(runCount(bookId)).toBe(0);
+      expect(timeMachineRunCount(context!.database, bookId)).toBe(0);
     }
     // 长篇与无快照旧书不误拦：start正常建run（队列模式，不触发模型）。
     for (const workType of ['novel', null] as const) {
       const bookId = `guard-${workType ?? 'legacy'}`;
-      seedBook(ownerId, bookId, workType);
+      seedBookWithWorkType(context!.database, ownerId, bookId, workType);
       const runId = service.start({ ownerId, bookId }, 'recommend', '', `guard-start-${workType ?? 'legacy'}`);
       expect(typeof runId).toBe('string');
-      expect(runCount(bookId)).toBe(1);
+      expect(timeMachineRunCount(context!.database, bookId)).toBe(1);
     }
     expect(modelCalls).toBe(0);
   });
@@ -467,12 +556,12 @@ describe('R2 服务层门禁：非长篇在写任务/排队/占预算之前拒�
       new SystemClock(),
       { codingPlan: false, agentPlan: false }
     );
-    seedBook(ownerId, 'guard-setting-short', 'short_story');
+    seedBookWithWorkType(context!.database, ownerId, 'guard-setting-short', 'short_story');
     expect(() => settings.createRecommendation(ownerId, 'guard-setting-short', {})).toThrow(GUARD_MESSAGE);
     expect(() => settings.createBatch(ownerId, 'guard-setting-short', { selectedItemKeys: ['world-stage'], idempotencyKey: 'guard-batch-1' })).toThrow(GUARD_MESSAGE);
     expect(() => settings.fuse(ownerId, 'guard-setting-short', 'world-stage', {})).toThrow(GUARD_MESSAGE);
     // 长篇书：可以因其他业务原因失败，但绝不能被“尚未开放”门禁误拦。
-    seedBook(ownerId, 'guard-setting-novel', 'novel');
+    seedBookWithWorkType(context!.database, ownerId, 'guard-setting-novel', 'novel');
     for (const action of [
       () => settings.createRecommendation(ownerId, 'guard-setting-novel', {}),
       () => settings.createBatch(ownerId, 'guard-setting-novel', { selectedItemKeys: ['world-stage'], idempotencyKey: 'guard-batch-2' }),
@@ -487,7 +576,7 @@ describe('R2 服务层门禁：非长篇在写任务/排队/占预算之前拒�
 
 /** HTTP就绪种子：蓝图 + 已确认设定 + 兼容分支统一整理批次，使请求穿过prerequisite直达类型门禁。 */
 function seedPreparedBook(ownerId: string, bookId: string, workType: 'novel' | 'short_story' | 'memoir' | 'script'): void {
-  seedBook(ownerId, bookId, workType);
+  seedBookWithWorkType(context!.database, ownerId, bookId, workType);
   const db = context!.database;
   const scope = { ownerId, bookId };
   const profile = new BookProfileViewService(db).get(scope);
@@ -550,7 +639,7 @@ describe('R2 HTTP层门禁：非长篇三条入口409且0新任务，长篇放�
         });
         expect(setting.statusCode).toBe(409);
         expect(setting.json().error.message).toMatch(GUARD_MESSAGE);
-        expect(runCount(bookId)).toBe(0);
+        expect(timeMachineRunCount(context!.database, bookId)).toBe(0);
       }
       const blockedBatchCount = (context.database.prepare(
         "SELECT COUNT(*) AS n FROM v7_setting_batches WHERE book_id IN ('http-short_story','http-memoir','http-script') AND idempotency_key LIKE 'r2-setting-%'"
@@ -566,7 +655,7 @@ describe('R2 HTTP层门禁：非长篇三条入口409且0新任务，长篇放�
         payload: { idempotencyKey: 'r2-rec-novel' }
       });
       expect([200, 202]).toContain(novelRecommend.statusCode);
-      expect(runCount('http-novel')).toBe(1);
+      expect(timeMachineRunCount(context!.database, 'http-novel')).toBe(1);
       const novelSetting = await app.inject({
         method: 'POST', url: '/api/v1/v7/books/http-novel/setting-recommendations',
         headers: { ...BROWSER_HEADERS, cookie },

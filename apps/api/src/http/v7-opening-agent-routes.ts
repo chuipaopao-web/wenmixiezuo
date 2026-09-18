@@ -272,6 +272,7 @@ export async function registerV7OpeningAgentRoutes(
       candidateId?: unknown;
       openingIdea?: unknown;
       openingPackage?: unknown;
+      creativeProfile?: unknown;
       idempotencyKey?: unknown;
     };
   }>('/api/v1/v7/opening-books', async (request) => {
@@ -281,6 +282,7 @@ export async function registerV7OpeningAgentRoutes(
       candidateId: request.body?.candidateId,
       openingIdea: request.body?.openingIdea,
       openingPackage: request.body?.openingPackage,
+      creativeProfile: request.body?.creativeProfile,
       idempotencyKey: request.body?.idempotencyKey
     }), request.id);
   });

@@ -43,3 +43,20 @@ export function assertNovelChainOpen(database: DatabaseSync, ownerId: string, bo
     409
   );
 }
+
+/**
+ * 开书入口开放边界（OPENING-NOVEL-CLOSE-01）：新开书任务、修订与确认入架新建书籍
+ * 只放行长篇小说；短篇/自传/剧本保留类型枚举、存储与历史结果可读，但新请求在此
+ * 明确拒绝。放在服务层入口调用，不塞进底层解析器；调用方按请求偏好或冻结任务
+ * 类型传入。幂等重放已由各入口先行返回，不会走到这里。
+ */
+export function assertOpeningWorkTypeOpen(workType: CreativeWorkType): void {
+  if (workType === 'novel') return;
+  throw new DomainError(
+    errorCodes.validation,
+    `${CREATIVE_WORK_TYPE_LABELS[workType] ?? '该作品类型'}暂未开放，目前仅支持长篇小说。`,
+    {},
+    false,
+    409
+  );
+}
