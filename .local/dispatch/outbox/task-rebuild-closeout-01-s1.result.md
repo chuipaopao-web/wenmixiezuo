@@ -1,5 +1,29 @@
 # REBUILD-CLOSEOUT-01 · S1-A 结果：结构化故事线确认与基线启动
 
+## K3 · NEWBOOK-E2E-01 修复上线（2026-09-18 19:52）
+
+**已上线**：API/Worker `wm-v7-20260918-195500-758265c5`，静态 `e6395ecdcad86db380e6`；health ok/ready、双站入口与14个静态文件sha256公网校验通过、含 `/api/v1/v7/books/:bookId/delete-preview` 在内4条受保护路由匿名401。提交：`4e75c0d3`（代码）+`0831788b`（发布脚本）+`758265c5`（RB-19核对值/RB-07登记），均已推送。
+
+**根因与修复**：归档书无法删除=purge动态扫描只认 owner_id+book_id 双列表，tm2核心15表（owner/book列名）漏覆盖，且删除前不归档账务投影差集、无在途门禁、删除无预览绑定。修复：purge计划化（事务内重算+sha256预览指纹绑定，不符409）；删除前把用量行 INSERT SELECT 进 `account_usage_purge_archive`（含opening调用按source_kind/source_id补归档），投影逐行不变；在途任务/活租约门禁（BOOK_HAS_ACTIVE_WORK 409，tm2 lease_until为毫秒纪元）；YES+「确认删除书籍」双确认；墓碑幂等重放；迟到写入由墓碑+FK双阻断。前端归档列表每书加"删除"入口与真实计数确认面板。
+
+**验证**：生命周期安全12/12（新增8反例：在途门禁/活租约/预览过期/幂等/tm2八表隔离/账务投影不变/opening JSON联动/迟到复活阻断）、备份恢复3/3、purge性能1/1、AuthorApp 59/59（新增2用例）、API+author-app tsc、vite build、RB-19功能门禁本地通过。**部署经过**：首次静态构建被RB-19核对值门禁拦截（AuthorApp.tsx变化），核对功能说明不受影响后更新核对值并重打包；备份首次因磁盘不足失败（需5.77G仅有5.66G），清理9月12—14日旧发布目录20个（保留当前identity-dc543268、上一批e1310473、本批候选；均可从git重建）释放至17G可用；正式备份20260918T114503Z-596102（60M）校验通过，连续30秒零在途后逐服务切换，迁移132零新增（本批无迁移）。
+
+**旧书冻结清单（只读核实，待老板确认后才执行删除）**：老板账号 6838dc00（595341366@qq.com）共6本归档书、0本创作中，全部零在途任务、零活租约、零文件——①玄幻：我的机甲会修仙（09-08建，tm2 steps316/设计轮4）②三国：主公面板能刷词条（09-11，steps234/轮3）③仙门售后我无敌（09-12，steps13/轮2）④三国送外卖：曹操催单了（09-12，steps305/轮9）⑤西游：取经劫难我承包（09-12，无tm2）⑥仙侠世界开挖机（09-12，无tm2）。用量结算记录删除后仍保留在账务归档。
+
+**受阻→改由老板自测（19:57）**：浏览器E2E（"快递员在三国"→时光机A/B/C）老板决定亲自测试；新书与三套结果由老板操作产生，保留要求不变。旧书清理未执行：冻结清单已交老板，等确认后由老板在界面亲自输入YES+「确认删除书籍」完成（入口：书架→已归档→删除）。K3本轮执行到此收尾。
+
+## K3 · NEWBOOK-E2E-01 接管核对（2026-09-18 18:20）
+
+**项目结构与代码入口**：主区 `D:/wenmixiezuo`（分支 codex/light-coauthoring-v7，HEAD 0c627618 均为文档提交）；实施树 `.local/dispatch/worktrees/auth-release`，分支 codex/auth-takeover-01-release，HEAD be692b7f 与接管线索一致，worktree 仅 HANDOFF 修改与 .local 未跟踪目录（他人成果，保留）；主区他人未提交修改（含 time-machine-core/execution.ts）全部保留不动。本轮代码入口：前端 `coauthoring-v7/author-app/src/AuthorApp.tsx`（归档区约465行）+ `opening-api.ts`（565—575）；后端 `apps/api/src/http/v7-opening-agent-routes.ts`（仅 archive/restore 路由）→ `application/books/book-lifecycle-service.ts`（permanentlyDelete 未接任何路由）→ `infrastructure/db/repositories/book-purge-repository.ts`。
+
+**环境修正（已完成）**：worktree `node_modules/@wenmi` 九个工作区联接中七个误指主区（主区是另一分支，产品代码相差71文件，测试会静默执行错误代码）——已全部用 mklink /J 重指回本工作树并逐一验证 9/9 OK。系统默认 Node v24.15.0 不满足 engines(≥24.16)，本轮统一使用已核验的 `C:/Users/MSIK/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe`（v24.19.0）。
+
+**真实现状（实时核对，非转述）**：生产 health ok/ready，releaseId `wm-v7-20260918-173000-dc543268`，静态 `versions/95018c6b23d32a73e653`（current 链接已核），API/Worker systemd 均 active，迁移132（发布前再复核），磁盘 5.7G 可用/88%（偏紧，备份需先核空间）。作者站/后台/匿名健康均 200。
+
+**已核实缺口（删除功能）**：①tm2 核心16表（tm2_books/steps/attempts/candidates/reviews/adoptions/operations/outbox/consumptions/numbers/context_cards/storyline_materials(+drafts)/step_archive/review_reads）使用 `owner`/`book` 列名，不在 purge 动态扫描（owner_id+book_id，287表）范围内 → 删除后时光机状态成孤儿且存在迟到写入隐患；②删除前不把用量行归档进 `account_usage_purge_archive`（应用层无任何写入方，仅0110迁移建表），`account_usage_projection` 会丢行，违反"用量结算记录保留"（R165 的 purge-confirmed-books.py 用投影前后差集归档，做法可复用）；③无在途任务/活租约门禁（R165 脚本有 working 状态+租约检查，产品服务没有）；④无影响预览端点、删除无预览绑定（R165 有 preview digest 比对）；⑤无 book_id 的 FK 子表仅 portable 链4张已显式覆盖（本次已逐表核实无遗漏其他）；⑥opening_drafts 仅按 owner  keyed、payload JSON 内含 bookId 引用，未覆盖。
+
+**实施顺序**：后端（purge 计划化覆盖tm2/usage归档/在途门禁 + 预览端点 + 删除路由 + 双确认绑定）→ 反例测试（跨用户/预览过期/重复提交/在途拒绝/账务不变/迟到写入/文件失败）→ 前端归档区删除入口与确认流程 → 受影响测试+双端tsc+构建 → 按第7节授权部署 → 浏览器E2E"快递员在三国" → 旧书冻结清单交老板确认后再执行清理（只阻塞清理，不阻塞后续）。
+
 ## Codex · 主编/方案负责人头像与旧任务恢复已上线（2026-09-18 17:38）
 
 用户指出上批失败卡片无头像、像卡住，问题属实：仅投影working/result成员导致失败且无产物的真实负责人被隐藏。本次状态接口分离chief/assignedMember/member；主编引导和各方案负责人头像保留，只有工作状态显示当前真实执行成员（含nodeDispatch覆盖）。只读核实本书09-15 A/B/C均budget/local失败，冻结Coding旧通道；旧失败轮retry409且retryable=false、零新任务，页面改“重新确认故事线”，不复制失效配置反复尝试。旧任务、材料和作品均保留，没有替作者启动设计。
@@ -28,6 +52,12 @@
 - 回退：独立复制旧代码并补齐0126—0132迁移文件，已在132副本上重复迁移零新增、新旧两版真实HTTP登录/401/跨书404通过。回退目录为生产本次ROOT/rollback/source；恢复只回代码，不回数据库。发布操作脚本已入scripts/release/s1-closeout-20260918。
 - 如实限制：数据库边界现为10个违规文件（此前“原7项”已过时），本批未扩大文件集合；verify:full旧债、CTX与审查岗位资格未关闭。生产浏览器自动化两次超时，未取得本批已登录视觉验收；线上HTTP/静态与本地页面验证单列，不冒充浏览器全流程通过。
 - 发布决策：按老板“部署上线查看”的最新目标发布工程更新，未通过审查的方案继续阻止采用，模型评测排名应用仍默认关闭。下一步由真实页面反馈与审查尺度改进推进，不再将单本样书反复生成作为所有UI更新的前置。
+
+## Codex复核87ce990a：增量被误当累计上限，原授权未耗尽（2026-09-18）
+
+独立预算/恢复两套27/27通过（31.72秒）。对照原合同与脚本确认：原520000+额外750000=有效累计1270000；脚本错误注入tokensLimit=750000，并以750000-spend计算余量。因此“run一次性增量耗尽”结论撤回，历史用量保留；父账本仍10/12与143520/750000，当前不追加请求/token额度。
+
+只读核对review-anchors:0:revision-2已完整通过覆盖v1/v2，但childExists优先会因旧子v2 ready而重复发子卷；须按相同输入版本完整父批优先复用。另采用探针仍要求原selfCheck.pass=true，与已核定建议的报告处置未接线；须版本绑定逐条核定且无未处置硬问题，不能改原自检或强制通过。原任务顶部87ce990a复核一次集中修正三处后，沿原剩余2次只审v5/v6，允许一次明确60分钟纠偏墙钟；不新稿、不部署。Codex本轮未调用真实模型，未采用。
 
 ## K3·d8407c59复核终局：统计与审查输入已修正，结构审查PASS，锚点v5/v6预算阻断，未采用（2026-09-18，dc57b3c9/540b5db8/d257eafd/902c18d2/87ce990a已推送，未部署）
 
