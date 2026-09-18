@@ -653,4 +653,55 @@ describe('锚点截断单卷降级（067bbc24收尾决定）', () => {
     expect(reviewStepIds.some(id => id.endsWith(':revision-2'))).toBe(true);
     expect(reviewStepIds.filter(id => id.includes(':revision-2:revision-2'))).toHaveLength(0);
   });
+
+  it('修订轮锚点截断降级恢复：子卷已在时不得重发父批（后缀盲区反例，d8407c59实证）', async () => {
+    const { c, scope } = setup();
+    const calls: string[] = [];
+    let firstAnchorsDone = false;
+    let round2 = false;
+    const fail = { parentBatch: 1, volV2: 2 };
+    const adapter = (provider: string, modelId: string) => ({
+      provider, modelId,
+      async generate(request: { prompt: string }) {
+        calls.push(request.prompt);
+        // 首轮锚点审查报卷2问题（触发第一轮局部修订）；此后放行
+        if (!firstAnchorsDone && request.prompt.includes('核对候选锚点')) {
+          firstAnchorsDone = true;
+          return ok(provider, modelId, { pass: false, issues: ['卷2收束fallback与必填目标冲突'], suggestions: [], hasMoreIssues: false });
+        }
+        if (request.prompt.includes('修订本卷卷卡') && request.prompt.includes('rationale')) round2 = true; // 第二轮起点标记（rationale合同仅round≥2有）
+        // 第二轮锚点审查：父批[v1,v2]截断一次→降级；vol:v1成功，vol:v2连续失败到终态
+        if (round2 && fail.parentBatch > 0 && request.prompt.includes('核对候选锚点') && request.prompt.includes('本批：')) {
+          fail.parentBatch--;
+          throw new ModelAdapterError('输出长度超限', 'technical_failure', false, 200, false, undefined, 'output_length_limit');
+        }
+        if (round2 && fail.volV2 > 0 && request.prompt.includes('核对候选锚点与条件（本卷）') && request.prompt.includes('"id":"v2"')) {
+          fail.volV2--;
+          throw new ModelAdapterError('供应商暂时不可用', 'technical_failure', true, 500);
+        }
+        return ok(provider, modelId, threeVolumeOutput(request.prompt, modelId, 'clean'));
+      }
+    });
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, adapter), 64000);
+    const created = await round(service, scope, 'anchors-r2-resume');
+    const runId = created[0]!.id;
+    await service.process(runId);
+    const issues = [{ issue: '卷3收束锚点条件与全书结局矛盾', sources: ['adjudication'] }];
+    await expect(service.reviseAgain(scope, runId, issues)).rejects.toThrow();
+    // 中断状态：vol:v1子卷已成功，vol:v2终态失败，父批已truncated
+    expect(c.database.prepare("SELECT state FROM tm2_steps WHERE id=?").get(`${runId}:review-anchors:0:vol:v1:revision-2`) as { state: string }).toMatchObject({ state: 'succeeded' });
+    new TimeMachineResumeService(c.database).prepare(scope, runId);
+    calls.length = 0;
+    await service.reviseAgain(scope, runId, issues);
+    // 后缀盲区反例：父批[v1,v2]不得重发（子卷已在）；只发缺失的vol:v2与后续批次[v3]
+    const parentBatchV1V2 = calls.filter(p => p.includes('核对候选锚点') && p.includes('本批：') && p.includes('"ownerEntityId":"v2"'));
+    expect(parentBatchV1V2).toHaveLength(0);
+    const batchV3 = calls.filter(p => p.includes('核对候选锚点') && p.includes('本批：') && p.includes('"ownerEntityId":"v3"'));
+    expect(batchV3).toHaveLength(1); // 后续批次[v3]正常发送一次
+    const volV2Calls = calls.filter(p => p.includes('核对候选锚点与条件（本卷）') && p.includes('"id":"v2"'));
+    expect(volV2Calls).toHaveLength(1); // 只发缺失的vol:v2
+    const volV1Calls = calls.filter(p => p.includes('核对候选锚点与条件（本卷）') && !p.includes('"id":"v2"'));
+    expect(volV1Calls).toHaveLength(0); // vol:v1缓存命中零重发
+    expect(service.state(scope).find(r => r.id === runId)?.state).toBe('succeeded');
+  });
 });

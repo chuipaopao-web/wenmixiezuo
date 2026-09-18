@@ -969,9 +969,10 @@ export class TimeMachineDesignService {
    const batch=volumeIds.slice(i,i+2);
    const parentStepId=`review-anchors:${i}`;
    // 截断后单卷降级（067bbc24收尾决定）：父批已truncated或子步骤已存在→不重发父请求，直接续子节点（仅失败批次启用）
-   const childIds=batch.map(v=>`${parentStepId}:vol:${v}`);
+   // 判定一律用含轮次后缀的完整步骤id（后缀盲区曾误判childExists=false，导致子卷已在时仍重发父批，d8407c59实证）
+   const childIds=batch.map(v=>`${parentStepId}:vol:${v}${nodeSuffix}`);
    const childExists=childIds.some(id=>this.db.prepare('SELECT 1 AS x FROM tm2_steps WHERE owner=? AND book=? AND id=?').get(scope.ownerId,scope.bookId,`${run.id}:${id}`)!==undefined);
-   const parentRow=this.db.prepare('SELECT error_code FROM tm2_steps WHERE owner=? AND book=? AND id=?').get(scope.ownerId,scope.bookId,`${run.id}:${parentStepId}`) as {error_code:string|null}|undefined;
+   const parentRow=this.db.prepare('SELECT error_code FROM tm2_steps WHERE owner=? AND book=? AND id=?').get(scope.ownerId,scope.bookId,`${run.id}:${parentStepId}${nodeSuffix}`) as {error_code:string|null}|undefined;
    let first:{pass:boolean;issues:string[];suggestions:string[];hasMoreIssues:boolean};
    const reviewByVolumes=async():Promise<{pass:boolean;issues:string[];suggestions:string[];hasMoreIssues:boolean}>=>{
     const merged={pass:true,issues:[] as string[],suggestions:[] as string[],hasMoreIssues:false};
@@ -984,7 +985,7 @@ export class TimeMachineDesignService {
      for(const sg of cont.suggestions)merged.suggestions.push(`卷${volumeIds.indexOf(v)+1}（${title}）：${sg}`);
     }
     // 父批truncated原证据保留并标明被子审查覆盖（不能把truncated直接写成通过）
-    this.db.prepare("UPDATE tm2_steps SET error_code='truncated-split-covered' WHERE owner=? AND book=? AND id=? AND error_code='truncated'").run(scope.ownerId,scope.bookId,`${run.id}:${parentStepId}`);
+    this.db.prepare("UPDATE tm2_steps SET error_code='truncated-split-covered' WHERE owner=? AND book=? AND id=? AND error_code='truncated'").run(scope.ownerId,scope.bookId,`${run.id}:${parentStepId}${nodeSuffix}`);
     return merged;
    };
    if(childExists||parentRow?.error_code==='truncated'||parentRow?.error_code==='truncated-split-covered'){
