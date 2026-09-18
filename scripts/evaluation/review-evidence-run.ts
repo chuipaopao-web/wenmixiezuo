@@ -20,6 +20,7 @@ import { loadModelRuntimeConfig } from '../../apps/api/src/infrastructure/models
 import { readReleaseId } from '../../apps/api/src/infrastructure/project-root.js';
 import type { RuntimeConfig } from '../../apps/api/src/infrastructure/runtime-config.js';
 import { TimeMachineDesignService } from '../../apps/api/src/application/books/time-machine-design-service.js';
+import { TimeMachineResumeService } from '../../apps/api/src/application/books/time-machine-resume-service.js';
 import { computeRunSpend } from '../../apps/api/src/application/books/time-machine-run-spend.js';
 import { TimeMachineModelGateway } from '../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
 import { ModelAdapterFactory } from '../../apps/api/src/infrastructure/models/model-adapter-factory.js';
@@ -87,8 +88,25 @@ async function main(): Promise<void> {
   }
 
   // ③ reviseAgain同轮恢复：只完成revision3审查（修订/自检缓存重放零重发；不生成revision4）
+  // 先服务化恢复准备（非成功步骤回ready留证据、run回queued、活租约阻塞事务内核验）——reviseAgain不替代既有恢复边界
+  const prep = new TimeMachineResumeService(db).prepare(scope, RUN_ID);
+  for (const action of prep.actions) note(`恢复动作：${action}`);
+  if (prep.blocked.length) {
+    for (const b of prep.blocked) note(`恢复阻塞（不触网）：${b}`);
+    db.close(); evalDb.close();
+    return;
+  }
   const factory = new ModelAdapterFactory(config.modelRuntime);
-  const resolver = (provider: string, modelId: string) => guard.wrap(factory.resolve(provider, modelId, 'structured_planning') as never);
+  const resolver = (provider: string, modelId: string) => {
+    const a = factory.resolve(provider, modelId, 'structured_planning') as { inputContext?: (r: { prompt: string }) => string };
+    const origInput = a.inputContext?.bind(a);
+    a.inputContext = (r: { prompt: string }) => {
+      const s = origInput ? origInput(r) : JSON.stringify({ messages: [{ role: 'user', content: r.prompt }] });
+      note(`封套测量：envelope=${s.length} promptChars=${r.prompt.length} 差值=${s.length - r.prompt.length}`);
+      return s;
+    };
+    return guard.wrap(a as never);
+  };
   const gateway = new TimeMachineModelGateway(db, resolver as never);
   const service = new TimeMachineDesignService(db, gateway as never, 64000, { tokensLimit: RUN_TOKENS_INCREMENT, reason: 'd8407c59复核核定：s1-fast-close-review-evidence一次性受控增量（可信装配注入，审计在案，不全局放宽）' });
   let result: { revision?: number; review?: { pass?: boolean; issues?: string[]; suggestions?: string[]; inconclusive?: string[] }; selfCheck?: { pass?: boolean; issues?: string[] }; blocked?: string[] } | null = null;

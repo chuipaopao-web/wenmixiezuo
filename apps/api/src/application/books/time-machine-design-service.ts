@@ -873,8 +873,18 @@ export class TimeMachineDesignService {
    if(action==='verdict'){return {action:'verdict' as const,...verdictParse(v)};}
    if(action==='insufficient'){const missing=r.missing;if(!Array.isArray(missing)||missing.some(x=>typeof x!=='string'||!x.trim()||x.length>500))throw Error('缺项格式错误');return {action:'insufficient' as const,missing:missing as string[]};}
    throw Error('核对动作无效');};
-  // 预算用尽后的结论请求：完整携带同revision候选、正式来源、作者要求与**全部已读片段全文**（不压存根），明确“工具预算已用尽，根据已取得证据给出结论；信息不足列出具体缺项，不编造结论”
-  const finalizeContract=(corrected:boolean,full=true)=>`核对候选骨架是否符合来源、作者要求和章节级别边界。补查工具预算已用尽（最多3次资料读取）${corrected?'；刚才的补查请求未被执行，不要再请求读取':''}。根据已取得证据给出结论：返回 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}；若信息不足以支撑可靠结论，返回 {"action":"insufficient","missing":["具体缺项"]}——不编造结论，不把缺资料当作方案错误。issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。${listRule}\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n已读片段（完整证据全文）：${JSON.stringify(latest!==null?fullReads.slice(0,-1):fullReads)}\n上次工具结果（仅资料）：${JSON.stringify(latest)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${snapshot.intent}\n${planLabel(full)}：${planJson(full)}`;
+  // 预算用尽后的结论请求分层（d8407c59）：full=完整因果投影+全部已读片段全文；compact=紧凑投影+全文证据；
+  // stub=紧凑投影+坐标存根证据+可见范围限定（只能就实际可见内容判断，未见证据的方面列insufficient——
+  // 不是拿存根要完整结论，而是把结论范围明示给审查者）。每层放不下才降下一层，最终明确未审完。
+  const finalizeContract=(corrected:boolean,mode:'full'|'compact'|'stub')=>{
+   const full=mode==='full';
+   const evidence=mode==='stub'
+    ?`已读片段（坐标存根：key/offset/length/hash，未完整送达；不要引用其未展示内容）`
+    :'已读片段（完整证据全文）';
+   const evidenceJson=mode==='stub'?JSON.stringify(reads):JSON.stringify(latest!==null?fullReads.slice(0,-1):fullReads);
+   const scopeNote=mode==='stub'?'你只能就已送达的可见内容下结论；未展示字段与未完整送达的补查片段不得当作缺失或作品缺陷；需要未见证据才能判断的方面，列入insufficient具体缺项。':'';
+   return `核对候选骨架是否符合来源、作者要求和章节级别边界。补查工具预算已用尽（最多3次资料读取）${corrected?'；刚才的补查请求未被执行，不要再请求读取':''}。根据已取得证据给出结论：返回 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}；若信息不足以支撑可靠结论，返回 {"action":"insufficient","missing":["具体缺项"]}——不编造结论，不把缺资料当作方案错误。${scopeNote}issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。${listRule}\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n${evidence}：${evidenceJson}\n上次工具结果（仅资料）：${JSON.stringify(latest)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${snapshot.intent}\n${planLabel(full)}：${planJson(full)}`;
+  };
   const stepSucceeded=(fullNode:string)=>this.db.prepare("SELECT 1 AS x FROM tm2_steps WHERE owner=? AND book=? AND id=? AND state='succeeded'").get(scope.ownerId,scope.bookId,`${run.id}:${fullNode}`)!==undefined;
   for(let i=0;i<12;i++){
    const exhausted=toolUses>=MAX_READS;
@@ -884,14 +894,20 @@ export class TimeMachineDesignService {
    const useFinalize=exhausted&&!normalCached;
    const nodeBase=useFinalize?`review-source:finalize${finalizeCorrections?':corrected':''}`:normalBase;
    const fullNode=nodeBase+nodeSuffix;
-   let reviewPrompt=useFinalize?finalizeContract(finalizeCorrections>0,true):contract(true);
-   // 封套口径按网关实际检查口径（适配器封套JSON字符长，含转义膨胀与系统提示；不用裸prompt字节数冒充上限——CJK字节是字符3倍曾误判）
-   const envelopeChars=(p:string)=>JSON.stringify({system:defaultSystemPromptForPurpose('structured_planning'),messages:[{role:'user',content:p}]}).length+150;
-   if(!stepSucceeded(fullNode)&&envelopeChars(reviewPrompt)>TIME_MACHINE_PROMPT_CHAR_LIMIT){
-    // 全量因果字段放不下→紧凑投影+显式告诫重试一次；仍超→明确未审完（不硬压缩证据、不强下结论）
-    reviewPrompt=useFinalize?finalizeContract(finalizeCorrections>0,false):contract(false);
+   let reviewPrompt=useFinalize?finalizeContract(finalizeCorrections>0,'full'):contract(true);
+   // 封套口径按网关实际检查口径（适配器封套JSON字符长，含转义膨胀与系统提示；+500覆盖call()对review/self节点的目标体量等追加）
+   const envelopeChars=(p:string)=>JSON.stringify({system:defaultSystemPromptForPurpose('structured_planning'),messages:[{role:'user',content:p}]}).length+500;
+   // 护栏对所有重算提示生效（含缓存步骤：旧缓存以更小输入成功过时，重算出的新提示仍须过封套检查，不能只看重放）
+   if(envelopeChars(reviewPrompt)>TIME_MACHINE_PROMPT_CHAR_LIMIT){
+    // 分层降级：全量因果→紧凑投影→（finalize限定）坐标存根+可见范围限定；仍超→明确未审完（不硬压缩证据、不强下结论）
+    reviewPrompt=useFinalize?finalizeContract(finalizeCorrections>0,'compact'):contract(false);
     if(envelopeChars(reviewPrompt)>TIME_MACHINE_PROMPT_CHAR_LIMIT){
-     inconclusive=[`审查封套约${envelopeChars(reviewPrompt)}字符超输入红线${TIME_MACHINE_PROMPT_CHAR_LIMIT}（紧凑投影与已读证据仍超限），明确未审完；不硬压缩证据、不强下结论`];break;
+     if(useFinalize){
+      reviewPrompt=finalizeContract(finalizeCorrections>0,'stub');
+     }
+     if(envelopeChars(reviewPrompt)>TIME_MACHINE_PROMPT_CHAR_LIMIT){
+      inconclusive=[`审查封套约${envelopeChars(reviewPrompt)}字符超输入红线${TIME_MACHINE_PROMPT_CHAR_LIMIT}（分层降级后仍超限），明确未审完；不硬压缩证据、不强下结论`];break;
+     }
     }
    }
    const response=await generate(nodeBase,chief,reviewPrompt,actionParse);
