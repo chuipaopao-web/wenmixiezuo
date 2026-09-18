@@ -3,6 +3,7 @@ import { createTestContext, type TestContext } from '../../helpers/test-context.
 import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { BookRepository } from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import { V7SettingEditorialService } from '../../../apps/api/src/application/books/v7-setting-editorial-service.js';
+import { recordSelfCheckResolution } from '../../../apps/api/src/infrastructure/repositories/time-machine-review-resolution.js';
 
 // 625cc3f7集中复核④：合法HTTP流程断言（非日志打印、非虚绿）。
 // payload从已保存选择/资料读取（除待测版本外全部字段合法）；断言状态码、业务错误详情、
@@ -74,6 +75,25 @@ describe('合法HTTP流程断言（集中复核④）', () => {
       const savedContent = s1.storylineMaterial!.content; // 合法payload从已保存资料读取
       expect(savedContent.recommendationRunId).toBe(recRun.id);
 
+      const candidateId = created[0]!.id;
+      const raw = c.database.prepare('SELECT result_json FROM tm2_design_runs WHERE id=?').get(candidateId) as {result_json:string};
+      const candidateResult = JSON.parse(raw.result_json);
+      candidateResult.selfCheck = {pass:false,issues:['补充转场说明']};
+      c.database.prepare('UPDATE tm2_design_runs SET result_json=? WHERE id=?').run(JSON.stringify(candidateResult),candidateId);
+      const adoptBody = {candidateId,revision:candidateResult.revision,expectedRevision:0,idempotencyKey:'fc-adopt'};
+      const adopt = () => app.inject({method:'POST',url:`/api/time-machine/books/${scope.bookId}/adoptions`,headers:authed,payload:adoptBody});
+      expect((await adopt()).statusCode).toBe(409);
+      expect(() => recordSelfCheckResolution(c.database,scope,candidateId,candidateResult.revision,[])).toThrow();
+      expect(() => recordSelfCheckResolution(c.database,scope,candidateId,99,[{issue:'补充转场说明',disposition:'suggestion',reason:'转场属于表达建议',evidence:['fixture-review']}])).toThrow();
+      recordSelfCheckResolution(c.database,scope,candidateId,candidateResult.revision,[{issue:'补充转场说明',disposition:'suggestion',reason:'独立审查已确认因果成立，补转场为表达建议',evidence:['fixture-review']}]);
+      const accepted = await adopt();
+      expect(accepted.statusCode,accepted.body).toBe(200);
+      const replayAdoption = await adopt();
+      expect(replayAdoption.statusCode,replayAdoption.body).toBe(200);
+      expect(replayAdoption.json().data).toEqual(accepted.json().data);
+      const stillRaw = c.database.prepare('SELECT result_json FROM tm2_design_runs WHERE id=?').get(candidateId) as {result_json:string};
+      expect(JSON.parse(stillRaw.result_json).selfCheck.pass).toBe(false);
+
       // ② 预览：内容未变（合法payload+当前版本）→200且unchanged、有签名
       const previewSame = await app.inject({ method: 'POST', url: `/api/time-machine/books/${scope.bookId}/storyline-material/preview`, headers: authed, payload: { content: savedContent, expectedRevision: 1 } });
       expect(previewSame.statusCode, previewSame.body).toBe(200);
@@ -88,7 +108,7 @@ describe('合法HTTP流程断言（集中复核④）', () => {
       expect(previewEdit.statusCode, previewEdit.body).toBe(200);
       const previewEditData = previewEdit.json().data as { unchanged: boolean; affectedBaseline: boolean; affectedRuns: { id: string }[]; signature: string };
       expect(previewEditData.unchanged).toBe(false);
-      expect(previewEditData.affectedBaseline).toBe(false); // 本书尚未采用：无已采用基线可受影响（正确语义）
+      expect(previewEditData.affectedBaseline).toBe(true);
       expect(previewEditData.affectedRuns.length).toBeGreaterThan(0); // 受影响设计轮如实列出
 
       // ④ 保存修改：版本+1且落库（createdBy=author-edit），设计轮失效标记
@@ -121,7 +141,8 @@ describe('合法HTTP流程断言（集中复核④）', () => {
 
       // ⑦ 采用分支：本书未发生自然采用→明确标注未验证（不冒充已证明）
       const adopted = c.database.prepare('SELECT adoption FROM tm2_books WHERE owner=? AND book=?').get(scope.ownerId, scope.bookId) as { adoption: string | null } | undefined;
-      expect(adopted?.adoption ?? null).toBeNull(); // 未验证分支：本测试不声明采用机制已验（机制证据见s1a-fixes F1套件）
+      expect(adopted?.adoption).toBeTruthy(); // 历史采用保留，资料修改后拒绝再次采用失效方案
+      expect((await adopt()).statusCode).toBe(409);
       spy.mockRestore();
     } finally { vi.restoreAllMocks(); await app.close(); }
   });

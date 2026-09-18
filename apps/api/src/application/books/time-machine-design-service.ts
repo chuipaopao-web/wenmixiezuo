@@ -301,7 +301,7 @@ export class TimeMachineDesignService {
   // v2卷卡含锚点/字数/职责，2M字书16卷实测单轮超32万token；上调为可调初值（第22.4节）。
   // 一次性受控增量（d8407c59）：可信装配注入并审计配置，不允许客户端传无限预算、不全局放宽生产
   const tokensLimit=this.runBudgetOverride?.tokensLimit??520000;
-  if(this.runBudgetOverride)this.db.prepare("INSERT OR IGNORE INTO tm2_outbox(owner,book,id,kind,body) VALUES(?,?,?,'design.run-budget-override',?)").run(scope.ownerId,scope.bookId,`${run.id}:run-budget-override`,JSON.stringify({runId:run.id,tokensLimit,reason:this.runBudgetOverride.reason,at:new Date().toISOString()}));
+  if(this.runBudgetOverride)this.db.prepare("INSERT OR IGNORE INTO tm2_outbox(owner,book,id,kind,body) VALUES(?,?,?,'design.run-budget-override',?)").run(scope.ownerId,scope.bookId,`${run.id}:run-budget-override:${digest(this.runBudgetOverride).slice(0,16)}`,JSON.stringify({runId:run.id,tokensLimit,reason:this.runBudgetOverride.reason,at:new Date().toISOString()}));
   if(spent.calls>=120||spent.tokens+snapshot.windowTokens>tokensLimit){this.steps.fail(scope,stepId,claim.attemptId,'budget',Date.now());throw new TimeMachineCallError('budget','本轮成员预算已用完，已保存进度');}
   // v2卷卡含锚点/字数/职责理由，DeepSeek结构化规划思考常超6k；8k可见输出+4k思考余量避免推理耗尽max_tokens后零可见文字。
   // 资料提取/合并是封闭的证据任务，5000走既有结构化直出策略；6000会开启额外思考，
@@ -972,7 +972,7 @@ export class TimeMachineDesignService {
    // 判定一律用含轮次后缀的完整步骤id（后缀盲区曾误判childExists=false，导致子卷已在时仍重发父批，d8407c59实证）
    const childIds=batch.map(v=>`${parentStepId}:vol:${v}${nodeSuffix}`);
    const childExists=childIds.some(id=>this.db.prepare('SELECT 1 AS x FROM tm2_steps WHERE owner=? AND book=? AND id=?').get(scope.ownerId,scope.bookId,`${run.id}:${id}`)!==undefined);
-   const parentRow=this.db.prepare('SELECT error_code FROM tm2_steps WHERE owner=? AND book=? AND id=?').get(scope.ownerId,scope.bookId,`${run.id}:${parentStepId}${nodeSuffix}`) as {error_code:string|null}|undefined;
+   const parentRow=this.db.prepare('SELECT state,error_code FROM tm2_steps WHERE owner=? AND book=? AND id=?').get(scope.ownerId,scope.bookId,`${run.id}:${parentStepId}${nodeSuffix}`) as {state:string;error_code:string|null}|undefined;
    let first:{pass:boolean;issues:string[];suggestions:string[];hasMoreIssues:boolean};
    const reviewByVolumes=async():Promise<{pass:boolean;issues:string[];suggestions:string[];hasMoreIssues:boolean}>=>{
     const merged={pass:true,issues:[] as string[],suggestions:[] as string[],hasMoreIssues:false};
@@ -988,7 +988,9 @@ export class TimeMachineDesignService {
     this.db.prepare("UPDATE tm2_steps SET error_code='truncated-split-covered' WHERE owner=? AND book=? AND id=? AND error_code='truncated'").run(scope.ownerId,scope.bookId,`${run.id}:${parentStepId}${nodeSuffix}`);
     return merged;
    };
-   if(childExists||parentRow?.error_code==='truncated'||parentRow?.error_code==='truncated-split-covered'){
+   // A completed parent is revalidated by generate's full input hash before reuse.
+   // Historical incomplete children cannot force duplicate review of its covered volumes.
+   if(parentRow?.state!=='succeeded'&&(childExists||parentRow?.error_code==='truncated'||parentRow?.error_code==='truncated-split-covered')){
     first=await reviewByVolumes();
    }else{
     try{
@@ -1001,6 +1003,10 @@ export class TimeMachineDesignService {
     }
    }
    const anchorVerdict=await continueReview(parentStepId,first);
+   if(childExists&&parentRow?.state==='succeeded'&&!first.hasMoreIssues){
+    this.db.prepare("INSERT OR IGNORE INTO tm2_outbox(owner,book,id,kind,body) VALUES(?,?,?,'review.parent-coverage',?)")
+     .run(scope.ownerId,scope.bookId,`${run.id}:${parentStepId}${nodeSuffix}:covers-children`,JSON.stringify({parent:`${run.id}:${parentStepId}${nodeSuffix}`,children:childIds,candidateHash:digest(candidate),reason:'完整父批同输入核验并收齐结论，子步骤历史保留'}));
+   }
    issues.push(...anchorVerdict.issues);suggestions.push(...anchorVerdict.suggestions);pass=pass&&anchorVerdict.pass;
   }
   return {issues,suggestions,pass};

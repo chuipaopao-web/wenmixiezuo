@@ -303,6 +303,25 @@ describe('锚点截断单卷降级（067bbc24收尾决定）', () => {
     expect(service.state(scope).find(r => r.id === created[0]!.id)?.result?.review.pass).toBe(true);
   });
 
+  it('完整同输入父批已有结论时，历史半成子步骤不触发重复审查', async () => {
+    const { c, scope } = setup();
+    const calls: string[] = [];
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, (provider, modelId) => ({provider,modelId,
+      async generate(request) { calls.push(request.prompt); return {provider,modelId,output:JSON.stringify(threeVolumeOutput(request.prompt,modelId,'clean')),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded' as const}; }
+    })),64000);
+    const created = await round(service,scope,'parent-covers-old-child');
+    const id = created[0]!.id;
+    await service.process(id);
+    c.database.prepare("INSERT INTO tm2_steps(owner,book,id,input_hash,member,state) VALUES(?,?,?,?,?,'ready')").run(scope.ownerId,scope.bookId,`${id}:review-anchors:0:vol:v2`,'legacy-input','legacy-member');
+    c.database.prepare("UPDATE tm2_design_runs SET state='queued' WHERE id=?").run(id);
+    calls.length=0;
+    await service.process(id);
+    expect(calls).toHaveLength(0);
+    expect(service.state(scope).find(r=>r.id===id)?.state).toBe('succeeded');
+    expect(c.database.prepare("SELECT state FROM tm2_steps WHERE id=?").get(`${id}:review-anchors:0:vol:v2`)).toMatchObject({state:'ready'});
+    expect(c.database.prepare("SELECT COUNT(*) AS n FROM tm2_outbox WHERE kind='review.parent-coverage'").get()).toMatchObject({n:1});
+  });
+
   it('子1成功子2失败→重启只发子2；骨架/卷卡/来源审查/子1零重发', async () => {
     const { c, scope } = setup();
     const calls: string[] = [];

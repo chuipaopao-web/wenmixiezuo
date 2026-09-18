@@ -4,6 +4,7 @@ import type {DatabaseSync} from 'node:sqlite';
 import {Conflict,SqlPlanRepository,volumePlanningContext,parseCandidate,volumeDisplayCode,lineDisplayCode,digest} from '@wenmi/time-machine-core';
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
 import {TimeMachineDesignService} from '../application/books/time-machine-design-service.js';
+import {assertSelfCheckResolved} from '../infrastructure/repositories/time-machine-review-resolution.js';
 import {snapshotTimeMachine,manifestSourcesSignature} from '../application/books/time-machine-sources.js';
 import {TimeMachineModelGateway} from '../infrastructure/models/time-machine-model-gateway.js';
 import type {ModelAdapter} from '../infrastructure/models/model-adapter.js';
@@ -155,6 +156,7 @@ export async function registerTimeMachineRoutes(app:FastifyInstance,db:DatabaseS
   if(!row)throw new DomainError(errorCodes.validation,'候选尚未完成',{},false,409);
   // S1-A阶段二（第25.2节）：基于旧版故事线资料的候选结果保留可读，但采用拒绝并提示重新设计
   if(Number(row.needs_redesign)===1)throw new DomainError(errorCodes.validation,'该方案基于旧版故事线资料，需重新设计',{},false,409);
+  assertSelfCheckResolved(db,s,body.candidateId,body.revision);
   return success(guard(()=>{const snapshot=JSON.parse(row.snapshot_json) as {intent:string};const current=snapshotTimeMachine(db,s,snapshot.intent,windowTokens);const plans=new SqlPlanRepository(db);plans.syncManifest(s,current.manifest);return plans.adopt(s,body.candidateId,body.revision,body.expectedRevision,body.idempotencyKey);}),request.id);
  });
 }
