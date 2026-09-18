@@ -18,7 +18,8 @@ describe('创意方向跨节点传递',()=>{
  });
  it('验证真实可执行的类型、尺度和偏向，拒绝伪造类型与超量选择',()=>{
   expect(normalizeCreativeProfile().scale).toBe(4);
-  expect(()=>normalizeCreativeProfile({workType:'script'})).toThrow('尚未开放');
+  for(const workType of ['novel','short_story','memoir','script'] as const) expect(normalizeCreativeProfile({workType}).workType).toBe(workType);
+  expect(()=>normalizeCreativeProfile({workType:'space_opera'})).toThrow('作品类型无效');
   expect(()=>normalizeCreativeProfile({scale:99})).toThrow();
   expect(()=>normalizeCreativeProfile({styles:['越权提示']})).toThrow();
   const styles=['沙雕搞怪','猎奇新鲜','经营成长','悬念解谜','快节奏爽'];
@@ -31,6 +32,24 @@ describe('创意方向跨节点传递',()=>{
    expect(creativeDirective(profile,stage)?.preferences).toContain('不要求每卷、每章同时体现全部');
   }
   expect(creativeDirective(normalizeCreativeProfile({scale:1}),'setting')?.review).toContain('线索与结论');
+ });
+ it('四类作品类型各有独立创作方向语义，长篇保持既有网文策略',()=>{
+  const base={taskId:'creative-type-test',nodeKey:'opening_package_design' as const,roleKey:'screenwriter' as const,taskKind:'opening_design' as const,workstationKey:'opening' as const,operationMode:'fresh' as const,operation:'v7_opening_package_design_v1' as const,basedOnTaskId:null,authorIdea:'张三在仙侠世界开坦克。',publishingPlatform:'fanqie' as const,ideaVersion:1,referencePack:{references:[],excludedReason:'没有额外参考'},openingPackage:null,review:null,taxonomy:null,validationRepair:null,memberInstruction:''};
+  const novel=JSON.parse(buildOpeningAgentPrompt({...base,creativeProfile:normalizeCreativeProfile({workType:'novel'})}));
+  expect(novel.stageBoundary.instruction).toContain('三席全案策划');
+  expect(novel.finalInstructions.join('\n')).toContain('番茄可用口语');
+  expect(creativeDirective(normalizeCreativeProfile({workType:'novel'}),'opening')?.stageInstruction).toContain('金手指');
+  const shortStory=JSON.parse(buildOpeningAgentPrompt({...base,creativeProfile:normalizeCreativeProfile({workType:'short_story'})}));
+  expect(shortStory.creativeDirection.preferences).toContain('有限篇幅');
+  expect(shortStory.stageBoundary.instruction).toContain('有限篇幅');
+  const memoir=JSON.parse(buildOpeningAgentPrompt({...base,creativeProfile:normalizeCreativeProfile({workType:'memoir'})}));
+  expect(memoir.creativeDirection.preferences).toContain('真实经历');
+  expect(memoir.creativeDirection.preferences).toContain('待补充');
+  expect(memoir.creativeDirection.stageInstruction).not.toContain('主动设计适合本书的特殊优势');
+  expect(memoir.finalInstructions.join('\n')).not.toContain('番茄可用口语');
+  const script=JSON.parse(buildOpeningAgentPrompt({...base,creativeProfile:normalizeCreativeProfile({workType:'script'})}));
+  expect(script.creativeDirection.preferences).toContain('场景');
+  expect(script.stageBoundary.instruction).not.toContain('三席全案策划');
  });
  it('按账号和书籍取偏好，后续只传短规则，技术重试保留原方向',()=>{
   const db=new DatabaseSync(':memory:');

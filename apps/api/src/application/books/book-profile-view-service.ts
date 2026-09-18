@@ -1,5 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { CreativeWorkType } from '@wenmi/agent-catalog';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
+import { readBookCreativeWorkType } from '../agents/book-creative-context.js';
 import type { OpeningBlueprintInput } from '../../contracts/opening-blueprint.js';
 import { PlanningWorkflowRepository } from '../../infrastructure/db/repositories/planning-workflow-repository.js';
 
@@ -29,13 +31,15 @@ export interface BookProfileView {
     custom: string[];
   };
   source: string;
+  /** 作品类型回读：无创作偏好快照的旧书与手动建书缺省为长篇。 */
+  workType: CreativeWorkType;
   version: number;
   openingBlueprint: OpeningBlueprintInput;
 }
 
 export class BookProfileViewService {
   private readonly repository: PlanningWorkflowRepository;
-  public constructor(database: DatabaseSync) {
+  public constructor(private readonly database: DatabaseSync) {
     this.repository = new PlanningWorkflowRepository(database);
   }
 
@@ -49,6 +53,7 @@ export class BookProfileViewService {
     assertBookScope(scope);
     const row = this.repository.openingProfile(scope);
     if (row === undefined) return null;
+    const workType = this.readWorkType(scope);
     const storedBlueprint = JSON.parse(row.blueprint_json) as OpeningBlueprintInput;
     const openingStart = storedBlueprint.openingStart?.trim() ?? '';
     const storyEnding = storedBlueprint.storyEnding?.trim() ?? '';
@@ -86,8 +91,14 @@ export class BookProfileViewService {
       mustFollow: blueprint.mustFollow ?? [],
       style,
       source: '老板确认的开书资料',
+      workType,
       version: row.version,
       openingBlueprint: blueprint
     };
+  }
+
+  /** 作品类型回读委托 book-creative-context（数据库边界合同：应用服务不新增直接SQL）。 */
+  private readWorkType(scope: BookScope): CreativeWorkType {
+    return readBookCreativeWorkType(this.database, scope.ownerId, scope.bookId);
   }
 }

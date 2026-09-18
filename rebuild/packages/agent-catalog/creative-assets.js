@@ -778,23 +778,52 @@ export const CREATIVE_SCALES = Object.freeze([
  {level:5,name:'极限整活',description:'放开想象，无厘头也可以，只要有趣、意外、痛快。'}
 ].map(Object.freeze));
 export const READING_STYLES = Object.freeze(['快节奏爽','直给爽快','脑洞大开','沙雕搞怪','猎奇新鲜','情绪拉扯','悬念解谜','惊险压迫','经营成长','权谋智斗','无敌碾压','轻松治愈','群像史诗']);
+/** 作品类型稳定枚举：novel 是长篇兼容值；作者端只显示中文标签，内部标识不直接露出。 */
+export const CREATIVE_WORK_TYPES = Object.freeze(['novel','short_story','memoir','script']);
+export const CREATIVE_WORK_TYPE_LABELS = Object.freeze({novel:'长篇小说',short_story:'短篇小说',memoir:'个人自传',script:'影视剧本'});
 export function normalizeCreativeProfile(value) {
  if(value === undefined || value === null) return {version:CREATIVE_ASSET_VERSION,scale:4,styles:[],workType:'novel'};
  if(typeof value !== 'object' || Array.isArray(value)) throw new Error('创作偏好格式无效');
  const scale=value.scale ?? 4, styles=value.styles ?? [], workType=value.workType ?? 'novel';
  if(!Number.isInteger(scale) || scale<1 || scale>5) throw new Error('请选择有效的设计尺度');
  if(!Array.isArray(styles) || styles.length>5 || styles.some(style=>!READING_STYLES.includes(style))) throw new Error('请选择一个主偏向和最多四个辅助偏向');
- if(workType!=='novel') throw new Error('剧本工作流尚未开放，请先选择网文');
+ if(!CREATIVE_WORK_TYPES.includes(workType)) throw new Error('作品类型无效，请重新选择');
  if(value.version && value.version!==CREATIVE_ASSET_VERSION) throw new Error('创作偏好版本已更新，请刷新后再提交');
  return {version:CREATIVE_ASSET_VERSION,scale,styles:[...new Set(styles)],workType};
 }
 export function creativeDirective(profile,stage='opening') {
  if(!profile) return null;
  const scale=CREATIVE_SCALES.find(item=>item.level===profile.scale) ?? CREATIVE_SCALES[3];
- return {
-  version:profile.version,stage,scale:scale.name,styles:profile.styles,
+ const workType=CREATIVE_WORK_TYPES.includes(profile.workType)?profile.workType:'novel';
+ const base={version:profile.version,stage,workType,workTypeLabel:CREATIVE_WORK_TYPE_LABELS[workType],
+  scale:scale.name,styles:profile.styles,
   primaryStyle:profile.styles[0] ?? null,secondaryStyles:profile.styles.slice(1),
-  direction:scale.description,
+  direction:scale.description};
+ if(workType==='short_story') return {...base,
+  preferences:'这是短篇小说：集中一个核心冲突，在有限篇幅内讲完，不强制多卷与长期升级线。一个主偏向持续主导阅读体验，最多四个辅助偏向按情节需要选用，不强行拼凑，短篇容量内不要求全部体现。没有选择时由成员结合作者想法判断。作者明确要求优先。',
+  review:'按短篇小说审查：集中冲突与有限篇幅是否成立，姓名身份、作者明确要求、必要信息与输出结构是否有效。不以长篇多卷标准判定资料不完整，不把审查者口味当成错误。只有缺失必要信息或改错作者要求才阻断；优化只作建议。',
+  stageInstruction:stage==='opening'
+   ? '围绕单一集中冲突设计短篇故事方向：人物少而准，情节在有限篇幅内闭环，不设计需要多卷展开的长期升级线，预计总字数按短篇实际容量设计。作者明确要写多卷长篇时服从。'
+   : stage==='setting'
+    ? '把已确认的短篇方向整理为简洁、可调用的世界规则和人物资料，服务集中冲突，不扩展多卷设定。'
+    : '围绕本层具体事件推进集中冲突，篇幅有限，不新增需要多卷兑现的支线。'};
+ if(workType==='memoir') return {...base,
+  preferences:'这是个人自传：以作者提供的真实经历为最高事实来源，不编造作者未提供的真实人物经历、身份或事件；缺失事实明确标“待补充”，不冒充作者已确认。设计尺度与阅读偏向只影响表达与组织方式，不放宽事实要求，不为追求尺度虚构情节或外挂能力。作者明确要求优先。',
+  review:'按个人自传审查：核对内容是否来自作者原话，编造内容与“待补充”是否被如实区分，姓名身份与输出结构是否有效。不因缺乏虚构外挂、爽点或戏剧化模板要求返工，不把“待补充”当作已确认事实通过。只有改错作者要求或必要信息缺失才阻断。',
+  stageInstruction:stage==='opening'
+   ? '以作者本人真实经历为主线组织开书资料：作者未提供的家庭、职业、事件等事实标“待补充”，不编造；金手指字段只填作者明确拥有的真实能力或资源，没有就写“无特殊外挂”；尺度只影响叙事表达与详略组织。'
+   : stage==='setting'
+    ? '把作者已确认的真实经历整理为可调用的人物资料与时间线，缺失事实保持“待补充”，不用常识或推测补齐作者人生。'
+    : '围绕本层真实事件组织表达，事实缺失处标“待补充”，不以虚构反转替代真实经历。'};
+ if(workType==='script') return {...base,
+  preferences:'这是影视剧本：侧重人物、冲突、场景与呈现方式，按能被拍摄和演出理解的画面与动作组织故事，不套网文金手指、系统流、爽点升级模板。一个主偏向决定整体气质，最多四个辅助偏向按需选用。没有选择时由成员结合作者想法判断。作者明确要求优先。',
+  review:'按影视剧本审查：人物、冲突、场景与呈现方式是否清晰可执行，姓名身份、作者明确要求与输出结构是否有效。不以网文外挂、多卷升级标准要求，不把审查者口味当成错误。只有缺失必要信息或改错作者要求才阻断。',
+  stageInstruction:stage==='opening'
+   ? '按影视剧本设计开书资料：人物关系与核心冲突、关键场景与视觉呈现方式写具体；金手指字段只填剧情内真实存在的关键能力或道具，没有就写“无特殊外挂”；不设计系统流、升级流，不强制多卷。'
+   : stage==='setting'
+    ? '把已确认方向整理为可调用的场景、人物与规则资料，服务镜头化呈现，不扩展网文式升级设定。'
+    : '围绕本层事件设计场景与冲突呈现，人物姓名和已发生事实准确，不套网文外挂模板。'};
+ return {...base,
   preferences:'一个主偏向持续主导阅读体验，最多四个辅助偏向按当前节点和情节需要选用，不强行拼凑，不要求每卷、每章同时体现全部偏向；辅助不能压过主偏向。没有选择时由成员结合作者想法判断。作者明确要求优先。好玩、猎奇、爽快落实为具体玩法和回报，不只写形容词。',
   review:profile.scale>=4
    ? '审查姓名身份、作者明确要求、必要信息与输出结构。允许荒诞、偶然、卡通因果和碾压，不因不现实、战力失衡、缺乏代价或无厘头要求返工。只有缺失必要信息或改错作者要求才阻断；趣味优化只作建议。'
@@ -803,7 +832,6 @@ export function creativeDirective(profile,stage='opening') {
    ? '主动设计适合本书的特殊优势或金手指，写清怎么玩、为什么好玩、能怎样持续爽；作者明确不要外挂时服从。可以原创超出资产库，不必有系统，不必强行搭配卡片。大胆方案均为作者待确认候选，不冒充真实历史。'
    : stage==='setting'
     ? '把已选创意变为简洁、可调用的世界规则和人物资料。高尺度保留荒诞趣味，不以现实常识抹平卖点；已确认能力不擅自削弱或加代价。'
-    : '延续已确认创意，围绕本层具体事件设计新鲜玩法与兑现，允许高尺度荒诞展开；人物姓名和已发生事实准确，不靠偷偷改写前文制造反转。'
- };
+    : '延续已确认创意，围绕本层具体事件设计新鲜玩法与兑现，允许高尺度荒诞展开；人物姓名和已发生事实准确，不靠偷偷改写前文制造反转。'};
 }
 export function openingCreativeCatalog(){return CREATIVE_ASSETS.map(card=>[card.id,card.name,card.summary]);}

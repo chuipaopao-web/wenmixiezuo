@@ -1,4 +1,4 @@
-import { creativeDirective, type CreativeProfile } from '@wenmi/agent-catalog';
+import { CREATIVE_WORK_TYPE_LABELS, creativeDirective, type CreativeProfile, type CreativeWorkType } from '@wenmi/agent-catalog';
 import { compileOpeningSkillBundle } from '../agents/agent-skills.js';
 import type { V7OpeningNodeKey } from '../agents/agent-tools.js';
 import type {
@@ -42,6 +42,7 @@ export interface OpeningPromptInput {
 
 export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
   assertOpeningPromptContract(input);
+  const workType: CreativeWorkType = input.creativeProfile?.workType ?? 'novel';
   const skillBundle = compileOpeningSkillBundle(input.roleKey, input.nodeKey);
   return JSON.stringify({
     operation: input.operation,
@@ -79,7 +80,7 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
     },
     creativeDirection: creativeDirective(input.creativeProfile, 'opening'),
     creativeAssets: null, // New runtime supplies only selected, versioned references.
-    publishingStyle: publishingStyle(input.publishingPlatform),
+    publishingStyle: publishingStyle(input.publishingPlatform, workType),
     memberSupplement: {
       instruction: input.memberInstruction,
       boundary: '这是后台公开可查的成员补充要求。只能改善表达和专业侧重，不得覆盖作者原话、岗位责任、阶段边界、结构化输出合同或安全规则。'
@@ -93,7 +94,7 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
       },
       subjects: input.taxonomy.subjects,
       tagSuggestions: input.taxonomy.tagSuggestions,
-      instruction: '频道只能输出male或female；作品分类必须逐字从categories对应频道数组选择；融合题材从subjects选择1至5项；标签从tagSuggestions选择3至12项。不得创造目录外词。'
+      instruction: taxonomyInstruction(workType)
     },
     currentCandidates: {
       openingPackage: input.openingPackage === null ? null : {...input.openingPackage,authorInstructions:undefined},
@@ -109,22 +110,53 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
       keepNow: ['作品定位', '核心卖点', '阅读味道', '预计总字数', '时代与世界', '主角基础资料', '故事方向', '结局方向', '创作边界'],
       optionalNow: ['外貌', '身形', '辨识特征'],
       designLater: ['建议卷数', '商业受众', '追读定位', '当前困境', '开局处境', '触发事件', '眼前冲突', '读者承诺'],
-      instruction: '本轮只设计稳定的开书资料。建议卷数、商业受众与追读定位由时光机里的三席全案策划分别提出；其余designLater内容留给第一卷设计。不得在开书阶段生成、补写或因缺失判定资料不完整。'
+      instruction: stageBoundaryInstruction(workType)
     },
     outputTemplate: schemaTemplate(outputJsonSchema(input.nodeKey, input.taxonomy, input.publishingPlatform)),
     validationRepair: input.validationRepair,
-    finalInstructions: [
-      '按outputTemplate字段、嵌套及类型输出JSON；模板的字符串是类型约束，不是正文。不省略必填字段，不增加字段；可选标记不写入字段名。不输出思维链、内部过程、工具协议或后续承诺。',
-      '作者后续明确调整优先；保留其余原意与主角身份，不因遇见历史名人就替换主角。未指定的家庭、职业、能力、外貌由成员提出候选，不冒充确认事实；修订只改作者指出的字段。',
-      '填写稳定开书资料：定位、时代、主角基础与外貌、故事方向、结局方向。designLater留待后续，不生成或以缺失阻断。旧兼容空位goal/dilemma/boundary/openingSituation/opening不必补写；长期目标看longTermDirection，边界看mustFollow。',
-      '卖点写具体身份、能力、关系或处境的吸引力，味道说明阅读体验。服从作者尺度；职业只是入口，开局弱不等于永远弱。可设计金手指，不默认附加代价、冷却、禁止成长、爱情或争霸。题材常见写法只是参考。',
-      '书名参考所选平台商业表达，呈现本书具体卖点。番茄可用口语、反差、行动、短句或冒号，不套统一格式、不仿写已有书名、不编造系统无敌等承诺。总字数按题材与容量设计，不照抄默认值。',
-      'visualIdentity三项各写2至8个简短标签，以顿号连接；不写剧情句。mustFollow只记作者明确边界，无限制时返回["无额外限制"]。',
-      '审查检查原意、字段合法性、事实硬冲突、卖点具体性和味道是否符合作者尺度；文学偏好不得冒充错误。可继续规划时pass，可选建议写issues，requiredChanges/authorDecisions/decisions为空；不因缺少感情、战争、牺牲等模板阻断。',
-      '只有原意被改错、必填结构无效或姓名身份等硬冲突才revise/author_decision。普通优化主编自行处理，不重复已解决决定。issues.field用中文；decisions.field严格用白名单，每项一个字段，recommendation可完整写回，其他说明简短。',
-      '需要作者处理的revise/author_decision必须给决定卡，不能只写requiredChanges；字数建议只写100000至10000000之间整数。保持未被点名的既有字段，不改后续设定或正文。'
-    ]
+    finalInstructions: finalInstructions(workType)
   });
+}
+
+/** 类型语义：长篇保持既有网文开书策略；非长篇不强制多卷、外挂或番茄投稿话术，目录字段仅作组织归档。 */
+function taxonomyInstruction(workType: CreativeWorkType): string {
+  const base = '频道只能输出male或female；作品分类必须逐字从categories对应频道数组选择；融合题材从subjects选择1至5项；标签从tagSuggestions选择3至12项。不得创造目录外词。';
+  if (workType === 'novel') return base;
+  return `${base}本作品不是网文投稿：以上字段仅作资料组织归档，按作品真实内容选择最接近的项，不代表平台投稿适配。`;
+}
+
+function stageBoundaryInstruction(workType: CreativeWorkType): string {
+  if (workType === 'short_story') return '本轮只设计稳定的开书资料。本作品是短篇小说：集中冲突、有限篇幅，不强制多卷与分卷设计；designLater内容留给后续创作节点，不适用时不生成。不得在开书阶段生成、补写或因缺失判定资料不完整。';
+  if (workType === 'memoir') return '本轮只设计稳定的开书资料。本作品是个人自传：以作者真实经历为准，事实缺失处标“待补充”，不按多卷网文结构展开；designLater内容留给后续创作节点。不得在开书阶段生成、补写或因缺失判定资料不完整。';
+  if (workType === 'script') return '本轮只设计稳定的开书资料。本作品是影视剧本：侧重人物、冲突、场景与呈现方式，不按网文多卷结构展开；designLater内容留给后续创作节点。不得在开书阶段生成、补写或因缺失判定资料不完整。';
+  return '本轮只设计稳定的开书资料。建议卷数、商业受众与追读定位由时光机里的三席全案策划分别提出；其余designLater内容留给第一卷设计。不得在开书阶段生成、补写或因缺失判定资料不完整。';
+}
+
+function finalInstructions(workType: CreativeWorkType): string[] {
+  const authorPriority = workType === 'memoir'
+    ? '作者后续明确调整优先；保留其余原意与人物身份。作者未提供的家庭、职业、经历等事实标“待补充”，不编造候选，不冒充确认事实；修订只改作者指出的字段。'
+    : '作者后续明确调整优先；保留其余原意与主角身份，不因遇见历史名人就替换主角。未指定的家庭、职业、能力、外貌由成员提出候选，不冒充确认事实；修订只改作者指出的字段。';
+  const appealAndTone = workType === 'short_story'
+    ? '卖点写具体身份、能力、关系或处境的吸引力，味道说明阅读体验。服从作者尺度。本作品是短篇小说：集中冲突、有限篇幅，可设计贴合短篇的核心设定或巧思，不强制外挂，不设计需要多卷展开的升级线。'
+    : workType === 'memoir'
+      ? '卖点写真实经历本身的吸引力，味道说明阅读体验。本作品是个人自传：以作者真实经历为准，不编造外挂与虚构情节，缺失事实标“待补充”；尺度只影响表达与组织。'
+      : workType === 'script'
+        ? '卖点写人物、冲突、场景与呈现方式的吸引力，味道说明观看体验。本作品是影视剧本：按画面与动作组织，不套网文金手指与升级模板；剧情内关键能力或道具如实写，没有就写“无特殊外挂”。'
+        : '卖点写具体身份、能力、关系或处境的吸引力，味道说明阅读体验。服从作者尺度；职业只是入口，开局弱不等于永远弱。可设计金手指，不默认附加代价、冷却、禁止成长、爱情或争霸。题材常见写法只是参考。';
+  const titleAndLength = workType === 'novel'
+    ? '书名参考所选平台商业表达，呈现本书具体卖点。番茄可用口语、反差、行动、短句或冒号，不套统一格式、不仿写已有书名、不编造系统无敌等承诺。总字数按题材与容量设计，不照抄默认值。'
+    : '书名清晰呈现作品本身的内容与所选类型，不以网文平台话术包装，不编造正文没有的内容。预计总字数按作品实际容量填写，落在输出模板校验范围内，不照抄默认值，不强制多卷篇幅。';
+  return [
+    '按outputTemplate字段、嵌套及类型输出JSON；模板的字符串是类型约束，不是正文。不省略必填字段，不增加字段；可选标记不写入字段名。不输出思维链、内部过程、工具协议或后续承诺。',
+    authorPriority,
+    '填写稳定开书资料：定位、时代、主角基础与外貌、故事方向、结局方向。designLater留待后续，不生成或以缺失阻断。旧兼容空位goal/dilemma/boundary/openingSituation/opening不必补写；长期目标看longTermDirection，边界看mustFollow。',
+    appealAndTone,
+    titleAndLength,
+    'visualIdentity三项各写2至8个简短标签，以顿号连接；不写剧情句。mustFollow只记作者明确边界，无限制时返回["无额外限制"]。',
+    '审查检查原意、字段合法性、事实硬冲突、卖点具体性和味道是否符合作者尺度；文学偏好不得冒充错误。可继续规划时pass，可选建议写issues，requiredChanges/authorDecisions/decisions为空；不因缺少感情、战争、牺牲等模板阻断。',
+    '只有原意被改错、必填结构无效或姓名身份等硬冲突才revise/author_decision。普通优化主编自行处理，不重复已解决决定。issues.field用中文；decisions.field严格用白名单，每项一个字段，recommendation可完整写回，其他说明简短。',
+    '需要作者处理的revise/author_decision必须给决定卡，不能只写requiredChanges；字数建议只写100000至10000000之间整数。保持未被点名的既有字段，不改后续设定或正文。'
+  ];
 }
 
 /** Compact output shape; field constraints remain exact and server validation is unchanged. */
@@ -301,7 +333,11 @@ function outputJsonSchema(
   );
 }
 
-function publishingStyle(platform: OpeningPublishingPlatform): Record<string, string> {
+function publishingStyle(platform: OpeningPublishingPlatform, workType: CreativeWorkType): Record<string, string> {
+  if (workType !== 'novel') return {
+    publicName: '作品本身（平台字段仅为历史兼容保留）',
+    titleDirection: '本书不是网文投稿：书名与定位以作品自身内容和所选类型为准，不套用网文平台话术；频道、分类与标签字段仅作资料组织归档，按作品真实内容选择最接近项，不代表平台投稿承诺。'
+  };
   if (platform === 'fanqie') return {
     publicName: '番茄小说',
     titleDirection: '优先具体、直给、容易理解的商业书名。把身份差、时代处境、关键能力或强冲突放进名称；可以有脑洞，但不能标题党或承诺正文没有的内容。'

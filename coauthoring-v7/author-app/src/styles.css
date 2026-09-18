@@ -937,6 +937,7 @@ img.product-logo { object-fit: cover; flex-shrink: 0; background: #ffe3a1; }
 .confirmation-dock { position: sticky; z-index: 18; bottom: -34px; width: 100%; max-width: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: end; margin: 24px 0 -14px; border: 1px solid var(--line); border-radius: 18px 18px 0 0; padding: 18px 20px max(18px, env(safe-area-inset-bottom)); background: rgb(255 255 255 / 94%); box-shadow: 0 -15px 45px rgb(38 62 54 / 10%); backdrop-filter: blur(22px); }
 .workflow-action-dock { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; border: 1px solid var(--line); padding: 14px 16px max(14px, env(safe-area-inset-bottom)); background: rgb(255 255 255 / 96%); box-shadow: 0 -12px 34px rgb(38 62 54 / 9%); backdrop-filter: blur(18px); }
 .workflow-action-dock-page { position: sticky; z-index: 14; bottom: 0; margin-top: 22px; border-radius: 16px 16px 0 0; }
+.workflow-action-dock-flow { position: static; margin-top: 22px; border-radius: 16px; }
 .workflow-action-dock-card { position: static; margin-top: 16px; border-radius: 14px; background: var(--panel-muted); box-shadow: none; backdrop-filter: none; }
 .workflow-action-dock-copy { min-width: 0; display: grid; gap: 3px; }
 .workflow-action-dock-copy strong { color: var(--ink); font-size: 14px; }

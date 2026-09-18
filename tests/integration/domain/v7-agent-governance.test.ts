@@ -23,9 +23,13 @@ describe('V7统一岗位、模型与任务参数', () => {
     expect(service.members().filter(m=>m.modelProfileKey==='kimi-k3').map(m=>m.memberKey)).toEqual(['writer-kimi-k3']);
     for(const roster of [service.openingRoster(),service.settingRoster()]){
       expect(roster.some(m=>m.model.modelId==='kimi-k3')).toBe(false);
-      expect(roster.find(m=>m.memberKey==='planner-doubao-turbo')?.displayName).toContain('陆青禾');
-      expect(roster.find(m=>m.memberKey==='planner-glm-5-3')?.displayName).toContain('幼薇');
     }
+    // OPENING-UI-02起开书设计是三人固定合同名单，陆青禾不在其中；设定编选保持原阵容，陆青禾与幼薇都在。
+    const openingDesigners=service.openingRoster().filter(m=>m.roleKey==='screenwriter');
+    expect(openingDesigners.map(m=>m.memberKey)).toEqual(['planner-glm-5-3','planner-deepseek-v4-pro','member-planning_writer-7']);
+    expect(openingDesigners.some(m=>m.memberKey==='planner-doubao-turbo')).toBe(false);
+    expect(service.settingRoster().find(m=>m.memberKey==='planner-doubao-turbo')?.displayName).toContain('陆青禾');
+    expect(service.settingRoster().find(m=>m.memberKey==='planner-glm-5-3')?.displayName).toContain('幼薇');
     expect(service.snapshot().members.find(m=>m.memberKey===original.memberKey)).toMatchObject({enabled:false,modelProfileKey:'kimi-k3',displayName:original.displayName});
     expect(frozen.modelProfileKey).toBe('kimi-k3');
   });

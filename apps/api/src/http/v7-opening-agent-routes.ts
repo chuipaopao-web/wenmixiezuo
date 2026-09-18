@@ -218,7 +218,7 @@ export async function registerV7OpeningAgentRoutes(
     const view=editorialDepartment.get(owner.ownerId);
     const openingDesignMembers=unifiedGovernance.openingRoster().filter(member=>member.roleKey==='screenwriter').map(member=>{
       const original=view.departments.flatMap(department=>department.members).find(item=>item.memberKey===member.memberKey)!;
-      return {...original,presence:original.currentWork ? 'working' as const : 'ready' as const,statusText:'已通过开书设计测试，可选择开始设计。'};
+      return {...original,presence:original.currentWork ? 'working' as const : 'ready' as const,statusText:'已通过开书设计测试，可选择开始设计。',defaultForRole:member.defaultForRole};
     });
     return success({...view,openingDesignMembers}, request.id);
   });

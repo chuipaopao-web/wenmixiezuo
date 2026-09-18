@@ -195,6 +195,14 @@ function errorMessage(error: unknown): string {
 
 type OpeningDesignerMember = EditorialDepartmentView['departments'][number]['members'][number];
 
+/** 作品类型四选：内部标识是稳定英文枚举，中文只用于作者显示；novel 是长篇兼容值。 */
+const WORK_TYPE_OPTIONS: ReadonlyArray<{ value: CreativeProfile['workType']; label: string; hint: string }> = [
+  { value: 'novel', label: '长篇小说', hint: '可持续展开的故事与人物方向' },
+  { value: 'short_story', label: '短篇小说', hint: '集中冲突，有限篇幅讲完' },
+  { value: 'memoir', label: '个人自传', hint: '以您的真实经历为准' },
+  { value: 'script', label: '影视剧本', hint: '人物、冲突、场景与呈现方式' }
+];
+
 function DesignerMemberPicker({ members, value, onChange, redesign = false, disabled = false }: {
   members: OpeningDesignerMember[];
   value: string;
@@ -204,23 +212,17 @@ function DesignerMemberPicker({ members, value, onChange, redesign = false, disa
 }): React.JSX.Element | null {
   if (members.length === 0) return null;
   return (
-    <section className="opening-member-choice" aria-label={redesign ? '选择重新设计成员' : '选择开书设计成员（可不选）'}>
-      <h3>{redesign ? '换成员重新设计整份开书资料' : '选择开书设计成员（可不选）'}</h3>
+    <section className="opening-member-choice" aria-label={redesign ? '选择重新设计成员' : '选择开书设计成员'}>
+      <h3>{redesign ? '换成员重新设计整份开书资料' : '选择开书设计成员'}</h3>
       <fieldset className="opening-member-options" disabled={disabled}>
         <legend>开书设计成员</legend>
-        {!redesign && <label className={value === '' ? 'selected' : ''}>
-          <input type="radio" name="opening-designer-member" value="" checked={value === ''} onChange={() => onChange('')} />
-          <span className="opening-member-auto" aria-hidden="true">✓</span>
-          <strong>自动安排</strong>
-          {value === '' && <b aria-hidden="true">已选</b>}
-        </label>}
         {members.map((member) => {
           const selected = value === member.memberKey;
           return (
             <label className={selected ? 'selected' : ''} key={member.memberKey}>
               <input type="radio" name="opening-designer-member" value={member.memberKey} checked={selected} onChange={() => onChange(member.memberKey)} />
               <i className="opening-member-avatar" style={memberAvatarStyle(member.memberKey)} aria-hidden="true" />
-              <span className="opening-member-identity"><strong>{memberDisplayName(member.memberKey, member.displayName)}</strong>{' '}<small>{member.role}</small></span>
+              <span className="opening-member-identity"><strong>{memberDisplayName(member.memberKey, member.displayName)}</strong>{' '}<small>{member.role}{member.defaultForRole === true ? ' · 默认' : ''}</small></span>
               {selected && <b aria-hidden="true">已选</b>}
             </label>
           );
@@ -396,6 +398,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   const [taxonomy, setTaxonomy] = useState<OpeningTaxonomy | null>(null);
   const [department, setDepartment] = useState<EditorialDepartmentView | null>(null);
   const [selectedDesignerMemberKey, setSelectedDesignerMemberKey] = useState(initial.selectedDesignerMemberKey);
+  const [memberFallbackNotice, setMemberFallbackNotice] = useState<string | null>(null);
   const [openingPackage, setOpeningPackage] = useState<OpeningPackage | null>(
     initial.openingPackage ?? (initial.mode === 'manual' ? emptyOpeningPackage() : null)
   );
@@ -417,12 +420,19 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   const designMembers = useMemo(() => department?.openingDesignMembers ?? department?.departments
     .find((item) => item.departmentKey === 'planning_writer')?.members
     .filter((member) => member.presence !== 'leave') ?? [], [department]);
+  // 默认成员由服务端名单合同标记（红玉），与三人显示顺序独立；标记缺失时回落红玉固定身份键。
+  const defaultDesignerMemberKey = useMemo(() => designMembers.find((member) => member.defaultForRole === true)?.memberKey
+    ?? designMembers.find((member) => member.memberKey === 'planner-deepseek-v4-pro')?.memberKey
+    ?? designMembers[0]?.memberKey ?? '', [designMembers]);
+  // 空选择（含老草稿从未选择成员）解析为明确默认；作者手选始终优先并进入冻结任务。
+  const effectiveDesignerMemberKey = selectedDesignerMemberKey !== '' ? selectedDesignerMemberKey : defaultDesignerMemberKey;
 
   useEffect(() => { onCreatedRef.current = onCreated; }, [onCreated]);
 
   useEffect(() => {
     if (department !== null && selectedDesignerMemberKey && !designMembers.some((member) => member.memberKey === selectedDesignerMemberKey)) {
       setSelectedDesignerMemberKey('');
+      setMemberFallbackNotice('之前选择的设计成员当前不可用，已为您改回默认成员，您也可以重新选择。');
     }
   }, [department, designMembers, selectedDesignerMemberKey]);
 
@@ -656,7 +666,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
       idea: idea.trim(),
       creativeProfile,
       publishingPlatform: 'fanqie',
-      selectedDesignerMemberKey: selectedDesignerMemberKey || null
+      selectedDesignerMemberKey: effectiveDesignerMemberKey || null
     });
     const action = openingSubmitAction?.inputFingerprint === inputFingerprint
       ? openingSubmitAction
@@ -668,7 +678,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
         idea.trim(),
         'fanqie',
         action.key,
-        selectedDesignerMemberKey || undefined,
+        effectiveDesignerMemberKey || undefined,
         creativeProfile
       );
       setOpeningSubmitAction(null);
@@ -695,7 +705,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   };
 
   const redesignWithMember = async () => {
-    if (taskId === null || busy || selectedDesignerMemberKey.length === 0 || openingSubmitRef.current) return;
+    if (taskId === null || busy || effectiveDesignerMemberKey.length === 0 || openingSubmitRef.current) return;
     openingSubmitRef.current = true;
     setBusy(true);
     setError(null);
@@ -703,7 +713,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
       idea: idea.trim(),
       creativeProfile,
       publishingPlatform: 'fanqie',
-      selectedDesignerMemberKey
+      selectedDesignerMemberKey: effectiveDesignerMemberKey
     });
     const action = openingSubmitAction?.inputFingerprint === inputFingerprint
       ? openingSubmitAction
@@ -716,7 +726,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
         idea.trim(),
         'fanqie',
         action.key,
-        selectedDesignerMemberKey,
+        effectiveDesignerMemberKey,
         creativeProfile
       );
       setOpeningSubmitAction(null);
@@ -896,17 +906,18 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
           <label htmlFor="opening-idea">说说您想写什么</label>
           <ImeTextarea id="opening-idea" maxChars={2_000} value={idea} onChange={(next) => { setIdea(next); setError(null); }} placeholder="例如：我想写一个在仙侠世界开坦克的外卖员，越离谱越好玩……" rows={3} />
           <div className="idea-meta"><span>一句想法也可以 · {ideaLength}/2000</span><span role="status">{draftSaveFailed ? '本机保存失败，请暂勿关闭页面' : ideaLength > 0 ? '已自动保存到本机' : '输入后自动保存到本机'}</span></div>
-          <DesignerMemberPicker members={designMembers} value={selectedDesignerMemberKey} onChange={setSelectedDesignerMemberKey} />
           <fieldset className="creative-choice"><legend>设计尺度</legend><div className="creative-scale-options">{CREATIVE_SCALES.map(scale => <button key={scale.level} type="button" aria-pressed={creativeProfile.scale===scale.level} onClick={() => setCreativeProfile(current=>({...current,scale:scale.level}))}><strong>{scale.name}</strong><small>{scale.description}</small></button>)}</div></fieldset>
           <fieldset className="creative-choice"><legend>主偏向 <small>选择一个，决定主要阅读体验</small></legend><div className="creative-style-options">
             <button type="button" aria-pressed={!creativeProfile.styles.length} onClick={() => setCreativeProfile(current=>({...current,styles:[]}))}>由成员判断</button>
             {READING_STYLES.map(style => <button key={style} type="button" aria-label={`主偏向：${style}`} aria-pressed={creativeProfile.styles[0]===style} onClick={() => setCreativeProfile(current=>({...current,styles:[style,...current.styles.slice(1).filter(item=>item!==style)]}))}>{creativeProfile.styles[0]===style ? '主 · ' : ''}{style}</button>)}
           </div></fieldset>
           {creativeProfile.styles.length>0 && <fieldset className="creative-choice"><legend>辅助偏向 <small>可不选，最多4个 · 已选{creativeProfile.styles.length-1}/4</small></legend><p className="creative-hint">按情节需要使用，不必每章全部体现。</p><div className="creative-style-options">{READING_STYLES.filter(style=>style!==creativeProfile.styles[0]).map(style => <button key={style} type="button" aria-label={`辅助偏向：${style}`} aria-pressed={creativeProfile.styles.slice(1).includes(style)} disabled={!creativeProfile.styles.includes(style) && creativeProfile.styles.length>=5} onClick={() => setCreativeProfile(current=>({...current,styles:current.styles.includes(style)?current.styles.filter(item=>item!==style):[...current.styles,style]}))}>{creativeProfile.styles.includes(style) ? '副 · ' : ''}{style}</button>)}</div></fieldset>}
-          <fieldset className="creative-choice"><legend>作品类型</legend><div className="creative-style-options"><button type="button" aria-pressed="true">网文</button><button type="button" disabled>剧本 · 即将开放</button></div></fieldset>
+          <fieldset className="creative-choice"><legend>作品类型</legend><div className="creative-scale-options">{WORK_TYPE_OPTIONS.map(option => <button key={option.value} type="button" aria-pressed={creativeProfile.workType===option.value} onClick={() => setCreativeProfile(current=>({...current,workType:option.value}))}><strong>{option.label}</strong><small>{option.hint}</small></button>)}</div></fieldset>
+          <DesignerMemberPicker members={designMembers} value={effectiveDesignerMemberKey} onChange={(memberKey) => { setSelectedDesignerMemberKey(memberKey); setMemberFallbackNotice(null); }} />
+          {memberFallbackNotice !== null && <p className="creative-hint" role="status">{memberFallbackNotice}</p>}
           {error !== null && <div className="error-notice" role="alert">{error}</div>}
         </div>
-        <WorkflowActionDock title="让编辑部开始设计" detail="生成后可修改，也可以换成员重新设计。" primary={<button className="primary-action" type="button" disabled={ideaLength < 4 || busy} onClick={() => void startAi()}><UsersThreeIcon />{busy ? '正在提交…' : '开始设计'}</button>} />
+        <WorkflowActionDock mode="flow" title="让编辑部开始设计" detail="生成后可修改，也可以换成员重新设计。" primary={<button className="primary-action" type="button" disabled={ideaLength < 4 || busy} onClick={() => void startAi()}><UsersThreeIcon />{busy ? '正在提交…' : '开始设计'}</button>} />
       </section>
     );
   }
@@ -931,9 +942,9 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
         }))} />}
         <ManualOpeningForm value={openingPackage} taxonomy={taxonomy} onChange={setOpeningPackage} step={manualStep} onStepChange={setManualStep} />
         {mode === 'ai' && designMembers.length > 0 && <section className="opening-redesign-choice" aria-label="换成员重新设计">
-          <DesignerMemberPicker members={designMembers} value={selectedDesignerMemberKey} onChange={setSelectedDesignerMemberKey} redesign disabled={busy} />
+          <DesignerMemberPicker members={designMembers} value={effectiveDesignerMemberKey} onChange={(memberKey) => { setSelectedDesignerMemberKey(memberKey); setMemberFallbackNotice(null); }} redesign disabled={busy} />
           <p>按最初的开书想法重新设计，不带入当前方案和下方调整意见；原方案保留在任务记录中。</p>
-          <WorkflowActionDock mode="card" ariaLabel="整份开书资料重新设计" title="选择头像后重新设计" primary={<button className="secondary-action" type="button" disabled={busy || selectedDesignerMemberKey.length === 0} onClick={() => void redesignWithMember()}>{busy ? '正在重新安排…' : '重新设计'}</button>} />
+          <WorkflowActionDock mode="card" ariaLabel="整份开书资料重新设计" title="选择头像后重新设计" primary={<button className="secondary-action" type="button" disabled={busy || effectiveDesignerMemberKey.length === 0} onClick={() => void redesignWithMember()}>{busy ? '正在重新安排…' : '重新设计'}</button>} />
         </section>}
         {mode === 'ai' && manualStep === 2 && <label className="adjustment-field" htmlFor="adjustment-note"><span>开书资料调整意见（可选）</span><ImeTextarea id="adjustment-note" rows={3} maxChars={2_000} value={adjustmentNote} onChange={setAdjustmentNote} placeholder="例如：主角必须是张三；年龄改成二十岁；书名更直白吸睛。只调整本页开书资料。" /><small>设计成员按意见修改当前资料，再由主编审查。</small><output>{Array.from(adjustmentNote).length}/2000</output></label>}
         {currentErrors.length > 0 && <details className="validation-summary"><summary>还需完成 {currentErrors.length} 项</summary><ul>{currentErrors.map((item) => <li key={item}>{item}</li>)}</ul></details>}

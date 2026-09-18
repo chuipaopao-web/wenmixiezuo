@@ -12,7 +12,7 @@ export function WorkflowActionDock({
   detail?: string;
   primary: ReactNode;
   secondary?: ReactNode;
-  mode?: 'page' | 'card';
+  mode?: 'page' | 'card' | 'flow';
   ariaLabel?: string;
 }): React.JSX.Element {
   return <footer role={mode === 'card' ? 'group' : undefined} className={`workflow-action-dock workflow-action-dock-${mode}`} aria-label={ariaLabel}>

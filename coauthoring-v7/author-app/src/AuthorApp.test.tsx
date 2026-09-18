@@ -212,7 +212,8 @@ describe('V7 author opening flow', () => {
     expect(screen.getByRole('heading', { name: '老板好啊！' })).toBeVisible();
     expect(screen.queryByRole('button', { name: /自己设计/ })).not.toBeInTheDocument();
     expect(screen.getByRole('img', { name: '貂蝉，编辑部主编' })).toHaveAttribute('src','/avatars/diaochan-welcome-r166.png');
-    expect(screen.getByRole('button', { name: /剧本/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /影视剧本/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /长篇小说/ })).toHaveAttribute('aria-pressed','true');
     expect(screen.getByRole('button', { name: /荒诞猎奇/ })).toHaveAttribute('aria-pressed','true');
     await waitFor(() => expect(fetch).toHaveBeenCalled());
   });
@@ -664,9 +665,9 @@ describe('V7 author opening flow', () => {
       if (url.endsWith('/api/v1/v7/editorial-department')) return response({
         summary: { memberCount: 3, readyCount: 3, workingCount: 0, leaveCount: 0, completedCount: 0 },
         departments: [{ departmentKey: 'planning_writer', name: '策划编剧组', members: [
-          { memberKey: 'planner-deepseek-v4-pro', displayName: '红玉', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'ready', statusText: '当前空闲，可以接单。', currentWork: null, completedCount: 0 },
           { memberKey: 'planner-glm-5-3', displayName: '幼薇', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'ready', statusText: '当前空闲，可以接单。', currentWork: null, completedCount: 0 },
-          { memberKey: 'planner-kimi-k3', displayName: '苏映棠', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'ready', statusText: '当前空闲，可以接单。', currentWork: null, completedCount: 0 }
+          { memberKey: 'planner-deepseek-v4-pro', displayName: '红玉', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'ready', statusText: '当前空闲，可以接单。', currentWork: null, completedCount: 0, defaultForRole: true },
+          { memberKey: 'member-planning_writer-7', displayName: '温予安', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'ready', statusText: '当前空闲，可以接单。', currentWork: null, completedCount: 0 }
         ] }]
       });
       if (url.endsWith('/api/v1/v7/opening-agent/tasks') && init?.method === 'POST') return response(working);
@@ -676,11 +677,18 @@ describe('V7 author opening flow', () => {
     window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
     render(<AuthorApp />);
 
+    // 三人固定名单按合同顺序显示，没有“自动安排”卡；空选择解析为明确默认红玉。
     expect(await screen.findByRole('group', { name: '开书设计成员' })).toBeVisible();
-    expect(screen.getByText('选择开书设计成员（可不选）').closest('details')).toBeNull();
+    expect(screen.getByRole('heading', { name: '选择开书设计成员' })).toBeVisible();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
-    const choice = await screen.findByRole('radio', { name: '苏映棠 策划编剧' });
-    await waitFor(() => expect(screen.getByRole('radio', { name: '自动安排' })).toBeChecked());
+    expect(screen.queryByRole('radio', { name: /自动安排/ })).not.toBeInTheDocument();
+    const radios = screen.getAllByRole('radio').map((radio) => radio.getAttribute('value'));
+    expect(radios).toEqual(['planner-glm-5-3', 'planner-deepseek-v4-pro', 'member-planning_writer-7']);
+    await waitFor(() => expect(screen.getByRole('radio', { name: '红玉 策划编剧 · 默认' })).toBeChecked());
+    if (savedMember === 'planner-on-leave') {
+      expect(await screen.findByText(/之前选择的设计成员当前不可用/)).toBeVisible();
+    }
+    const choice = screen.getByRole('radio', { name: '温予安 策划编剧' });
     fireEvent.click(choice);
     fireEvent.change(screen.getByLabelText('说说您想写什么'), { target: { value: '张三穿越三国，从流民开始求生。' } });
     fireEvent.click(screen.getByRole('button',{name:/极限整活/}));
@@ -690,7 +698,70 @@ describe('V7 author opening flow', () => {
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
       if (!String(input).endsWith('/api/v1/v7/opening-agent/tasks') || (init as RequestInit | undefined)?.method !== 'POST') return false;
       const body = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
-      return body.selectedScreenwriterMemberKey === 'planner-kimi-k3' && (body.creativeProfile as {scale:number;styles:string[]}).scale===5 && (body.creativeProfile as {styles:string[]}).styles.includes('沙雕搞怪');
+      return body.selectedScreenwriterMemberKey === 'member-planning_writer-7' && (body.creativeProfile as {scale:number;styles:string[]}).scale===5 && (body.creativeProfile as {styles:string[]}).styles.includes('沙雕搞怪');
+    })).toBe(true));
+  });
+
+  it('开书想法页按合同顺序排列，提交区在内容流末尾且不悬浮', async () => {
+    installFetch((url) => url.endsWith('/api/v1/v7/editorial-department') ? response({
+      summary: { memberCount: 3, readyCount: 3, workingCount: 0, leaveCount: 0, completedCount: 0 },
+      departments: [{ departmentKey: 'planning_writer', name: '策划编剧组', members: [
+        { memberKey: 'planner-glm-5-3', displayName: '幼薇', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'ready', statusText: '当前空闲，可以接单。', currentWork: null, completedCount: 0 },
+        { memberKey: 'planner-deepseek-v4-pro', displayName: '红玉', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'ready', statusText: '当前空闲，可以接单。', currentWork: null, completedCount: 0, defaultForRole: true },
+        { memberKey: 'member-planning_writer-7', displayName: '温予安', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'ready', statusText: '当前空闲，可以接单。', currentWork: null, completedCount: 0 }
+      ] }]
+    }) : null);
+    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+    render(<AuthorApp />);
+
+    const idea = await screen.findByLabelText('说说您想写什么');
+    const scale = screen.getByText('设计尺度');
+    const primary = screen.getByText('主偏向');
+    const workType = screen.getByText('作品类型');
+    const members = await screen.findByRole('group', { name: '开书设计成员' });
+    const submit = screen.getByRole('button', { name: '开始设计' });
+    const following = (a: Node, b: Node) => expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    following(idea, scale);
+    following(scale, primary);
+    following(primary, workType);
+    following(workType, members);
+    following(members, submit);
+    const dock = submit.closest('.workflow-action-dock');
+    expect(dock).toHaveClass('workflow-action-dock-flow');
+    expect(dock).not.toHaveClass('workflow-action-dock-page');
+  });
+
+  it('作品类型默认长篇，四类可选并随草稿与提交贯通', async () => {
+    const working = {
+      ...COMPLETE_TASK,
+      status: 'working', phase: 'package_design', isRunning: true, candidates: [],
+      phaseText: '设计成员正在整理开书资料', statusText: '开书资料正在设计'
+    } satisfies OpeningTaskView;
+    const fetchMock = installFetch((url, init) => {
+      if (url.endsWith('/api/v1/v7/opening-agent/tasks') && init?.method === 'POST') return response(working);
+      if (url.endsWith(`/api/v1/v7/opening-agent/tasks/${working.taskId}`)) return response(working);
+      return null;
+    });
+    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+    const rendered = render(<AuthorApp />);
+
+    expect(await screen.findByRole('button', { name: /长篇小说/ })).toHaveAttribute('aria-pressed', 'true');
+    for (const label of ['短篇小说', '个人自传', '影视剧本']) {
+      expect(screen.getByRole('button', { name: new RegExp(label) })).toHaveAttribute('aria-pressed', 'false');
+    }
+    fireEvent.click(screen.getByRole('button', { name: /个人自传/ }));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(AI_DRAFT_KEY)!).creativeProfile.workType).toBe('memoir'));
+    rendered.unmount();
+
+    // 刷新后恢复所选类型；提交时类型进入创作偏好负载。
+    render(<AuthorApp />);
+    expect(await screen.findByRole('button', { name: /个人自传/ })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.change(screen.getByLabelText('说说您想写什么'), { target: { value: '张三穿越三国，从流民开始求生。' } });
+    fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
+      if (!String(input).endsWith('/api/v1/v7/opening-agent/tasks') || (init as RequestInit | undefined)?.method !== 'POST') return false;
+      const body = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
+      return (body.creativeProfile as {workType?:string}).workType === 'memoir';
     })).toBe(true));
   });
 

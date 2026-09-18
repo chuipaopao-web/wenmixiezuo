@@ -31,7 +31,12 @@ describe('opening node ranking and bounded admission',()=>{
   context=createTestContext();const repository=new V7AgentGovernanceRepository(context.database);
   const service=new V7AgentGovernanceService(repository,new SequenceIds(),new FixedClock(),{codingPlan:true,agentPlan:true,image:true});
   service.updateMember('admin','planner-glm-5-3',{expectedRevision:service.snapshot().revision,enabled:true});
-  expect(service.openingRoster().filter(m=>m.roleKey==='screenwriter')[0]?.memberKey).toBe('planner-deepseek-v4-pro');
+  // 三人固定合同名单的显示顺序是幼薇在前；默认成员是红玉，与显示顺序、测速名次相互独立。
+  const designers=service.openingRoster().filter(m=>m.roleKey==='screenwriter');
+  expect(designers[0]?.memberKey).toBe('planner-glm-5-3');
+  expect(designers.map(m=>m.memberKey)).toEqual(['planner-glm-5-3','planner-deepseek-v4-pro','member-planning_writer-7']);
+  expect(designers.filter(m=>m.defaultForRole).map(m=>m.memberKey)).toEqual(['planner-deepseek-v4-pro']);
+  expect(designers.find(m=>m.memberKey==='member-planning_writer-7')?.model.plan).toBe('agent');
   expect(openingRanking('design')[0]?.profileKey).toBe('glm-5.3');
   expect(()=>repository.resolveTaskPolicy('planner-glm-5-3','opening_design')).not.toThrow();
   const admin = service.adminView() as { settingSelection: Array<{ modelId: string; roleKey: string }> };
@@ -50,9 +55,11 @@ describe('opening node ranking and bounded admission',()=>{
   const bindings=()=>service.snapshot().members.map(({memberKey,modelProfileKey,enabled})=>({memberKey,modelProfileKey,enabled}));
   const before=bindings();
   const designers=service.openingRoster().filter(m=>m.roleKey==='screenwriter');
-  // 5079844a起开书阵容=已验证名次+全部在编规划成员（不再截断三席），任务级准入仍由resolveTaskPolicy按名次把关。
-  expect(designers.map(m=>m.model.modelId)).toEqual(['deepseek-v4-pro','deepseek-v4-flash','kimi-k2.7-code','doubao-seed-2.1-turbo','glm-5.3','kimi-k3']);
-  const slot=designers[1]!;
+  // OPENING-UI-02起开书设计成员是三人固定合同名单（幼薇/红玉/温予安，显示序即合同序），
+  // 不再按测速名次拼接全部在编规划成员；任务级准入仍由resolveTaskPolicy按名次把关。
+  expect(designers.map(m=>m.model.modelId)).toEqual(['glm-5.3','deepseek-v4-pro','kimi-k2.7-code']);
+  // 用温予安候选席位验证Kimi2.7例外边界：仅开书design节点准入，换绑/解绑即取消，不全局解禁。
+  const slot=designers.find(m=>m.memberKey==='member-planning_writer-7')!;
   expect(repository.resolveTaskPolicy(slot.memberKey,'opening_design').temperature).toBeGreaterThan(0);
   expect(()=>repository.resolveTaskPolicy(slot.memberKey,'manuscript')).toThrow();
   service.updateMember('admin',slot.memberKey,{expectedRevision:service.snapshot().revision,modelProfileKey:'glm-5.3'});

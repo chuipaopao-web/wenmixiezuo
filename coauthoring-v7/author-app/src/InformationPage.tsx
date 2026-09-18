@@ -1,4 +1,5 @@
 import { BookOpenTextIcon, CheckCircleIcon, MagicWandIcon, PencilSimpleIcon, SlidersHorizontalIcon, TagIcon } from '@phosphor-icons/react';
+import { CREATIVE_WORK_TYPE_LABELS } from '@wenmi/agent-catalog';
 import { BookSynopsisPanel } from './BookSynopsisPanel';
 import { useEffect, useState } from 'react';
 import { BookCoverDesignDialog, BookProfileEditDialog, BookTitleDesignDialog } from './BookProfileDialogs';
@@ -33,6 +34,9 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
     return () => controller.abort();
   }, [bookId]);
 
+  const workTypeText = CREATIVE_WORK_TYPE_LABELS[profile?.workType ?? 'novel'] ?? CREATIVE_WORK_TYPE_LABELS.novel;
+  const pendingWorkTypeLabel = profile?.workType !== undefined && profile.workType !== 'novel' ? workTypeText : null;
+
   return (
     <section className="information-surface information-hub" aria-label="信息">
       <nav className="information-section-tabs" aria-label="信息功能">
@@ -42,7 +46,15 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
       </nav>
 
       {section === 'setting' ? (
-        <SettingPage bookId={bookId} recoveryFocus={settingRecoveryFocus} {...(onOpenTimeMachine === undefined ? {} : { onOpenTimeMachine })} />
+        pendingWorkTypeLabel !== null ? (
+          <div className="failure-card compact-failure-card" role="note" aria-label="后续创作工作台尚未开放">
+            <p className="eyebrow">尚未开放</p>
+            <h2>{pendingWorkTypeLabel}的后续创作工作台尚未开放</h2>
+            <p>本书开书资料已确认并全部保留；设定、时光机与分卷创作目前仅对长篇小说开放，开放后这里会显示真实入口。</p>
+          </div>
+        ) : (
+          <SettingPage bookId={bookId} recoveryFocus={settingRecoveryFocus} {...(onOpenTimeMachine === undefined ? {} : { onOpenTimeMachine })} />
+        )
       ) : section === 'naming' ? (
         <NamingWorkspace profile={profile} profileUnavailable={error !== null} />
       ) : error !== null ? (
@@ -52,7 +64,7 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
       ) : (
         <div className="information-profile" aria-labelledby="information-title">
           <header className="information-heading">
-            <div><p className="eyebrow">开书信息 · 已确认</p><h2 id="information-title">{profile.title}</h2><p>{profile.channel} · {profile.category}</p></div>
+            <div><p className="eyebrow">开书信息 · 已确认</p><h2 id="information-title">{profile.title}</h2><p>{workTypeText} · {profile.channel} · {profile.category}</p></div>
             <div className="profile-heading-actions"><span className="confirmed-badge"><CheckCircleIcon />作者已确认</span></div>
           </header>
           <div className="information-tags"><TagIcon />{uniqueNonEmpty([...(profile.subjects ?? []), ...(profile.mainTags ?? []), ...(profile.customTags ?? [])]).map((tag) => <span key={tag}>{tag}</span>)}</div>

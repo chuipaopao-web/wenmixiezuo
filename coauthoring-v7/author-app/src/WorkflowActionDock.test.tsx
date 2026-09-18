@@ -28,4 +28,18 @@ describe('WorkflowActionDock', () => {
     expect(screen.getByRole('group', { name: '设定清单操作' })).toHaveClass('workflow-action-dock-card');
     expect(screen.queryByRole('contentinfo', { name: '设定清单操作' })).not.toBeInTheDocument();
   });
+
+  it('supports a non-sticky in-flow action area for the opening idea page', () => {
+    render(<WorkflowActionDock
+      mode="flow"
+      title="让编辑部开始设计"
+      detail="生成后可修改，也可以换成员重新设计。"
+      primary={<button type="button">开始设计</button>}
+    />);
+
+    const dock = screen.getByRole('contentinfo', { name: '当前步骤操作' });
+    expect(dock).toHaveClass('workflow-action-dock-flow');
+    expect(dock).not.toHaveClass('workflow-action-dock-page');
+    expect(dock.querySelectorAll('.workflow-action-dock-primary > button')).toHaveLength(1);
+  });
 });

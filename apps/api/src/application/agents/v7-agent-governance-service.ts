@@ -27,6 +27,11 @@ export interface V7AgentCredentialState {
   image: boolean;
 }
 
+/** 开书设计节点的三人名单合同：幼薇/GLM-5.3、红玉/DeepSeek V4 Pro、温予安/Kimi 2.7。
+ *  固定显示顺序；默认红玉由 profileKey 独立判定，不按数组首项派生。
+ *  Kimi 2.7 仅本节点（含换员重新设计）准入，不扩到全局岗位或其他节点。 */
+const OPENING_DESIGN_PROFILE_ORDER = ['glm-5.3', 'deepseek-v4-pro', 'kimi-k2.7-code'] as const;
+
 export class V7AgentGovernanceService {
   public constructor(
     private readonly repository: V7AgentGovernanceRepository,
@@ -49,11 +54,16 @@ export class V7AgentGovernanceService {
     for (const node of ['review','design'] as const) {
       const fixedRoleKey=node==='design'?'planning_writer':'chief_editor';
       const roleKey=node==='design'?'screenwriter':'chief_editor';
+      // 设计节点用三人固定名单（显示顺序即合同顺序）；审查节点保持原有速度榜∪在岗成员并集。
       // Default preference is independent of the recorded speed ranking.
-      const profiles = [...new Set([...openingRanking(node).map(row => row.profileKey),
-        ...this.members(fixedRoleKey).map(member => member.modelProfileKey)])];
-      const preferred = profiles.map(profileKey => ({profileKey})).toSorted((a, b) =>
-        Number(b.profileKey === 'deepseek-v4-pro') - Number(a.profileKey === 'deepseek-v4-pro'));
+      const profiles = node==='design'
+        ? [...OPENING_DESIGN_PROFILE_ORDER]
+        : [...new Set([...openingRanking(node).map(row => row.profileKey),
+          ...this.members(fixedRoleKey).map(member => member.modelProfileKey)])];
+      const preferred = node==='design'
+        ? profiles.map(profileKey => ({profileKey}))
+        : profiles.map(profileKey => ({profileKey})).toSorted((a, b) =>
+          Number(b.profileKey === 'deepseek-v4-pro') - Number(a.profileKey === 'deepseek-v4-pro'));
       for (const row of preferred) {
         const legacy=snapshot.members.find(m=>m.fixedRoleKey===fixedRoleKey && m.modelProfileKey===row.profileKey && m.enabled);
         const slot=candidates.find(m=>m.roleKey===fixedRoleKey && m.modelProfileKey===row.profileKey);
@@ -63,8 +73,14 @@ export class V7AgentGovernanceService {
         if (model.plan==='image' || !this.credentialReady({model})) continue;
         const position=result.filter(m=>m.roleKey===roleKey).length;
         result.push({memberKey,displayName:memberNameWithModel(publicMemberIdentity(memberKey)!.displayName,model.modelId),roleKey,
-          enabledByDefault:true,defaultForRole:position===0,fallbackPriority:position+1,
+          enabledByDefault:true,defaultForRole:node==='design'?row.profileKey==='deepseek-v4-pro':position===0,fallbackPriority:position+1,
           model:{provider:model.provider as 'volcengine-ark-coding-plan'|'volcengine-ark-agent-plan',modelId:model.modelId,plan:model.plan},promptInstruction:''});
+      }
+      // 名单校验要求每岗位恰好一名启用默认成员。默认红玉凭据失效时不复活停用模型、
+      // 不凑数，由当前实际可用的设计成员按显示顺序递补一名明确默认，保证创建校验仍可通过。
+      if (node==='design') {
+        const designers=result.filter(m=>m.roleKey==='screenwriter');
+        if (designers.length>0 && !designers.some(m=>m.defaultForRole)) designers[0]!.defaultForRole=true;
       }
     }
     return result;

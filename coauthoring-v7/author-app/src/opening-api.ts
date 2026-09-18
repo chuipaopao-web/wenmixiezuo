@@ -145,6 +145,8 @@ export interface EditorialDepartmentView {
       responsibility: string;
       capabilities: string[];
       presence: 'ready' | 'working' | 'leave' | 'candidate' | 'unbound';
+      /** 仅开书设计名单携带：服务端合同判定的默认成员（红玉），与显示顺序独立。 */
+      defaultForRole?: boolean;
       statusText: string;
       currentWork: string | null;
       completedCount: number;
@@ -212,6 +214,8 @@ export interface BookProfile {
   title: string;
   channel: '男频' | '女频';
   category: string;
+  /** 作品类型回读；旧书或无快照时缺省，按长篇处理。 */
+  workType?: import('@wenmi/agent-catalog').CreativeWorkType;
   subjects: string[];
   mainTags: string[];
   customTags?: string[];
