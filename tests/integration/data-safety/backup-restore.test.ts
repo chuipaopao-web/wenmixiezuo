@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BookLifecycleService } from '../../../apps/api/src/application/books/book-lifecycle-service.js';
 import { BackupService } from '../../../apps/api/src/infrastructure/recovery/backup-service.js';
-import { requiredPermanentDeleteText } from '../../../apps/api/src/domain/permanent-delete.js';
+import { requiredPermanentDeleteSecondText, requiredPermanentDeleteText } from '../../../apps/api/src/domain/permanent-delete.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
 import { initializeV7Book } from '../../helpers/v7-book-fixture.js';
 
@@ -59,7 +59,13 @@ describe('一致性备份与临时恢复验证', () => {
     const backups = new BackupService(context.database, context.config);
     const created = backups.create();
     lifecycle.archive(scope, 1);
-    lifecycle.permanentlyDelete(scope, requiredPermanentDeleteText('甲书', scope.bookId));
+    const preview = lifecycle.deletePreview(scope);
+    lifecycle.permanentlyDelete(scope, {
+      expectedVersion: preview.book.version,
+      confirmationText: requiredPermanentDeleteText('甲书', scope.bookId),
+      secondConfirmationText: requiredPermanentDeleteSecondText(),
+      previewId: preview.previewId
+    });
     expect(() => backups.verify(created.backupId)).toThrow('墓碑禁止备份复活');
   });
 

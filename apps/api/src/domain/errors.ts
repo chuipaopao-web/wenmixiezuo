@@ -35,6 +35,8 @@ export const errorCodes = {
   operationIncomplete: 'OPERATION_INCOMPLETE',
   planningTreeVersionConflict: 'PLANNING_TREE_VERSION_CONFLICT',
   permanentDeleteConfirmationInvalid: 'PERMANENT_DELETE_CONFIRMATION_INVALID',
+  permanentDeletePreviewStale: 'PERMANENT_DELETE_PREVIEW_STALE',
+  bookHasActiveWork: 'BOOK_HAS_ACTIVE_WORK',
   settingQualityAuditRequired: 'SETTING_QUALITY_AUDIT_REQUIRED',
   settingQualityIssuesUnacknowledged: 'SETTING_QUALITY_ISSUES_UNACKNOWLEDGED',
   taskAlreadyRunning: 'TASK_ALREADY_RUNNING',

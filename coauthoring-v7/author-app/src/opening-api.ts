@@ -578,6 +578,48 @@ export function restoreBook(bookId: string, expectedVersion: number): Promise<Bo
   });
 }
 
+/** 归档书永久删除的影响预览：计数全部来自服务端实时统计，前端只做展示。 */
+export interface BookDeletePreview {
+  book: { bookId: string; title: string; version: number; status: string };
+  /** false 表示仍有在途任务/调用，服务端会同样拒绝删除。 */
+  canDelete: boolean;
+  activeWork: Array<{ table: string; count: number; reason: 'active_state' | 'live_lease' }>;
+  impact: {
+    relatedRows: number;
+    taskCount: number;
+    timeMachineRows: number;
+    fileCount: number;
+    fileBytes: number;
+    /** 删除后仍保留在账务归档中的用量结算记录数。 */
+    usageRecordsPreserved: number;
+  };
+  /** 与本次确认绑定的预览指纹；预览后数据变化会导致提交被拒绝，需要重新预览。 */
+  previewId: string;
+  generatedAt: string;
+}
+
+export interface PermanentDeleteResult {
+  deleted: true;
+  alreadyDeleted: boolean;
+  filesRemoved: number;
+  filesFailed: string[];
+}
+
+export function fetchBookDeletePreview(bookId: string): Promise<BookDeletePreview> {
+  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/delete-preview`);
+}
+
+export function permanentlyDeleteBook(bookId: string, input: {
+  expectedVersion: number;
+  confirmationText: string;
+  secondConfirmationText: string;
+  previewId: string;
+}): Promise<PermanentDeleteResult> {
+  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/permanent-delete`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
 export function submitAuthorFeedback(input: {
   category: 'bug' | 'experience' | 'suggestion' | 'other';
   message: string;

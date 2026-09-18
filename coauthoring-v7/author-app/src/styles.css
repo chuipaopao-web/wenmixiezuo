@@ -453,6 +453,19 @@ img.product-logo { object-fit: cover; flex-shrink: 0; background: #ffe3a1; }
 .archived-book-list strong { color: var(--ink-soft); font-size: 10px; }
 .archived-book-list small { color: var(--ink-faint); font-size: 9px; }
 .archived-book-list button { min-height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; color: var(--accent); background: var(--panel-raised); cursor: pointer; font-size: 10px; font-weight: 720; }
+.archived-book-actions { display: flex; gap: 6px; }
+.archived-book-list button.danger { color: #a63d40; }
+.book-delete-confirm { grid-column: 1 / -1; display: grid; gap: 8px; border: 1px solid color-mix(in srgb, #a63d40 32%, var(--line)); border-radius: 11px; padding: 10px; color: var(--ink-soft); background: color-mix(in srgb, #fdf1ef 72%, var(--panel-raised)); font-size: 10px; line-height: 1.6; }
+.book-delete-confirm strong { color: #a63d40; font-size: 10px; }
+.book-delete-confirm ul { display: grid; gap: 4px; margin: 0; padding-left: 16px; }
+.book-delete-confirm p { display: grid; gap: 6px; margin: 0; color: #a63d40; }
+.book-delete-confirm label { display: grid; gap: 4px; color: var(--ink-faint); }
+.book-delete-confirm input { min-height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; color: var(--ink); background: var(--panel-raised); font-size: 12px; }
+.book-delete-confirm input:focus { outline: 2px solid color-mix(in srgb, #a63d40 45%, transparent); outline-offset: 1px; }
+.book-delete-confirm > div { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.book-delete-confirm button { min-height: 38px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-raised); cursor: pointer; font-size: 10px; font-weight: 720; }
+.book-delete-confirm button.danger { border-color: color-mix(in srgb, #a63d40 45%, var(--line)); color: #fff; background: #a63d40; }
+.book-delete-confirm button.danger:disabled { border-color: var(--line); color: var(--ink-faint); background: var(--panel-muted); cursor: not-allowed; }
 .empty-book-list { flex: 1; display: grid; place-content: center; justify-items: center; gap: 8px; padding: 10px; color: var(--ink-faint); text-align: center; font-size: 11px; line-height: 1.5; }
 .empty-book-list svg { width: 24px; height: 24px; opacity: .72; }
 .book-list { min-height: 0; display: grid; grid-template-columns: 84px; grid-auto-rows: max-content; align-content: start; justify-content: center; gap: 14px; overflow-y: auto; padding: 3px 5px 12px; scrollbar-width: thin; }

@@ -358,7 +358,7 @@ describe('V7 author opening flow', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('在当前页面归档并恢复书籍，保留内容且不提供永久删除入口', async () => {
+  it('在当前页面归档并恢复书籍，保留内容', async () => {
     window.history.replaceState({}, '', '/?view=account&bookId=book-active');
     let activeStatus: 'active' | 'archived' = 'active';
     let oldStatus: 'active' | 'archived' = 'archived';
@@ -386,7 +386,6 @@ describe('V7 author opening flow', () => {
     await screen.findByRole('heading', { name: '老板好啊！' });
     shelf = openBookShelf();
     expect(await within(shelf).findByText('已归档 · 2')).toBeVisible();
-    expect(screen.queryByText('永久删除')).not.toBeInTheDocument();
 
     fireEvent.click(within(shelf).getByText('已归档 · 2'));
     const oldBookCard = screen.getByText('暂时收起的书').closest('article');
@@ -396,6 +395,98 @@ describe('V7 author opening flow', () => {
       && JSON.parse(String(init?.body)).expectedVersion === 1)).toBe(true);
     expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith('/api/v1/v7/books/book-old/restore')
       && JSON.parse(String(init?.body)).expectedVersion === 3)).toBe(true);
+  });
+
+  it('归档书籍永久删除：展示真实影响预览，双确认词齐备才能提交', async () => {
+    let deleted = false;
+    const fetchMock = installFetch((url, init) => {
+      if (url.endsWith('/api/v1/v7/books')) return response(deleted ? [] : [
+        { bookId: 'book-old', title: '暂时收起的书', status: 'archived', version: 3, updatedAt: '2026-08-29T00:00:00Z' }
+      ]);
+      if (url.endsWith('/api/v1/v7/books/book-old/delete-preview')) return response({
+        book: { bookId: 'book-old', title: '暂时收起的书', version: 3, status: 'archived' },
+        canDelete: true,
+        activeWork: [],
+        impact: { relatedRows: 12, taskCount: 2, timeMachineRows: 5, fileCount: 1, fileBytes: 2048, usageRecordsPreserved: 3 },
+        previewId: 'preview-1',
+        generatedAt: '2026-08-30T00:00:00Z'
+      });
+      if (url.endsWith('/api/v1/v7/books/book-old/permanent-delete') && init?.method === 'POST') {
+        deleted = true;
+        return response({ deleted: true, alreadyDeleted: false, filesRemoved: 1, filesFailed: [] });
+      }
+      return null;
+    });
+    render(<AuthorApp />);
+
+    const shelf = openBookShelf();
+    fireEvent.click(await within(shelf).findByText('已归档 · 1'));
+    const card = (await within(shelf).findByText('暂时收起的书')).closest('article')!;
+    fireEvent.click(within(card).getByRole('button', { name: '删除' }));
+
+    expect(await within(card).findByText(/关联任务 2 项/)).toBeVisible();
+    expect(within(card).getByText(/时光机数据 5 行/)).toBeVisible();
+    expect(within(card).getByText(/用量结算记录 3 条/)).toBeVisible();
+    expect(within(card).getByText(/无法恢复/)).toBeVisible();
+
+    const confirmButton = within(card).getByRole('button', { name: '永久删除' });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.change(within(card).getByPlaceholderText('YES'), { target: { value: 'YES' } });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.change(within(card).getByPlaceholderText('确认删除书籍'), { target: { value: '确认删除书籍' } });
+    expect(confirmButton).toBeEnabled();
+
+    fireEvent.click(confirmButton);
+    await waitFor(() => expect(screen.queryByText('已归档 · 1')).not.toBeInTheDocument());
+    expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith('/api/v1/v7/books/book-old/permanent-delete')
+      && JSON.parse(String(init?.body)).previewId === 'preview-1'
+      && JSON.parse(String(init?.body)).expectedVersion === 3
+      && JSON.parse(String(init?.body)).confirmationText === 'YES'
+      && JSON.parse(String(init?.body)).secondConfirmationText === '确认删除书籍')).toBe(true);
+  });
+
+  it('归档书籍有在途工作时禁用删除并说明原因，失败时保留面板', async () => {
+    let canDelete = false;
+    installFetch((url, init) => {
+      if (url.endsWith('/api/v1/v7/books')) return response([
+        { bookId: 'book-busy', title: '忙碌的书', status: 'archived', version: 2, updatedAt: '2026-08-29T00:00:00Z' }
+      ]);
+      if (url.endsWith('/api/v1/v7/books/book-busy/delete-preview')) return response({
+        book: { bookId: 'book-busy', title: '忙碌的书', version: 2, status: 'archived' },
+        canDelete,
+        activeWork: canDelete ? [] : [{ table: 'tasks', count: 1, reason: 'active_state' }],
+        impact: { relatedRows: 4, taskCount: 1, timeMachineRows: 2, fileCount: 0, fileBytes: 0, usageRecordsPreserved: 0 },
+        previewId: 'preview-busy',
+        generatedAt: '2026-08-30T00:00:00Z'
+      });
+      if (url.endsWith('/api/v1/v7/books/book-busy/permanent-delete') && init?.method === 'POST') {
+        return { ok: false, status: 409, json: async () => ({ error: { message: '这本书仍有进行中的任务，暂时不能永久删除' } }) } as Response;
+      }
+      return null;
+    });
+    render(<AuthorApp />);
+
+    const shelf = openBookShelf();
+    fireEvent.click(await within(shelf).findByText('已归档 · 1'));
+    const card = (await within(shelf).findByText('忙碌的书')).closest('article')!;
+    fireEvent.click(within(card).getByRole('button', { name: '删除' }));
+
+    expect(await within(card).findByText(/这本书还有正在进行的工作/)).toBeVisible();
+    expect(within(card).getByText(/tasks × 1/)).toBeVisible();
+    expect(within(card).getByPlaceholderText('YES')).toBeDisabled();
+    expect(within(card).getByRole('button', { name: '永久删除' })).toBeDisabled();
+
+    // 在途结束后重新统计可删除，但服务端拒绝时保留面板并展示真实原因
+    canDelete = true;
+    fireEvent.click(within(card).getByRole('button', { name: '取消' }));
+    fireEvent.click(within(card).getByRole('button', { name: '删除' }));
+    await within(card).findByText(/关联任务 1 项/);
+    fireEvent.change(within(card).getByPlaceholderText('YES'), { target: { value: 'YES' } });
+    fireEvent.change(within(card).getByPlaceholderText('确认删除书籍'), { target: { value: '确认删除书籍' } });
+    fireEvent.click(within(card).getByRole('button', { name: '永久删除' }));
+    expect(await within(card).findByText(/这本书仍有进行中的任务/)).toBeVisible();
+    expect(within(card).getByRole('button', { name: '永久删除' })).toBeInTheDocument();
+    expect(screen.queryByText('已归档 · 1')).toBeInTheDocument();
   });
 
   it('keeps the selected book scope on a failed shelf request and retries in place', async () => {

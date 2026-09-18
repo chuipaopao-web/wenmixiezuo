@@ -318,6 +318,34 @@ export async function registerV7OpeningAgentRoutes(
     }
   );
 
+  // 归档书永久删除：先取真实影响预览（含在途门禁与账务保留计数），
+  // 再凭版本+预览指纹+YES/二次确认提交；服务端不信任前端计数。
+  app.get<{ Params: { bookId: string } }>(
+    '/api/v1/v7/books/:bookId/delete-preview', async (request) => {
+      const scope = { ...requireAuthenticatedOwner(request), bookId: request.params.bookId };
+      return success(lifecycle.deletePreview(scope), request.id);
+    }
+  );
+
+  app.post<{
+    Params: { bookId: string };
+    Body: {
+      expectedVersion?: unknown;
+      confirmationText?: unknown;
+      secondConfirmationText?: unknown;
+      previewId?: unknown;
+    };
+  }>('/api/v1/v7/books/:bookId/permanent-delete', async (request) => {
+    const scope = { ...requireAuthenticatedOwner(request), bookId: request.params.bookId };
+    const body = request.body ?? {};
+    return success(lifecycle.permanentlyDelete(scope, {
+      expectedVersion: Number(body.expectedVersion),
+      confirmationText: typeof body.confirmationText === 'string' ? body.confirmationText : '',
+      secondConfirmationText: typeof body.secondConfirmationText === 'string' ? body.secondConfirmationText : '',
+      previewId: typeof body.previewId === 'string' ? body.previewId : ''
+    }), request.id);
+  });
+
   app.post<{ Params: { bookId: string }; Body: { idempotencyKey?: unknown; platformStyle?: unknown; titleFlavor?: unknown; authorDirection?: unknown } }>('/api/v1/v7/books/:bookId/title-designs', async (request) => {
     const owner = requireAuthenticatedOwner(request);
     books.requireVisible(owner.ownerId, request.params.bookId);

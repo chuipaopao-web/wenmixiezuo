@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArchiveBoxIcon,
   BookOpenTextIcon,
@@ -36,6 +36,7 @@ import {
   type SettingRecoveryFocus
 } from './navigation';
 import { archiveBook, fetchBooks, restoreBook, type BookRecord } from './opening-api';
+import { ArchivedBookDeletePanel } from './ArchivedBookDeletePanel';
 import { bookCoverTitle, bookCoverTone, bookStatusLabel } from './book-shelf-presentation';
 import { AuthorAccountCenter, useAuthorAccount } from './AuthorAccountBoundary';
 import { clearOpeningDraft } from './opening-draft-storage';
@@ -177,6 +178,7 @@ export function AuthorApp(): React.JSX.Element {
   const [leftOpen, setLeftOpen] = useState(false);
   const leftToggleRef = useRef<HTMLButtonElement>(null);
   const [archiveConfirmation, setArchiveConfirmation] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [lifecycleBusy, setLifecycleBusy] = useState<string | null>(null);
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
   const [openingAccountReturn, setOpeningAccountReturn] = useState<OpeningAccountReturn | null>(() => openingAccountReturnFromSearch(window.location.search));
@@ -462,7 +464,21 @@ export function AuthorApp(): React.JSX.Element {
               </button>;
             })}</div>}
           {selectedBook !== null && <div className="book-archive-action">{archiveConfirmation === selectedBook.bookId ? <div className="book-inline-confirm"><span>归档后可以随时恢复，正文和资料都会保留。</span><div><button type="button" disabled={lifecycleBusy !== null} onClick={() => void archiveSelectedBook()}>{lifecycleBusy === selectedBook.bookId ? '正在归档…' : '确认归档'}</button><button type="button" disabled={lifecycleBusy !== null} onClick={() => setArchiveConfirmation(null)}>取消</button></div></div> : <button type="button" onClick={() => setArchiveConfirmation(selectedBook.bookId)}><ArchiveBoxIcon />归档当前书籍</button>}</div>}
-          {archivedBooks.length > 0 && <details className="archived-book-list"><summary>已归档 · {archivedBooks.length}</summary><div>{archivedBooks.map((book) => <article key={book.bookId}><span><strong>{book.title}</strong><small>内容完整保留</small></span><button type="button" disabled={lifecycleBusy !== null} onClick={() => void restoreArchivedBook(book)}>{lifecycleBusy === book.bookId ? '正在恢复…' : '恢复'}</button></article>)}</div></details>}
+          {archivedBooks.length > 0 && <details className="archived-book-list"><summary>已归档 · {archivedBooks.length}</summary><div>{archivedBooks.map((book) => <article key={book.bookId}>
+            {deleteTarget === book.bookId
+              ? <ArchivedBookDeletePanel
+                  book={book}
+                  onDeleted={() => { setDeleteTarget(null); setBookShelfRequest((current) => current + 1); }}
+                  onCancel={() => setDeleteTarget(null)}
+                />
+              : <>
+                  <span><strong>{book.title}</strong><small>内容完整保留</small></span>
+                  <div className="archived-book-actions">
+                    <button type="button" disabled={lifecycleBusy !== null} onClick={() => void restoreArchivedBook(book)}>{lifecycleBusy === book.bookId ? '正在恢复…' : '恢复'}</button>
+                    <button type="button" className="danger" disabled={lifecycleBusy !== null} onClick={() => setDeleteTarget(book.bookId)}>删除</button>
+                  </div>
+                </>}
+          </article>)}</div></details>}
           {bookShelfStatus === 'loading' && books.length > 0 && <p className="book-list-refreshing" role="status">正在更新书架…</p>}
           {bookShelfStatus === 'error' && <div className="book-list-error" role="alert"><span>抱歉，书架暂时没有加载出来。</span><button type="button" onClick={() => setBookShelfRequest((current) => current + 1)}>重新加载</button></div>}
           {lifecycleError !== null && <div className="book-list-error" role="alert"><span>{lifecycleError}</span><button type="button" onClick={() => setLifecycleError(null)}>知道了</button></div>}
