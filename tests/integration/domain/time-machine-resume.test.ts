@@ -508,6 +508,53 @@ describe('锚点截断单卷降级（067bbc24收尾决定）', () => {
     expect(service.state(scope).find(r => r.id === created[0]!.id)?.state).toBe('succeeded');
   });
 
+  it('Codex反例：第二轮候选落库后自检失败，恢复同轮应续审而非被误判第三轮', async () => {
+    const { c, scope } = setup();
+    const calls: string[] = [];
+    let firstAnchorsDone = false;
+    let failSecondCheck = false;
+    const adapter = (provider: string, modelId: string) => ({ provider, modelId,
+      async generate(request: { prompt: string }) {
+        calls.push(request.prompt);
+        if (failSecondCheck && request.prompt.includes('自检你刚完成')) {
+          throw new ModelAdapterError('第二轮候选保存后模拟中断', 'technical_failure', false, 500);
+        }
+        if (!firstAnchorsDone && request.prompt.includes('核对候选锚点')) {
+          firstAnchorsDone = true;
+          return ok(provider, modelId, { pass: false, issues: ['卷2收束fallback与必填目标冲突'], suggestions: [], hasMoreIssues: false });
+        }
+        return ok(provider, modelId, threeVolumeOutput(request.prompt, modelId, 'clean'));
+      }
+    });
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, adapter), 64000);
+    const created = await round(service, scope, 'codex-rev2-resume');
+    const runId = created[0]!.id;
+    await service.process(runId);
+    const issues = [{ issue: '卷3收束锚点条件与全书结局矛盾', sources: ['adjudication'] }];
+    failSecondCheck = true;
+    await expect(service.reviseAgain(scope, runId, issues)).rejects.toThrow();
+    const repo = new SqlPlanRepository(c.database);
+    expect(repo.readCandidate(scope, runId, 3)).not.toBeNull();
+    failSecondCheck = false;
+    new TimeMachineResumeService(c.database).prepare(scope, runId);
+    calls.length = 0;
+    const restored = await service.reviseAgain(scope, runId, issues) as { revision: number; review: { pass: boolean } };
+    expect(restored.revision).toBe(3);
+    expect(restored.review.pass).toBe(true);
+    expect(calls.filter(p => p.includes('修订本卷卷卡'))).toHaveLength(0);
+    expect(repo.readCandidate(scope, runId, 4)).toBeNull();
+    // 完成后相同请求幂等返回既有结果：零新增dispatch、不产生revision4
+    calls.length = 0;
+    const replayed = await service.reviseAgain(scope, runId, issues) as { revision: number; review: { pass: boolean } };
+    expect(replayed.revision).toBe(3);
+    expect(replayed.review.pass).toBe(true);
+    expect(calls.length).toBe(0);
+    expect(repo.readCandidate(scope, runId, 4)).toBeNull();
+    // 变更核定输入不得冒充同轮恢复（按新增第三轮拒绝）；真正新增第三轮仍拒绝
+    await expect(service.reviseAgain(scope, runId, [{ issue: '卷2另有新核定问题', sources: ['adjudication'] }])).rejects.toThrow('最多2次');
+    expect(repo.readCandidate(scope, runId, 4)).toBeNull();
+  });
+
   it('核定驱动的第二轮局部修订：只修核定问题涉及卷、产出候选revision3、旧版本保留、第三轮被拒', async () => {
     const { c, scope } = setup();
     const calls: string[] = [];

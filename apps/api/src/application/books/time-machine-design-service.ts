@@ -642,25 +642,58 @@ export class TimeMachineDesignService {
   this.plans.review(scope,run.id,revision,reviewerMember.memberKey,review.pass?'pass':'revise');
   return {candidateId:run.id,revision,member:{id:writer.memberKey,name:writer.displayName},plan:newCandidate.plan,review,selfCheck};
  }
- /** bcf19a6a收尾核定：核定后的第二次定向修订（自动上限最多2次）。只接受核定确认的硬矛盾清单（带来源），
-  *  复用最新候选与既有步骤缓存；产物为新增候选revision 3。仍有真实矛盾则保留候选待修订，不开第三轮。 */
+ /** bcf19a6a/915a3a79：核定驱动的第二轮定向修订（自动上限最多2次）。
+  *  区分三种请求：创建第二轮（冻结baseRevision=2/目标3/核定输入hash）、恢复同一第二轮
+  * （相同冻结输入：已成功修订零重发、不生成revision4、完成后幂等返回）、第三轮/变更核定输入（拒绝）。
+  *  恢复必须使用冻结起稿与冻结输入，不拿最新revision再次当起稿；活动写者租约与owner/book边界同既有恢复。 */
  async reviseAgain(scope:Scope,runId:string,adjudicated:{issue:string;sources:string[]}[]):Promise<unknown>{
   if(!/^[\w.:-]{1,160}$/u.test(runId))throw new Error('runId参数错误');
   if(!Array.isArray(adjudicated)||!adjudicated.length||adjudicated.some(x=>typeof x?.issue!=='string'||!x.issue.trim()||x.issue.length>2000||!Array.isArray(x.sources)||x.sources.some(s=>typeof s!=='string')))throw new Error('核定问题清单格式错误');
   const row=this.db.prepare('SELECT * FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND id=?').get(scope.ownerId,scope.bookId,runId) as Record<string,unknown>|undefined;
   if(!row)throw Error('run不存在');
   const run=row as unknown as Run;
-  const snapshot=JSON.parse(String(row.snapshot_json)) as TimeMachineSnapshot;
-  const card=await this.makeCard(run,scope,snapshot);
-  const latest=this.db.prepare('SELECT MAX(revision) AS m FROM tm2_candidates WHERE owner=? AND book=? AND id=?').get(scope.ownerId,scope.bookId,runId) as {m:number|null};
-  const currentRevision=latest.m??0;
-  if(currentRevision<2)throw Error('尚无第一轮修订候选，不能进入第二轮');
-  if(currentRevision>=3)throw Error('自动修订最多2次：已有第二轮候选，不再开第三轮');
-  const candidate=this.plans.readCandidate(scope,runId,currentRevision);
-  if(!candidate)throw Error('最新候选不存在');
-  const result=await this.localRevision(run,scope,snapshot,card,adjudicated,candidate,currentRevision); // round=当前revision→新候选revision+1
-  this.db.prepare("UPDATE tm2_design_runs SET state='succeeded',result_json=?,error_code=NULL,error_message=NULL,updated_at=? WHERE id=?").run(JSON.stringify(result),new Date().toISOString(),runId);
-  return result;
+  // 活动写者保护（不绕过既有恢复边界）：本run存在未过期running租约时不在其下恢复
+  const activeLease=this.db.prepare("SELECT 1 AS x FROM tm2_steps WHERE owner=? AND book=? AND id LIKE ? AND state='running' AND COALESCE(lease_until,0)>? LIMIT 1")
+   .get(scope.ownerId,scope.bookId,`${runId}:%`,Date.now());
+  if(activeLease)throw Error('本run存在活动写者租约，不能创建或恢复第二轮');
+  const inputHash=digest(adjudicated);
+  const sessionId=`${runId}:revise-again:2`;
+  const sessionRow=this.db.prepare("SELECT body FROM tm2_outbox WHERE owner=? AND book=? AND id=? AND kind='design.revise-again'").get(scope.ownerId,scope.bookId,sessionId) as {body:string}|undefined;
+  const latest=(this.db.prepare('SELECT MAX(revision) AS m FROM tm2_candidates WHERE owner=? AND book=? AND id=?').get(scope.ownerId,scope.bookId,runId) as {m:number|null}).m??0;
+  const execute=async(adjudicatedIn:{issue:string;sources:string[]}[],base:Candidate,round:number):Promise<unknown>=>{
+   try{
+    const result=await this.localRevision(run,scope,snapshot0(run),card0,adjudicatedIn,base,round);
+    this.db.prepare("UPDATE tm2_design_runs SET state='succeeded',result_json=?,error_code=NULL,error_message=NULL,updated_at=? WHERE id=?").run(JSON.stringify(result),new Date().toISOString(),runId);
+    return result;
+   }catch(error){
+    const code=error instanceof TimeMachineCallError?error.kind:'needs_review';
+    this.db.prepare("UPDATE tm2_design_runs SET state='failed',error_code=?,error_message=?,updated_at=? WHERE id=?").run(code,error instanceof TimeMachineCallError?`${error.kind}/${error.diagnosticCode??'local'}`:error instanceof Error?`${error.name}: ${error.message}`.slice(0,300):'unknown',new Date().toISOString(),runId);
+    throw error;
+   }
+  };
+  const snapshot0=(r:Run):TimeMachineSnapshot=>JSON.parse(String(r.snapshot_json)) as TimeMachineSnapshot;
+  const snapshot=snapshot0(run);
+  const card0=await this.makeCard(run,scope,snapshot);
+  if(sessionRow){
+   const session=JSON.parse(sessionRow.body) as {baseRevision:number;targetRevision:number;inputHash:string};
+   if(session.inputHash!==inputHash)throw Error('自动修订最多2次：核定输入与本轮已冻结输入不一致，新增第三轮拒绝');
+   // 完成后相同请求幂等返回既有结果（零dispatch、不产生revision4）
+   const doneResult=row.result_json?record(JSON.parse(String(row.result_json))):null;
+   if(doneResult&&Number(doneResult.revision)===session.targetRevision&&String(row.state)==='succeeded')return JSON.parse(String(row.result_json));
+   // 恢复同一第二轮：冻结起稿+冻结输入；localRevision内修订步骤缓存重放、已保存候选一致续用
+   const base=this.plans.readCandidate(scope,runId,session.baseRevision);
+   if(!base)throw Error('冻结起稿候选不存在');
+   return execute(adjudicated,base,session.baseRevision);
+  }
+  // 创建第二轮：当前必须恰有第一轮修订产物（revision 2）；已有更后候选且无会话=第三轮，拒绝
+  if(latest<2)throw Error('尚无第一轮修订候选，不能进入第二轮');
+  if(latest>=3)throw Error('自动修订最多2次：已有后续修订候选，新增第三轮拒绝');
+  const base=this.plans.readCandidate(scope,runId,2);
+  if(!base)throw Error('第一轮修订候选不存在');
+  // 先冻结会话（baseRevision/目标/输入hash）：中断恢复凭此认定同一第二轮；变更输入不得冒充同轮恢复
+  this.db.prepare("INSERT INTO tm2_outbox(owner,book,id,kind,body) VALUES(?,?,?,'design.revise-again',?)")
+   .run(scope.ownerId,scope.bookId,sessionId,JSON.stringify({baseRevision:2,targetRevision:3,inputHash,createdAt:new Date().toISOString()}));
+  return execute(adjudicated,base,2);
  }
  private async design(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,card:ContextCard,revisionRound=0,feedback?:{issues:unknown;plan:unknown}):Promise<unknown>{
   const writer=snapshot.members.writer;
