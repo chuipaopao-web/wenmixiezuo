@@ -18,20 +18,17 @@ import { loadModelRuntimeConfig } from '../../apps/api/src/infrastructure/models
 import { readReleaseId } from '../../apps/api/src/infrastructure/project-root.js';
 import type { RuntimeConfig } from '../../apps/api/src/infrastructure/runtime-config.js';
 import { TimeMachineDesignService } from '../../apps/api/src/application/books/time-machine-design-service.js';
+import { computeRunSpend } from '../../apps/api/src/application/books/time-machine-run-spend.js';
 import { TimeMachineModelGateway } from '../../apps/api/src/infrastructure/models/time-machine-model-gateway.js';
 import { ModelAdapterFactory } from '../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import { ParentBudgetGuard, ParentBudgetExhausted } from './parent-budget-guard.js';
+import { FINAL_ADJUDICATION } from './final-adjudication.js';
 
 const RUN_ID = 'c116818b-028d-4438-9bc6-2e4474155aaa';
 const BATCH = 's1-fast-close-final-revision';
 const STATE_FILE = '.local/eval/final-revision-state.json';
 const EVAL_DB = '.local/eval/node-model-eval.sqlite';
 const WINDOW = { requests: 16, tokens: 1_000_000, wallClockMs: 120 * 60_000 }; // 915a3a79：16请求/100万tokens/120分钟
-// 冻结核定（915a3a79范围收窄）：仅A1交接冲突必须澄清；A3/A6为建议不升级、A5仅A1因果必需时澄清、不重写v2
-const FINAL_ADJUDICATION = [{
-  issue: 'A1核定硬矛盾：v3:exit称"甲内连坐漏洞已修补，追责规则可执行"，v4:entry却称"连坐漏洞仍留隐患"——同一漏洞同一时间两条件不可同真；按正式来源澄清为v3暂堵/暴露而v4危机中修复（或不同漏洞/压力下新缺陷），成对核对交接，不与本卷转折相矛盾',
-  sources: ['adjudication', 'self-check-anchors:revision-1#1', 'review-anchors:2#1']
-}];
 const now = (): string => new Date().toISOString();
 
 interface RunState { notes: { at: string; text: string }[]; adoptedCandidateId?: string; adoptedRevision?: number }
@@ -67,8 +64,13 @@ async function main(): Promise<void> {
   const run = db.prepare('SELECT id, owner_id, book_id, state, phase FROM tm2_design_runs WHERE id=?').get(RUN_ID) as { owner_id: string; book_id: string; state: string; phase: string } | undefined;
   if (!run) throw new Error(`run ${RUN_ID} 不存在`);
   const scope = { ownerId: run.owner_id, bookId: run.book_id };
-  const prefix = `${RUN_ID}:`;
-  const spent = db.prepare(`SELECT COUNT(*) AS calls,COALESCE(SUM(CASE WHEN c.input_tokens IS NOT NULL AND c.output_tokens IS NOT NULL THEN c.input_tokens+c.output_tokens WHEN c.state IN ('working','unknown') THEN c.reserved_tokens ELSE 0 END),0) AS tokens FROM tm2_model_calls c JOIN tm2_attempts a ON a.id=c.id WHERE c.owner_id=? AND c.book_id=? AND substr(a.step,1,?)=?`).get(scope.ownerId, scope.bookId, prefix.length, prefix) as { calls: number; tokens: number };
+  const spendNow = computeRunSpend(db, scope, RUN_ID);
+  if (spendNow.gaps.length) {
+    note(`run预算统计缺口（fail closed）：${spendNow.gaps.join('；')}`);
+    db.close(); evalDb.close();
+    return;
+  }
+  const spent = { calls: spendNow.calls, tokens: spendNow.tokens };
   if (spent.calls >= 120 || spent.tokens + 64000 > 520000) {
     note(`run内预算无余量：calls=${spent.calls} tokens=${spent.tokens}（上限120/520000-64000）——停止，不发起新dispatch`);
     db.close(); evalDb.close();

@@ -214,7 +214,7 @@ describe('审查证据链（集中复核③）', () => {
     expect(readsInPrompt.some(r => r.key === 'opening:opening:1' && r.text.length > 0)).toBe(true);
   });
 
-  it('多轮补查后存根保留offset/length/hash坐标（证据可回查）', async () => {
+  it('多轮补查后finalize完整证据全文送达（不压存根），轨迹坐标逐项落库可回查', async () => {
     const { c, scope } = setup();
     const calls: { prompt: string }[] = [];
     const reads = { current: 3 };
@@ -222,13 +222,15 @@ describe('审查证据链（集中复核③）', () => {
     const created = await round(service, scope, 'evidence-r3');
     await service.process(created[0]!.id);
     const reviewPrompts = calls.filter(x => x.prompt.includes('核对候选骨架')).map(x => x.prompt);
-    const last = reviewPrompts[reviewPrompts.length - 1]!;
-    // 有界后更早片段转存根，存根带offset/length/hash
-    const stubs = [...last.matchAll(/（已回查存根：offset=\d+ 长度\d+ hash=[0-9a-f]{12}/gu)];
-    expect(stubs.length).toBeGreaterThanOrEqual(1);
-    // 轨迹全部持久化（即使提示中已转存根）
+    // d8407c59：不得一边把早期来源压成60字存根一边要求完整结论——finalize携带全部已读片段全文
+    const finalizePrompt = reviewPrompts.find(p => p.includes('工具预算已用尽'))!;
+    expect(finalizePrompt).toContain('已读片段（完整证据全文）');
+    expect(finalizePrompt).not.toContain('（已回查存根');
+    // 轨迹全部持久化：offset/length/hash坐标可回查（即使提示中不再转存根）
     const rows = c.database.prepare('SELECT COUNT(*) AS n FROM tm2_review_reads WHERE run_id=?').get(created[0]!.id) as { n: number };
     expect(rows.n).toBe(3);
+    const coords = c.database.prepare('SELECT source_key, offset, length, content_hash FROM tm2_review_reads WHERE run_id=? ORDER BY node, seq').all(created[0]!.id) as { source_key: string; offset: number; length: number; content_hash: string }[];
+    for (const r of coords) { expect(Number.isSafeInteger(r.offset)).toBe(true); expect(Number.isSafeInteger(r.length)).toBe(true); expect(r.content_hash).toMatch(/^[0-9a-f]{12}$/u); }
   });
 });
 
@@ -506,6 +508,53 @@ describe('锚点截断单卷降级（067bbc24收尾决定）', () => {
     expect(calls.filter(p => p.includes('核对候选锚点') && p.includes('"id":"v3"')).length).toBe(1); // [v3]首次真实到达
     expect(calls.filter(p => p.includes('核对候选锚点') && p.includes('"id":"v2"')).length).toBe(1); // [v1,v2]失败批次恰好重试一次
     expect(service.state(scope).find(r => r.id === created[0]!.id)?.state).toBe('succeeded');
+  });
+
+  it('审查请求能取得卷卡约束/行动/代价字段（缩略投影缺失不得当作品缺陷）', async () => {
+    const { c, scope } = setup();
+    const calls: string[] = [];
+    const adapter = baseAdapter(calls, () => ({ action: 'verdict', pass: true, issues: [], suggestions: [], hasMoreIssues: false }));
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, adapter), 64000);
+    const created = await round(service, scope, 'evd-r1');
+    await service.process(created[0]!.id);
+    const reviewPrompt = calls.find(p => p.includes('核对候选骨架'))!;
+    // 审查专用投影必须带回被判断的因果/限制字段名与实际值（volumeOf：封锁/关键转折事件/伙伴）
+    for (const field of ['"conflict"', '"turningPoint"', '"gain"', '"loss"', '"start"', '"goal"']) expect(reviewPrompt).toContain(field);
+    expect(reviewPrompt).toContain('封锁');
+    expect(reviewPrompt).toContain('关键转折事件');
+    expect(reviewPrompt).toContain('伙伴');
+    expect(service.state(scope).find(r => r.id === created[0]!.id)?.state).toBe('succeeded');
+  });
+
+  it('候选确实凭空破围仍可报错：完整因果字段送达后审查能作出有证据判断', async () => {
+    const { c, scope } = setup();
+    const calls: string[] = [];
+    const adapter = (provider: string, modelId: string) => ({
+      provider, modelId,
+      async generate(request: { prompt: string }) {
+        calls.push(request.prompt);
+        // v3卷卡写入"商路粮道打通"（凭空破围、无任何受限表述）：完整投影必须把该事实送达审查
+        if (request.prompt.includes('补全本卷卷卡') && request.prompt.match(/本卷概要：\{[^}]*"id":"v3"/u)) {
+          const v = volumeOf('v3', true) as Record<string, unknown>;
+          v.turningPoint = '商路粮道打通';
+          return ok(provider, modelId, { volumes: [v] });
+        }
+        if (request.prompt.includes('核对候选骨架')) {
+          if (request.prompt.includes('商路粮道打通') && !request.prompt.includes('人手不足')) {
+            return ok(provider, modelId, { action: 'verdict', pass: false, issues: ['卷3凭空破围与来源围城约束冲突'], suggestions: [], hasMoreIssues: false });
+          }
+          return ok(provider, modelId, { action: 'verdict', pass: true, issues: [], suggestions: [], hasMoreIssues: false });
+        }
+        return ok(provider, modelId, threeVolumeOutput(request.prompt, modelId, 'clean'));
+      }
+    });
+    const service = new TimeMachineDesignService(c.database, new TimeMachineModelGateway(c.database, adapter), 64000);
+    const created = await round(service, scope, 'evd-r2');
+    await service.process(created[0]!.id);
+    const reviewPrompt = calls.find(p => p.includes('核对候选骨架'))!;
+    expect(reviewPrompt).toContain('商路粮道打通'); // 凭空破围的事实确实送达审查输入
+    const verdict = c.database.prepare('SELECT verdict FROM tm2_reviews WHERE candidate=? AND revision=1').get(created[0]!.id) as { verdict: string } | undefined;
+    expect(verdict?.verdict).toBe('revise'); // 有证据的阻塞判断仍然能作出（不是强制pass）
   });
 
   it('Codex反例：第二轮候选落库后自检失败，恢复同轮应续审而非被误判第三轮', async () => {

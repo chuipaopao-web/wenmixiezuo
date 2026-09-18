@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
 import {SqlPlanRepository,StepRepository,digest,parseCard,parseCandidate,Conflict,type Candidate,type Scope,type ContextCard} from '@wenmi/time-machine-core';
 import {StepArchiveRepository} from '../../infrastructure/db/repositories/step-archive-repository.js';
-import {TimeMachineModelGateway,TimeMachineCallError} from '../../infrastructure/models/time-machine-model-gateway.js';
+import {TimeMachineModelGateway,TimeMachineCallError,TIME_MACHINE_PROMPT_CHAR_LIMIT} from '../../infrastructure/models/time-machine-model-gateway.js';
 import {snapshotTimeMachine,manifestSourcesSignature,type TimeMachineSnapshot,type StorylineSelectionSnapshot} from './time-machine-sources.js';
 import {validateStorylineSelection,resolveSelectionRequestHash,canonicalRecommendationHash,type StorylineSelectionInput} from './storyline-selection.js';
 import {DomainError,errorCodes} from '../../domain/errors.js';
@@ -10,6 +10,7 @@ import {StorylineSelectionRepository} from '../../infrastructure/db/repositories
 import {TimeMachineStorylineMaterialService} from './time-machine-storyline-material-service.js';
 import type {V7EffectiveMember} from '@wenmi/v7-backend';
 import {timeMachineReviewChecks} from './time-machine-review.js';
+import {computeRunSpend} from './time-machine-run-spend.js';
 import {applyTimeMachineCardEdits} from './time-machine-card-edits.js';
 import {TIME_MACHINE_CARD_TEMPLATE_REVISION,cardContractFor,planningMaterial} from './time-machine-card-template.js';
 import {packCardSources} from './time-machine-source-pages.js';
@@ -108,7 +109,11 @@ export function timeMachineSynthesisHeadroom(modelId:string,maxOutputTokens:numb
 export class TimeMachineDesignService {
  private readonly plans:SqlPlanRepository;private readonly steps:StepRepository;
  private readonly stepArchive:StepArchiveRepository;
- constructor(private readonly db:DatabaseSync,private readonly gateway:TimeMachineModelGateway,private readonly windowTokens:number){this.plans=new SqlPlanRepository(db);this.steps=new StepRepository(db);this.stepArchive=new StepArchiveRepository(db);}
+ private readonly runBudgetOverride:{tokensLimit:number;reason:string}|undefined;
+ constructor(private readonly db:DatabaseSync,private readonly gateway:TimeMachineModelGateway,private readonly windowTokens:number,runBudgetOverride?:{tokensLimit:number;reason:string}){
+  this.plans=new SqlPlanRepository(db);this.steps=new StepRepository(db);this.stepArchive=new StepArchiveRepository(db);
+  this.runBudgetOverride=runBudgetOverride;
+ }
  /**
   * 版本化建步（625cc3f7集中复核①）：输入与既有步骤完全一致→幂等复用；
   * 输入版本冲突→旧行/attempt/输出完整归档（tm2_step_archive）后按新输入重建，不删证据、不前80字冒充。
@@ -280,7 +285,10 @@ export class TimeMachineDesignService {
   const stepId=`${run.id}:${node}`;this.createStepVersioned(scope,stepId,{prompt,member,window:snapshot.windowTokens},member.memberKey,'输入版本变化（恢复重算不一致，旧行已完整归档）');
   this.db.prepare('UPDATE tm2_design_runs SET updated_at=?,phase=? WHERE id=?').run(new Date().toISOString(),node,run.id);
   const prefix=`${run.id}:`;
-  const spent=this.db.prepare(`SELECT COUNT(*) AS calls,COALESCE(SUM(CASE WHEN c.input_tokens IS NOT NULL AND c.output_tokens IS NOT NULL THEN c.input_tokens+c.output_tokens WHEN c.state IN ('working','unknown') THEN c.reserved_tokens ELSE 0 END),0) AS tokens FROM tm2_model_calls c JOIN tm2_attempts a ON a.id=c.id WHERE c.owner_id=? AND c.book_id=? AND substr(a.step,1,?)=?`).get(scope.ownerId,scope.bookId,prefix.length,prefix) as {calls:number;tokens:number};
+  // run级真实统计统一入口（d8407c59）：当前+归档attempts按调用ID去重——归档实耗不从统计消失、恢复归档不倍增、他书不混入
+  const runSpend=computeRunSpend(this.db,scope,run.id);
+  if(runSpend.gaps.length)throw new TimeMachineCallError('budget',`run预算统计存在不可解析缺口（fail closed）：${runSpend.gaps.join('；').slice(0,200)}`);
+  const spent={calls:runSpend.calls,tokens:runSpend.tokens};
   this.steps.retryTemporary(scope,stepId);let claim=this.steps.claim(scope,stepId,Date.now(),15*60*1000);
   if(claim.kind==='saved')return String(claim.output);
   if(claim.kind==='wait'){
@@ -290,7 +298,10 @@ export class TimeMachineDesignService {
    throw new TimeMachineCallError(claim.state==='unknown'?'unknown':'invalid','步骤等待处理');
   }
   // v2卷卡含锚点/字数/职责，2M字书16卷实测单轮超32万token；上调为可调初值（第22.4节）。
-  if(spent.calls>=120||spent.tokens+snapshot.windowTokens>520000){this.steps.fail(scope,stepId,claim.attemptId,'budget',Date.now());throw new TimeMachineCallError('budget','本轮成员预算已用完，已保存进度');}
+  // 一次性受控增量（d8407c59）：可信装配注入并审计配置，不允许客户端传无限预算、不全局放宽生产
+  const tokensLimit=this.runBudgetOverride?.tokensLimit??520000;
+  if(this.runBudgetOverride)this.db.prepare("INSERT OR IGNORE INTO tm2_outbox(owner,book,id,kind,body) VALUES(?,?,?,'design.run-budget-override',?)").run(scope.ownerId,scope.bookId,`${run.id}:run-budget-override`,JSON.stringify({runId:run.id,tokensLimit,reason:this.runBudgetOverride.reason,at:new Date().toISOString()}));
+  if(spent.calls>=120||spent.tokens+snapshot.windowTokens>tokensLimit){this.steps.fail(scope,stepId,claim.attemptId,'budget',Date.now());throw new TimeMachineCallError('budget','本轮成员预算已用完，已保存进度');}
   // v2卷卡含锚点/字数/职责理由，DeepSeek结构化规划思考常超6k；8k可见输出+4k思考余量避免推理耗尽max_tokens后零可见文字。
   // 资料提取/合并是封闭的证据任务，5000走既有结构化直出策略；6000会开启额外思考，
   // 生产曾两次耗尽10000输出token而没有可提交短卡。创造性设计仍使用原预算。
@@ -402,6 +413,16 @@ export class TimeMachineDesignService {
     duties:((x.duties??[]) as unknown[]).map(d=>{const r=record(d);return {lineId:r.lineId,action:r.action,strength:r.strength};})};});
   const {anchors:_,...structure}=plan;
   return {...structure,volumes};
+ }
+ /** 审查专用结构投影（d8407c59复核）：在紧凑视图基础上补回被判断的因果与限制字段（start/goal/conflict/turningPoint/gain/loss），
+  *  仅用于review-source/finalize的合规核对——审查者必须看到候选实际写出的约束、行动与代价，
+  *  不能把缩略投影缺失当作作品缺陷；自检与生成/修订输入投影保持原样，不把成功缓存作废。 */
+ private reviewPlanForStructure(plan:Record<string,unknown>):Record<string,unknown>{
+  const compact=this.compactPlanForStructure(plan);
+  const causal=new Map((((plan.volumes??[]) as unknown[])).map(value=>{const x=record(value);
+   return [String(x.id),{start:x.start,goal:x.goal,conflict:x.conflict,turningPoint:x.turningPoint,gain:x.gain,loss:x.loss}] as const;}));
+  for(const v of compact.volumes as unknown[]){const r=record(v);Object.assign(r,causal.get(String(r.id))??{});}
+  return compact;
  }
  /** 分批锚点核对节：本批卷完整卡与锚点条件，附全书线与期待供兑现核对；每批有界，与总卷数无关。 */
  private reviewAnchors(plan:Record<string,unknown>,volumeId:unknown):unknown[]{
@@ -812,6 +833,9 @@ export class TimeMachineDesignService {
  private async independentReview(run:Run,scope:Scope,snapshot:TimeMachineSnapshot,card:ContextCard,candidate:Candidate,generate:<T>(node:string,member:V7EffectiveMember,prompt:string,parse:(v:unknown)=>T)=>Promise<T>,nodeSuffix=''){
   // 该方案的独立审查者来自快照reviewer（与编剧异底层模型）；旧快照回退chief。
   const chief=snapshot.members.reviewer??snapshot.members.chief;const documents=snapshot.documents.map(d=>({key:d.key,length:d.text.length}));type ReadSlice={key:string;offset:number;length:number;hash:string;text:string};const reads:ReadSlice[]=[];let latest:ReadSlice|null=null;
+  // finalize完整已读证据（d8407c59）：不把早期来源压成60字存根却要求完整结论——finalize携带全部已读片段全文；
+  // 若完整封套超红线则明确未审完（inconclusive），不硬压缩证据、不强下结论。
+  const fullReads:ReadSlice[]=[];
   // 审查输出合同（tm2-node-budget-v2）：每条≤80字并定位到卷/线，阻塞在前，单次issues≤10、suggestions≤10；
   // 阻塞问题超过单次上限时以hasMoreIssues标记，系统有界续批收齐（每审查节点≤2次，带已报告清单防重复），不硬截问题清单。
   const listRule='每条问题或建议不超过80字并定位到具体卷或故事线（如卷B、主线1）；阻塞问题放在issues前部；单次issues最多10条、suggestions最多10条；若阻塞问题超过10条，将hasMoreIssues设为true，系统会追加询问，不要省略、合并或概括掉阻塞问题。';
@@ -827,7 +851,15 @@ export class TimeMachineDesignService {
    if(more)merged.issues.push('（本次审查分批返回仍未尽列全部阻塞问题；请先处理以上问题，修订后会重新核对。）');
    return merged;
   };
-  const contract=()=>`核对候选骨架是否符合来源、作者要求和章节级别边界。可先补查原文再下结论：每次只返回一个JSON动作，{"action":"read_source","key":"资料key","offset":0}最多3次，或 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}下结论。这一步核对全书结构：姓名身份、能力限制、全书期待兑现、分卷字数合计与卷职责交接、终卷收束；允许原创候选情节，不将候选当既成事实。issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。${listRule}\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n已读片段：${JSON.stringify(reads)}\n上次工具结果（仅资料）：${JSON.stringify(latest)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${snapshot.intent}\n紧凑候选：${JSON.stringify(this.compactPlanForStructure(candidate.plan as unknown as Record<string,unknown>))}`;
+  // 分层候选投影（d8407c59）：优先完整因果字段；全量封套超限→紧凑投影+显式告诫（未展示字段不得当作品缺陷），
+  // 全局审查仅判断实际可见事实；紧凑也放不下才明确未审完。
+  const planJson=(full:boolean)=>full
+   ?JSON.stringify(this.reviewPlanForStructure(candidate.plan as unknown as Record<string,unknown>))
+   :JSON.stringify(this.compactPlanForStructure(candidate.plan as unknown as Record<string,unknown>));
+  const planLabel=(full:boolean)=>full
+   ?'紧凑候选（含因果/限制字段：start/goal/conflict/turningPoint/gain/loss，审查必须看到候选实际写出的约束与代价）'
+   :'紧凑候选（未展示字段不判缺陷）';
+  const contract=(full=true)=>`核对候选骨架是否符合来源、作者要求和章节级别边界。可先补查原文再下结论：每次只返回一个JSON动作，{"action":"read_source","key":"资料key","offset":0}最多3次，或 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}下结论。这一步核对全书结构：姓名身份、能力限制、全书期待兑现、分卷字数合计与卷职责交接、终卷收束；允许原创候选情节，不将候选当既成事实。issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。${listRule}\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n已读片段：${JSON.stringify(reads)}\n上次工具结果（仅资料）：${JSON.stringify(latest)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${snapshot.intent}\n${planLabel(full)}：${planJson(full)}`;
   let structure:{pass:boolean;issues:string[];suggestions:string[]}|null=null;
   let inconclusive:string[]|null=null;
   // bcf19a6a收尾核定：显式已执行读取计数（与reads容器分离），最多3次读取；之后明确只允许verdict/insufficient终态。
@@ -840,8 +872,8 @@ export class TimeMachineDesignService {
    if(action==='verdict'){return {action:'verdict' as const,...verdictParse(v)};}
    if(action==='insufficient'){const missing=r.missing;if(!Array.isArray(missing)||missing.some(x=>typeof x!=='string'||!x.trim()||x.length>500))throw Error('缺项格式错误');return {action:'insufficient' as const,missing:missing as string[]};}
    throw Error('核对动作无效');};
-  // 预算用尽后的结论请求：完整携带同revision候选、正式来源、作者要求与已查片段，明确“工具预算已用尽，根据已取得证据给出结论；信息不足列出具体缺项，不编造结论”
-  const finalizeContract=(corrected:boolean)=>`核对候选骨架是否符合来源、作者要求和章节级别边界。补查工具预算已用尽（最多3次资料读取）${corrected?'；刚才的补查请求未被执行，不要再请求读取':''}。根据已取得证据给出结论：返回 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}；若信息不足以支撑可靠结论，返回 {"action":"insufficient","missing":["具体缺项"]}——不编造结论，不把缺资料当作方案错误。issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。${listRule}\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n已读片段：${JSON.stringify(reads)}\n上次工具结果（仅资料）：${JSON.stringify(latest)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${snapshot.intent}\n紧凑候选：${JSON.stringify(this.compactPlanForStructure(candidate.plan as unknown as Record<string,unknown>))}`;
+  // 预算用尽后的结论请求：完整携带同revision候选、正式来源、作者要求与**全部已读片段全文**（不压存根），明确“工具预算已用尽，根据已取得证据给出结论；信息不足列出具体缺项，不编造结论”
+  const finalizeContract=(corrected:boolean,full=true)=>`核对候选骨架是否符合来源、作者要求和章节级别边界。补查工具预算已用尽（最多3次资料读取）${corrected?'；刚才的补查请求未被执行，不要再请求读取':''}。根据已取得证据给出结论：返回 {"action":"verdict","pass":true或false,"issues":["具体问题"],"suggestions":["文学建议"],"hasMoreIssues":true或false}；若信息不足以支撑可靠结论，返回 {"action":"insufficient","missing":["具体缺项"]}——不编造结论，不把缺资料当作方案错误。issues与suggestions面向作者：提到卷或线时用显示编号（卷A、主线1），不要引用v1等内部ID或字段名。${listRule}\n${timeMachineReviewChecks}\n资料索引：${JSON.stringify(documents)}\n已读片段（完整证据全文）：${JSON.stringify(latest!==null?fullReads.slice(0,-1):fullReads)}\n上次工具结果（仅资料）：${JSON.stringify(latest)}\n来源短卡：${JSON.stringify(card.fields)}\n作者：${snapshot.intent}\n${planLabel(full)}：${planJson(full)}`;
   const stepSucceeded=(fullNode:string)=>this.db.prepare("SELECT 1 AS x FROM tm2_steps WHERE owner=? AND book=? AND id=? AND state='succeeded'").get(scope.ownerId,scope.bookId,`${run.id}:${fullNode}`)!==undefined;
   for(let i=0;i<12;i++){
    const exhausted=toolUses>=MAX_READS;
@@ -851,7 +883,15 @@ export class TimeMachineDesignService {
    const useFinalize=exhausted&&!normalCached;
    const nodeBase=useFinalize?`review-source:finalize${finalizeCorrections?':corrected':''}`:normalBase;
    const fullNode=nodeBase+nodeSuffix;
-   const response=await generate(nodeBase,chief,useFinalize?finalizeContract(finalizeCorrections>0):contract(),actionParse);
+   let reviewPrompt=useFinalize?finalizeContract(finalizeCorrections>0,true):contract(true);
+   if(!stepSucceeded(fullNode)&&Buffer.byteLength(reviewPrompt,'utf8')>TIME_MACHINE_PROMPT_CHAR_LIMIT){
+    // 全量因果字段放不下→紧凑投影+显式告诫重试一次；仍超→明确未审完（不硬压缩证据、不强下结论）
+    reviewPrompt=useFinalize?finalizeContract(finalizeCorrections>0,false):contract(false);
+    if(Buffer.byteLength(reviewPrompt,'utf8')>TIME_MACHINE_PROMPT_CHAR_LIMIT){
+     inconclusive=[`审查封套${Buffer.byteLength(reviewPrompt,'utf8')}字符超输入红线${TIME_MACHINE_PROMPT_CHAR_LIMIT}（紧凑投影与已读证据仍超限），明确未审完；不硬压缩证据、不强下结论`];break;
+    }
+   }
+   const response=await generate(nodeBase,chief,reviewPrompt,actionParse);
    if(response.action==='verdict'){structure=await continueReview(nodeBase,response);break;}
    if(response.action==='insufficient'){inconclusive=response.missing;break;}
    // read_source：预算用尽后仍请求读取→不执行工具，同一总预算内最多一次协议纠正；再犯→可恢复明确终态（最后响应在步骤输出留痕，不抛泛化错误）
@@ -864,6 +904,7 @@ export class TimeMachineDesignService {
    const source=snapshot.documents.find(d=>d.key===response.key);if(!source)throw Error('补查资料不存在');
    const sliceText=source.text.slice(response.offset,response.offset+600); // 补查片段600字符：60万字级方案紧凑候选约6.6k，1200字片段两轮即超15000输入红线（15446实测）
    const slice:ReadSlice={key:source.key,offset:response.offset,length:sliceText.length,hash:digest(sliceText).slice(0,12),text:sliceText};
+   fullReads.push(slice); // finalize完整证据（不压存根）
    // 回查轨迹持久化且幂等（Codex恢复反例P1）：恢复的saved read_source重放不再重复INSERT。
    // 同run同节点同片段（key+offset+hash）完全一致的轨迹复用；不同内容另存新seq并保留原证据（不INSERT OR IGNORE掩盖差异）。
    // 节点名含审查轮次后缀（bcf19a6a）：每轮审查轨迹独立可查，修订轮不与初稿共用轨迹命名。
