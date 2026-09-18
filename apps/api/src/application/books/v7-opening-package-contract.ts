@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { CREATIVE_WORK_TYPE_WORD_LIMITS, type CreativeWorkType } from '@wenmi/agent-catalog';
 import {
   parseOpeningPackage,
   type OpeningPackage,
@@ -31,7 +32,7 @@ export const V7_OPENING_TAXONOMY_REFERENCE: OpeningTaxonomyReference = {
   allowedTags: [...OPENING_TAXONOMY.mainTags]
 };
 
-export function validateV7OpeningPackage(value: unknown): OpeningPackage {
+export function validateV7OpeningPackage(value: unknown, workType: CreativeWorkType = 'novel'): OpeningPackage {
   const root = manualRecord(value, '开书资料');
   const positioning = manualRecord(root.positioning, '作品定位');
   return parseOpeningPackage(JSON.stringify({
@@ -40,7 +41,7 @@ export function validateV7OpeningPackage(value: unknown): OpeningPackage {
       ...normalizeKnownTaxonomyPlacement(positioning),
       publishingPlatform: normalizePublishingPlatform(positioning.publishingPlatform)
     }
-  }), V7_OPENING_TAXONOMY_REFERENCE);
+  }), V7_OPENING_TAXONOMY_REFERENCE, undefined, workType);
 }
 
 /**
@@ -49,11 +50,11 @@ export function validateV7OpeningPackage(value: unknown): OpeningPackage {
  * 不进入蓝图的可见补充项（例如作者检查项、人物目标），因此不能拿它反向判断
  * 作者是否编辑过页面；那会把原样确认误判为需要复审。
  */
-export function validateV7OpeningConfirmationPackage(value: unknown): {
+export function validateV7OpeningConfirmationPackage(value: unknown, workType: CreativeWorkType = 'novel'): {
   openingPackage: OpeningPackage;
   comparisonPackage: OpeningPackage;
 } {
-  const openingPackage = validateV7OpeningPackage(value);
+  const openingPackage = validateV7OpeningPackage(value, workType);
   const comparisonPackage = structuredClone(manualRecord(value, '开书资料')) as unknown as OpeningPackage;
   return { openingPackage, comparisonPackage };
 }
@@ -89,7 +90,8 @@ function normalizeKnownTaxonomyPlacement(positioning: Record<string, unknown>): 
  * 自己设计只建立后续创作所需的最小可信锚点。未知内容保持为空，不用通用文案
  * 冒充作者决定；AI团队生成的资料包仍走上面的完整严格校验。
  */
-export function validateV7ManualOpeningPackage(value: unknown): OpeningPackage {
+export function validateV7ManualOpeningPackage(value: unknown, workType: CreativeWorkType = 'novel'): OpeningPackage {
+  const wordLimits = CREATIVE_WORK_TYPE_WORD_LIMITS[workType] ?? CREATIVE_WORK_TYPE_WORD_LIMITS.novel;
   const root = manualRecord(value, '开书资料');
   const positioning = manualRecord(root.positioning, '作品定位');
   const backgrounds = manualRecord(root.backgrounds, '背景');
@@ -126,7 +128,7 @@ export function validateV7ManualOpeningPackage(value: unknown): OpeningPackage {
       ...(positioning.readingTone === undefined || positioning.readingTone === null
         ? {}
         : { readingTone: manualText(positioning.readingTone, '阅读味道', 300) }),
-      expectedTotalWords: manualInteger(positioning.expectedTotalWords, '预计总字数', 100_000, 10_000_000),
+      expectedTotalWords: manualInteger(positioning.expectedTotalWords, '预计总字数', wordLimits.min, wordLimits.max),
       ...legacyPlanningFields(positioning)
     },
     backgrounds: {
@@ -179,8 +181,10 @@ export function validateV7OpeningRevisionDraft(
   value: unknown,
   fallback: OpeningPackage,
   authorInstructions: string[],
-  allowedFields: string[]
+  allowedFields: string[],
+  workType: CreativeWorkType = 'novel'
 ): OpeningPackage {
+  const wordLimits = CREATIVE_WORK_TYPE_WORD_LIMITS[workType] ?? CREATIVE_WORK_TYPE_WORD_LIMITS.novel;
   const root = manualRecord(value, '开书调整资料');
   const positioning = manualRecord(root.positioning, '作品定位');
   const backgrounds = manualRecord(root.backgrounds, '背景');
@@ -210,7 +214,7 @@ export function validateV7OpeningRevisionDraft(
       ...(positioning.readingTone === undefined || positioning.readingTone === null
         ? (fallback.positioning.readingTone === undefined ? {} : { readingTone: fallback.positioning.readingTone })
         : { readingTone: manualText(positioning.readingTone, '阅读味道', 300) }),
-      expectedTotalWords: manualInteger(positioning.expectedTotalWords ?? fallback.positioning.expectedTotalWords, '预计总字数', 100_000, 10_000_000),
+      expectedTotalWords: manualInteger(positioning.expectedTotalWords ?? fallback.positioning.expectedTotalWords, '预计总字数', wordLimits.min, wordLimits.max),
       ...legacyPlanningFields(positioning, fallback.positioning)
     },
     backgrounds: {

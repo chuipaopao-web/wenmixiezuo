@@ -4,6 +4,7 @@ import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/m
 import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
 import type { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { V7_SETTING_CATALOG } from '@wenmi/v7-backend';
+import { isCreativeEnvelope, unwrapCreativeEnvelope } from '../../helpers/creative-envelope.js';
 
 /**
  * 设定部门共享夹具：从v7-setting-editorial-department.test.ts原位抽出，供部门套件与
@@ -16,11 +17,12 @@ type TestApp = Awaited<ReturnType<typeof createAppServer>>;
 export function settingStagePrompt(compiledPrompt: string): string {
   try {
     const value = JSON.parse(compiledPrompt) as { contextPack?: { content?: { stageTaskPayload?: unknown } } };
-    const payload = value.contextPack?.content?.stageTaskPayload;
-    if (typeof payload === 'string') return payload;
+    const payload: unknown = value.contextPack?.content?.stageTaskPayload;
+    if (typeof payload === 'string') return unwrapCreativeEnvelope(payload);
+    if (isCreativeEnvelope(payload)) return payload.task;
     if (payload !== undefined) return JSON.stringify(payload);
   } catch { /* 兼容未编译的测试提示。 */ }
-  return compiledPrompt;
+  return unwrapCreativeEnvelope(compiledPrompt);
 }
 
 export function groupedSettingOutput(prompt: string): string {

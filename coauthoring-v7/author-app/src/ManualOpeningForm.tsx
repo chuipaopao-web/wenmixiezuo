@@ -1,4 +1,5 @@
 import { CaretDownIcon, CheckCircleIcon, MagicWandIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react';
+import { CREATIVE_WORK_TYPE_WORD_LIMITS, type CreativeWorkType } from '@wenmi/agent-catalog';
 import { useMemo, useState } from 'react';
 import { CharacterNamingDialog, characterNamingContext } from './CharacterNamingDialog';
 import { ImeInput, ImeTextarea } from './ImeSafeField';
@@ -7,6 +8,23 @@ import { parseVisualTags, serializeVisualTags, VISUAL_IDENTITY_TAG_GROUPS, type 
 
 const ROLE_OPTIONS = ['男主', '女主', '共同主角', '群像主角', '非人主角'] as const;
 const LONG_LIMIT = 800;
+
+/** 预计总字数快捷选项（万字）：长篇沿用原口径；非长篇按真实容量给可选档位。 */
+const WORD_CHOICE_PRESETS: Record<CreativeWorkType, readonly number[]> = {
+  novel: [80, 150, 200, 300],
+  short_story: [1, 3, 5, 8],
+  memoir: [10, 20, 30, 50],
+  script: [3, 5, 10, 30]
+};
+
+function wordLimitsOf(workType: CreativeWorkType): { min: number; max: number } {
+  return CREATIVE_WORK_TYPE_WORD_LIMITS[workType] ?? CREATIVE_WORK_TYPE_WORD_LIMITS.novel;
+}
+
+/** 字数范围提示：整万用“万”表达，零头按字表达（如短篇 1000至10万字）。 */
+function wordLimitText(value: number): string {
+  return value % 10_000 === 0 ? `${value / 10_000}万` : String(value);
+}
 
 export function emptyOpeningPackage(): OpeningPackage {
   return {
@@ -36,8 +54,10 @@ export interface ManualOpeningValidation {
 
 export function validateManualOpening(
   value: OpeningPackage,
-  taxonomy: OpeningTaxonomy | null
+  taxonomy: OpeningTaxonomy | null,
+  workType: CreativeWorkType = 'novel'
 ): ManualOpeningValidation {
+  const wordLimits = wordLimitsOf(workType);
   const channel = value.positioning.channel;
   const categoryValid = channel !== 'general' && taxonomy?.categories.some((item) => (
     item.channel === channel && item.name === value.positioning.category
@@ -50,7 +70,7 @@ export function validateManualOpening(
     ...(!categoryValid ? ['作品分类'] : []),
     ...(Array.from(value.positioning.coreAppeal).length > 800 ? ['核心卖点不能超过800字'] : []),
     ...(value.positioning.readingTone !== undefined && Array.from(value.positioning.readingTone).length > 300 ? ['阅读味道不能超过300字'] : []),
-    ...(value.positioning.expectedTotalWords < 100_000 || value.positioning.expectedTotalWords > 10_000_000 ? ['预计总字数'] : [])
+    ...(value.positioning.expectedTotalWords < wordLimits.min || value.positioning.expectedTotalWords > wordLimits.max ? [`预计总字数需在${wordLimitText(wordLimits.min)}至${wordLimitText(wordLimits.max)}字之间`] : [])
   ];
   const protagonists = value.protagonists.flatMap((item, index) => [
     ...(item.name.trim().length === 0 ? [`角色${index + 1}姓名`] : []),
@@ -201,13 +221,18 @@ function VisualTagPicker({ id, label, hint, groups, value, maximum, onChange }: 
   </details>;
 }
 
-export function ManualOpeningForm({ value, taxonomy, onChange, step, onStepChange }: {
+export function ManualOpeningForm({ value, taxonomy, onChange, step, onStepChange, workType = 'novel' }: {
   value: OpeningPackage;
   taxonomy: OpeningTaxonomy | null;
   onChange: (next: OpeningPackage) => void;
   step: 1 | 2;
   onStepChange: (next: 1 | 2) => void;
+  /** 作品类型（AI任务=冻结任务快照；自己设计=作者本机选择）：决定预计总字数档位与校验范围。 */
+  workType?: CreativeWorkType;
 }): React.JSX.Element {
+  const wordLimits = wordLimitsOf(workType);
+  const wordChoices = WORD_CHOICE_PRESETS[workType] ?? WORD_CHOICE_PRESETS.novel;
+  const maxWanInput = Math.floor(wordLimits.max / 10_000);
   const [subjectsOpen, setSubjectsOpen] = useState(false);
   const [tagLibraryOpen, setTagLibraryOpen] = useState(false);
   const [tagQuery, setTagQuery] = useState('');
@@ -229,7 +254,7 @@ export function ManualOpeningForm({ value, taxonomy, onChange, step, onStepChang
       .filter((tag) => tagQuery.trim().length === 0 || tag.includes(tagQuery.trim()))
   })).filter((group) => group.options.length > 0);
   const tagResultCount = tagGroups.reduce((total, group) => total + group.options.length, 0);
-  const validation = validateManualOpening(value, taxonomy);
+  const validation = validateManualOpening(value, taxonomy, workType);
 
   const updatePositioning = (patch: Partial<OpeningPackage['positioning']>) => onChange({ ...value, positioning: { ...value.positioning, ...patch } });
   const toggleList = (item: string, current: string[], maximum: number, setter: (next: string[]) => void) => {
@@ -283,7 +308,7 @@ export function ManualOpeningForm({ value, taxonomy, onChange, step, onStepChang
       <section className="manual-opening-section">
         <div className="manual-section-title"><span>05</span><h3>预计篇幅</h3><small>全书路线会按这里规划</small></div>
         <OpeningFieldDisclosure label="预计总字数" value={value.positioning.expectedTotalWords > 0 ? `${Math.round(value.positioning.expectedTotalWords / 10_000)}万字` : ''}>
-          <div className="manual-field"><span>预计总字数</span><div className="manual-chip-grid">{[80, 150, 200, 300].map((wan) => <button className={value.positioning.expectedTotalWords === wan * 10_000 ? 'selected' : ''} type="button" key={wan} onClick={() => updatePositioning({ expectedTotalWords: wan * 10_000 })}>{wan}万字</button>)}</div><label htmlFor="manual-total-words"><span>其他字数（万字）</span><ImeInput id="manual-total-words" aria-label="预计总字数（万字）" inputMode="numeric" maxChars={4} value={value.positioning.expectedTotalWords > 0 ? String(Math.round(value.positioning.expectedTotalWords / 10_000)) : ''} onChange={(text) => updatePositioning({ expectedTotalWords: Math.min(1_000, Number(text.replace(/\D+/gu, '')) || 0) * 10_000 })} /></label></div>
+          <div className="manual-field"><span>预计总字数</span><div className="manual-chip-grid">{wordChoices.map((wan) => <button className={value.positioning.expectedTotalWords === wan * 10_000 ? 'selected' : ''} type="button" key={wan} onClick={() => updatePositioning({ expectedTotalWords: wan * 10_000 })}>{wan}万字</button>)}</div><label htmlFor="manual-total-words"><span>其他字数（万字）</span><ImeInput id="manual-total-words" aria-label="预计总字数（万字）" inputMode="numeric" maxChars={4} value={value.positioning.expectedTotalWords > 0 ? String(Math.round(value.positioning.expectedTotalWords / 10_000)) : ''} onChange={(text) => updatePositioning({ expectedTotalWords: Math.min(maxWanInput, Number(text.replace(/\D+/gu, '')) || 0) * 10_000 })} /></label></div>
         </OpeningFieldDisclosure>
       </section>
     </>}

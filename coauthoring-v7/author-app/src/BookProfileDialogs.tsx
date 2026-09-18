@@ -1,4 +1,5 @@
 import { ArrowLeftIcon, CheckIcon, DownloadSimpleIcon, MagicWandIcon, XIcon } from '@phosphor-icons/react';
+import { CREATIVE_WORK_TYPE_WORD_LIMITS, type CreativeWorkType } from '@wenmi/agent-catalog';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ManualOpeningForm } from './ManualOpeningForm';
@@ -37,7 +38,7 @@ export function BookProfileEditDialog({ profile, onClose, onSave }: {
     });
     return () => controller.abort();
   }, []);
-  const errors = useMemo(() => profileEditErrors(value, taxonomy), [taxonomy, value]);
+  const errors = useMemo(() => profileEditErrors(value, taxonomy, profile.workType ?? 'novel'), [profile.workType, taxonomy, value]);
   const save = async (): Promise<void> => {
     if (taxonomy === null || errors.length > 0) return;
     setBusy(true); setError(null);
@@ -49,7 +50,7 @@ export function BookProfileEditDialog({ profile, onClose, onSave }: {
     <section className="setting-dialog profile-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-edit-title">
       <header><div><p className="eyebrow">开书资料</p><h3 id="profile-edit-title">修改当前资料</h3></div><button type="button" aria-label="关闭" onClick={onClose}><XIcon /></button></header>
       {profile.openingBlueprint.openingIdea?.trim() && <details className="original-opening-idea"><summary>查看最初的开书想法</summary><p>{profile.openingBlueprint.openingIdea.trim()}</p><small>这是作者最初的原话，只作为设计依据保留，不会被编辑部改写。</small></details>}
-      {taxonomy === null && error === null ? <div className="profile-loading">正在准备原有开书表单…</div> : <ManualOpeningForm value={value} taxonomy={taxonomy} onChange={setValue} step={step} onStepChange={setStep} />}
+      {taxonomy === null && error === null ? <div className="profile-loading">正在准备原有开书表单…</div> : <ManualOpeningForm value={value} taxonomy={taxonomy} onChange={setValue} step={step} onStepChange={setStep} workType={profile.workType ?? 'novel'} />}
       {errors.length > 0 && taxonomy !== null && <div className="profile-edit-errors" role="status">还需要确认：{errors.join('、')}</div>}
       {error && <div className="error-notice" role="alert">{error}</div>}
       <footer>{step === 2 && <button type="button" onClick={() => setStep(1)}><ArrowLeftIcon />上一步</button>}{step === 1 ? <button type="button" className="primary-action" disabled={taxonomy === null || errors.some((entry) => ['书名', '创作频道', '作品分类'].some((name) => entry.includes(name)))} onClick={() => setStep(2)}>下一步</button> : <button type="button" className="primary-action" disabled={busy || taxonomy === null || errors.length > 0} onClick={() => void save()}><CheckIcon />{busy ? '正在保存…' : '保存修改'}</button>}</footer>
@@ -306,13 +307,14 @@ function packageToBlueprint(profile: BookProfile, value: OpeningPackage, taxonom
   };
 }
 
-function profileEditErrors(value: OpeningPackage, taxonomy: OpeningTaxonomy | null): string[] {
+function profileEditErrors(value: OpeningPackage, taxonomy: OpeningTaxonomy | null, workType: CreativeWorkType = 'novel'): string[] {
+  const wordLimits = CREATIVE_WORK_TYPE_WORD_LIMITS[workType] ?? CREATIVE_WORK_TYPE_WORD_LIMITS.novel;
   const errors: string[] = [];
   const titleLength = Array.from(value.title.trim()).length;
   if (titleLength < 2 || titleLength > 15) errors.push('书名需要2至15字');
   if (value.positioning.channel === 'general') errors.push('请选择创作频道');
   if (taxonomy !== null && !taxonomy.categories.some((entry) => entry.channel === value.positioning.channel && entry.name === value.positioning.category)) errors.push('请选择作品分类');
-  if (value.positioning.expectedTotalWords < 100_000 || value.positioning.expectedTotalWords > 10_000_000) errors.push('预计总字数需要在10万至1000万字之间');
+  if (value.positioning.expectedTotalWords < wordLimits.min || value.positioning.expectedTotalWords > wordLimits.max) errors.push(`预计总字数需要在${wordLimits.min % 10_000 === 0 ? `${wordLimits.min / 10_000}万` : wordLimits.min}至${wordLimits.max % 10_000 === 0 ? `${wordLimits.max / 10_000}万` : wordLimits.max}字之间`);
   // R208：两项超限时阻止保存并保留输入，服务器同样拒绝（0—800/0—300）。
   if (Array.from(value.positioning.coreAppeal).length > 800) errors.push('核心卖点不能超过800字');
   if (value.positioning.readingTone !== undefined && Array.from(value.positioning.readingTone).length > 300) errors.push('阅读味道不能超过300字');

@@ -119,7 +119,10 @@ describe('向前迁移器', () => {
          '0118_time_machine_design_schemes.sql', '0119_time_machine_prompt_metrics.sql',
          '0120_book_synopsis.sql', '0121_setting_time_machine_handoffs.sql',
          '0122_creative_reference.sql', '0123_creative_reference_admin_audit.sql',
-         '0124_creative_reference_sessions.sql', '0125_password_scrypt_v2.sql'
+         '0124_creative_reference_sessions.sql', '0125_password_scrypt_v2.sql',
+         '0126_storyline_materials.sql', '0127_node_model_evaluation.sql',
+         '0128_eval_run_early_eliminated.sql', '0129_parent_budget_journal.sql',
+         '0130_step_archive.sql', '0131_review_reads.sql', '0132_budget_wallclock_ext.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(database.prepare(`SELECT name,"notnull" AS required,dflt_value AS defaultValue

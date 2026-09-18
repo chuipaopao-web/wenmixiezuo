@@ -27,6 +27,7 @@ import {
 } from '../infrastructure/models/v7-opening-agent-model-gateway.js';
 import type { V7CoverImageGateway } from '../infrastructure/models/volcengine-ark-image-gateway.js';
 import { requireAdministrator, requireAuthenticatedOwner } from '../infrastructure/security/auth-context.js';
+import { readBookCreativeWorkType } from '../application/agents/book-creative-context.js';
 import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../contracts/opening-blueprint.js';
 
 export async function registerV7OpeningAgentRoutes(
@@ -57,7 +58,8 @@ export async function registerV7OpeningAgentRoutes(
   const lifecycle = new BookLifecycleService(database, coverRuntime.dataDir, ids, clock);
   const bookRepository = new BookRepository(database);
   const openingBlueprints = new OpeningBlueprintService(
-    new OpeningBlueprintRepository(database), bookRepository, new UnitOfWork(database), ids, clock
+    new OpeningBlueprintRepository(database), bookRepository, new UnitOfWork(database), ids, clock,
+    (scope) => readBookCreativeWorkType(database, scope.ownerId, scope.bookId)
   );
   const titleDesigns = new V7BookTitleDesignService(
     database,

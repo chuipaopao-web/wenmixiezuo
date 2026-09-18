@@ -1,3 +1,4 @@
+import { CREATIVE_WORK_TYPE_WORD_LIMITS, type CreativeWorkType } from '@wenmi/agent-catalog';
 import { OPENING_TAG_GROUPS, uniqueTagValues, type OpeningTagGroup } from './opening-tag-library.js';
 
 export type OpeningChannel = 'male' | 'female';
@@ -356,7 +357,7 @@ export const OPENING_TAXONOMY: OpeningTaxonomy = {
 
 const protagonistRoles = new Set<ProtagonistRole>(['male_lead', 'female_lead', 'co_lead', 'ensemble', 'non_human', 'male_support', 'female_support', 'male_villain', 'female_villain']);
 
-export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningBlueprintInput {
+export function validateOpeningBlueprint(input: OpeningBlueprintInput, workType: CreativeWorkType = 'novel'): OpeningBlueprintInput {
   const creationMode = input.creationMode ?? 'new';
   if (creationMode !== 'new' && creationMode !== 'continuation') throw new Error('创作方式必须选择从零创作或已有正文续写');
   if (input.taxonomyVersion !== OPENING_TAXONOMY.version) throw new Error('开书分类目录版本无效或已经过期，请刷新后重试');
@@ -435,7 +436,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     atmospheres: uniqueTexts(input.styleIntent?.atmospheres ?? [], '叙事氛围', 0, 8, 40),
     custom: uniqueTexts(input.styleIntent?.custom ?? [], '自定义风格', 0, 12, 80)
   };
-  const planningProfile = input.planningProfile === undefined ? undefined : validatePlanningProfile(input.planningProfile);
+  const planningProfile = input.planningProfile === undefined ? undefined : validatePlanningProfile(input.planningProfile, workType);
   const validated: OpeningBlueprintInput = {
     creationMode,
     ...(openingIdea.length > 0 ? { openingIdea } : {}),
@@ -474,9 +475,10 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
   return validated;
 }
 
-function validatePlanningProfile(value: NonNullable<OpeningBlueprintInput['planningProfile']>): NonNullable<OpeningBlueprintInput['planningProfile']> {
+function validatePlanningProfile(value: NonNullable<OpeningBlueprintInput['planningProfile']>, workType: CreativeWorkType = 'novel'): NonNullable<OpeningBlueprintInput['planningProfile']> {
   if (!['fanqie', 'qidian', 'mainstream'].includes(value.publishingPlatform)) throw new Error('发布平台选择无效');
-  const expectedTotalWords = boundedInteger(value.expectedTotalWords, '预计总字数', 100_000, 10_000_000);
+  const wordLimits = CREATIVE_WORK_TYPE_WORD_LIMITS[workType] ?? CREATIVE_WORK_TYPE_WORD_LIMITS.novel;
+  const expectedTotalWords = boundedInteger(value.expectedTotalWords, '预计总字数', wordLimits.min, wordLimits.max);
   const volumePlan = value.volumePlan === undefined ? undefined : validateLegacyVolumePlan(value.volumePlan);
   const commercialAudience = optionalText(value.commercialAudience, '商业受众', 500);
   const retentionPositioning = optionalText(value.retentionPositioning, '追读定位', 800);

@@ -1,4 +1,4 @@
-import { normalizeCreativeProfile, type CreativeProfile } from '@wenmi/agent-catalog';
+import { normalizeCreativeProfile, type CreativeProfile, type CreativeWorkType } from '@wenmi/agent-catalog';
 import { createHash, randomUUID } from 'node:crypto';
 import { publicMemberIdentity, memberNameWithModel } from '@wenmi/agent-catalog';
 import {
@@ -252,7 +252,8 @@ export class V7OpeningAgentService {
       : await this.repository.readCandidate<OpeningReview>(ownerId, taskId, state.activeReviewCandidateId);
     const adjustmentNote = normalizeAdjustmentNote(input.adjustmentNote);
     const resolutions = normalizeDecisionResolutions(input.decisionResolutions, activeReview?.content ?? null);
-    const authorDraft = validateSubmittedRevisionDraft(input.openingPackage, base.content, [], []);
+    const workType = workTypeFromCreativeProfileJson(row.creative_profile_json);
+    const authorDraft = validateSubmittedRevisionDraft(input.openingPackage, base.content, [], [], workType);
     const authorChangedFields = changedOpeningFields(base.content, authorDraft);
     const resolvedDraft = applyDecisionResolutions(authorDraft, resolutions);
     const changedFields = changedOpeningFields(base.content, resolvedDraft);
@@ -287,7 +288,8 @@ export class V7OpeningAgentService {
       resolvedDraft,
       base.content,
       authorMessages,
-      allowedFields
+      allowedFields,
+      workType
     );
     const actionKey = normalizeIdempotencyKey(input.idempotencyKey);
     const modelRequestId = `author-revision-${taskId}-${actionKey}`;
@@ -487,10 +489,11 @@ function validateSubmittedRevisionDraft(
   value: unknown,
   fallback: OpeningPackage,
   authorInstructions: string[],
-  allowedFields: string[]
+  allowedFields: string[],
+  workType: CreativeWorkType
 ): OpeningPackage {
   try {
-    return validateV7OpeningRevisionDraft(value, fallback, authorInstructions, allowedFields);
+    return validateV7OpeningRevisionDraft(value, fallback, authorInstructions, allowedFields, workType);
   } catch (error) {
     if (error instanceof DomainError) throw error;
     throw new DomainError(
@@ -846,8 +849,17 @@ function canResume(status: string): boolean {
   return status === 'queued' || status === 'working' || status === 'interrupted';
 }
 
-export function isCurrentV7OpeningTask(row: V7OpeningTaskRow): boolean {
-  if (row.phase === 'work_order' || row.member_roster_json === null) return false;
+/** 冻结任务快照里的作品类型：无快照、解析失败或未知值的历史任务按长篇处理；类型不由模型输出改动。 */
+export function workTypeFromCreativeProfileJson(json: string | null | undefined): CreativeWorkType {
+  if (json === null || json === undefined) return 'novel';
+  try {
+    return normalizeCreativeProfile(JSON.parse(json)).workType;
+  } catch {
+    return 'novel';
+  }
+}
+
+export function isCurrentV7OpeningTask(row: V7OpeningTaskRow): boolean {  if (row.phase === 'work_order' || row.member_roster_json === null) return false;
   try {
     const roster = parseMemberRoster(row.member_roster_json);
     if (!roster.every((member) => {

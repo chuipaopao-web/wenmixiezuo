@@ -111,7 +111,10 @@ class CapturingResolver implements V7OpeningModelAdapterResolver {
         // 同一任务重试书名稳定；不同想法派生不同书名，避免同作者建书书名冲突。
         const originalIdea = String((prompt as { authorSource?: { originalIdea?: unknown } }).authorSource?.originalIdea ?? '');
         const titleSuffix = createHash('sha256').update(originalIdea).digest('hex').slice(0, 4);
-        const output = JSON.stringify({ ...PACKAGE, title: `${PACKAGE.title}${titleSuffix}` });
+        // 总字数必须落在该作品类型的合同范围内（OPENING-UI-02返修R1：类型合同穿透校验）。
+        const workType = String((prompt as { creativeDirection?: { workType?: unknown } }).creativeDirection?.workType ?? 'novel');
+        const expectedTotalWords = { novel: 3_000_000, short_story: 10_000, memoir: 80_000, script: 60_000 }[workType] ?? 3_000_000;
+        const output = JSON.stringify({ ...PACKAGE, title: `${PACKAGE.title}${titleSuffix}`, positioning: { ...PACKAGE.positioning, expectedTotalWords } });
         return { provider, modelId, output, inputTokens: 120, outputTokens: 240, cashCostCny: 0, state: 'succeeded' };
       }
     };

@@ -6,6 +6,7 @@ export const CREATIVE_SCALES:readonly {level:number;name:string;description:stri
 export const READING_STYLES:readonly string[];
 export const CREATIVE_WORK_TYPES:readonly CreativeWorkType[];
 export const CREATIVE_WORK_TYPE_LABELS:Readonly<Record<CreativeWorkType,string>>;
+export const CREATIVE_WORK_TYPE_WORD_LIMITS:Readonly<Record<CreativeWorkType,Readonly<{min:number;max:number}>>>;
 export function normalizeCreativeProfile(value?:unknown):CreativeProfile;
 export function creativeDirective(profile:CreativeProfile | undefined | null,stage?:string):Record<string,unknown> | null;
 export function openingCreativeCatalog():string[][];

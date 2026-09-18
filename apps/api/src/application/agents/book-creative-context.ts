@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { creativeDirective, type CreativeProfile, type CreativeWorkType } from '@wenmi/agent-catalog';
+import { creativeDirective, CREATIVE_WORK_TYPE_LABELS, type CreativeProfile, type CreativeWorkType } from '@wenmi/agent-catalog';
+import { DomainError, errorCodes } from '../../domain/errors.js';
 
 /** Owner-scoped book preferences; rules only, never the opening inspiration catalogue. */
 export function withBookCreativeProfile(database: DatabaseSync, ownerId: string, bookId: string, prompt: string, stage: string): string {
@@ -23,4 +24,22 @@ export function readBookCreativeWorkType(database: DatabaseSync, ownerId: string
   } catch {
     return 'novel';
   }
+}
+
+/**
+ * 长篇小说任务链能力门禁（R2）：设定编选、故事线推荐、时光机设计/重试等会新建或继续
+ * 长篇任务的入口，必须在写任务、排队或占用生成预算之前调用。非长篇（含旧快照缺失
+ * 以外的三种已开放开书类型）明确拒绝；无快照旧书与长篇不受影响。历史任务与候选
+ * 只读保留，不在此处删除、改型或取消。
+ */
+export function assertNovelChainOpen(database: DatabaseSync, ownerId: string, bookId: string): void {
+  const workType = readBookCreativeWorkType(database, ownerId, bookId);
+  if (workType === 'novel') return;
+  throw new DomainError(
+    errorCodes.validation,
+    `${CREATIVE_WORK_TYPE_LABELS[workType] ?? '该类型'}的后续创作工作台尚未开放：不能新建或继续长篇小说设计任务。开书资料已保留，可正常查看与编辑。`,
+    {},
+    false,
+    409
+  );
 }

@@ -1,4 +1,5 @@
 import { BOOK_TITLE_MAX_CHARACTERS, bookTitleCharacterCount } from '@wenmi/contracts';
+import type { CreativeWorkType } from '@wenmi/agent-catalog';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { BookScope } from '../../domain/scope.js';
@@ -21,7 +22,9 @@ export class OpeningBlueprintService {
     private readonly books: BookRepository,
     private readonly unitOfWork: UnitOfWork,
     private readonly ids: IdGenerator,
-    private readonly clock: Clock
+    private readonly clock: Clock,
+    /** OPENING-UI-02返修R1：书籍资料编辑按本书作品类型校验字数合同；缺省长篇兼容。 */
+    private readonly readWorkType: (scope: BookScope) => CreativeWorkType = () => 'novel'
   ) {}
 
   public revise(scope: BookScope, input: {
@@ -35,7 +38,7 @@ export class OpeningBlueprintService {
     const title = normalizeTitle(input.title);
     let blueprint: OpeningBlueprintInput;
     try {
-      blueprint = validateOpeningBlueprint(input.openingBlueprint);
+      blueprint = validateOpeningBlueprint(input.openingBlueprint, this.readWorkType(scope));
     } catch (error) {
       throw new DomainError(errorCodes.validation, error instanceof Error ? error.message : '开书资料格式无效。');
     }

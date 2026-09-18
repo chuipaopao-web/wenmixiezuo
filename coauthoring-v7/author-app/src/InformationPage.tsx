@@ -18,6 +18,7 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
 }): React.JSX.Element {
   const [profile, setProfile] = useState<BookProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadAttempt, setReloadAttempt] = useState(0);
   const [section, setSection] = useState<'profile' | 'setting' | 'naming'>(initialSection);
   const [profileOpen, setProfileOpen] = useState(false);
   const [titleOpen, setTitleOpen] = useState(false);
@@ -32,7 +33,7 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '开书资料读取失败');
     });
     return () => controller.abort();
-  }, [bookId]);
+  }, [bookId, reloadAttempt]);
 
   const workTypeText = CREATIVE_WORK_TYPE_LABELS[profile?.workType ?? 'novel'] ?? CREATIVE_WORK_TYPE_LABELS.novel;
   const pendingWorkTypeLabel = profile?.workType !== undefined && profile.workType !== 'novel' ? workTypeText : null;
@@ -46,7 +47,17 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
       </nav>
 
       {section === 'setting' ? (
-        pendingWorkTypeLabel !== null ? (
+        /* R2：作品类型未确认前不能先挂载可发任务的长篇工作台——加载中给等待，失败给可重试错误。 */
+        profile === null && error === null ? (
+          <div className="profile-loading" role="status">正在确认本书类型与可用功能…</div>
+        ) : error !== null ? (
+          <div className="failure-card compact-failure-card" role="alert">
+            <p className="eyebrow">暂时无法确认可用功能</p>
+            <h2>开书资料读取失败</h2>
+            <p>{error}</p>
+            <button type="button" className="primary-action" onClick={() => { setError(null); setReloadAttempt((current) => current + 1); }}>重新读取</button>
+          </div>
+        ) : pendingWorkTypeLabel !== null ? (
           <div className="failure-card compact-failure-card" role="note" aria-label="后续创作工作台尚未开放">
             <p className="eyebrow">尚未开放</p>
             <h2>{pendingWorkTypeLabel}的后续创作工作台尚未开放</h2>
@@ -83,7 +94,8 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
             </article>)}</div>
           </section>
           <dl className="profile-detail-list">{openingProfileRows(profile).filter((row) => row.label !== '时代与世界').map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>
-          <BookSynopsisPanel key={bookId} bookId={bookId}/>
+          {/* 简介属于长篇任务链（依赖已采用全书基线）；非长篇不显示该入口，服务端同样拒绝。 */}
+          {(profile.workType ?? 'novel') === 'novel' && <BookSynopsisPanel key={bookId} bookId={bookId}/>}
           <footer className="information-page-actions" aria-label="开书资料操作">
               <button type="button" className="secondary-action" onClick={() => setTitleOpen(true)}><MagicWandIcon />设计书名</button>
               <button type="button" className="secondary-action" onClick={() => setCoverOpen(true)}><MagicWandIcon />设计封面</button>

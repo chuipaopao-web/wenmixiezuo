@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { normalizeCreativeProfile, type CreativeWorkType } from '@wenmi/agent-catalog';
 import type { OpeningAgentTaskState, OpeningPackage, OpeningReview } from '@wenmi/v7-backend';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
@@ -8,7 +9,7 @@ import { BookRepository } from '../../infrastructure/db/repositories/book-reposi
 import { V7OpeningAgentRepository } from '../../infrastructure/db/repositories/v7-opening-agent-repository.js';
 import { BookOnboardingService } from './book-onboarding-service.js';
 import { PositioningService } from './positioning-service.js';
-import { isCurrentV7OpeningTask } from './v7-opening-agent-service.js';
+import { isCurrentV7OpeningTask, workTypeFromCreativeProfileJson } from './v7-opening-agent-service.js';
 import {
   openingPackageUnchanged,
   toV7OpeningBlueprint,
@@ -21,6 +22,8 @@ export interface ConfirmV7OpeningBookInput {
   candidateId?: unknown;
   openingIdea?: unknown;
   openingPackage: unknown;
+  /** 自己设计（无开书任务）时作者本机选择的创作偏好；AI任务以冻结任务快照为准，忽略此字段。 */
+  creativeProfile?: unknown;
   idempotencyKey: unknown;
 }
 
@@ -53,7 +56,9 @@ export class V7OpeningBookService {
   public async confirm(ownerId: string, input: ConfirmV7OpeningBookInput): Promise<ConfirmV7OpeningBookResult> {
     const idempotencyKey = normalizeActionKey(input.idempotencyKey);
     const taskId = optionalIdentifier(input.taskId, '开书任务');
-    const packages = validateSubmittedOpeningPackage(input.openingPackage, taskId === null);
+    // 类型权威：AI任务取冻结任务快照；自己设计取作者本次提交的创作偏好（规范化后随确认入架保存）。
+    const confirmProfile = this.resolveConfirmProfile(ownerId, taskId, input.creativeProfile);
+    const packages = validateSubmittedOpeningPackage(input.openingPackage, taskId === null, confirmProfile.workType);
     const openingPackage = packages.openingPackage;
     const source = taskId === null
       ? { sourceKey: `manual-${idempotencyKey}`, idea: normalizeOptionalIdea(input.openingIdea) }
@@ -66,13 +71,13 @@ export class V7OpeningBookService {
     const draft = positioning.createDraft({ ownerId }, {
       title: openingPackage.title,
       text: openingPackage.positioning.coreAppeal,
-      openingBlueprint: blueprint
+      openingBlueprint: blueprint,
+      workType: confirmProfile.workType
     }, { draftId, proposedBookId: bookId });
 
     const persistCreativeProfile = (): void => {
-      if(taskId === null) return;
-      const task=this.openings.byTaskId(ownerId,taskId);
-      if(task?.creative_profile_json) this.database.prepare(`INSERT INTO book_creative_profiles (owner_id,book_id,profile_json,source_task_id,created_at) VALUES (?,?,?,?,?) ON CONFLICT(owner_id,book_id) DO NOTHING`).run(ownerId,bookId,task.creative_profile_json,taskId,this.clock.now().toISOString());
+      if (confirmProfile.profileJson === null) return;
+      this.database.prepare(`INSERT INTO book_creative_profiles (owner_id,book_id,profile_json,source_task_id,created_at) VALUES (?,?,?,?,?) ON CONFLICT(owner_id,book_id) DO NOTHING`).run(ownerId,bookId,confirmProfile.profileJson,taskId ?? source.sourceKey,this.clock.now().toISOString());
     };
     if (draft.status === 'confirmed') {
       if (draft.confirmedBookId !== bookId) {
@@ -94,6 +99,34 @@ export class V7OpeningBookService {
 
   public list(ownerId: string): V7BookListItem[] {
     return this.openings.listConfirmedV7Books(ownerId);
+  }
+
+  /**
+   * 确认入架的类型与待保存快照：AI任务只信冻结任务里的创作偏好（旧任务无快照=长篇）；
+   * 自己设计没有任务，规范化作者提交的创作偏好并随书籍保存（缺省=长篇）。
+   */
+  private resolveConfirmProfile(
+    ownerId: string,
+    taskId: string | null,
+    value: unknown
+  ): { workType: CreativeWorkType; profileJson: string | null } {
+    if (taskId !== null) {
+      const row = this.openings.byTaskId(ownerId, taskId);
+      const profileJson = row?.creative_profile_json ?? null;
+      return { workType: workTypeFromCreativeProfileJson(profileJson), profileJson };
+    }
+    try {
+      const normalized = normalizeCreativeProfile(value);
+      return { workType: normalized.workType, profileJson: JSON.stringify(normalized) };
+    } catch (error) {
+      throw new DomainError(
+        errorCodes.validation,
+        error instanceof Error ? error.message : '创作偏好格式无效。',
+        {},
+        false,
+        400
+      );
+    }
   }
 
   public requireVisible(ownerId: string, bookId: string): void {
@@ -150,13 +183,13 @@ function normalizeActionKey(value: unknown): string {
   return key;
 }
 
-function validateSubmittedOpeningPackage(value: unknown, manual: boolean): {
+function validateSubmittedOpeningPackage(value: unknown, manual: boolean, workType: CreativeWorkType): {
   openingPackage: OpeningPackage;
   comparisonPackage: OpeningPackage | null;
 } {
   try {
-    if (manual) return { openingPackage: validateV7ManualOpeningPackage(value), comparisonPackage: null };
-    return validateV7OpeningConfirmationPackage(value);
+    if (manual) return { openingPackage: validateV7ManualOpeningPackage(value, workType), comparisonPackage: null };
+    return validateV7OpeningConfirmationPackage(value, workType);
   } catch (error) {
     if (error instanceof DomainError) throw error;
     throw new DomainError(

@@ -17,6 +17,7 @@ import {TIME_MACHINE_CARD_TEMPLATE_REVISION,cardContractFor,planningMaterial} fr
 import {packCardSources} from './time-machine-source-pages.js';
 import {prepareCardMerge,cardMergeGuidance} from './time-machine-card-merge.js';
 import {CreativeReferenceRuntime,creativeSupplement,CREATIVE_DESIGN_GUIDANCE} from '../creative-reference/runtime.js';
+import {assertNovelChainOpen} from '../agents/book-creative-context.js';
 import {nodeFamilyFor} from '../evaluation/node-policy-dispatch.js';
 interface Run {id:string;owner_id:string;book_id:string;kind:'recommend'|'design';snapshot_json:string;state:string;result_json:string|null;error_code:string|null}
 function usesRetiredModelRoute(snapshot:TimeMachineSnapshot):boolean{
@@ -135,6 +136,8 @@ export class TimeMachineDesignService {
  start(scope:Scope,kind:'recommend',intent:string,key:string):string{
   if(kind!=='recommend')throw Error('设计必须经结构化故事线确认入口（startDesignRound），此入口不接受无选择的新设计');
   if(typeof key!=='string'||!key.trim()||key.length>160)throw Error('请求参数错误');
+  // R2：非长篇作品在写任务/排队/占用生成预算之前明确拒绝（含设定确认后的自动handoff分发）。
+  assertNovelChainOpen(this.db,scope.ownerId,scope.bookId);
   const snapshot=snapshotTimeMachine(this.db,scope,intent,this.windowTokens);
   this.db.exec('BEGIN IMMEDIATE');try{const id=this.createRun(scope,kind,key,'','',snapshot);this.db.exec('COMMIT');return id;}
   catch(e){if(this.db.isTransaction)this.db.exec('ROLLBACK');throw e;}
@@ -147,6 +150,8 @@ export class TimeMachineDesignService {
   *    （manifest的intent哈希、documents的intent正文与保存文本一致，不再只改单字段）。 */
  startDesignRound(scope:Scope,selection:StorylineSelectionInput,key:string,expectedMaterialRevision?:number):{id:string;scheme:string}[]{
   if(typeof key!=='string'||!key.trim()||key.length>160)throw Error('请求参数错误');
+  // R2：非长篇作品在写任务/排队/占用生成预算之前明确拒绝；历史异常轮次只读保留，不回放续跑。
+  assertNovelChainOpen(this.db,scope.ownerId,scope.bookId);
   const selections=new StorylineSelectionRepository(this.db);
   const prerequisiteReader=(this as unknown as {_prerequisiteReader?:(s:Scope)=>{ready:boolean;message:string;version:string|null}|null})._prerequisiteReader?.bind(this)??null;
   this.db.exec('BEGIN IMMEDIATE');try{
@@ -236,6 +241,8 @@ export class TimeMachineDesignService {
   return {id:row.id,kind:row.kind,intent:String(row.intent??''),scheme:String(row.scheme||'')||null,roundKey:String(row.round_key||'')||null,state:row.state,updatedAt:row.updated_at,needsRedesign:Number(row.needs_redesign)===1,member:row.state==='working'?publicMember(activeMember):null,assignedMember:publicMember(row.kind==='design'?members.writer:members.chief),chief:publicMember(members.chief),recoveryAction:row.state==='failed'?(retiredRoute?'reconfirm':row.error_code==='unknown'?'check':'retry'):null,progress:row.state==='working'?label:row.state==='succeeded'?(needsReview?'方案待调整':'已完成'):row.state==='failed'?'未完成':'等待成员接手',result,message:row.state==='failed'&&retiredRoute?`${row.error_code==='budget'?'上次设计达到处理上限并停止。':''}本轮使用的旧模型通道已停用，请重新确认故事线，使用当前配置设计。`:needsReview?'方案仍有待核对的问题，暂不能采用。':row.error_code==='unknown'?'上次调用结果尚未确认，已保留记录，不会自动重复调用。':row.error_code==='budget'?'本次设计达到处理上限，已保存的内容保留。':row.error_code?failureMessage:null,recommendationHash,selection};
  });}
  retry(scope:Scope,id:string):string{
+  // R2：非长篇作品不允许借重试继续长篇任务链；历史失败记录只读保留。
+  assertNovelChainOpen(this.db,scope.ownerId,scope.bookId);
   const row=this.db.prepare('SELECT state,error_code,snapshot_json,kind,scheme,round_key FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND id=?').get(scope.ownerId,scope.bookId,id) as {state:string;error_code:string|null;snapshot_json:string;kind:'recommend'|'design';scheme:string|null;round_key:string|null}|undefined;
   if(!row)throw Error('任务不存在');if(row.state!=='failed')return id;
   if(usesRetiredModelRoute(JSON.parse(row.snapshot_json) as TimeMachineSnapshot))throw new DomainError(errorCodes.validation,'本轮使用的旧模型通道已停用，请重新确认故事线再设计',{},false,409);

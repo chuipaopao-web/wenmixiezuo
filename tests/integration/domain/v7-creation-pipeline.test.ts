@@ -21,6 +21,7 @@ import { V7PlanningTreeService } from '../../../apps/api/src/application/plannin
 import { createAppServer } from '../../../apps/api/src/http/app-server.js';
 import { FixedClock, SequenceIds, createTestContext as createBaseTestContext, type TestContext } from '../../helpers/test-context.js';
 import { v7GenreProfileFixtureResult } from '../../helpers/v7-genre-profile-model-fixture.js';
+import { isCreativeEnvelope, unwrapCreativeEnvelope } from '../../helpers/creative-envelope.js';
 import {renderRhythmFragment} from '@wenmi/v7-backend';
 import {V7RhythmPolicyStore} from '../../../apps/api/src/application/planning/v7-rhythm-policy-store.js';
 
@@ -1656,11 +1657,13 @@ function stageTaskPrompt(compiledPrompt: string): string {
     const manifest = JSON.parse(compiledPrompt) as {
       contextPack?: { content?: { stageTaskPayload?: unknown } };
     };
-    const payload = manifest.contextPack?.content?.stageTaskPayload;
-    if (payload === undefined) return compiledPrompt;
-    return typeof payload === 'string' ? payload : JSON.stringify(payload);
+    const payload: unknown = manifest.contextPack?.content?.stageTaskPayload;
+    if (payload === undefined) return unwrapCreativeEnvelope(compiledPrompt);
+    if (typeof payload === 'string') return unwrapCreativeEnvelope(payload);
+    if (isCreativeEnvelope(payload)) return payload.task;
+    return JSON.stringify(payload);
   } catch {
-    return compiledPrompt;
+    return unwrapCreativeEnvelope(compiledPrompt);
   }
 }
 

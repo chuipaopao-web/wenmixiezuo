@@ -1,3 +1,4 @@
+import { CREATIVE_WORK_TYPE_WORD_LIMITS, type CreativeWorkType } from '@wenmi/agent-catalog';
 import type {
   OpeningPackage,
   OpeningPublishingPlatform,
@@ -11,8 +12,11 @@ import { OPENING_DECISION_FIELDS, type OpeningReviewDecision } from './opening-a
 export function parseOpeningPackage(
   output: string,
   taxonomy?: OpeningTaxonomyReference,
-  expectedPublishingPlatform?: OpeningPublishingPlatform
+  expectedPublishingPlatform?: OpeningPublishingPlatform,
+  workType: CreativeWorkType = 'novel'
 ): OpeningPackage {
+  // 类型来自冻结任务/所属书籍（调用方传入），不由模型输出决定；缺省=旧长篇兼容。
+  const wordLimits = CREATIVE_WORK_TYPE_WORD_LIMITS[workType] ?? CREATIVE_WORK_TYPE_WORD_LIMITS.novel;
   const value = parseStructuredObject(output, '开书资料包');
   const positioning = record(value.positioning, '作品定位');
   const backgrounds = record(value.backgrounds, '背景');
@@ -47,7 +51,7 @@ export function parseOpeningPackage(
       ...(positioning.readingTone === undefined || positioning.readingTone === null
         ? {}
         : { readingTone: optionalBoundedText(positioning.readingTone, '阅读味道', 300) }),
-      expectedTotalWords: integer(positioning.expectedTotalWords, '预计总字数', 100_000, 10_000_000),
+      expectedTotalWords: integer(positioning.expectedTotalWords, '预计总字数', wordLimits.min, wordLimits.max),
       ...legacyPlanningFields(positioning)
     },
     backgrounds: {

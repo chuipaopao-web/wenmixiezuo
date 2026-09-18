@@ -248,6 +248,74 @@ describe('V7开书资料页', () => {
     expect(screen.queryByText(/已保存为第/)).not.toBeInTheDocument();
   });
 
+  // OPENING-UI-02返修R2：设定分区属于长篇工作台——类型未确认前（加载中/失败）不能先挂载可发任务的界面。
+  describe('R2 设定分区类型门禁', () => {
+    it('类型读取中显示等待提示，不挂载设定工作台', async () => {
+      const pendingMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/book-profile') && init?.method !== 'PUT') return new Promise<Response>(() => {});
+        const response = await fetchMock(input, init);
+        return response;
+      });
+      vi.stubGlobal('fetch', pendingMock);
+      render(<InformationPage bookId="book-1" initialSection="setting" />);
+      expect(await screen.findByText('正在确认本书类型与可用功能…')).toBeInTheDocument();
+      expect(screen.queryByLabelText('本书设定')).not.toBeInTheDocument();
+      expect(screen.queryByText('正在准备设定编辑部…')).not.toBeInTheDocument();
+    });
+
+    it('类型读取失败给可重试错误，重试成功后进入设定工作台', async () => {
+      let attempts = 0;
+      const flakyMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/book-profile') && init?.method !== 'PUT') {
+          attempts += 1;
+          if (attempts === 1) return new Response(JSON.stringify({ error: { message: '读取失败' } }), { status: 500, headers: { 'content-type': 'application/json' } });
+        }
+        return fetchMock(input, init);
+      });
+      vi.stubGlobal('fetch', flakyMock);
+      render(<InformationPage bookId="book-1" initialSection="setting" />);
+      expect(await screen.findByText('开书资料读取失败')).toBeInTheDocument();
+      expect(screen.queryByText('正在准备设定编辑部…')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('本书设定')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '重新读取' }));
+      // 长篇书重试成功后挂载设定工作台（部门接口未模拟时报其自身加载失败，两种结果都证明工作台已挂载）。
+      await waitFor(() => expect(
+        screen.queryByText('正在准备设定编辑部…') !== null
+        || screen.queryByText(/设定编辑部暂时没有准备好/) !== null
+        || screen.queryByLabelText('本书设定') !== null
+      ).toBe(true));
+      expect(screen.queryByText('开书资料读取失败')).not.toBeInTheDocument();
+    });
+
+    it('短篇书显示尚未开放说明，不挂载设定工作台', async () => {
+      const shortMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/book-profile') && init?.method !== 'PUT') return json({ ...profile, workType: 'short_story' });
+        return fetchMock(input, init);
+      });
+      vi.stubGlobal('fetch', shortMock);
+      render(<InformationPage bookId="book-1" initialSection="setting" />);
+      expect(await screen.findByText('短篇小说的后续创作工作台尚未开放')).toBeInTheDocument();
+      expect(screen.queryByText('正在准备设定编辑部…')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('本书设定')).not.toBeInTheDocument();
+      expect(shortMock.mock.calls.some(([input]) => String(input).includes('/setting-department'))).toBe(false);
+    });
+
+    it('短篇书资料分区正常显示开书资料，但不加载长篇全书简介', async () => {
+      const shortMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/book-profile') && init?.method !== 'PUT') return json({ ...profile, workType: 'short_story' });
+        return fetchMock(input, init);
+      });
+      vi.stubGlobal('fetch', shortMock);
+      render(<InformationPage bookId="book-1" />);
+      expect(await screen.findByRole('heading', { name: '边军起势' })).toBeInTheDocument();
+      expect(shortMock.mock.calls.some(([input]) => String(input).includes('/synopsis'))).toBe(false);
+    });
+  });
+
 });
 
 function json(data: unknown): Response {

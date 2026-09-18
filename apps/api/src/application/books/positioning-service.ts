@@ -1,4 +1,5 @@
 import { BOOK_TITLE_MAX_CHARACTERS, bookTitleCharacterCount } from '@wenmi/contracts';
+import type { CreativeWorkType } from '@wenmi/agent-catalog';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { PositioningDraft, PositioningField, PositioningTag, SourceStatus } from '../../domain/positioning.js';
@@ -44,6 +45,8 @@ export class PositioningService {
       tags?: string[];
       style?: string;
       openingBlueprint?: OpeningBlueprintInput;
+      /** 作品类型（OPENING-UI-02返修R1）：决定蓝图字数合同范围；缺省按长篇兼容旧调用。 */
+      workType?: CreativeWorkType;
     },
     identity?: { draftId: string; proposedBookId: string }
   ): PositioningDraft {
@@ -52,7 +55,7 @@ export class PositioningService {
     const requestedTitle = input.title?.trim() ?? '';
     if (input.openingBlueprint !== undefined && requestedTitle.length === 0) throw new Error('完整开书必须填写书名');
     if (bookTitleCharacterCount(requestedTitle) > BOOK_TITLE_MAX_CHARACTERS) throw new Error('书名最多15字');
-    const openingBlueprint = input.openingBlueprint === undefined ? null : validateOpeningBlueprint(input.openingBlueprint);
+    const openingBlueprint = input.openingBlueprint === undefined ? null : validateOpeningBlueprint(input.openingBlueprint, input.workType ?? 'novel');
     // 故事方向已是可选补充：完整开书允许留空并回退到定位描述文本；仅旧式定位文本入口仍要求至少2个字符。
     const text = openingBlueprint === null
       ? input.text.trim()

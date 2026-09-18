@@ -635,7 +635,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   }, [decisionResolutions, decisionStorageKey, hydratedDecisionKey]);
   const manualValidation = useMemo(() => openingPackage === null
     ? { stepOne: ['尚无开书资料'], stepTwo: [], all: ['尚无开书资料'] }
-    : validateManualOpening(openingPackage, taxonomy), [openingPackage, taxonomy]);
+    : validateManualOpening(openingPackage, taxonomy, creativeProfile.workType), [openingPackage, taxonomy, creativeProfile.workType]);
   const validationErrors = manualValidation.all;
   const dirty = mode === 'ai' && openingPackage !== null && packageCandidate !== null && (
     JSON.stringify(openingPackage) !== JSON.stringify(packageCandidate.content)
@@ -803,6 +803,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
           ? { taskId, candidateId: baseCandidateId }
           : {}),
         ...(mode === 'manual' && idea.trim().length > 0 ? { openingIdea: idea.trim() } : {}),
+        ...(mode === 'manual' ? { creativeProfile } : {}),
         openingPackage,
         idempotencyKey: action.key
       });
@@ -940,7 +941,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
           ...current,
           ...Object.fromEntries(decisions.map((item) => [item.decisionId, { decisionId: item.decisionId, action: 'accept' as const }]))
         }))} />}
-        <ManualOpeningForm value={openingPackage} taxonomy={taxonomy} onChange={setOpeningPackage} step={manualStep} onStepChange={setManualStep} />
+        <ManualOpeningForm value={openingPackage} taxonomy={taxonomy} onChange={setOpeningPackage} step={manualStep} onStepChange={setManualStep} workType={creativeProfile.workType} />
         {mode === 'ai' && designMembers.length > 0 && <section className="opening-redesign-choice" aria-label="换成员重新设计">
           <DesignerMemberPicker members={designMembers} value={effectiveDesignerMemberKey} onChange={(memberKey) => { setSelectedDesignerMemberKey(memberKey); setMemberFallbackNotice(null); }} redesign disabled={busy} />
           <p>按最初的开书想法重新设计，不带入当前方案和下方调整意见；原方案保留在任务记录中。</p>

@@ -18,6 +18,7 @@ import { V7PlanningRuntimeRepository } from '../../../apps/api/src/infrastructur
 import { accountUsageTotals } from '../../../apps/api/src/infrastructure/security/account-usage-service.js';
 import { createTestContext, FixedClock, MutableClock, type TestContext } from '../../helpers/test-context.js';
 import { v7GenreProfileFixtureResult } from '../../helpers/v7-genre-profile-model-fixture.js';
+import { isCreativeEnvelope, unwrapCreativeEnvelope } from '../../helpers/creative-envelope.js';
 import { parseProgressivePlanningBrief, sha256, stableStringify } from '@wenmi/v7-backend';
 
 const HEADERS = {
@@ -2075,13 +2076,14 @@ function stageTaskPrompt(compiledPrompt: string): string {
     const manifest = JSON.parse(compiledPrompt) as {
       contextPack?: { content?: { stageTaskPayload?: unknown } };
     };
-    const payload = manifest.contextPack?.content?.stageTaskPayload;
-    if (typeof payload === 'string') return payload;
+    const payload: unknown = manifest.contextPack?.content?.stageTaskPayload;
+    if (typeof payload === 'string') return unwrapCreativeEnvelope(payload);
+    if (isCreativeEnvelope(payload)) return payload.task;
     if (payload !== undefined) return JSON.stringify(payload);
   } catch {
     // Legacy and deliberately malformed prompts remain directly readable by the fixture.
   }
-  return compiledPrompt;
+  return unwrapCreativeEnvelope(compiledPrompt);
 }
 
 function routeFusionOutput(prompt: string): string {

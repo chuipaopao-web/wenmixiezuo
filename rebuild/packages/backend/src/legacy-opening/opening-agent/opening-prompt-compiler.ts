@@ -1,4 +1,4 @@
-import { CREATIVE_WORK_TYPE_LABELS, creativeDirective, type CreativeProfile, type CreativeWorkType } from '@wenmi/agent-catalog';
+import { CREATIVE_WORK_TYPE_LABELS, CREATIVE_WORK_TYPE_WORD_LIMITS, creativeDirective, type CreativeProfile, type CreativeWorkType } from '@wenmi/agent-catalog';
 import { compileOpeningSkillBundle } from '../agents/agent-skills.js';
 import type { V7OpeningNodeKey } from '../agents/agent-tools.js';
 import type {
@@ -112,7 +112,7 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
       designLater: ['建议卷数', '商业受众', '追读定位', '当前困境', '开局处境', '触发事件', '眼前冲突', '读者承诺'],
       instruction: stageBoundaryInstruction(workType)
     },
-    outputTemplate: schemaTemplate(outputJsonSchema(input.nodeKey, input.taxonomy, input.publishingPlatform)),
+    outputTemplate: schemaTemplate(outputJsonSchema(input.nodeKey, input.taxonomy, input.publishingPlatform, workType)),
     validationRepair: input.validationRepair,
     finalInstructions: finalInstructions(workType)
   });
@@ -133,6 +133,7 @@ function stageBoundaryInstruction(workType: CreativeWorkType): string {
 }
 
 function finalInstructions(workType: CreativeWorkType): string[] {
+  const wordLimits = CREATIVE_WORK_TYPE_WORD_LIMITS[workType] ?? CREATIVE_WORK_TYPE_WORD_LIMITS.novel;
   const authorPriority = workType === 'memoir'
     ? '作者后续明确调整优先；保留其余原意与人物身份。作者未提供的家庭、职业、经历等事实标“待补充”，不编造候选，不冒充确认事实；修订只改作者指出的字段。'
     : '作者后续明确调整优先；保留其余原意与主角身份，不因遇见历史名人就替换主角。未指定的家庭、职业、能力、外貌由成员提出候选，不冒充确认事实；修订只改作者指出的字段。';
@@ -155,7 +156,7 @@ function finalInstructions(workType: CreativeWorkType): string[] {
     'visualIdentity三项各写2至8个简短标签，以顿号连接；不写剧情句。mustFollow只记作者明确边界，无限制时返回["无额外限制"]。',
     '审查检查原意、字段合法性、事实硬冲突、卖点具体性和味道是否符合作者尺度；文学偏好不得冒充错误。可继续规划时pass，可选建议写issues，requiredChanges/authorDecisions/decisions为空；不因缺少感情、战争、牺牲等模板阻断。',
     '只有原意被改错、必填结构无效或姓名身份等硬冲突才revise/author_decision。普通优化主编自行处理，不重复已解决决定。issues.field用中文；decisions.field严格用白名单，每项一个字段，recommendation可完整写回，其他说明简短。',
-    '需要作者处理的revise/author_decision必须给决定卡，不能只写requiredChanges；字数建议只写100000至10000000之间整数。保持未被点名的既有字段，不改后续设定或正文。'
+    '需要作者处理的revise/author_decision必须给决定卡，不能只写requiredChanges；字数建议只写'+wordLimits.min+'至'+wordLimits.max+'之间整数。保持未被点名的既有字段，不改后续设定或正文。'
   ];
 }
 
@@ -210,8 +211,10 @@ function assertOpeningPromptContract(input: OpeningPromptInput): void {
 function outputJsonSchema(
   nodeKey: V7OpeningNodeKey,
   taxonomy: OpeningTaxonomyReference | null,
-  publishingPlatform: OpeningPublishingPlatform
+  publishingPlatform: OpeningPublishingPlatform,
+  workType: CreativeWorkType = 'novel'
 ): Record<string, unknown> {
+  const wordLimits = CREATIVE_WORK_TYPE_WORD_LIMITS[workType] ?? CREATIVE_WORK_TYPE_WORD_LIMITS.novel;
   if (nodeKey === 'opening_package_review') {
     return objectSchema(
       ['verdict', 'summary', 'issues', 'requiredChanges', 'authorDecisions', 'decisions'],
@@ -281,7 +284,7 @@ function outputJsonSchema(
           coreAppeal: textSchema(8, 800),
           // R208：新AI开书要求输出阅读味道短句（1—300字符）。
           readingTone: textSchema(1, 300),
-          expectedTotalWords: { type: 'integer', minimum: 100000, maximum: 10000000 }
+          expectedTotalWords: { type: 'integer', minimum: wordLimits.min, maximum: wordLimits.max }
         }
       ),
       backgrounds: objectSchema(

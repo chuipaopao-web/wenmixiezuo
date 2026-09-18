@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {enqueueSettingHandoff} from './setting-time-machine-handoff.js';
+import {assertNovelChainOpen} from '../agents/book-creative-context.js';
 import { selectSettingContext, settingOpeningSelection, SettingContextPreparationError } from './setting-context-selection.js';
 import { settingChangeImpact } from '../../infrastructure/db/repositories/setting-change-impact.js';
 import { continuitySources, continuitySourceText, continuityHash, continuitySourceHash, reviewSettingContinuity, type SettingContinuityReport } from './setting-continuity.js';
@@ -220,6 +221,11 @@ export class V7SettingEditorialService {
     this.genreProfiles = new V7BookGenreProfileEnsureService(database, adapters, ids, clock);
   }
 
+  /** R2：非长篇作品必须在写任务/排队/占用生成预算之前拒绝新建或继续长篇设定任务。 */
+  private assertChainOpen(ownerId: string, bookId: string): void {
+    assertNovelChainOpen(this.database, ownerId, bookId);
+  }
+
   /** Read-only prerequisite shared by the time-machine entry and mutation routes. */
   public timeMachinePrerequisite(ownerId: string, bookId: string): {ready:boolean;message:string;version:string|null} {
     const batch=this.latestBatch(ownerId,bookId);
@@ -291,6 +297,7 @@ export class V7SettingEditorialService {
   }
 
   public createRecommendation(ownerId: string, bookId: string, input: { idempotencyKey?: unknown }): V7SettingCatalogRecommendationView {
+    this.assertChainOpen(ownerId, bookId);
     const profile = this.profile(ownerId, bookId);
     const catalog = V7_SETTING_CATALOG.map((item) => ({ ...item }));
     const suppliedIdempotencyKey = input.idempotencyKey === undefined
@@ -347,6 +354,7 @@ export class V7SettingEditorialService {
   }
 
   public retryRecommendation(ownerId: string, bookId: string, taskId: string): V7SettingCatalogRecommendationView {
+    this.assertChainOpen(ownerId, bookId);
     const row = this.repository.recommendation(ownerId, bookId, taskId);
     if (row === undefined) throw new DomainError(errorCodes.validation, '设定清单任务不存在或不属于本书。', {}, false, 404);
     const profile = this.profile(ownerId, bookId);
@@ -397,6 +405,7 @@ export class V7SettingEditorialService {
   }
 
   public retryCurrentRecommendation(ownerId: string, bookId: string): V7SettingCatalogRecommendationView {
+    this.assertChainOpen(ownerId, bookId);
     const profile = this.profile(ownerId, bookId);
     const catalog = V7_SETTING_CATALOG.map((item) => ({ ...item }));
     const row = this.currentRecommendation(ownerId, bookId, profile, catalog)
@@ -406,6 +415,7 @@ export class V7SettingEditorialService {
   }
 
   public createFinalReview(ownerId: string, bookId: string, input: { idempotencyKey?: unknown }, excludedModelIds: readonly string[] = []): V7SettingFinalReviewView {
+    this.assertChainOpen(ownerId, bookId);
     const batch=this.latestBatch(ownerId,bookId);
     if(batch&&!['completed','awaiting_author'].includes(batch.status))throw new DomainError(errorCodes.validation,'请先完成本轮设定设计，再确认并整理。',{},false,409);
     if(batch&&coherentSettingLead(batch)!==null&&excludedModelIds.length===0){
@@ -484,6 +494,7 @@ export class V7SettingEditorialService {
   }
 
   public retryFinalReview(ownerId: string, bookId: string, taskId: string): V7SettingFinalReviewView {
+    this.assertChainOpen(ownerId, bookId);
     const row = this.requireFinalReview(ownerId, bookId, taskId);
     if (row.status !== 'partially_failed') throw new DomainError(errorCodes.validation, '当前统一整理任务不需要重试。', {}, false, 409);
     const currentHash = finalReviewRequestHash(
@@ -539,6 +550,7 @@ export class V7SettingEditorialService {
     designMemberKey?: unknown;
     selectedItemKeys?: unknown; customItems?: unknown; authorNotes?: unknown; idempotencyKey?: unknown;
   }): V7SettingBatchView {
+    this.assertChainOpen(ownerId, bookId);
     const profile = this.profile(ownerId, bookId);
     const idempotencyKey = actionKey(input.idempotencyKey);
     const selection = normalizeSelection(profile, input.selectedItemKeys, input.customItems);
@@ -635,6 +647,7 @@ export class V7SettingEditorialService {
   }
 
   public retry(ownerId: string, bookId: string, batchId: string): V7SettingBatchView {
+    this.assertChainOpen(ownerId, bookId);
     const batch = this.requireBatch(ownerId, bookId, batchId);
     this.executableSettingRoster(batch);
     const jobs = this.jobs(ownerId, bookId, batchId);
@@ -698,6 +711,7 @@ export class V7SettingEditorialService {
   public restartFailed(ownerId: string, bookId: string, sourceBatchId: string, input: {
     idempotencyKey?: unknown;
   }): V7SettingBatchView {
+    this.assertChainOpen(ownerId, bookId);
     const sourceBatch = this.requireBatch(ownerId, bookId, sourceBatchId);
     if (sourceBatch.status !== 'partially_failed') {
       throw new DomainError(errorCodes.validation, '当前任务不需要重新发起。', {}, false, 409);
@@ -822,6 +836,7 @@ export class V7SettingEditorialService {
     content?: unknown; instruction?: unknown; idempotencyKey?: unknown;
     sourceRedesignTaskId?: unknown; sourceOutputId?: unknown;
   }): V7SettingBatchView {
+    this.assertChainOpen(ownerId, bookId);
     const profile = this.profile(ownerId, bookId);
     const source = this.requireCurrentItem(ownerId, bookId, itemKey);
     const current = this.currentItemView(ownerId, bookId, itemKey);
@@ -929,6 +944,7 @@ export class V7SettingEditorialService {
     itemKey: string,
     input: { memberKeys?: unknown; authorNote?: unknown; idempotencyKey?: unknown }
   ): V7SettingRedesignTaskView {
+    this.assertChainOpen(ownerId, bookId);
     const memberKeys = normalizeMemberKeys(input.memberKeys);
     const authorNote = note(input.authorNote);
     const idempotencyKey = scopedActionKey('redesign', input.idempotencyKey);
@@ -1008,6 +1024,7 @@ export class V7SettingEditorialService {
     itemKey: string,
     taskId: string
   ): V7SettingRedesignTaskView {
+    this.assertChainOpen(ownerId, bookId);
     const batch = this.requireBatch(ownerId, bookId, taskId);
     const state = settingRedesignTaskState(batch);
     if (state.itemKey !== itemKey) {
@@ -1061,6 +1078,7 @@ export class V7SettingEditorialService {
   }
 
   public fuse(ownerId: string, bookId: string, itemKey: string, input: { outputIds?: unknown; authorNote?: unknown; idempotencyKey?: unknown }): V7SettingBatchView {
+    this.assertChainOpen(ownerId, bookId);
     const outputIds = normalizeOutputIds(input.outputIds);
     const authorNote = note(input.authorNote);
     const idempotencyKey = scopedActionKey('fusion', input.idempotencyKey);

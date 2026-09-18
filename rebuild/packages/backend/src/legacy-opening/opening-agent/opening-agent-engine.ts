@@ -9,6 +9,7 @@ import {
   type V7OpeningRoleKey
 } from '../agents/agent-roster.js';
 import { openingRosterFromGlobal } from '../agent-governance/runtime-rosters.js';
+import type { CreativeWorkType } from '@wenmi/agent-catalog';
 import type { V7OpeningNodeKey } from '../agents/agent-tools.js';
 import {
   sha256,
@@ -103,7 +104,7 @@ export class OpeningAgentEngine {
           ? previousPackage.version : null;
         const generated: GeneratedWithState<OpeningPackage> = await this.generateStructured(
           state,
-          this.packageSpecification(idea.text, idea.publishingPlatform),
+          this.packageSpecification(idea.text, idea.publishingPlatform, idea.creativeProfile?.workType ?? 'novel'),
           input.memberRoster,
           openingSourceTraces(
             state,
@@ -387,7 +388,8 @@ export class OpeningAgentEngine {
 
   private packageSpecification(
     authorIdea: string,
-    publishingPlatform: OpeningPublishingPlatform
+    publishingPlatform: OpeningPublishingPlatform,
+    workType: CreativeWorkType = 'novel'
   ): OpeningNodeSpecification<OpeningPackage> {
     return {
       ...PACKAGE_SPEC,
@@ -395,7 +397,8 @@ export class OpeningAgentEngine {
         const openingPackage = parseOpeningPackage(
           output,
           this.taxonomy ?? undefined,
-          publishingPlatform
+          publishingPlatform,
+          workType
         );
         return openingPackage;
       }

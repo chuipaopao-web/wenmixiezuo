@@ -561,6 +561,8 @@ export function confirmOpeningBook(input: {
   candidateId?: string;
   openingIdea?: string;
   openingPackage: OpeningPackage;
+  /** 自己设计（无开书任务）时随确认提交的创作偏好；AI任务由服务端冻结快照决定，不传。 */
+  creativeProfile?: import('@wenmi/agent-catalog').CreativeProfile;
   idempotencyKey: string;
 }): Promise<{ bookId: string; title: string; status: 'active'; nextView: 'information' }> {
   return request('/api/v1/v7/opening-books', { method: 'POST', body: JSON.stringify(input) });

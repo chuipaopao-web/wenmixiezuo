@@ -781,6 +781,17 @@ export const READING_STYLES = Object.freeze(['快节奏爽','直给爽快','脑�
 /** 作品类型稳定枚举：novel 是长篇兼容值；作者端只显示中文标签，内部标识不直接露出。 */
 export const CREATIVE_WORK_TYPES = Object.freeze(['novel','short_story','memoir','script']);
 export const CREATIVE_WORK_TYPE_LABELS = Object.freeze({novel:'长篇小说',short_story:'短篇小说',memoir:'个人自传',script:'影视剧本'});
+/**
+ * 按作品类型的预计总字数合法范围（开书结果解析、候选编辑、修订与书籍资料共用同一合同）。
+ * 长篇沿用历史网文口径不变；非长篇按真实容量定界——短篇正常1万字可通过，
+ * 各类型仍有上下限，非法范围照常拒绝。
+ */
+export const CREATIVE_WORK_TYPE_WORD_LIMITS = Object.freeze({
+ novel:Object.freeze({min:100_000,max:10_000_000}),
+ short_story:Object.freeze({min:1_000,max:100_000}),
+ memoir:Object.freeze({min:10_000,max:2_000_000}),
+ script:Object.freeze({min:5_000,max:2_000_000})
+});
 export function normalizeCreativeProfile(value) {
  if(value === undefined || value === null) return {version:CREATIVE_ASSET_VERSION,scale:4,styles:[],workType:'novel'};
  if(typeof value !== 'object' || Array.isArray(value)) throw new Error('创作偏好格式无效');

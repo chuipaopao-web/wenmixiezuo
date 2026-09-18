@@ -1633,7 +1633,9 @@ describe('V7 author opening flow', () => {
   it('链页打开历史章节时由父级一次写入章节范围再切到章页', async () => {
     installFetch((url) => url.endsWith('/api/v1/v7/books') ? response([
       { bookId: 'book-1', title: '历史测试书', status: 'active', updatedAt: '2026-08-30T00:00:00Z' }
-    ]) : null);
+    ]) : url.endsWith('/api/v1/v7/books/book-1/book-profile') ? response({
+      title: '历史测试书', workType: 'novel', openingBlueprint: {}
+    }) : null);
     window.history.replaceState({}, '', '/?view=chain&bookId=book-1&volumeId=volume-1&chainId=chain-2');
     render(<AuthorApp />);
 
