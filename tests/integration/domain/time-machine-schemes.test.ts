@@ -48,6 +48,37 @@ function output(prompt:string,modelId:string):unknown{
 }
 function schemeWriters(c:TestContext,bookId:string){return (c.database.prepare("SELECT scheme,snapshot_json FROM tm2_design_runs WHERE book_id=? AND kind='design' ORDER BY scheme").all(bookId) as {scheme:string;snapshot_json:string}[]).map(row=>({scheme:row.scheme,writer:(JSON.parse(row.snapshot_json) as {members:{writer:{memberKey:string;model:{modelId:string}}}}).members.writer}));}
 describe('three independent schemes per design round',()=>{
+ it('keeps frozen chief and assigned writer visible after a failure without claiming they are working',()=>{
+  const {c,scope}=setup();const service=new TimeMachineDesignService(c.database,new TimeMachineModelGateway(c.database,()=>{throw Error('此状态测试禁止模型调用');}),64000);
+  const first=round(service,scope,'identity-round')[0]!;
+  const queued=service.state(scope).find(run=>run.id===first.id)!;
+  expect(queued.member).toBeNull();expect(queued.assignedMember?.id).toBeTruthy();expect(queued.chief?.id).toBeTruthy();
+  c.database.prepare("UPDATE tm2_design_runs SET state='failed',error_code='budget' WHERE id=?").run(first.id);
+  const failed=service.state(scope).find(run=>run.id===first.id)!;
+  expect(failed.member).toBeNull();expect(failed.assignedMember).toEqual(queued.assignedMember);expect(failed.chief).toEqual(queued.chief);
+  expect(failed.message).toContain('处理上限');expect(failed.recoveryAction).toBe('retry');
+  expect(service.state({...scope,ownerId:'another-owner'})).toEqual([]);
+ });
+ it('blocks retry of a retired Coding snapshot with zero new tasks and asks for storyline confirmation',()=>{
+  const {c,scope}=setup();const service=new TimeMachineDesignService(c.database,new TimeMachineModelGateway(c.database,()=>{throw Error('此状态测试禁止模型调用');}),64000);
+  const first=round(service,scope,'retired-round')[0]!;
+  const row=c.database.prepare('SELECT snapshot_json FROM tm2_design_runs WHERE id=?').get(first.id) as {snapshot_json:string};
+  const snapshot=JSON.parse(row.snapshot_json);snapshot.members.writer.model.provider='volcengine-ark-coding-plan';
+  c.database.prepare("UPDATE tm2_design_runs SET snapshot_json=?,state='failed',error_code='budget' WHERE id=?").run(JSON.stringify(snapshot),first.id);
+  const count=()=>c.database.prepare('SELECT COUNT(*) AS n FROM tm2_design_runs').get()!.n;
+  const before=count();const state=service.state(scope).find(run=>run.id===first.id)!;
+  expect(state.recoveryAction).toBe('reconfirm');expect(state.message).toContain('旧模型通道已停用');expect(state.assignedMember?.id).toBe(snapshot.members.writer.memberKey);
+  expect(()=>service.retry(scope,first.id)).toThrow('重新确认故事线');expect(count()).toBe(before);
+ });
+ it('projects actual node override separately from the frozen scheme writer',()=>{
+  const {c,scope}=setup();const service=new TimeMachineDesignService(c.database,new TimeMachineModelGateway(c.database,()=>{throw Error('此状态测试禁止模型调用');}),64000);
+  const first=round(service,scope,'override-round')[0]!;
+  const row=c.database.prepare('SELECT snapshot_json FROM tm2_design_runs WHERE id=?').get(first.id) as {snapshot_json:string};
+  const snapshot=JSON.parse(row.snapshot_json);snapshot.nodeDispatch={'review-source':snapshot.members.chief};
+  c.database.prepare("UPDATE tm2_design_runs SET snapshot_json=?,state='working',phase='review-source:0' WHERE id=?").run(JSON.stringify(snapshot),first.id);
+  const state=service.state(scope).find(run=>run.id===first.id)!;
+  expect(state.member?.id).toBe(snapshot.members.chief.memberKey);expect(state.assignedMember?.id).toBe(snapshot.members.writer.memberKey);
+ });
  it('creates A/B/C with distinct writers, idempotent re-click and honest attribution',async()=>{
   const {c,scope}=setup();const gateway=new TimeMachineModelGateway(c.database,(provider,modelId)=>({provider,modelId,async generate(request){return {provider,modelId,output:JSON.stringify(output(request.prompt,modelId)),inputTokens:20,outputTokens:20,cashCostCny:0,state:'succeeded'};}}));
   const service=new TimeMachineDesignService(c.database,gateway,64000);

@@ -19,6 +19,9 @@ import {prepareCardMerge,cardMergeGuidance} from './time-machine-card-merge.js';
 import {CreativeReferenceRuntime,creativeSupplement,CREATIVE_DESIGN_GUIDANCE} from '../creative-reference/runtime.js';
 import {nodeFamilyFor} from '../evaluation/node-policy-dispatch.js';
 interface Run {id:string;owner_id:string;book_id:string;kind:'recommend'|'design';snapshot_json:string;state:string;result_json:string|null;error_code:string|null}
+function usesRetiredModelRoute(snapshot:TimeMachineSnapshot):boolean{
+ return [...Object.values(snapshot.members??{}),...Object.values(snapshot.nodeDispatch??{})].some(member=>member!=null&&String(member.model?.provider)==='volcengine-ark-coding-plan');
+}
 type ReviewAction={action:'read_source';key:string;offset:number}|{action:'verdict';issues:string[];suggestions:string[];pass:boolean;hasMoreIssues:boolean}|{action:'insufficient';missing:string[]};
 function json(text:string):unknown{return JSON.parse(text.trim().replace(/^```(?:json)?\s*/u,'').replace(/\s*```$/u,''));}
 function record(value:unknown):Record<string,unknown>{if(!value||typeof value!=='object'||Array.isArray(value))throw Error('invalid_output');return value as Record<string,unknown>;}
@@ -207,14 +210,18 @@ export class TimeMachineDesignService {
   const id=randomUUID(),now=new Date().toISOString();
   this.db.prepare("INSERT INTO tm2_design_runs(id,owner_id,book_id,kind,request_key,input_hash,snapshot_json,state,scheme,round_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'queued',?,?,?,?)").run(id,scope.ownerId,scope.bookId,kind,key,hash,JSON.stringify(snapshot),scheme,roundKey,now,now);return id;
  }
- state(scope:Scope){return this.db.prepare('SELECT id,kind,state,result_json,error_code,updated_at,phase,scheme,round_key,needs_redesign,json_extract(snapshot_json,\'$.members\') AS members_json,json_extract(snapshot_json,\'$.intent\') AS intent,json_extract(snapshot_json,\'$.selection\') AS selection_json FROM tm2_design_runs WHERE owner_id=? AND book_id=? ORDER BY created_at DESC LIMIT 12').all(scope.ownerId,scope.bookId).map(row=>{
+ state(scope:Scope){return this.db.prepare('SELECT id,kind,state,result_json,error_code,updated_at,phase,scheme,round_key,needs_redesign,snapshot_json,json_extract(snapshot_json,\'$.intent\') AS intent,json_extract(snapshot_json,\'$.selection\') AS selection_json FROM tm2_design_runs WHERE owner_id=? AND book_id=? ORDER BY created_at DESC LIMIT 12').all(scope.ownerId,scope.bookId).map(row=>{
   // 72c3a62f复核第5项：作者卡片统一"正在工作"，不直出检索/整理等内部步骤；无真实分母不给百分比（不定进度）
   const phase=String(row.phase);const label=phase===''?'等待成员接手':'正在工作';
   const result=typeof row.result_json==='string'?JSON.parse(row.result_json):null;
   const needsReview=row.kind==='design'&&result?.review?.pass===false;
-  const members=JSON.parse(String(row.members_json)) as TimeMachineSnapshot['members'];
+  const snapshot=JSON.parse(String(row.snapshot_json)) as TimeMachineSnapshot;
+  const members=snapshot.members;
+  const publicMember=(member:V7EffectiveMember|undefined|null)=>member?{id:member.memberKey,name:member.displayName}:null;
+  const retiredRoute=usesRetiredModelRoute(snapshot);
   // 审查相位对应实际reviewer（旧快照无reviewer回退chief）；卷卡/骨架/自检等设计相位对应writer
-  const activeMember=phase.startsWith('review')?(members.reviewer??members.chief):phase.startsWith('card-review')||phase.startsWith('recommend')||(phase.startsWith('methods')&&row.kind==='recommend')?members.chief:phase.startsWith('card')||phase.startsWith('merge')?members.researcher:members.writer;
+  const defaultActive=phase.startsWith('review')?(members.reviewer??members.chief):phase.startsWith('card-review')||phase.startsWith('recommend')||(phase.startsWith('methods')&&row.kind==='recommend')?members.chief:phase.startsWith('card')||phase.startsWith('merge')?members.researcher:members.writer;
+  const activeMember=snapshot.nodeDispatch&&Object.prototype.hasOwnProperty.call(snapshot.nodeDispatch,nodeFamilyFor(phase))?snapshot.nodeDispatch[nodeFamilyFor(phase)]:defaultActive;
   const failureMessage=phase.startsWith('card')||phase.startsWith('merge')?`资料整理或核对尚未完成，还没有进入${row.kind==='recommend'?'故事线推荐':'方案设计'}。`: '本次工作尚未完成，已保存的步骤会保留。';
   // S1-A：成功推荐附带服务端规范哈希（前端原样带回，服务端再验证）；设计轮投影最小selection供刷新恢复
   let recommendationHash:string|null=null;
@@ -226,11 +233,12 @@ export class TimeMachineDesignService {
    try{const parsed=JSON.parse(row.selection_json) as {selectedLineIds?:unknown;addedLines?:unknown;shape?:unknown;ensemble?:unknown;authorNote?:unknown;recommendationRunId?:unknown};
     selection={recommendationRunId:parsed.recommendationRunId??null,selectedLineIds:Array.isArray(parsed.selectedLineIds)?parsed.selectedLineIds:[],addedLines:Array.isArray(parsed.addedLines)?parsed.addedLines:[],shape:typeof parsed.shape==='string'?parsed.shape:'auto',ensemble:parsed.ensemble===true,authorNote:typeof parsed.authorNote==='string'?parsed.authorNote:''};}catch{selection=null;}
   }
-  return {id:row.id,kind:row.kind,intent:String(row.intent??''),scheme:String(row.scheme||'')||null,roundKey:String(row.round_key||'')||null,state:row.state,updatedAt:row.updated_at,needsRedesign:Number(row.needs_redesign)===1,member:row.state==='working'?{id:activeMember.memberKey,name:activeMember.displayName}:null,progress:row.state==='working'?label:row.state==='succeeded'?(needsReview?'方案待调整':'已完成'):row.state==='failed'?'未完成':'等待成员接手',result,message:needsReview?'方案仍有待核对的问题，暂不能采用。':row.error_code==='unknown'?'上次调用结果尚未确认，已保留记录，不会自动重复调用。':row.error_code?failureMessage:null,recommendationHash,selection};
+  return {id:row.id,kind:row.kind,intent:String(row.intent??''),scheme:String(row.scheme||'')||null,roundKey:String(row.round_key||'')||null,state:row.state,updatedAt:row.updated_at,needsRedesign:Number(row.needs_redesign)===1,member:row.state==='working'?publicMember(activeMember):null,assignedMember:publicMember(row.kind==='design'?members.writer:members.chief),chief:publicMember(members.chief),recoveryAction:row.state==='failed'?(retiredRoute?'reconfirm':row.error_code==='unknown'?'check':'retry'):null,progress:row.state==='working'?label:row.state==='succeeded'?(needsReview?'方案待调整':'已完成'):row.state==='failed'?'未完成':'等待成员接手',result,message:row.state==='failed'&&retiredRoute?`${row.error_code==='budget'?'上次设计达到处理上限并停止。':''}本轮使用的旧模型通道已停用，请重新确认故事线，使用当前配置设计。`:needsReview?'方案仍有待核对的问题，暂不能采用。':row.error_code==='unknown'?'上次调用结果尚未确认，已保留记录，不会自动重复调用。':row.error_code==='budget'?'本次设计达到处理上限，已保存的内容保留。':row.error_code?failureMessage:null,recommendationHash,selection};
  });}
  retry(scope:Scope,id:string):string{
   const row=this.db.prepare('SELECT state,error_code,snapshot_json,kind,scheme,round_key FROM tm2_design_runs WHERE owner_id=? AND book_id=? AND id=?').get(scope.ownerId,scope.bookId,id) as {state:string;error_code:string|null;snapshot_json:string;kind:'recommend'|'design';scheme:string|null;round_key:string|null}|undefined;
   if(!row)throw Error('任务不存在');if(row.state!=='failed')return id;
+  if(usesRetiredModelRoute(JSON.parse(row.snapshot_json) as TimeMachineSnapshot))throw new DomainError(errorCodes.validation,'本轮使用的旧模型通道已停用，请重新确认故事线再设计',{},false,409);
   if(row.error_code==='unknown')throw new TimeMachineCallError('unknown','上次调用结果尚未确认，不能重复发送');
   // truncated=已知不完整的长度截断：同轮重排队，已完成卷/骨架等已保存步骤直接复用，只重试被截断的节点。
   if(row.error_code!=='temporary'&&row.error_code!=='interrupted'&&row.error_code!=='truncated'){

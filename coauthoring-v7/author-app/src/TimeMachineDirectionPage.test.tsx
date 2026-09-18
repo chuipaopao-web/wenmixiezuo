@@ -96,6 +96,18 @@ HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) { t
 HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) { this.removeAttribute('open'); };
 
 describe('time machine direction page', () => {
+  it('shows real chief and frozen scheme identities for stopped legacy tasks, and reconfirms without retry calls', async () => {
+    const stopped = { ...designRun('A', 'failed', '', ''), assignedMember: {id:'planner-deepseek-v4-pro',name:'红玉'}, chief:{id:'chief-deepseek-v4-pro',name:'貂蝉'}, recoveryAction:'reconfirm' as const, message:'本轮使用的旧模型通道已停用，请重新确认故事线。' };
+    const fetcher=vi.fn(async (_url:RequestInfo|URL)=>response(stateFixture({runs:[recommendRun('succeeded'),stopped]})));
+    vi.stubGlobal('fetch',fetcher);renderPage(<TimeMachineDirectionEntry bookId="bk-1" />);
+    expect(await screen.findByRole('img',{name:'貂蝉的头像'})).toHaveStyle({backgroundImage:expect.stringContaining('/avatars/')});
+    expect(screen.getByRole('img',{name:'红玉的头像'})).toHaveStyle({backgroundImage:expect.stringContaining('/avatars/')});
+    expect(screen.getByText('本方案负责成员')).toBeVisible();expect(screen.queryByText('正在工作')).toBeNull();
+    expect(screen.queryByRole('button',{name:'继续方案A'})).toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'重新确认故事线'}));
+    expect(await screen.findByRole('button',{name:'确认故事线，设计全书方向'})).toBeVisible();
+    expect(fetcher.mock.calls.every(([url])=>String(url).endsWith('/state'))).toBe(true);
+  });
   it('uses shared navigation and separates queued members from the real working reviewer', async () => {
     const working = { ...designRun('B', 'working', '审查成员', ''), progress: '正在检索方法', result: designResult('候选作者', '现有草稿', false) };
     const queued = { ...designRun('A', 'working', '尚未工作成员', ''), state: 'queued' as const };

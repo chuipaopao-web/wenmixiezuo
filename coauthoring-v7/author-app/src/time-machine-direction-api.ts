@@ -82,6 +82,10 @@ export interface TimeMachineRunView {
   state: 'queued' | 'working' | 'failed' | 'succeeded';
   updatedAt: string;
   member: { id: string; name: string } | null;
+  /** 冻结任务中的负责人与主编；与当前正在工作的成员分开。 */
+  assignedMember?: { id: string; name: string } | null;
+  chief?: { id: string; name: string } | null;
+  recoveryAction?: 'reconfirm' | 'check' | 'retry' | null;
   progress: string;
   result: TimeMachineRecommendationView | TimeMachineDesignResultView | null;
   message: string | null;

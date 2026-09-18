@@ -955,6 +955,8 @@ core路径为rebuild/packages/time-machine-core/src；books路径为apps/api/src
 
 ### 25.1 导航与对象
 
+2026-09-18 后续纠正：上批只在working/result中取成员，失败且无候选时会隐藏真实负责人，作者误以为卡住。状态投影现分别提供冻结主编/负责人（chief/assignedMember）与当前工作member；主编引导与三方案头像按真实快照展示。旧Coding快照保留可读，失败旧轮不能复制快照重跑：retry确定性409且零新任务，recoveryAction=reconfirm转作者重新确认故事线后按当前配置新建；unknown只刷新核对，不重复发送。页面与HTTP仍由原会话/书籍范围保护，不将旧任务迁移到新供应商冒充原任务。实际working成员读取冻结节点覆盖；全候选停派时不虚标成员。
+
 本次静态已发布：提交 `3b3ec501`，静态版本 `ab04cb4ed9e568dea11e`。27项页面回归、Web类型检查/构建通过，公网14文件逐项哈希及目标深链接通过，匿名state保持401。后端版本仍 `wm-v7-20260918-161500-e1310473`，API/Worker PID不变，无数据变更。浏览器DOM/截图工具连续超时，未补到新三宽度视觉证据，不将资源验证冒称浏览器验收。旧生产页面已无入口；`rebuild/apps/author-web` 为未切换的独立重构工作区，不能因同名文件将其误判为当前生产旧页并删除。
 
 2026-09-18 界面收尾：当前唯一入口为 `TimeMachineDirectionEntry → TimeMachineDirectionPage`，仅请求 tm2 的 `/api/time-machine/books/:bookId/*`；旧 `TimeMachinePage` 已删除。截图中的旧外观实际来自当前组件未替换的进度区，而非另一套后端。此次删除独立旧导航样式、空头像占位、失败“待接手”与下划线“续做”，导航直接复用创作页 `workspace-secondary-tabs`。三方案分为排队、真实成员工作、失败原因/继续设计、结果查看；工作采用不定进度条，不编造百分比。过期失败方案转到资料重新确认，不续发旧资料。保留资料编辑、版本和幂等恢复合同。局部静态发布，不重启后端；页面27项及类型检查通过，浏览器工具超时，真实视口验收未完成。
