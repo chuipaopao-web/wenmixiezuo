@@ -3,6 +3,7 @@ import type {DatabaseSync} from 'node:sqlite';
 import {SqlPlanRepository,StepRepository,digest,parseCard,parseCandidate,Conflict,type Candidate,type Scope,type ContextCard} from '@wenmi/time-machine-core';
 import {StepArchiveRepository} from '../../infrastructure/db/repositories/step-archive-repository.js';
 import {TimeMachineModelGateway,TimeMachineCallError,TIME_MACHINE_PROMPT_CHAR_LIMIT} from '../../infrastructure/models/time-machine-model-gateway.js';
+import {defaultSystemPromptForPurpose} from '../../infrastructure/models/ark-plan-model.js';
 import {snapshotTimeMachine,manifestSourcesSignature,type TimeMachineSnapshot,type StorylineSelectionSnapshot} from './time-machine-sources.js';
 import {validateStorylineSelection,resolveSelectionRequestHash,canonicalRecommendationHash,type StorylineSelectionInput} from './storyline-selection.js';
 import {DomainError,errorCodes} from '../../domain/errors.js';
@@ -884,11 +885,13 @@ export class TimeMachineDesignService {
    const nodeBase=useFinalize?`review-source:finalize${finalizeCorrections?':corrected':''}`:normalBase;
    const fullNode=nodeBase+nodeSuffix;
    let reviewPrompt=useFinalize?finalizeContract(finalizeCorrections>0,true):contract(true);
-   if(!stepSucceeded(fullNode)&&Buffer.byteLength(reviewPrompt,'utf8')>TIME_MACHINE_PROMPT_CHAR_LIMIT){
+   // 封套口径按网关实际检查口径（适配器封套JSON字符长，含转义膨胀与系统提示；不用裸prompt字节数冒充上限——CJK字节是字符3倍曾误判）
+   const envelopeChars=(p:string)=>JSON.stringify({system:defaultSystemPromptForPurpose('structured_planning'),messages:[{role:'user',content:p}]}).length+150;
+   if(!stepSucceeded(fullNode)&&envelopeChars(reviewPrompt)>TIME_MACHINE_PROMPT_CHAR_LIMIT){
     // 全量因果字段放不下→紧凑投影+显式告诫重试一次；仍超→明确未审完（不硬压缩证据、不强下结论）
     reviewPrompt=useFinalize?finalizeContract(finalizeCorrections>0,false):contract(false);
-    if(Buffer.byteLength(reviewPrompt,'utf8')>TIME_MACHINE_PROMPT_CHAR_LIMIT){
-     inconclusive=[`审查封套${Buffer.byteLength(reviewPrompt,'utf8')}字符超输入红线${TIME_MACHINE_PROMPT_CHAR_LIMIT}（紧凑投影与已读证据仍超限），明确未审完；不硬压缩证据、不强下结论`];break;
+    if(envelopeChars(reviewPrompt)>TIME_MACHINE_PROMPT_CHAR_LIMIT){
+     inconclusive=[`审查封套约${envelopeChars(reviewPrompt)}字符超输入红线${TIME_MACHINE_PROMPT_CHAR_LIMIT}（紧凑投影与已读证据仍超限），明确未审完；不硬压缩证据、不强下结论`];break;
     }
    }
    const response=await generate(nodeBase,chief,reviewPrompt,actionParse);

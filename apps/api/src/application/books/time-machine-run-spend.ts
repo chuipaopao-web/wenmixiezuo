@@ -42,11 +42,16 @@ export function computeRunSpend(db: DatabaseSync, scope: { ownerId: string; book
     const call = db.prepare('SELECT state, input_tokens, output_tokens, reserved_tokens FROM tm2_model_calls WHERE id=? AND owner_id=? AND book_id=?').get(id, scope.ownerId, scope.bookId) as
       { state: string; input_tokens: number | null; output_tokens: number | null; reserved_tokens: number | null } | undefined;
     if (!call) {
-      // 明确未发送（预算预检在创建调用行前拒绝，step带budget标记）不计为消耗不报缺口；其余不可解析按缺口fail closed
+      // 明确未发送（预算预检在创建调用行前拒绝）不计为消耗不报缺口；其余不可解析按缺口fail closed。
+      // budget标记可能在当前step行（失败未恢复）或归档row_json（输入升级归档重算后原行已搬走）——两处都要认。
       const stepsForId = [...idToSteps.get(id) ?? []];
       const allPreRejected = stepsForId.length > 0 && stepsForId.every(step => {
-        const row = db.prepare('SELECT error_code FROM tm2_steps WHERE owner=? AND book=? AND id=?').get(scope.ownerId, scope.bookId, step) as { error_code: string | null } | undefined;
-        return row?.error_code === 'budget';
+        const cur = db.prepare('SELECT error_code FROM tm2_steps WHERE owner=? AND book=? AND id=?').get(scope.ownerId, scope.bookId, step) as { error_code: string | null } | undefined;
+        if (cur?.error_code === 'budget') return true;
+        const archivedRows = db.prepare('SELECT row_json FROM tm2_step_archive WHERE owner=? AND book=? AND id=?').all(scope.ownerId, scope.bookId, step) as { row_json: string }[];
+        return archivedRows.some(r => {
+          try { return (JSON.parse(r.row_json) as { error_code?: string | null }).error_code === 'budget'; } catch { return false; }
+        });
       });
       if (!allPreRejected) gaps.push(`调用${id}在本owner/book下不可解析（不冒称0消耗）`);
       continue;

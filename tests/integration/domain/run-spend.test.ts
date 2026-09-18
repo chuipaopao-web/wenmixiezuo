@@ -99,4 +99,19 @@ describe('run级预算统计统一入口（d8407c59）', () => {
     expect(spend.tokens).toBe(150);
     expect(spend.gaps).toEqual([]);
   });
+  it('预算预检拒绝的标记在归档row_json（输入升级归档重算后原行已搬走）同样豁免', () => {
+    const { c, scope } = setup();
+    // 归档row_json带error_code=budget、当前step行为新输入版本（error_code=null）：attempt仅在归档
+    const stepId = `${RUN}:review-source:2:revision-2`;
+    c.database.prepare("INSERT INTO tm2_steps(owner,book,id,input_hash,member,state) VALUES(?,?,?,?,'m1','ready')")
+      .run(scope.ownerId, scope.bookId, stepId, 'new-hash');
+    c.database.prepare("INSERT INTO tm2_step_archive(owner,book,id,archived_at,reason,row_json,attempts_json,output_json) VALUES(?,?,?,?,?,?,?,?)")
+      .run(scope.ownerId, scope.bookId, stepId, '2026-09-18', '输入版本变化',
+        JSON.stringify({ owner: scope.ownerId, book: scope.bookId, id: stepId, input_hash: 'old', member: 'm1', state: 'failed', attempt: 'call-rejected', error_code: 'budget' }),
+        JSON.stringify([{ id: 'call-rejected', owner: scope.ownerId, book: scope.bookId, step: stepId, state: 'failed', started_at: 1 }]), null);
+    addCall(c, scope, 'call-real', `${RUN}:skeleton`, { state: 'succeeded', input: 100, output: 50 });
+    const spend = computeRunSpend(c.database, scope, RUN);
+    expect(spend.calls).toBe(1);
+    expect(spend.gaps).toEqual([]);
+  });
 });

@@ -24,7 +24,7 @@ import { FINAL_ADJUDICATION } from './final-adjudication.js';
 const RUN_ID = 'c116818b-028d-4438-9bc6-2e4474155aaa';
 const DRILL_DB = '.local/eval/drill-copy.sqlite';
 
-interface ProbeRec { node: string; hash: string; chars: number; kind: 'structured' | 'dispatch'; markers?: { causal: boolean; fields: boolean } }
+interface ProbeRec { node: string; hash: string; chars: number; kind: 'structured' | 'dispatch'; markers?: { causal: boolean; fields: boolean; caveat: boolean } }
 
 async function main(): Promise<void> {
   // 一致副本（VACUUM INTO含WAL；原库只读不动；旧副本先清）
@@ -57,7 +57,7 @@ async function main(): Promise<void> {
     async generate(request: { requestId?: string; prompt: string }) {
       records.push({
         node: '(adapter-dispatch)', hash: createHash('sha256').update(request.prompt).digest('hex').slice(0, 16), chars: request.prompt.length, kind: 'dispatch',
-        markers: { causal: request.prompt.includes('人手物资不足'), fields: ['"conflict"', '"turningPoint"', '"gain"', '"loss"'].every(f => request.prompt.includes(f)) }
+        markers: { causal: request.prompt.includes('人手物资不足'), fields: ['"conflict"', '"turningPoint"', '"gain"', '"loss"'].every(f => request.prompt.includes(f)), caveat: request.prompt.includes('未展示字段不判缺陷') }
       });
       throw new ModelAdapterError('断路演练：适配器拒绝发送（仅记录不触网）', 'technical_failure', false, 500);
     }
@@ -112,12 +112,15 @@ async function main(): Promise<void> {
   if (!dispatchA[0]?.markers?.fields || !dispatchA[0]?.markers?.causal) failures.push('探针①复审查封套缺因果字段或v6约束文本');
   if (structuredA.some(n => n.includes(':revision-1:revision-1'))) failures.push('探针①回放链存在双后缀节点');
   if (!structuredB.includes('revise-volume:v3:revision-2') || !structuredB.includes('self-check:revision-2')) failures.push('探针②修订/自检缓存重放缺失');
+  if (!structuredB.includes('review-source:0:revision-2') || !structuredB.includes('review-source:1:revision-2')) failures.push('探针②已成功审查步骤缓存重放缺失（应零重发）');
   if (structuredB.some(n => n.endsWith(':revision-1'))) failures.push('探针②structured链含首轮节点（首轮步骤被重放消耗）');
   if (structuredB.some(n => n.includes(':revision-2:revision-2'))) failures.push('探针②存在双后缀节点');
-  if (dispatchB.length !== 1 || dispatchB[0]?.node !== 'review-source:0:revision-2') failures.push(`探针②计划dispatch应为review-source:0:revision-2，实得${JSON.stringify(dispatchB)}`);
+  if (dispatchB.length !== 1 || dispatchB[0]?.node !== 'review-source:2:revision-2') failures.push(`探针②计划dispatch应为review-source:2:revision-2（:0/:1缓存命中后的首个未完成节点），实得${JSON.stringify(dispatchB)}`);
   if ((dispatchB[0]?.chars ?? 0) >= 15000) failures.push(`探针②复审查封套${dispatchB[0]?.chars}字符超输入红线（不得再次因缩略/超长制造误报）`);
-  if (!dispatchB[0]?.markers?.fields) failures.push('探针②封套缺因果字段名（conflict/turningPoint/gain/loss必须送达审查）');
-  if (!dispatchB[0]?.markers?.causal) failures.push('探针②封套缺v6实际约束文本"人手物资不足"（缩略投影制造误报的场景不得复现）');
+  // 封套分层预检：前两个已发节点曾以全量因果字段送达（真实dispatch 12204字符在案）；
+  // :2因封套超限应按合同降紧凑投影+显式告诫（缺失字段不判缺陷），不得硬压缩证据也不得误报
+  if (!dispatchB[0]?.markers?.caveat) failures.push('探针②:2降层封套缺"未展示字段不判缺陷"显式告诫');
+  if (dispatchB[0]?.markers?.fields && !dispatchB[0]?.markers?.causal) failures.push('探针②全量封套缺v6实际约束文本"人手物资不足"（缩略投影制造误报的场景不得复现）');
   const newArchives = (db.prepare('SELECT id FROM tm2_step_archive').all() as { id: string }[]).filter(r => !archivedBefore.has(r.id));
   const badArchives = newArchives.filter(r => !r.id.includes('review-source'));
   if (badArchives.length) failures.push(`非审查节点被归档重算${badArchives.length}条（仅完整审查输入改变的节点允许归档重算）：${badArchives.map(r => r.id).join(',')}`);
