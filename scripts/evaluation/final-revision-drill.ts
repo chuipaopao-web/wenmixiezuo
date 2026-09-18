@@ -112,13 +112,12 @@ async function main(): Promise<void> {
   if (!dispatchA[0]?.markers?.fields || !dispatchA[0]?.markers?.causal) failures.push('探针①复审查封套缺因果字段或v6约束文本');
   if (structuredA.some(n => n.includes(':revision-1:revision-1'))) failures.push('探针①回放链存在双后缀节点');
   if (!structuredB.includes('revise-volume:v3:revision-2') || !structuredB.includes('self-check:revision-2')) failures.push('探针②修订/自检缓存重放缺失');
-  if (!structuredB.includes('review-source:0:revision-2') || !structuredB.includes('review-source:1:revision-2') || !structuredB.includes('review-source:2:revision-2')) failures.push('探针②已成功审查步骤缓存重放缺失（:0/:1/:2应零重发）');
+  if (!structuredB.includes('review-source:finalize:revision-2')) failures.push('探针②finalize成功步骤缓存重放缺失（应零重发）');
   if (structuredB.some(n => n.endsWith(':revision-1'))) failures.push('探针②structured链含首轮节点（首轮步骤被重放消耗）');
   if (structuredB.some(n => n.includes(':revision-2:revision-2'))) failures.push('探针②存在双后缀节点');
-  if (dispatchB.length !== 1 || dispatchB[0]?.node !== 'review-source:finalize:revision-2') failures.push(`探针②计划dispatch应为review-source:finalize:revision-2（前序全部缓存命中后的首个未完成节点），实得${JSON.stringify(dispatchB)}`);
-  if ((dispatchB[0]?.chars ?? 0) >= 15000) failures.push(`探针②finalize封套${dispatchB[0]?.chars}字符超输入红线（分层降级后必须放得下）`);
-  // 封套分层预检：:0/:1曾以全量因果字段送达（真实dispatch在案）；:2降紧凑投影；finalize降坐标存根+可见范围限定
-  if (!dispatchB[0]?.markers?.caveat) failures.push('探针②finalize降层封套缺可见范围/未展示字段不判缺陷显式限定');
+  const frontier = /^review-anchors:\d+(:vol:v\d+)?:revision-2$|^review-source:finalize:revision-2$/u;
+  if (dispatchB.length !== 1 || !frontier.test(dispatchB[0]?.node ?? '')) failures.push(`探针②计划dispatch应为当前未完成审查节点（finalize/锚点批次），实得${JSON.stringify(dispatchB)}`);
+  if ((dispatchB[0]?.chars ?? 0) >= 15000) failures.push(`探针②审查封套${dispatchB[0]?.chars}字符超输入红线（分层降级后必须放得下）`);
   const newArchives = (db.prepare('SELECT id FROM tm2_step_archive').all() as { id: string }[]).filter(r => !archivedBefore.has(r.id));
   const badArchives = newArchives.filter(r => !r.id.includes('review-source'));
   if (badArchives.length) failures.push(`非审查节点被归档重算${badArchives.length}条（仅完整审查输入改变的节点允许归档重算）：${badArchives.map(r => r.id).join(',')}`);

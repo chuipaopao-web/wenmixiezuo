@@ -7,7 +7,7 @@ export interface RunSpend {
   gaps: string[];
 }
 
-interface AttemptLike { id?: unknown; step?: unknown }
+interface AttemptLike { id?: unknown; step?: unknown; state?: unknown }
 
 /**
  * run级真实调用统计统一入口（d8407c59复核：产品与探针共用）。
@@ -20,14 +20,19 @@ export function computeRunSpend(db: DatabaseSync, scope: { ownerId: string; book
   const prefix = `${runId}:`;
   const gaps: string[] = [];
   const ids = new Set<string>();
-  const idToSteps = new Map<string, Set<string>>();
+  const idToAttemptStates = new Map<string, Set<string>>();
   const markAttempts = (attempts: AttemptLike[], origin: string): void => {
     for (const a of attempts) {
       if (typeof a?.id !== 'string' || typeof a?.step !== 'string') { if (attempts.length) gaps.push(`${origin}存在不可解析attempt记录`); continue; }
-      if (a.step.startsWith(prefix)) { ids.add(a.id); const set = idToSteps.get(a.id) ?? new Set<string>(); set.add(a.step); idToSteps.set(a.id, set); }
+      if (a.step.startsWith(prefix)) {
+        ids.add(a.id);
+        const set = idToAttemptStates.get(a.id) ?? new Set<string>();
+        set.add(String(a.state ?? ''));
+        idToAttemptStates.set(a.id, set);
+      }
     }
   };
-  markAttempts(db.prepare('SELECT id, step FROM tm2_attempts WHERE owner=? AND book=?').all(scope.ownerId, scope.bookId) as AttemptLike[], '当前attempts');
+  markAttempts(db.prepare('SELECT id, step, state FROM tm2_attempts WHERE owner=? AND book=?').all(scope.ownerId, scope.bookId) as AttemptLike[], '当前attempts');
   const archived = db.prepare('SELECT id, attempts_json FROM tm2_step_archive WHERE owner=? AND book=?').all(scope.ownerId, scope.bookId) as { id: string; attempts_json: string }[];
   for (const row of archived) {
     let attempts: AttemptLike[];
@@ -42,18 +47,12 @@ export function computeRunSpend(db: DatabaseSync, scope: { ownerId: string; book
     const call = db.prepare('SELECT state, input_tokens, output_tokens, reserved_tokens FROM tm2_model_calls WHERE id=? AND owner_id=? AND book_id=?').get(id, scope.ownerId, scope.bookId) as
       { state: string; input_tokens: number | null; output_tokens: number | null; reserved_tokens: number | null } | undefined;
     if (!call) {
-      // 明确未发送（预算预检在创建调用行前拒绝）不计为消耗不报缺口；其余不可解析按缺口fail closed。
-      // budget标记可能在当前step行（失败未恢复）或归档row_json（输入升级归档重算后原行已搬走）——两处都要认。
-      const stepsForId = [...idToSteps.get(id) ?? []];
-      const allPreRejected = stepsForId.length > 0 && stepsForId.every(step => {
-        const cur = db.prepare('SELECT error_code FROM tm2_steps WHERE owner=? AND book=? AND id=?').get(scope.ownerId, scope.bookId, step) as { error_code: string | null } | undefined;
-        if (cur?.error_code === 'budget') return true;
-        const archivedRows = db.prepare('SELECT row_json FROM tm2_step_archive WHERE owner=? AND book=? AND id=?').all(scope.ownerId, scope.bookId, step) as { row_json: string }[];
-        return archivedRows.some(r => {
-          try { return (JSON.parse(r.row_json) as { error_code?: string | null }).error_code === 'budget'; } catch { return false; }
-        });
-      });
-      if (!allPreRejected) gaps.push(`调用${id}在本owner/book下不可解析（不冒称0消耗）`);
+      // 明确未发送：任何真实dispatch都会先创建调用行（working），failed attempt无调用行⟺发送前拒绝
+      // （预算/封套预检、成员资格等），不计为消耗不报缺口——标记随步骤后续成功被覆盖也不受影响。
+      // 非failed状态（working/unknown/succeeded）无调用行=历史关联不可解析，按缺口fail closed不冒称0。
+      const states = idToAttemptStates.get(id);
+      const preRejected = states !== undefined && states.size > 0 && [...states].every(s => s === 'failed');
+      if (!preRejected) gaps.push(`调用${id}在本owner/book下不可解析（不冒称0消耗）`);
       continue;
     }
     calls++;
