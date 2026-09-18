@@ -1,7 +1,7 @@
 #!/bin/bash
 # NEWBOOK-E2E-01 · 备份+预演迁移+回滚包+静态就位（服务器上执行）
 set -Eeuo pipefail
-ROOT=/opt/wenmi-releases/wm-v7-20260918-194000-4e75c0d3
+ROOT=/opt/wenmi-releases/wm-v7-20260918-195500-758265c5
 SRC=$ROOT/source
 RB=$ROOT/rollback/source
 OLD=/opt/wenmi-releases/wm-v7-20260918-identity-dc543268/source

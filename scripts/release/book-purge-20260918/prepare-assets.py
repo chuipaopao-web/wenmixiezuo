@@ -1,6 +1,6 @@
 import pathlib,json,hashlib,shutil,sys
 # NEWBOOK-E2E-01 · 静态资源并入asset-store；Caddy asset-store块已存在则只备份不重插
-static_id = pathlib.Path('/opt/wenmi-releases/wm-v7-20260918-194000-4e75c0d3/static-id').read_text().strip()
+static_id = pathlib.Path('/opt/wenmi-releases/wm-v7-20260918-195500-758265c5/static-id').read_text().strip()
 r=pathlib.Path('/opt/wenmi/releases'); new=r/'versions'/static_id
 store=r/'asset-store';store.mkdir(exist_ok=True)
 count=0
@@ -19,7 +19,7 @@ for d in store.rglob('*'):
  if d.is_dir():d.chmod(0o755)
 store.chmod(0o755)
 p=pathlib.Path('/etc/caddy/Caddyfile');content=p.read_text()
-root=pathlib.Path('/opt/wenmi-releases/wm-v7-20260918-194000-4e75c0d3')
+root=pathlib.Path('/opt/wenmi-releases/wm-v7-20260918-195500-758265c5')
 (root/'Caddyfile.before').write_text(content)
 if 'root * /opt/wenmi/releases/asset-store' in content:
  (root/'Caddyfile.next').write_text(content)

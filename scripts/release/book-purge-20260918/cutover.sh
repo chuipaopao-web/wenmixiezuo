@@ -1,11 +1,11 @@
 #!/bin/bash
 # NEWBOOK-E2E-01 · 切换：零在途窗口→停API→迁移→逐服务切换→静态原子切换→线上验证
 set -Eeuo pipefail
-ROOT=/opt/wenmi-releases/wm-v7-20260918-194000-4e75c0d3
+ROOT=/opt/wenmi-releases/wm-v7-20260918-195500-758265c5
 SRC=$ROOT/source
 RB=$ROOT/rollback/source
 OLD=wm-v7-20260918-173000-dc543268
-NEW=wm-v7-20260918-194000-4e75c0d3
+NEW=wm-v7-20260918-195500-758265c5
 DB=/opt/wenmi/data/database/wenmi.sqlite
 STATIC_OLD=/opt/wenmi/releases/versions/95018c6b23d32a73e653
 STATIC_NEW=/opt/wenmi/releases/versions/$(cat "$ROOT/static-id")
